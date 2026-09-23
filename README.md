@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="claviron.png" width="240" alt="Claviron logo">
+  <img src="assets/logo.svg" width="280" alt="Claviron logo">
 </p>
 
 # Claviron
