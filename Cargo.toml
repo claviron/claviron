@@ -1,0 +1,15 @@
+[package]
+name = "claviron"
+version = "0.1.0"
+authors = ["Claviron <code@claviron.org>"]
+edition = "2024"
+rust-version = "1.85"
+description = "An embeddable, fleet-aware Rust runtime for building custom application servers"
+license = "MIT"
+repository = "https://github.com/claviron/claviron"
+keywords = ["application-server", "application-runtime", "orchestration", "http", "async"]
+categories = ["network-programming", "asynchronous", "web-programming::http-server"]
+include = ["/src/**", "/Cargo.toml", "/Cargo.lock", "/README.md", "/LICENSE-MIT", "/claviron.png"]
+publish = ["crates-io"]
+
+[dependencies]
