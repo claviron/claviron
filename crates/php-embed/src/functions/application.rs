@@ -91,6 +91,8 @@ extern "C" fn receive(
         crate::functions::postgres::end_request();
         #[cfg(feature = "mysql")]
         crate::functions::mysql::end_request();
+        #[cfg(feature = "sqlite")]
+        crate::functions::sqlite::end_request();
         // Symmetric with the boundary below: a request that failed before
         // responding never disarmed, and the next one must not inherit its clock.
         crate::engine::interrupt::disarm();
@@ -170,6 +172,8 @@ extern "C" fn receive(
                 crate::functions::postgres::begin_request();
                 #[cfg(feature = "mysql")]
                 crate::functions::mysql::begin_request();
+                #[cfg(feature = "sqlite")]
+                crate::functions::sqlite::begin_request();
 
                 *value = request;
             }
@@ -208,6 +212,8 @@ extern "C" fn respond(
         crate::functions::postgres::end_request();
         #[cfg(feature = "mysql")]
         crate::functions::mysql::end_request();
+        #[cfg(feature = "sqlite")]
+        crate::functions::sqlite::end_request();
         crate::engine::interrupt::disarm();
         crate::engine::interrupt::deactivate();
         set_current_work(None);
@@ -303,6 +309,8 @@ extern "C" fn end(
         crate::functions::postgres::end_request();
         #[cfg(feature = "mysql")]
         crate::functions::mysql::end_request();
+        #[cfg(feature = "sqlite")]
+        crate::functions::sqlite::end_request();
         crate::engine::interrupt::disarm();
         crate::engine::interrupt::deactivate();
         set_current_work(None);

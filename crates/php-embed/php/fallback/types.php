@@ -111,6 +111,15 @@ if (!class_exists(PostgresCursor::class, false)) {
     }
 }
 
+if (!class_exists(SqliteConnection::class, false)) {
+    /** Opaque named-pool handle; only claviron_sqlite_connection() creates one. */
+    final class SqliteConnection
+    {
+        private function __construct() {}
+        private function __clone() {}
+    }
+}
+
 if (!class_exists(MySqlConnection::class, false)) {
     /** Opaque named-pool handle; only claviron_mysql_connection() creates one. */
     final class MySqlConnection

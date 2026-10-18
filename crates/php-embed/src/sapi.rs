@@ -406,10 +406,14 @@ where
 {
     #[cfg(feature = "mysql")]
     crate::functions::mysql::begin_request();
+    #[cfg(feature = "sqlite")]
+    crate::functions::sqlite::begin_request();
     // Covers early startup failure, bailout, task completion and application
     // exit. Application receive/respond own their narrower message scopes.
     #[cfg(feature = "mysql")]
     let _mysql_scope = crate::functions::mysql::ExecutionCleanup;
+    #[cfg(feature = "sqlite")]
+    let _sqlite_scope = crate::functions::sqlite::ExecutionCleanup;
     if let Err(err) = context.init_sapi_globals() {
         return Err(ExecutePhpError::from(err));
     }

@@ -53,6 +53,7 @@ if ($names !== $stubNames) {
 $cache = (new ReflectionClass(Claviron\Runtime\CacheHandle::class))->newInstanceWithoutConstructor();
 $postgres = (new ReflectionClass(Claviron\Runtime\PostgresConnection::class))->newInstanceWithoutConstructor();
 $mysql = (new ReflectionClass(Claviron\Runtime\MySqlConnection::class))->newInstanceWithoutConstructor();
+$sqlite = (new ReflectionClass(Claviron\Runtime\SqliteConnection::class))->newInstanceWithoutConstructor();
 $cursor = (new ReflectionClass(Claviron\Runtime\PostgresCursor::class))->newInstanceWithoutConstructor();
 foreach ($names as $name) {
     if (in_array($name, ['claviron_runtime_available', 'claviron_runtime_configured', 'claviron_events_available', 'claviron_application_name'], true)) {
@@ -65,6 +66,7 @@ foreach ($names as $name) {
             'Claviron\Runtime\CacheHandle' => $cache,
             'Claviron\Runtime\PostgresConnection' => $postgres,
             'Claviron\Runtime\MySqlConnection' => $mysql,
+            'Claviron\Runtime\SqliteConnection' => $sqlite,
             'Claviron\Runtime\PostgresCursor' => $cursor,
             'string' => 'test',
             'int' => 1,

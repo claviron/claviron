@@ -12,6 +12,10 @@ server composition. [Edge](../edge/README.md) can mix PHP with native services
 and other applications; [Runner](../runner/README.md) surrounds a single
 application owner without virtual-host selection.
 
+The `postgres`, `mysql` and `sqlite` facade features optionally expose native
+database primitives backed by named Rust pools. PHP framework adapters select
+them explicitly; they do not replace every application's PDO connections.
+
 ## Execution models
 
 - **Script requests:** a reusable thread runs PHP request startup, the selected

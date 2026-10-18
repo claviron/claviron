@@ -385,6 +385,79 @@ if (!function_exists('claviron_mysql_in_transaction')) {
     }
 }
 
+if (!function_exists('claviron_sqlite_connection')) {
+    function claviron_sqlite_connection(?string $name = null): \Claviron\Runtime\SqliteConnection
+    {
+        throw new \RuntimeException(__FUNCTION__ . '() requires the Claviron embed runtime and native SQLite support.');
+    }
+}
+
+if (!function_exists('claviron_sqlite_execute')) {
+    /**
+     * Parameters may be PHP scalars or typed arrays such as
+     * ['type' => 'i32', 'value' => 42], ['type' => 'bytes', 'value' => $bytes],
+     * and ['type' => 'json', 'value' => $value].
+     *
+     * @return array{columns: list<array{name: string, type: string}>, rows: list<list<mixed>>, affected_rows: int|string, insert_id: string}
+     */
+    function claviron_sqlite_execute(
+        \Claviron\Runtime\SqliteConnection $connection,
+        string $sql,
+        array $parameters = [],
+    ): array {
+        throw new \RuntimeException(__FUNCTION__ . '() requires the Claviron embed runtime and native SQLite support.');
+    }
+}
+
+if (!function_exists('claviron_sqlite_unprepared')) {
+    /** PDO::exec(): raw SQL, several statements allowed, returns the rows affected. */
+    function claviron_sqlite_unprepared(
+        \Claviron\Runtime\SqliteConnection $connection,
+        string $sql,
+    ): int {
+        throw new \RuntimeException(__FUNCTION__ . '() requires the Claviron embed runtime and native SQLite support.');
+    }
+}
+
+if (!function_exists('claviron_sqlite_begin')) {
+    /** PDO::beginTransaction(): the transaction is state on the connection, not a handle. */
+    function claviron_sqlite_begin(
+        \Claviron\Runtime\SqliteConnection $connection,
+        string $mode = 'DEFERRED',
+    ): bool {
+        throw new \RuntimeException(__FUNCTION__ . '() requires the Claviron embed runtime and native SQLite support.');
+    }
+}
+
+if (!function_exists('claviron_sqlite_commit')) {
+    function claviron_sqlite_commit(\Claviron\Runtime\SqliteConnection $connection): bool
+    {
+        throw new \RuntimeException(__FUNCTION__ . '() requires the Claviron embed runtime and native SQLite support.');
+    }
+}
+
+if (!function_exists('claviron_sqlite_disconnect')) {
+    function claviron_sqlite_disconnect(\Claviron\Runtime\SqliteConnection $connection): bool
+    {
+        throw new \RuntimeException(__FUNCTION__ . '() requires the Claviron embed runtime and native SQLite support.');
+    }
+}
+
+if (!function_exists('claviron_sqlite_rollback')) {
+    function claviron_sqlite_rollback(\Claviron\Runtime\SqliteConnection $connection): bool
+    {
+        throw new \RuntimeException(__FUNCTION__ . '() requires the Claviron embed runtime and native SQLite support.');
+    }
+}
+
+if (!function_exists('claviron_sqlite_in_transaction')) {
+    /** Whether the request's connection has a transaction open, as the connection itself knows it. */
+    function claviron_sqlite_in_transaction(\Claviron\Runtime\SqliteConnection $connection): bool
+    {
+        throw new \RuntimeException(__FUNCTION__ . '() requires the Claviron embed runtime and native SQLite support.');
+    }
+}
+
 if (!function_exists('claviron_postgres_connection')) {
     function claviron_postgres_connection(?string $name = null): \Claviron\Runtime\PostgresConnection
     {

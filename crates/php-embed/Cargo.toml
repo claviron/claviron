@@ -38,6 +38,7 @@ auth = ["dep:claviron-auth", "dep:uuid"]
 # claviron_log_channel() / claviron_log(): records to the log channels
 # logging.yaml declares, through the fleet's log ring.
 log-pipeline = ["dep:claviron-logging", "claviron-logging/pipeline"]
+sqlite = ["dep:claviron-db", "claviron-db/server", "claviron-db/sqlite", "dep:sqlx"]
 mysql = [
     "dep:claviron-db",
     "claviron-db/server",

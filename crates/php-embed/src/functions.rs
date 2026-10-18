@@ -38,6 +38,8 @@ pub(crate) mod orbit;
 pub(crate) mod postgres;
 pub(crate) mod runtime;
 pub(crate) mod sapi_stats;
+#[cfg(feature = "sqlite")]
+pub(crate) mod sqlite;
 #[cfg(feature = "tasks")]
 mod task;
 #[cfg(feature = "tasks")]
@@ -138,6 +140,8 @@ pub(crate) fn build_function_entries() -> Result<*const FunctionEntry, String> {
     postgres::append_function_entries(&mut entries)?;
     #[cfg(feature = "mysql")]
     mysql::append_function_entries(&mut entries)?;
+    #[cfg(feature = "sqlite")]
+    sqlite::append_function_entries(&mut entries)?;
 
     orbit::counter::append_function_entries(&mut entries)?;
 

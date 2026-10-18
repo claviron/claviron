@@ -40,6 +40,11 @@ pub(crate) fn prepare_module(
             .class::<crate::functions::postgres::PhpPostgresCursor>();
     }
     builder = builder.class::<crate::event::PhpEventObject>();
+    #[cfg(feature = "sqlite")]
+    {
+        builder =
+            builder.class::<crate::functions::sqlite::PhpSqliteConnection>();
+    }
     #[cfg(feature = "mysql")]
     {
         builder =

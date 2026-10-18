@@ -41,9 +41,9 @@ static PROCESS_OWNER: OnceLock<Arc<()>> = OnceLock::new();
 type CacheDependency = Option<Arc<claviron_cache::CacheProvider>>;
 #[cfg(not(feature = "cache"))]
 type CacheDependency = ();
-#[cfg(any(feature = "postgres", feature = "mysql"))]
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "sqlite"))]
 type DatabaseDependency = Option<Arc<claviron_db::DbService>>;
-#[cfg(not(any(feature = "postgres", feature = "mysql")))]
+#[cfg(not(any(feature = "postgres", feature = "mysql", feature = "sqlite")))]
 type DatabaseDependency = ();
 #[cfg(feature = "tasks")]
 type InvocationDependency = Arc<claviron_orbit::InvocationProvider>;
@@ -663,7 +663,11 @@ impl Bootable<AppState, <Self as Component<AppState>>::Deps>
         }
         #[cfg(not(feature = "cache"))]
         let _ = cache;
-        #[cfg(not(any(feature = "postgres", feature = "mysql")))]
+        #[cfg(not(any(
+            feature = "postgres",
+            feature = "mysql",
+            feature = "sqlite"
+        )))]
         let _ = database;
         #[cfg(not(feature = "tasks"))]
         let _ = invocation;
@@ -691,7 +695,9 @@ impl Bootable<AppState, <Self as Component<AppState>>::Deps>
         #[cfg(feature = "postgres")]
         crate::functions::postgres::configure(database.clone())?;
         #[cfg(feature = "mysql")]
-        crate::functions::mysql::configure(database)?;
+        crate::functions::mysql::configure(database.clone())?;
+        #[cfg(feature = "sqlite")]
+        crate::functions::sqlite::configure(database)?;
         crate::functions::orbit::counter::configure(counter);
         #[cfg(feature = "log-pipeline")]
         crate::functions::log::configure(logging);
