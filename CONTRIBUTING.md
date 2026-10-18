@@ -117,6 +117,56 @@ Internal Rust dependencies retain local paths for development and use crates.io
 when packaged. Select `--registry crates-io` explicitly when publishing so a
 maintainer's local default cannot redirect the upload to a private registry.
 
+### Workspace publisher
+
+The local Python tool separates Cargo packaging from registry uploads:
+
+```sh
+./scripts/publish.sh plan
+./scripts/publish.sh prepare --no-verify
+./scripts/publish.sh publish --send
+```
+
+`plan` checks the exact workspace version in the crates.io sparse index and
+orders packages by dependency, with the facade last. Known published versions
+are retained locally and skipped without another request; use `--refresh` to
+recheck them, including yank status. Unknown versions require one index lookup
+per crate per invocation; ETags avoid downloading unchanged index records.
+
+`prepare` requires a clean checkout and runs one `cargo package --workspace`
+pass for missing artifacts. Omit `--no-verify` to let Cargo build-verify them;
+use it only when those sources have already been checked. Existing receipts
+are reused only when the source revision, lockfile, Cargo version and archive
+checksum match. Unverified receipts never count as build-verified ones.
+With `--no-verify`, preparation also imports existing `.crate` files from
+`target/package/` or its `tmp-registry/` directory. It compares their file list,
+source bytes, original manifest and normalized dependency metadata against the
+current checkout using offline Cargo listing, without packaging or building.
+An archive's presence alone is not treated as proof of build verification.
+
+`publish --send` uploads the prepared bytes using the documented
+[Cargo registry protocol](https://doc.rust-lang.org/cargo/reference/registry-web-api.html#publish),
+without invoking Cargo packaging or builds. It uses `CARGO_REGISTRY_TOKEN` or
+the crates.io token saved by `cargo login`; credentials never enter receipts.
+Custom credential providers are not executed. Upload redirects are refused.
+It waits only for a server-specified 429 retry time, not an invented throttle.
+An optional `--request-timeout SECONDS` declares a network deadline.
+
+Artifacts and durable receipts live under `target/publisher`, configured in
+`pyproject.toml`. Keep this directory to resume without repackaging or repeated
+published-version lookups. One publisher owns it at a time. Source or artifact
+changes stop publication. After an accepted upload the tool checks that crate's
+index entry and checksum before proceeding. If the index is not visible yet,
+rerun later: the accepted upload is not resent. A connection loss or interruption
+during upload also stops for reconciliation rather than blindly retrying.
+Inspect uncertain receipts against crates.io before any manual recovery.
+
+Tests use fake registry responses; they do not build Rust or publish packages:
+
+```sh
+uv run --no-sync python -B -m unittest discover -s scripts/python/tests -v
+```
+
 ## Reports and pull requests
 
 Report suspected vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

@@ -23,3 +23,7 @@ bench = [
 # This name identifies a local tool environment, not Gufi's native Python module.
 [tool.uv]
 package = false
+
+# Local release artifacts and receipts; never part of a registry package.
+[tool.claviron.publish]
+state-directory = "target/publisher"
