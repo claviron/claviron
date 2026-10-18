@@ -9,10 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
- * Eloquent surface over the Claviron PostgreSQL connection.
- *
- * The table is unqualified: the pool's search_path (claviron-full/config/db.yaml,
- * pool `octane`) resolves it to the octane schema.
+ * Eloquent surface over the application's selected connection, SQLite by default.
  */
 final class DemoRecord extends Model
 {

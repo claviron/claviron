@@ -7,18 +7,9 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Type-matrix table for the Claviron PostgreSQL connection.
- *
- * Unqualified on purpose: the connection's search_path names the application
- * schema, so this table and Laravel's own migrations table land there.
- *
- * No `$connection` of its own: it follows `--database`, which is the plain-PDO
- * `pgsql` connection from a shell and `claviron` when Artisan is driven from
- * inside the runtime.
- *
- * Every column here exists to exercise one encode/decode path in
- * claviron-php-embed's type layer, so a successful round trip through Eloquent
- * is a real compatibility signal rather than a happy-path demo.
+ * Type-matrix table for the application's selected connection.
+ * The default is the shared demo SQLite file; an explicit --database may
+ * select another driver. SQLite exercises PDO/Eloquent, not the native PG bridge.
  */
 return new class extends Migration
 {

@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "ms-python.python",
+    "meta.pyrefly",
+    "charliermarsh.ruff"
+  ]
+}

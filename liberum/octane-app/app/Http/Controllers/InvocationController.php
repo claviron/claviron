@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Invocations\Shout;
-use Claviron\Laravel\Events\InvocationFailed;
-use Claviron\Laravel\Invocation\Invoke;
+use Lumenize\Events\InvocationFailed;
+use Lumenize\Invocation\Invoke;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;

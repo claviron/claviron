@@ -1,4 +1,9 @@
 .DS_Store
+# Shared editor setup; active personal settings remain local.
+/.vscode/*
+!/.vscode/extensions.json
+!/.vscode/tasks.json
+!/.vscode/settings.example.json
 # What the site writes at run time stays on the host; the directories are kept.
 storage/*/*
 !storage/*/.gitkeep

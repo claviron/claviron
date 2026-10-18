@@ -8,16 +8,7 @@ assets: [ build, images ]
 #uds: /tmp/octane-app.sock
 orbit: true
 cache: { } # No native stores; Laravel currently selects its array cache.
-database:
-  postgres:
-    octane:
-      url: ${DATABASE_URL}
-      pool:
-        pool_size: 32
-        idle_size: 2
-        acquire_timeout: 10s
-        idle_timeout: 5m
-        max_lifetime: 30m
+# Laravel uses PDO SQLite against ../database/demo.sqlite, not a native PG pool.
 # Aligned with the shared transport lane capacity.
 max_in_flight: 128
 max_concurrent_requests: 128

@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Events;
 
 use App\Models\User;
-use Claviron\Laravel\Events\FleetEvent;
+use Lumenize\Events\FleetEvent;
 
 /** A language-neutral fleet event that JavaScript and PHP can both observe. */
 final class SharedEvent extends FleetEvent

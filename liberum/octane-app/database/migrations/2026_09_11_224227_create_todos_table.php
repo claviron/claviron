@@ -7,9 +7,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Schema work runs on whatever `--database` names — the plain PDO connection
- * from a shell, since the Claviron host functions only exist inside the
- * runtime. The table is unqualified so the connection's search_path places it.
+ * Follows the selected Laravel connection, shared SQLite by default.
  */
 return new class extends Migration
 {

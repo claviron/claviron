@@ -1,6 +1,6 @@
 <?php
 
-use Claviron\Laravel\Octane\ClavironClient;
+use Lumenize\Octane\ClavironClient;
 use Illuminate\Http\Request;
 use Laravel\Octane\OctaneResponse;
 use Laravel\Octane\RequestContext;

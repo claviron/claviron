@@ -1,9 +1,9 @@
 <?php
 
-use Claviron\Laravel\EventBridge;
-use Claviron\Laravel\Events\FleetEvent;
-use Claviron\Laravel\Octane\ClavironClient;
-use Claviron\Laravel\Octane\ClavironWorker;
+use Lumenize\EventBridge;
+use Lumenize\Events\FleetEvent;
+use Lumenize\Octane\ClavironClient;
+use Lumenize\Octane\ClavironWorker;
 use Claviron\Runtime\Event as RuntimeEvent;
 use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Http\Request;
@@ -59,9 +59,18 @@ test('boots once and resets request scoped state across real Octane requests', f
         // A Claviron event arrives between requests, after Octane flushed the
         // previous request sandbox. Its listeners still need a live config and
         // log manager, and must not stop the persistent application.
-        if (! class_exists(RuntimeEvent::class)) {
-            eval('namespace Claviron\\Runtime; final class Event { public function __construct(public readonly string $id, public readonly string $topic, public readonly mixed $payload) {} }');
-        }
+        // The runtime creates inbound envelopes; their constructor is private.
+        // Hydrate the published PHP declaration only as a local test fixture.
+        $runtimeEvent = static function (string $id, string $topic, mixed $payload): RuntimeEvent {
+            $type = new ReflectionClass(RuntimeEvent::class);
+            $event = $type->newInstanceWithoutConstructor();
+
+            foreach (compact('id', 'topic', 'payload') as $property => $value) {
+                $type->getProperty($property)->setValue($event, $value);
+            }
+
+            return $event;
+        };
         $eventType = new class([]) extends FleetEvent
         {
             public function __construct(public readonly array $payload)
@@ -90,7 +99,7 @@ test('boots once and resets request scoped state across real Octane requests', f
                 throw new RuntimeException('expected event listener failure');
             },
         );
-        $worker->handleEvent(new RuntimeEvent(
+        $worker->handleEvent($runtimeEvent(
             '018f6f52-8fd2-7dd9-9b6a-67780173e69a',
             $eventClass::topic(),
             ['probe' => true],
@@ -112,7 +121,7 @@ test('boots once and resets request scoped state across real Octane requests', f
                 $serializedEventId = $app->make(EventBridge::class)->currentEventId();
             },
         );
-        $worker->handleEvent(new RuntimeEvent(
+        $worker->handleEvent($runtimeEvent(
             '018f6f52-8fd2-7dd9-9b6a-67780173e69b',
             stdClass::class,
             serialize((object) ['value' => 'native-laravel-event']),

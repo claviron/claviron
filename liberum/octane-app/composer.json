@@ -19,20 +19,6 @@
     "repositories": [
         {
             "type": "path",
-            "url": "../../crates/laravel/php",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "path",
-            "url": "../../crates/php-embed/php",
-            "options": {
-                "symlink": true
-            }
-        },
-        {
-            "type": "path",
             "url": "../../../bench/packages/php",
             "options": {
                 "symlink": true,

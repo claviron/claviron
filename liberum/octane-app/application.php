@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Claviron\Laravel\Octane\ApplicationRunner;
+use Lumenize\Octane\ApplicationRunner;
 
 require __DIR__ . '/vendor/autoload.php';
 

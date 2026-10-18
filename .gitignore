@@ -49,14 +49,16 @@ __pycache__
 
 # --- Secrets & local config ---
 /.cargo/config.toml
-.env
-.env.*
-!.env.example
-*.env
+# Only root environments are private; nested examples and fixtures are source.
+/.env
+/.env.*
+!/.env.example
+/*.env
 *.key
 *.pem
 *.pfx
 *.p12
+/liberum/database/*.sqlite-*
 *.local
 /*.local
 
@@ -68,7 +70,11 @@ __pycache__
 
 # --- Editor / IDE ---
 /.idea/
-/.vscode/
+# Share only portable editor tasks, suggestions and opt-in settings templates.
+**/.vscode/*
+!**/.vscode/extensions.json
+!**/.vscode/tasks.json
+!**/.vscode/settings.example.json
 /.nvimlog
 .history/
 .vs/

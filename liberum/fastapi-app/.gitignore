@@ -1,4 +1,9 @@
 .idea/
+# Shared editor setup; active personal settings remain local.
+/.vscode/*
+!/.vscode/extensions.json
+!/.vscode/tasks.json
+!/.vscode/settings.example.json
 .venv/
 __pycache__/
 target/
@@ -11,9 +16,6 @@ storage/
 # FreeBSD interpreter and dependencies for the shared checkout.
 .venv-freebsd/
 
-.env
-.env.*
-!.env.example
 *.py[cod]
 .pytest_cache/
 .ruff_cache/

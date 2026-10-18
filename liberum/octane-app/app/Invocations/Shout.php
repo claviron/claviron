@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Invocations;
 
-use Claviron\Laravel\Invocation\Handler;
+use Lumenize\Invocation\Handler;
 
 /**
  * A handler served by a Claviron task (`invoke:serve App\Invocations\Shout`):

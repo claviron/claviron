@@ -50,6 +50,31 @@ Gufi owns Python execution and provides the native `gufi` module inside its
 interpreter. That module is separate from this repository's local project name;
 it is not supplied by a Python package installed from this checkout.
 
+### VS Code
+
+Open this repository for library work. Its recommended extension is
+[rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer);
+Python, PHP and Lua extensions are not suggested for every Claviron contributor.
+Extension recommendations are optional and do not install anything automatically.
+
+`Terminal: Run Task` exposes format/lint, check-only, full-test and filtered-test
+tasks backed by the public scripts below. Nothing runs when the folder opens.
+Editor formatting uses `rustfmt.toml`; the example settings leave check-on-save
+disabled so save operations do not launch another Cargo check. Language-server
+workspace analysis and proc-macro support can still require compilation.
+
+Only `.vscode/extensions.json`, `tasks.json` and `settings.example.json` are
+shared. To opt into the example extension settings, copy or merge
+`settings.example.json` into the ignored `.vscode/settings.json`. It selects
+language tools without automatic formatting or fixes on save. Keep personal
+interpreter paths, credentials, terminal profiles and themes in local/user
+settings. The scripts remain the validation authority regardless of editor.
+
+For applications, open the individual [liberum](liberum/README.md#editor-workspaces)
+folder or its optional multi-root workspace instead. Each application has its
+own extension suggestions and tasks; its Cargo commands never select the library
+workspace by accident.
+
 ## Keep changes focused
 
 Use existing feature combinations before introducing a new feature. Preserve
@@ -66,15 +91,38 @@ unrelated formatting and dependency updates out of a functional change.
 
 ## Checks and tests
 
-Check the affected package from the repository root. These standard Cargo
-commands need no maintainer-local scripts; replace `claviron-http` with the
-package you changed:
+Contributors and maintainers use the same repository scripts. They require Bash
+3.2+ and an installed Rust toolchain with rustfmt and Clippy, not personal shell
+helpers. They locate the repository root and preserve PATH, target directory,
+build flags and Cargo configuration.
 
 ```sh
-cargo fmt -p claviron-http -- --check
-cargo clippy -p claviron-http --all-features --all-targets
-cargo test -p claviron-http --all-features --lib
+# Format sources and lint; use --check for a non-mutating CI check.
+./scripts/format.sh
+./scripts/format.sh --check
+
+# Optionally limit formatting; Clippy still checks the entire workspace.
+./scripts/format.sh -p claviron-http
+
+# Run tests, or select a test-name substring without changing the feature set.
+./scripts/test.sh
+./scripts/test.sh host_binding -- --nocapture
 ```
+
+Formatting uses the repository's stable `rustfmt.toml`. Clippy selects
+`--workspace --all-features --all-targets` and treats warnings as errors. Explicit
+`format.sh --fix` runs `cargo fix` before formatting; it can modify staged and
+unstaged sources, so review its diff. It cannot be combined with `--check`.
+
+Tests select `--workspace --all-features --no-fail-fast`, including the declared
+test targets and doctests, with normal parallelism. A filter narrows test names,
+not compilation scope. Arguments after `--` go to the test harness; ignored
+tests are not enabled automatically. Tests do not run formatting or Clippy.
+
+All-feature runs require the native dependencies described in the crate READMEs,
+including the PHP ZTS embed build; the scripts do not install tools, build those
+dependencies or start a deployment. SQLx validation defaults to offline mode;
+explicit `SQLX_OFFLINE=false` opts into live database validation.
 
 For feature changes, also check the affected enabled/disabled combinations.
 Validate platform-specific changes on that platform. Documentation-only edits

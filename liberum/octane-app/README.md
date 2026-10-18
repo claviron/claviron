@@ -8,32 +8,38 @@ The edge does not embed PHP; this application does not open a TCP or UDS listene
 
 ## Prepare
 
-Keep the `lumenize` checkout beside Claviron. Cargo consumes it through a local
-path. Composer's `claviron/sapi` and `claviron/laravel` paths point to this
-Claviron checkout. The optional benchmark development package currently requires
+Cargo consumes Lumenize `0.2.0-alpha.18` from crates.io with `runner` and `cli`;
+imports use `lumenize::{Options, Runner}`. Composer consumes `claviron/laravel`
+and `claviron/sapi` `0.1.0` from Packagist. These releases must exist before
+installation; no sibling integration checkout is selected automatically.
+PHP imports use `Lumenize\\` for
+Laravel integration; native engine classes retain `Claviron\\`.
+The optional benchmark development package currently requires
 a sibling `bench` checkout at `../../../bench/packages/php`.
 
 From this directory:
 
 ```sh
-cp .env.example .env
-# Replace the example PostgreSQL values with a dedicated local database.
+# The checked-in .env and ../database/demo.sqlite contain public demo values.
 "$PHP" /path/to/composer.phar install
-"$PHP" artisan key:generate
 npm install
 npm run build
 ```
 
 Use the workspace ZTS embed PHP build, not Homebrew PHP. Set `PHP` and
 `PHP_CONFIG` to that installation, and `PHP_DIR` to its root for the ini paths
-in `lumenize.yaml`. Keep generated keys, credentials and `.env` private.
+in `lumenize.yaml`. The example .env and app key are intentionally public;
+never reuse them for a deployment or add real credentials to this file.
 Dependencies and generated assets are not copied from the original application.
 
-Database examples use the `octane` schema. Before exercising Todo/database routes,
-review and run the application's migrations against that dedicated database:
+Todo/database routes use the pre-migrated shared [SQLite demo](../database/README.md).
+PHP, Python and JavaScript processes open the same file independently; no native
+PostgreSQL pool is required and Edge does not own their connections. The seeded
+user is `demo@example.test` / `password`. For later schema changes, from here:
 
 ```sh
-"$PHP" artisan migrate
+"$PHP" artisan migrate --database=sqlite --force
+"$PHP" artisan db:seed --database=sqlite --force
 ```
 
 This setup is explicit: the launch script does not install dependencies, create

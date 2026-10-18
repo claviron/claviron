@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
+from database import database_summary
 
 
 try:
@@ -43,6 +44,12 @@ async def root():
 @app.get("/orders")
 async def orders():
     return {"message": "no orders found"}
+
+
+@app.get("/api/db")
+def shared_database():
+    # FastAPI runs this synchronous SQLite read off the async event loop.
+    return database_summary()
 
 
 @app.get("/python/hits")

@@ -1,6 +1,6 @@
 <?php
 
-use Claviron\Laravel\Logging\AddClavironWorkerContext;
+use Lumenize\Logging\AddClavironWorkerContext;
 use Monolog\Handler\NullHandler;
 use Monolog\Handler\StreamHandler;
 use Monolog\Handler\SyslogUdpHandler;

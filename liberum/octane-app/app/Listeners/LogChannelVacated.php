@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace App\Listeners;
 
-use Claviron\Laravel\Broadcasting\Events\ChannelVacated;
-use Claviron\Laravel\Queue\QueuesEventOnce;
+use Lumenize\Broadcasting\Events\ChannelVacated;
+use Lumenize\Queue\QueuesEventOnce;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\Log;
 

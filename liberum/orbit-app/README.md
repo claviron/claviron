@@ -2,9 +2,10 @@
 
 A React/Vite frontend with a separate Hono application, reached through Claviron
 over [Orbit Link](https://crates.io/crates/orbitive). Deno, Node and Bun use the
-same native [`@claviron/orbit`](../../../orbit-js) addon. Its dependency is a local
-path until the package is published; keep `orbit-js` beside the Claviron checkout
-and build its native addon using that project's instructions.
+same native [`@claviron/orbit`](https://www.npmjs.com/package/@claviron/orbit)
+addon, pinned to npm release `0.1.0`. Publish that release with a native addon
+for the target OS/CPU before installation. The example does not select the
+`orbit-js` source checkout or compile an addon during installation.
 
 ## Prepare and run
 
@@ -13,7 +14,7 @@ From this directory:
 ```sh
 npm install
 npm run build
-cp .env.example .env
+# The checked-in .env contains only public demo settings.
 npm run serve       # Deno
 # npm run serve:node
 # npm run serve:bun
@@ -48,7 +49,15 @@ It also subscribes to `demo.shared.v1`, the Octane example's `SharedEvent` topic
 After preparing that example's database and seeding its demo user, its
 `/events/shared` route can publish the PHP event for subscribed linked consumers.
 
-PostgreSQL is optional. Set a private `DATABASE_URL` to enable `/api/db`; without
-it only that diagnostic returns 503. No Revolution installation or business
-event topics are required. These unauthenticated diagnostics and event publishing
-routes are for a local demonstration, not a public deployment.
+`/api/db` reads the same pre-migrated [SQLite file](../database/README.md) as
+Octane and FastAPI. It reports shared user/todo/record counts without opening a
+remote DB connection. Node 24 and Deno use built-in `node:sqlite`; Bun uses
+`bun:sqlite`, adapted to Kysely's SQLite interface. No new native addon needs
+compilation for database access. Node currently marks its SQLite API experimental.
+The database is opened read-only and must already exist; startup does not create
+or migrate it. `LIBERUM_DATABASE` can explicitly select another local file.
+
+No Revolution installation or business event topics are required. The .env
+contains public demonstration values only; do not add credentials. These
+unauthenticated diagnostics and event publishing routes are for a local
+demonstration, not a public deployment.

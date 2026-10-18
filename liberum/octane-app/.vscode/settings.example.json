@@ -1,0 +1,18 @@
+{
+  "[rust]": {
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "editor.formatOnSave": false
+  },
+  "rust-analyzer.cargo.features": "all",
+  "rust-analyzer.checkOnSave": false,
+  "rust-analyzer.cargo.extraEnv": {
+    "SQLX_OFFLINE": "true"
+  },
+  "[php]": {
+    "editor.defaultFormatter": "bmewburn.vscode-intelephense-client",
+    "editor.formatOnSave": false
+  },
+  "php.suggest.basic": false,
+  "php.validate.enable": false,
+  "intelephense.environment.phpVersion": "8.3.0"
+}

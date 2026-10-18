@@ -1,0 +1,9 @@
+{
+  "folders": [
+    { "name": "edge-server", "path": "edge-server" },
+    { "name": "fastapi-app", "path": "fastapi-app" },
+    { "name": "octane-app", "path": "octane-app" },
+    { "name": "orbit-app", "path": "orbit-app" },
+    { "name": "lua-app", "path": "lua-app" }
+  ]
+}

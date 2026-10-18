@@ -14,7 +14,7 @@ description = "A minimal Claviron edge for supervisor lifecycle scenarios."
 bench = ["claviron/bench"]
 
 [dependencies]
-claviron = { path = "../../", default-features = false, features = [
+claviron = { version = "=0.2.0-alpha.18", default-features = false, features = [
     "edge",
     "log-pipeline",
 ] }

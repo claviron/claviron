@@ -1,21 +1,21 @@
 // The dynamic half of orbit-app: joins fleet `orj` under `orbit-app` over Orbit
 // Link, where the example edge routes what is not a static file. Hono answers
-// requests; Kysely optionally reads Postgres; demo events arrive over the Link
+// requests; Kysely reads the shared demo SQLite file; events arrive over the Link
 // and are pushed to browsers as Server-Sent Events.
 //
 //   npm run serve        (Deno)
 //   npm run serve:node
 //   npm run serve:bun
 //
-// DATABASE_URL (in .env, not in git) points at the Postgres database.
+// The public .env names ../database/demo.sqlite; no remote DB credentials.
 
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { join } from "@claviron/orbit";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { Kysely, PostgresDialect, sql } from "kysely";
-import pg from "pg";
+import { Kysely, SqliteDialect, sql } from "kysely";
+import { openDemoDatabase } from "./database.js";
 
 const fleet = process.env.ORBIT_FLEET ?? "orj";
 const name = process.env.ORBIT_APP ?? "orbit-app";
@@ -26,13 +26,9 @@ const started = new Date();
 // A public demo topic, independent of any application's business events.
 const TOPICS = ["example.message.v1", "demo.shared.v1"];
 
-const database = process.env.DATABASE_URL
-  ? new Kysely({
-      dialect: new PostgresDialect({
-        pool: new pg.Pool({ connectionString: process.env.DATABASE_URL }),
-      }),
-    })
-  : null;
+const database = new Kysely({
+  dialect: new SqliteDialect({ database: openDemoDatabase() }),
+});
 
 const link = await join({ fleet, name, icon: "orbit" });
 
@@ -62,7 +58,7 @@ app.get("/api/status", (c) =>
     lane: link.lane,
     started: started.toISOString(),
     now: new Date().toISOString(),
-    database: database !== null,
+    database: "sqlite",
     topics: TOPICS,
   }));
 
@@ -72,11 +68,11 @@ app.post("/api/echo", async (c) => {
 });
 
 app.get("/api/db", async (c) => {
-  if (database === null) {
-    return c.json({ error: "DATABASE_URL is not set" }, 503);
-  }
-  const result = await sql`select current_database() as database, now() as now`.execute(database);
-  return c.json(result.rows[0]);
+  const result = await sql`select sqlite_version() as version, current_timestamp as now,
+    (select count(*) from users) as users,
+    (select count(*) from todos) as todos,
+    (select count(*) from demo_records) as records`.execute(database);
+  return c.json({ database: "demo.sqlite", ...result.rows[0] });
 });
 
 app.get("/api/events", (c) => c.json(recent));

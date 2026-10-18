@@ -11,7 +11,7 @@
     "serve:bun": "bun server.js"
   },
   "dependencies": {
-    "@claviron/orbit": "file:../../../orbit-js",
+    "@claviron/orbit": "0.1.0",
     "hono": "^4.13.13",
     "kysely": "^0.29.6",
     "pg": "^8.23.1",

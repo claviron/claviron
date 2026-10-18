@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Listeners;
 
-use Claviron\Laravel\Auth\Events\AuthEvent;
+use Lumenize\Auth\Events\AuthEvent;
 use Illuminate\Support\Facades\Log;
 
 /** Demo observer only: the subject belongs to Revolution, not Octane's DB. */

@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "1f331cc7ae177f3e3ad98eabb240e969",
+    "content-hash": "33e403149dc6c54ddf394c750d653b88",
     "packages": [
         {
             "name": "brick/math",
@@ -142,11 +142,17 @@
         },
         {
             "name": "claviron/laravel",
-            "version": "0.1.0",
+            "version": "v0.1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/claviron/laravel.git",
+                "reference": "8e73a5097187c71d362e1a576ffc6ad31917c89b"
+            },
             "dist": {
-                "type": "path",
-                "url": "../../crates/laravel/php",
-                "reference": "30bb85df63734b3726caf1e1b1af165ffebaf4fd"
+                "type": "zip",
+                "url": "https://api.github.com/repos/claviron/laravel/zipball/8e73a5097187c71d362e1a576ffc6ad31917c89b",
+                "reference": "8e73a5097187c71d362e1a576ffc6ad31917c89b",
+                "shasum": ""
             },
             "require": {
                 "claviron/sapi": "0.1.0",
@@ -164,45 +170,53 @@
                 "php": "^8.2"
             },
             "suggest": {
-                "laravel/octane": "^2.0, for Claviron\\Laravel\\Octane\\ClavironClient (the application model's request client)"
+                "laravel/octane": "^2.0, for Lumenize\\Octane\\ClavironClient (the application model's request client)"
             },
             "type": "library",
             "extra": {
                 "laravel": {
                     "providers": [
-                        "Claviron\\Laravel\\Providers\\LumenizeProvider",
-                        "Claviron\\Laravel\\Providers\\AuthServiceProvider",
-                        "Claviron\\Laravel\\Providers\\BroadcastingProvider",
-                        "Claviron\\Laravel\\Providers\\CacheServiceProvider",
-                        "Claviron\\Laravel\\Providers\\SessionServiceProvider",
-                        "Claviron\\Laravel\\Providers\\DatabaseServiceProvider",
-                        "Claviron\\Laravel\\Providers\\QueueServiceProvider",
-                        "Claviron\\Laravel\\Providers\\ScheduleServiceProvider",
-                        "Claviron\\Laravel\\Providers\\LogServiceProvider"
+                        "Lumenize\\Providers\\LumenizeProvider",
+                        "Lumenize\\Providers\\AuthServiceProvider",
+                        "Lumenize\\Providers\\BroadcastingProvider",
+                        "Lumenize\\Providers\\CacheServiceProvider",
+                        "Lumenize\\Providers\\SessionServiceProvider",
+                        "Lumenize\\Providers\\DatabaseServiceProvider",
+                        "Lumenize\\Providers\\QueueServiceProvider",
+                        "Lumenize\\Providers\\ScheduleServiceProvider",
+                        "Lumenize\\Providers\\LogServiceProvider"
                     ]
                 }
             },
             "autoload": {
                 "psr-4": {
-                    "Claviron\\Laravel\\": "src/"
+                    "Lumenize\\": "src/"
                 }
             },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
             "description": "Claviron drivers and adapters for Laravel: cache, sessions, database, broadcasting, queue, schedule, and the Octane client",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/claviron/laravel/issues",
+                "source": "https://github.com/claviron/laravel/tree/v0.1.0"
+            },
+            "time": "2026-10-18T22:23:54+00:00"
         },
         {
             "name": "claviron/sapi",
-            "version": "0.1.0",
+            "version": "v0.1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/claviron/sapi.git",
+                "reference": "e16e18a2538548ccb5376d12b09f51c1aaab3928"
+            },
             "dist": {
-                "type": "path",
-                "url": "../../crates/php-embed/php",
-                "reference": "af317e21f26045de443fdb00efda5a2abe7282c6"
+                "type": "zip",
+                "url": "https://api.github.com/repos/claviron/sapi/zipball/e16e18a2538548ccb5376d12b09f51c1aaab3928",
+                "reference": "e16e18a2538548ccb5376d12b09f51c1aaab3928",
+                "shasum": ""
             },
             "require": {
                 "monolog/monolog": "^3.0",
@@ -210,22 +224,25 @@
             },
             "type": "library",
             "autoload": {
-                "psr-4": {
-                    "Claviron\\": "src/"
-                },
                 "files": [
                     "fallback/functions.php",
                     "fallback/types.php"
-                ]
+                ],
+                "psr-4": {
+                    "Claviron\\": "src/"
+                }
             },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
-            "description": "A Monolog handler that writes to Claviron's log channels: records go through the fleet's log ring to its one writer",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "description": "PHP declarations, fail-fast native API fallbacks and a Monolog handler for Claviron's embedded SAPI",
+            "homepage": "https://github.com/claviron/claviron",
+            "support": {
+                "issues": "https://github.com/claviron/claviron/issues",
+                "source": "https://github.com/claviron/claviron/tree/main/crates/php-embed/php"
+            },
+            "time": "2026-10-18T22:23:54+00:00"
         },
         {
             "name": "dflydev/dot-access-data",

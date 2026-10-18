@@ -53,5 +53,5 @@ it('uses the PDO connection when native symbols exist without an embed runtime',
     $connection = DB::connection('claviron-cli-probe');
 
     expect($connection)->toBeInstanceOf(PostgresConnection::class)
-        ->not->toBeInstanceOf(Claviron\Laravel\Database\PostgresConnection::class);
+        ->not->toBeInstanceOf(Lumenize\Database\PostgresConnection::class);
 });

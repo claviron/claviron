@@ -1,0 +1,11 @@
+{
+  "[lua]": {
+    "editor.defaultFormatter": "sumneko.lua",
+    "editor.formatOnSave": false
+  },
+  "Lua.runtime.version": "Lua 5.5",
+  "Lua.workspace.library": [
+    "${workspaceFolder}/../../crates/lua"
+  ],
+  "Lua.workspace.checkThirdParty": false
+}

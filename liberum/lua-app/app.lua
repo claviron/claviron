@@ -57,25 +57,14 @@ router:post("/lua/echo", function(request)
   return json({ received = value, keys = claviron.json.array(keys) })
 end)
 
--- SQL through claviron.db: portico's own PostgreSQL pool, no table needed.
--- Up to 20 rows of a series, typed as Lua sees them; the clock is cast to
--- text in SQL, which is where a timestamp's format is decided.
+-- The shared demo uses SQLite. This native adapter does not expose it yet;
+-- never invent a connection or fall back to a remote PostgreSQL pool.
 router:get("/lua/db/{n}", function(_, params)
-  if not claviron.db then
-    return json({ error = "this host was built without lua-db" }, 501)
-  end
   local n = math.tointeger(tonumber(params.n))
   if not n or n < 1 or n > 20 then
     return json({ error = "n is a whole number from 1 to 20" }, 400)
   end
-  -- One round trip: the clock rides along with the series.
-  local rows = claviron.db.postgres():query([[
-    select n, n * n as square, n % 2 = 0 as even, now()::text as at
-    from generate_series(1, $1::int) as n
-  ]], n)
-  local at = rows[1].at
-  for _, row in ipairs(rows) do row.at = nil end
-  return json({ at = at, rows = rows })
+  return json({ error = "the native Lua SQLite adapter is not available" }, 501)
 end)
 
 -- Benchmark: the same two statements as form/bench/*.php, on MySQL test_db
