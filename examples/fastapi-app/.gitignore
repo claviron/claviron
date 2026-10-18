@@ -1,0 +1,19 @@
+.idea/
+.venv/
+__pycache__/
+target/
+# One directory, two operating systems: the macOS venv is .venv and the VM
+# guest builds against its own.
+.venv-linux/
+# The counter service's count between runs.
+storage/
+
+# FreeBSD interpreter and dependencies for the shared checkout.
+.venv-freebsd/
+
+.env
+.env.*
+!.env.example
+*.py[cod]
+.pytest_cache/
+.ruff_cache/

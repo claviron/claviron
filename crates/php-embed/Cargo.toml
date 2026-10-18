@@ -1,0 +1,92 @@
+[package]
+name = "claviron-php-embed"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Managed in-process PHP execution, application hosting, and native extensions for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["php", "embedded", "sapi", "runtime", "claviron"]
+categories = ["web-programming::http-server", "api-bindings", "asynchronous"]
+build = "build.rs"
+# tests/supervisor.rs is included as a private unit-test module.
+# Declare future integration tests explicitly with [[test]].
+autotests = false
+
+[features]
+default = ["opcache-intercept"]
+# APCu hooks are opt-in; OPcache propagation stays enabled for persistent
+# applications and multi-worker execution. Neither feature is facade-forwarded.
+apcu-intercept = []
+opcache-intercept = []
+metrics = ["dep:claviron-metrics", "orbitive/metrics"]
+axum = ["dep:axum", "claviron-http/axum"]
+tasks = ["dep:claviron-tasks"]
+cache = ["dep:claviron-cache"]
+auth = ["dep:claviron-auth", "dep:uuid"]
+# claviron_log_channel() / claviron_log(): records to the log channels
+# logging.yaml declares, through the fleet's log ring.
+log-pipeline = ["dep:claviron-logging", "claviron-logging/pipeline"]
+mysql = [
+    "dep:claviron-db",
+    "claviron-db/server",
+    "claviron-db/mysql",
+    "dep:sqlx",
+    "dep:time",
+]
+postgres = [
+    "dep:claviron-db",
+    "claviron-db/server",
+    "claviron-db/postgres",
+    "dep:sqlx",
+    "dep:time",
+]
+
+[dependencies]
+claviron-auth = { version = "0.2.0-alpha.17", path = "../auth", features = ["orbit"], optional = true }
+claviron-logging = { version = "0.2.0-alpha.17", path = "../logging", optional = true }
+claviron-app = { version = "0.2.0-alpha.17", path = "../app" }
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["server"] }
+claviron-php = { version = "0.2.0-alpha.17", path = "../php", features = ["php_embed"] }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-tasks = { version = "0.2.0-alpha.17", path = "../tasks", optional = true }
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+claviron-cache = { version = "0.2.0-alpha.17", path = "../cache", optional = true }
+claviron-db = { version = "0.2.0-alpha.17", path = "../db", default-features = false, optional = true }
+claviron-metrics = { version = "0.2.0-alpha.17", path = "../metrics", optional = true }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
+orbitive.workspace = true
+
+async-trait.workspace = true
+arc-swap.workspace = true
+congif.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+fastrand.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+http.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+regex.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+axum = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true }
+# Date/time construction for the PostgreSQL type layer; same 0.3 line sqlx uses.
+time = { workspace = true, optional = true }
+
+ext-php-rs.workspace = true
+libc.workspace = true
+uuid = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+
+[[test]]
+name = "native_registration"

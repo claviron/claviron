@@ -1,0 +1,39 @@
+[package]
+name = "claviron-orbit"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Claviron lifecycle bindings for Orbitive shared memory, events, locks, counters, and application transport"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["shared-memory", "ipc", "runtime", "claviron"]
+categories = ["concurrency", "asynchronous"]
+# `tests/event.rs`, `tests/counter.rs`, and `tests/registry.rs` are private
+# unit-test modules included from `src`. Declare real integration tests below.
+autotests = false
+
+[dependencies]
+orbitive = { workspace = true, features = ["arena", "cache", "cell", "events", "lock", "counter", "invoke-tokio", "link-tokio", "link-events", "stream-tokio"] }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+bytes.workspace = true
+http.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+arc-swap.workspace = true
+thiserror.workspace = true
+continuo = { workspace = true, features = ["fleet"] }
+serde.workspace = true
+humantime-serde.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+libc.workspace = true
+nix.workspace = true
+serde_yaml.workspace = true
+
+[[test]]
+name = "counter_shm"
+path = "tests/counter_shm.rs"

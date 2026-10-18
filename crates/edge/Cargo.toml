@@ -1,0 +1,155 @@
+[package]
+autotests = false
+name = "claviron-edge"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Protocol-independent HTTP host admission, routing, and application dispatch for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["http", "routing", "edge", "claviron"]
+categories = ["web-programming::http-server", "asynchronous", "network-programming"]
+
+[features]
+default = []
+# Optional ready-made typed route directives, compiled through the same
+# extension contract downstream providers use. Never part of the default.
+extensions = ["axum", "claviron-auth?/csrf"]
+auth = ["dep:claviron-auth"]
+acme = ["claviron-http/acme"]
+server = [
+    "claviron-http/server",
+]
+# The router side of hosting. Off, a host can still be pinned to a bypass
+# adapter — one .php, a static root, an upstream — because that path never had
+# an axum type in it; what it could not do before was *prove* that, since axum
+# came in unconditionally. On (which every normal build is, via
+# `claviron/server`) nothing changes.
+axum = [
+    "server",
+    "dep:axum",
+    "dep:http-body",
+    "dep:pin-project-lite",
+    "dep:tower-http",
+    "claviron-http/routing",
+    "claviron-files/axum",
+    "claviron-php?/axum",
+    "claviron-php-embed?/axum",
+    "claviron-php-fcgi?/axum",
+    "claviron-pusher?/axum",
+    "claviron-upstream?/axum",
+]
+upstream = ["server", "dep:claviron-upstream"]
+# One access record per request, to the log channel logging.yaml names.
+access-log = [
+    "server",
+    "dep:claviron-logging",
+    "claviron-logging/pipeline",
+    "dep:http-body",
+    "dep:http-body-util",
+]
+websocket = ["server", "dep:claviron-websocket", "claviron-lua?/websocket", "dep:hyper"]
+
+broadcast = ["server", "dep:claviron-pusher", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
+
+php = ["dep:claviron-php"]
+php_fcgi = ["server", "php", "dep:claviron-php-fcgi", "claviron-php?/php_fcgi"]
+php_embed = ["server", "php", "dep:claviron-php-embed", "claviron-php?/php_embed"]
+# A JS host is a router host; there is no bypass shape for it.
+lua = ["server", "axum", "dep:claviron-lua", "claviron-lua/axum"]
+# Reaching an application process over Orbit shared memory. A router host too:
+# the route is a prefix layer like PHP's and JavaScript's, and what differs is
+# only where the application is.
+orbit = [
+    "claviron-http/orbit",
+    "server",
+    "axum",
+    "dep:claviron-orbit",
+    "dep:http-body-util",
+    "dep:percent-encoding",
+    "dep:tokio-util",
+    # A WebSocket reached over Orbit: the edge completes the upgrade and speaks
+    # the protocol, the application sees whole messages.
+    "dep:claviron-websocket",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:fastwebsockets",
+]
+# A selected Lua runtime contributes its configured H1/H2 WebSocket endpoints.
+# Weak forwarding must not select Lua for unrelated WebSocket users.
+db = ["dep:claviron-db", "dep:claviron-hosting", "claviron-hosting/server"]
+postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
+metrics = ["axum", "claviron-http/metrics"]
+http3 = ["server", "claviron-http/http3"]
+webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport"]
+
+[dependencies]
+#internal
+claviron-auth = { version = "0.2.0-alpha.17", path = "../auth", optional = true }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-logging = { version = "0.2.0-alpha.17", path = "../logging", optional = true }
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+claviron-types = { version = "0.2.0-alpha.17", path = "../types" }
+claviron-hosting = { version = "0.2.0-alpha.17", path = "../hosting", optional = true }
+claviron-tls = { version = "0.2.0-alpha.17", path = "../tls" }
+claviron-db = { version = "0.2.0-alpha.17", path = "../db", optional = true, features = ["server"] }
+claviron-pusher = { version = "0.2.0-alpha.17", path = "../pusher", optional = true }
+claviron-broadcast = { version = "0.2.0-alpha.17", path = "../broadcast", optional = true }
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["server"] }
+claviron-upstream = { version = "0.2.0-alpha.17", path = "../upstream", optional = true }
+claviron-websocket = { version = "0.2.0-alpha.17", path = "../websocket", optional = true }
+hyper = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
+fastwebsockets = { workspace = true, optional = true }
+claviron-php = { version = "0.2.0-alpha.17", path = "../php", optional = true }
+claviron-php-fcgi = { version = "0.2.0-alpha.17", path = "../php-fcgi", optional = true }
+claviron-php-embed = { version = "0.2.0-alpha.17", path = "../php-embed", optional = true }
+claviron-lua = { version = "0.2.0-alpha.17", path = "../lua", optional = true, features = ["app"] }
+claviron-files = { version = "0.2.0-alpha.17", path = "../files" }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
+
+# workspace
+arc-swap.workspace = true
+async-trait.workspace = true
+axum = { workspace = true, optional = true }
+bytes.workspace = true
+h3-quinn = { workspace = true, features = ["datagram"], optional = true }
+h3-webtransport = { workspace = true, optional = true }
+http.workspace = true
+http-body = { workspace = true, optional = true }
+ipnet.workspace = true
+pin-project-lite = { workspace = true, optional = true }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+http-body-util = { workspace = true, optional = true }
+percent-encoding = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+tower.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+http-body-util.workspace = true
+
+[[test]]
+name = "authority"
+path = "tests/authority.rs"
+
+[[test]]
+name = "deny"
+path = "tests/deny.rs"
+
+[[test]]
+name = "provider"
+path = "tests/provider.rs"
+
+[[test]]
+name = "sni"
+path = "tests/sni.rs"

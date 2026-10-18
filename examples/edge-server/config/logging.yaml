@@ -1,0 +1,5 @@
+# Shared master/worker diagnostics for local lifecycle and reload checks.
+system_log: { path: logs/edge.log, format: line }
+access_log: null
+channels: { }
+

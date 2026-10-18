@@ -1,0 +1,20 @@
+{
+  "name": "claviron/sapi",
+  "version": "0.1.0",
+  "description": "A Monolog handler that writes to Claviron's log channels: records go through the fleet's log ring to its one writer",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.2",
+    "monolog/monolog": "^3.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "Claviron\\": "src/"
+    },
+    "files": [
+      "fallback/functions.php",
+      "fallback/types.php"
+    ]
+  }
+}

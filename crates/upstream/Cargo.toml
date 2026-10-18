@@ -1,0 +1,76 @@
+[package]
+autotests = false
+name = "claviron-upstream"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "HTTP reverse proxying, origin pools, and upstream lifecycle for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["claviron", "proxy", "http", "upstream", "load-balancing"]
+categories = ["network-programming", "web-programming::http-server", "asynchronous"]
+
+[features]
+default = []
+
+axum = ["dep:axum"]
+metrics = ["dep:claviron-metrics", "orbitive/metrics"]
+
+[dependencies]
+# Claviron application and request integration
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["server"] }
+claviron-macros = { version = "0.2.0-alpha.17", path = "../macros" }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+
+# Fleet state, metrics and OS primitives
+arc-swap.workspace = true
+claviron-metrics = { version = "0.2.0-alpha.17", path = "../metrics", optional = true }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
+libc.workspace = true
+orbitive.workspace = true
+
+# DNS resolution and process identity
+blake3.workspace = true
+# Contracts only; the application binds the resolver (`dyn ResolverFactory`).
+claviron-resolver = { version = "0.2.0-alpha.17", path = "../resolver", default-features = false }
+claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
+
+# Async runtime and pinned futures
+async-trait.workspace = true
+futures-util.workspace = true
+pin-project-lite.workspace = true
+tokio.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
+
+# HTTP protocols, bodies and route binding
+axum = { workspace = true, optional = true }
+bytes.workspace = true
+http.workspace = true
+http-body.workspace = true
+hyper.workspace = true
+# Only protocol connections and Tokio adapters; no client-legacy pooling (I20).
+hyper-util.workspace = true
+url.workspace = true
+
+# TLS transport and certificate trust. Certificate material is the process
+# certificate manager's; this crate holds no certificate directory of its own.
+claviron-types = { version = "0.2.0-alpha.17", path = "../types", features = ["ssl"] }
+claviron-tls = { version = "0.2.0-alpha.17", path = "../tls", default-features = false }
+rustls.workspace = true
+rustls-native-certs.workspace = true
+tokio-rustls.workspace = true
+
+# Configuration serialization, durations and route matching
+humantime.workspace = true
+humantime-serde.workspace = true
+regex.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+serde_yaml.workspace = true
+
+# Errors and tracing
+thiserror.workspace = true
+tracing.workspace = true

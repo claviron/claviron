@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>KeepAlive</key>
+    <true/>
+    <key>Label</key>
+    <string>php-zts-fpm</string>
+    <key>LimitLoadToSessionType</key>
+    <array>
+        <string>Aqua</string>
+        <string>Background</string>
+        <string>LoginWindow</string>
+        <string>StandardIO</string>
+        <string>System</string>
+    </array>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/php-zts-embed/sbin/php-fpm</string>
+        <string>--nodaemonize</string>
+        <string>--fpm-config</string>
+        <string>/opt/php-zts-embed/etc/php-fpm.conf</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardErrorPath</key>
+    <string>/opt/php-zts-embed/var/log/php-fpm.log</string>
+    <key>StandardOutPath</key>
+    <string>/opt/php-zts-embed/var/log/php-fpm.log</string>
+    <key>WorkingDirectory</key>
+    <string>/opt/php-zts-embed/var</string>
+</dict>
+</plist>

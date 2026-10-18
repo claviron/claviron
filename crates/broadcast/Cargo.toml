@@ -1,0 +1,52 @@
+[package]
+autotests = false
+name = "claviron-broadcast"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Realtime sessions, channel publication, and fleet fanout for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["claviron", "broadcast", "pusher", "websocket", "realtime"]
+categories = ["network-programming", "asynchronous", "concurrency"]
+
+[features]
+default = []
+# Outbound HTTP compatibility for external Pusher servers.
+pusher = ["claviron-pusher/axum"]
+
+[dependencies]
+arc-swap.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+claviron-app = { version = "0.2.0-alpha.17", path = "../app" }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
+claviron-pusher = { version = "0.2.0-alpha.17", path = "../pusher" }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-websocket = { version = "0.2.0-alpha.17", path = "../websocket" }
+fastwebsockets.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+orbitive.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["axum", "server"] }
+serde_yaml.workspace = true
+tempfile = "3"
+tower.workspace = true
+
+[[test]]
+name = "websocket"
+path = "tests/websocket.rs"

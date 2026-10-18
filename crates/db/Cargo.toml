@@ -1,0 +1,45 @@
+[package]
+autotests = false
+name = "claviron-db"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Typed database configuration and reloadable SQLx pools for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["claviron", "sqlx", "postgresql", "mysql", "sqlite"]
+categories = ["database", "asynchronous"]
+
+[features]
+default = ["sqlite"]
+postgres = ["sqlx/postgres"]
+mysql = ["sqlx/mysql"]
+# SQLite files: data one host keeps for itself, shared by its processes.
+sqlite = ["sqlx/sqlite"]
+server = [
+    "dep:claviron-runtime",
+    "dep:async-trait",
+    "dep:arc-swap",
+]
+
+[dependencies]
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime", optional = true }
+
+sqlx = { workspace = true }
+async-trait = { workspace = true, optional = true }
+arc-swap = { workspace = true, optional = true }
+
+thiserror.workspace = true
+tracing.workspace = true
+tokio.workspace = true
+serde.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+serde_yaml.workspace = true
+tempfile = "3"
+

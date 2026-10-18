@@ -1,0 +1,20 @@
+[package]
+name = "claviron-macros"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Task registration and configuration override procedural macros for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["proc-macro", "tasks", "configuration", "claviron"]
+categories = ["development-tools::procedural-macro-helpers", "config"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2.workspace = true
+quote.workspace = true
+syn.workspace = true

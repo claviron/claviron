@@ -1,0 +1,90 @@
+[package]
+autotests = false
+name = "claviron-http"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Shared HTTP types, request policy, configuration, and routing contracts for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["http", "routing", "middleware", "claviron"]
+categories = ["web-programming::http-server", "asynchronous", "network-programming"]
+
+[features]
+default = []
+# Route declarations only; these do not enable execution engines or drivers.
+js = []
+lua = []
+orbit = []
+acme = []
+http3 = []
+server = ["dep:arc-swap", "dep:claviron-tls", "dep:rustls", "dep:futures-util"]
+metrics = [
+    "axum",
+    "dep:claviron-metrics",
+    "dep:claviron-orbit",
+    "dep:orbitive",
+    "orbitive/metrics",
+]
+cache = ["axum", "dep:claviron-cache"]
+axum = ["dep:axum", "dep:headers", "dep:serde_json", "dep:moka"]
+routing = ["axum", "dep:serde_yaml"]
+
+[dependencies]
+claviron-cache = { version = "0.2.0-alpha.17", path = "../cache", optional = true }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+# Not optional: the watchdog is a runtime organ, not a metric, and it parses
+# its own durations from configuration like everything else here.
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+claviron-macros = { version = "0.2.0-alpha.17", path = "../macros" }
+claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
+claviron-metrics = { version = "0.2.0-alpha.17", path = "../metrics", optional = true }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
+claviron-types = { version = "0.2.0-alpha.17", path = "../types" }
+claviron-tls = { version = "0.2.0-alpha.17", path = "../tls", optional = true }
+orbitive = { workspace = true, optional = true }
+
+# conditional dependencisies
+axum = { workspace = true, optional = true }
+headers = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+moka = { workspace = true, optional = true }
+serde_yaml = { workspace = true, optional = true }
+
+# workspace
+tokio = { workspace = true, features = ["fs"] }
+arc-swap = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+tracing.workspace = true
+pin-project-lite.workspace = true
+byte-unit.workspace = true
+once_cell.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_regex.workspace = true
+ipnet.workspace = true
+bytes.workspace = true
+
+http-body.workspace = true
+http-body-util.workspace = true
+http.workspace = true
+rustls = { workspace = true, optional = true }
+tower.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+futures-util.workspace = true
+serde_yaml.workspace = true
+
+[[test]]
+name = "authority"
+
+[[test]]
+name = "listener_snapshots"
+required-features = ["server"]
+
+[[test]]
+name = "session"
+required-features = ["server"]

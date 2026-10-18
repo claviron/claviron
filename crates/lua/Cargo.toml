@@ -1,0 +1,80 @@
+[package]
+autotests = false
+include = ["src/**", "lua/**", "tests/**", "Cargo.toml", "README.md", "claviron.d.lua"]
+name = "claviron-lua"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Lua 5.5 embedded in Claviron: a fresh sandboxed state per script, extended from Rust"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["lua", "scripting", "embedded", "claviron"]
+categories = ["web-programming::http-server", "asynchronous"]
+
+[features]
+default = []
+# A host's configuration: `lua.yaml`'s search path, read at boot and reload.
+server = ["dep:async-trait", "dep:claviron-runtime", "dep:serde", "dep:serde_yaml"]
+# The fleet's shared state as Lua modules: `claviron.orbit.cell`, …
+orbit = ["dep:claviron-orbit", "dep:claviron-app", "server"]
+# `claviron.log`: records to the log channels `logging.yaml` declares.
+log = ["dep:claviron-logging", "claviron-logging/pipeline"]
+# `claviron.fetch`: HTTP out, to the hosts `lua.yaml` allows.
+fetch = ["dep:reqwest", "server"]
+# Applications: `lua.yaml`'s `applications:`, loaded once per worker.
+app = ["server", "dep:bytes", "dep:claviron-app", "dep:claviron-helpers", "dep:claviron-http", "dep:http", "dep:http-body", "dep:http-body-util"]
+# Optional Axum mounting over the application's raw HTTP handler.
+axum = ["app", "dep:axum", "claviron-http/axum", "claviron-http/lua"]
+# WebSockets for applications: `websocket:` on a `lua:` route, over an
+# HTTP/1.1 Upgrade or an HTTP/2 extended CONNECT.
+websocket = ["axum", "dep:claviron-websocket", "dep:fastwebsockets", "dep:hyper", "dep:hyper-util"]
+# Shared SQL dependencies; query adapters require `postgres` or `mysql`.
+db = ["server", "dep:claviron-db", "claviron-db/server", "dep:futures-util", "dep:sqlx", "sqlx/json"]
+# `claviron.db.mysql`, on the MySQL pools.
+mysql = ["db", "claviron-db/mysql", "sqlx/mysql"]
+
+postgres = ["db", "claviron-db/postgres", "sqlx/postgres"]
+
+sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite"]
+# `lua:` tasks in Claviron's task service.
+tasks = ["dep:claviron-tasks", "server"]
+
+[dependencies]
+async-trait = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+bytes = { workspace = true, optional = true }
+claviron-db = { version = "0.2.0-alpha.17", path = "../db", default-features = false, optional = true }
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers", optional = true }
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", optional = true }
+claviron-app = { version = "0.2.0-alpha.17", path = "../app", optional = true }
+claviron-logging = { version = "0.2.0-alpha.17", path = "../logging", optional = true }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime", optional = true }
+claviron-websocket = { version = "0.2.0-alpha.17", path = "../websocket", optional = true }
+claviron-tasks = { version = "0.2.0-alpha.17", path = "../tasks", optional = true }
+# Pinned by minor: every minor release so far has changed the API. `vendored`
+# builds Lua 5.5 from source into the binary, so every host runs one build.
+fastwebsockets = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+http-body = { workspace = true, optional = true }
+http-body-util = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
+mlua = { version = "0.12", features = ["lua55", "vendored", "async", "send", "serde"] }
+matchit = "0.9"
+regex.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2"], optional = true }
+serde = { workspace = true, optional = true }
+serde_json.workspace = true
+serde_yaml = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "rt", "sync", "time"] }
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }

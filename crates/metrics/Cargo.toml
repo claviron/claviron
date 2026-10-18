@@ -1,0 +1,19 @@
+[package]
+autotests = false
+name = "claviron-metrics"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Composition of independently owned Prometheus metric families for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["claviron", "metrics", "prometheus", "monitoring", "observability"]
+categories = ["development-tools::profiling"]
+
+[features]
+defatult = []
+[dependencies]
+async-trait.workspace = true
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }

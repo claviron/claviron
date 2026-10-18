@@ -1,0 +1,5 @@
+listeners:
+  local:
+    transport: tcp
+    listen: not-an-address
+    protocols: h1

@@ -1,0 +1,27 @@
+# Static file service policy.
+#
+# Arena byte/record geometry is compiled into every fleet process and cannot
+# safely vary at runtime. Runtime admission, storage and collection policy is
+# explicit below.
+arena:
+  # Default: retain compatible immutable records across master replacement.
+  # `reset` still waits until the SHM lifecycle proves the arena is unused.
+  boot: preserve
+
+memory:
+  # Largest body kept in the fleet arena or the standalone process cache.
+  # It may be lowered at runtime but cannot exceed the compiled arena geometry.
+  max_body_size: 1 MiB
+  # Per-process fallback memory budget; fleet-arena bytes are counted separately.
+  max_bytes: 256 MiB
+
+disk:
+  # Cwd-relative root for compressed large-file representations.
+  directory: storage/cache/http
+  # Unchanged metadata may remain reusable for this long; mtime changes still win.
+  retention: 365d
+
+gc:
+  # Maximum memory/disk entries removed by one scheduled cache_gc occurrence.
+  # The occurrence schedule itself belongs to tasks.yaml.
+  max_remove: 128

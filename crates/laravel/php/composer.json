@@ -1,0 +1,45 @@
+{
+  "name": "claviron/laravel",
+  "version": "0.1.0",
+  "description": "Claviron drivers and adapters for Laravel: cache, sessions, database, broadcasting, queue, schedule, and the Octane client",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "claviron/sapi": "0.1.0",
+    "illuminate/auth": "^11.0 || ^12.0 || ^13.0",
+    "illuminate/broadcasting": "^11.0 || ^12.0 || ^13.0",
+    "illuminate/cache": "^11.0 || ^12.0 || ^13.0",
+    "illuminate/console": "^11.0 || ^12.0 || ^13.0",
+    "illuminate/database": "^11.0 || ^12.0 || ^13.0",
+    "illuminate/log": "^11.0 || ^12.0 || ^13.0",
+    "illuminate/notifications": "^11.0 || ^12.0 || ^13.0",
+    "illuminate/queue": "^11.0 || ^12.0 || ^13.0",
+    "illuminate/session": "^11.0 || ^12.0 || ^13.0",
+    "illuminate/support": "^11.0 || ^12.0 || ^13.0",
+    "monolog/monolog": "^3.0",
+    "php": "^8.2"
+  },
+  "autoload": {
+    "psr-4": {
+      "Claviron\\Laravel\\": "src/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "Claviron\\Laravel\\Providers\\LumenizeProvider",
+        "Claviron\\Laravel\\Providers\\AuthServiceProvider",
+        "Claviron\\Laravel\\Providers\\BroadcastingProvider",
+        "Claviron\\Laravel\\Providers\\CacheServiceProvider",
+        "Claviron\\Laravel\\Providers\\SessionServiceProvider",
+        "Claviron\\Laravel\\Providers\\DatabaseServiceProvider",
+        "Claviron\\Laravel\\Providers\\QueueServiceProvider",
+        "Claviron\\Laravel\\Providers\\ScheduleServiceProvider",
+        "Claviron\\Laravel\\Providers\\LogServiceProvider"
+      ]
+    }
+  },
+  "suggest": {
+    "laravel/octane": "^2.0, for Claviron\\Laravel\\Octane\\ClavironClient (the application model's request client)"
+  }
+}

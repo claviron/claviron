@@ -1,0 +1,57 @@
+[env]
+# PYO3_PYTHON comes from the host's shared Cargo configuration. The application
+# venv supplies dependencies at runtime, not a separate build interpreter.
+
+# Orbit transport (kinds 202 and 211): an HTTP exchange between an edge
+# worker and an application process on the same host. Headers ride the inbox
+# ring, bodies ride a duplex stream slot; see crates/orbit/TRANSPORT_PLAN.md.
+#
+# Inbox entries are fixed size like every other ring here. 8 KiB is the header
+# ceiling every HTTP server already imposes (nginx large_client_header_buffers
+# is 8k), so a request whose headers do not fit was never going to be served:
+# the edge answers 431 and nothing reaches this ring. 256 entries per node lane
+# 32 entries per node lane is the queue depth a target may hold before a
+# writer is refused with 503 — shallow on purpose, because depth is what the
+# caller chooses a target by and a long queue makes that reading stale.
+ORBIT_TRANSPORT_INBOX_CAPACITY = { value = "128", force = true }
+ORBIT_TRANSPORT_INBOX_PAYLOAD_CAPACITY = { value = "17408", force = true }
+
+# The body stream is its own table, not orbit-stream's default (kind 246):
+# worker-to-worker coordination wants many short-lived lanes, this wants
+# fewer and wider. Buffer bytes is a window, not a body limit — a larger body
+# only makes the writer wait more often. 64 KiB is sized for what crosses:
+# headers under a kilobyte, usually no request body, and a reply that is a
+# few-kilobyte JSON document or an HTML page whose median is tens of KB. All
+# of those cross without the writer waiting once, and the table reserves
+# hundreds of MB of address space rather than several GB. The ~55 µs wake
+# that argued for 256 KiB was measured on the xd01 guest and withdrawn with
+# the rest of that run; a deployment moving large bodies raises this, in
+# every binary that maps the table.
+#
+# Lane capacity is concurrent exchanges a node may *originate*: a slot comes
+# from the creator's lane, and the edge creates. Application workers open the
+# other side and consume none of their own. 128 is what a Unix socket profile
+# gives itself as max_live, and it is the same question on both transports.
+ORBIT_TRANSPORT_LANE_CAPACITY = { value = "128", force = true }
+ORBIT_TRANSPORT_BUFFER_BYTES = { value = "65536", force = true }
+
+# Each application meets its callers in a fleet of its own, named after it:
+# `/orbit-<application>-202-<uid>` and `-211-`. An application maps nothing of
+# another's, and the edge opens an application's fleet when it first routes
+# to it. Nothing here names a fleet; the application's name is the address.
+#
+# Capacity is lanes per application fleet, and a segment geometry — the
+# ceiling, not today's count: every edge worker plus every worker of that one
+# application that may run at once. Masters take none. Eight edge workers and
+# an application of eight workers is sixteen, which 32 covers; a lane nobody
+# claims costs address space only.
+#
+# Read at build time by both binaries. Change it here and in the other
+# project, or neither: Orbit refuses at open a segment of another shape.
+ORBIT_TRANSPORT_FLEET_CAPACITY = { value = "32", force = true }
+
+# The de02 Gitea's Cargo registry: where pre-releases are published and
+# where consumers take them from. Gitea sits behind portico as
+# git.claviron.dev, reachable over the VPN and from de02 (ACL).
+[registries.de02]
+index = "sparse+https://git.claviron.dev/api/packages/developer/cargo/"

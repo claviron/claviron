@@ -1,0 +1,12 @@
+listeners:
+  plain:
+    listen: 127.0.0.1:8080
+    transport: tcp
+    protocols: h1
+    requests: {max_body_size: off, body_read_timeout: off}
+  secure:
+    listen: 127.0.0.1:8443
+    transport: tcp
+    tls: true
+    protocols: [h1, h2]
+    requests: {max_body_size: off, body_read_timeout: off}

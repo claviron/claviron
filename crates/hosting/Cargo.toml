@@ -1,0 +1,50 @@
+[package]
+autotests = false
+name = "claviron-hosting"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Hosting persistence, aliases, and certificate records for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["claviron", "hosting", "certificates", "virtual-hosts", "sqlx"]
+categories = ["database", "web-programming::http-server"]
+
+[features]
+default = []
+# Runtime/Provider integration — pulls AppState + DbService for HostingService.
+server = [
+    "dep:async-trait",
+    "dep:claviron-runtime",
+    "dep:claviron-db",
+    "claviron-db/server",
+    "dep:claviron-orbit",
+    "dep:serde_json",
+]
+
+# Hosting data in an SQLite file (db.yaml `sqlite.hosting`) instead of
+# PostgreSQL: the same tables, named `hosting_<table>`.
+sqlite = ["sqlx/sqlite", "claviron-db?/sqlite", "dep:serde_json"]
+
+postgres = ["sqlx/postgres", "claviron-db?/postgres"]
+
+[dependencies]
+# internal
+claviron-types = { version = "0.2.0-alpha.17", path = "../types", default-features = false }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime", optional = true }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
+claviron-db = { version = "0.2.0-alpha.17", path = "../db", optional = true }
+
+# workspace
+sqlx.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json = { workspace = true, optional = true }
+time.workspace = true
+async-trait = { workspace = true, optional = true }
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true

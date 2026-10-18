@@ -1,0 +1,3 @@
+service_snapshots:
+  publish_interval: 2s
+  max_age: 9s

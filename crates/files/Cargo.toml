@@ -1,0 +1,57 @@
+[package]
+autotests = false
+name = "claviron-files"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Static file serving, representation caching, and resource fallback for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["claviron", "static-files", "http", "caching", "compression"]
+categories = ["filesystem", "caching", "web-programming::http-server"]
+
+[features]
+default = []
+tasks = ["dep:claviron-tasks"]
+orbit = ["dep:claviron-orbit"]
+axum = ["dep:axum"]
+metrics = ["claviron-http/metrics"]
+# Marker for facade-level cache builds. The current file service owns its
+# in-crate memory/disk cache; shared claviron-cache integration will hang here.
+cache = []
+
+[dependencies]
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+arc-swap.workspace = true
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["axum"] }
+claviron-tasks = { version = "0.2.0-alpha.17", path = "../tasks", optional = true }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
+
+axum = { workspace = true, optional = true }
+blake3.workspace = true
+brotli.workspace = true
+byte-unit.workspace = true
+bytes.workspace = true
+dashmap.workspace = true
+futures-util.workspace = true
+http-body-util.workspace = true
+http-body.workspace = true
+http.workspace = true
+httpdate.workspace = true
+infer.workspace = true
+mime_guess.workspace = true
+once_cell.workspace = true
+percent-encoding.workspace = true
+serde.workspace = true
+tokio-util.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+zstd.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+serde_yaml.workspace = true
+tempfile = "3"

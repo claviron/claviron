@@ -1,0 +1,26 @@
+[package]
+autotests = false
+name = "claviron-helpers"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Shared configuration adapters and encoding conventions for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["claviron", "configuration", "serde", "encoding", "utilities"]
+categories = ["config", "encoding"]
+
+[dependencies]
+
+serde.workspace = true
+time.workspace = true
+base64ct.workspace = true
+uuid.workspace = true
+humantime.workspace = true
+regex.workspace = true
+byte-unit.workspace = true
+
+[dev-dependencies]
+serde_yaml.workspace = true

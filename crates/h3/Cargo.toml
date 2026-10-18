@@ -1,0 +1,49 @@
+[package]
+autotests = false
+name = "claviron-h3"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Native QUIC, HTTP/3, and WebTransport ingress for the Claviron edge"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["http3", "quic", "webtransport", "server", "claviron"]
+categories = ["web-programming::http-server", "asynchronous", "network-programming"]
+
+[features]
+default = []
+metrics = ["claviron-http/metrics"]
+
+geoip = ["dep:claviron-geoip"]
+[dependencies]
+# interval
+claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-tls = { version = "0.2.0-alpha.17", path = "../tls" }
+claviron-types = { version = "0.2.0-alpha.17", path = "../types", features = ["ssl"] }
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["server"] }
+claviron-geoip = { version = "0.2.0-alpha.17", path = "../geoip", optional = true }
+claviron-edge = { version = "0.2.0-alpha.17", path = "../edge", features = ["webtransport"] }
+# workspace
+tokio.workspace = true
+async-trait.workspace = true
+arc-swap.workspace = true
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+bytes.workspace = true
+tracing.workspace = true
+rustls.workspace = true
+quinn.workspace = true
+quinn-deferred-config.workspace = true
+h3.workspace = true
+h3-quinn = { workspace = true, features = ["datagram"] }
+h3-webtransport.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+serde_yaml.workspace = true

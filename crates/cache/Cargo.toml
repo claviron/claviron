@@ -1,0 +1,44 @@
+[package]
+autotests = false
+name = "claviron-cache"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Named cache stores, typed values, and fleet-shared caching for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["claviron", "cache", "redis", "shared-memory"]
+categories = ["caching", "asynchronous", "concurrency"]
+
+[features]
+default = ["file"]
+axum = ["dep:axum"]
+redis = ["dep:redis", "dep:url"]
+file = ["dep:cacache"]
+
+[lints.rust]
+# Internal parking cfg only. Do not make this a Cargo feature: `--all-features`
+# must not enable Redis TLS while redis/tokio-rustls resolves a rustls 0.23
+# ClientConfig type.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(claviron_redis_tls_rustls_legacy)'] }
+
+[dependencies]
+bytes.workspace = true
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+rkyv.workspace = true
+serde.workspace = true
+tokio.workspace = true
+url = { workspace = true, optional = true }
+serde_yaml.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+arc-swap.workspace = true
+axum = { workspace = true, optional = true }
+redis = { workspace = true, optional = true }
+cacache = { workspace = true, optional = true }

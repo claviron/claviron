@@ -1,0 +1,28 @@
+[package]
+autotests = false
+name = "claviron-app"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Runtime-qualified application identity, control, status, and events for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["application", "lifecycle", "events", "claviron"]
+categories = ["asynchronous", "concurrency"]
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+serde.workspace = true
+serde_json.workspace = true
+futures-util.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+uuid.workspace = true

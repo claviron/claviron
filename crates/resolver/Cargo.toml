@@ -1,0 +1,27 @@
+[package]
+name = "claviron-resolver"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Shared DNS resolution contracts and an optional Hickory driver for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["claviron", "dns", "resolver", "hickory", "async"]
+categories = ["network-programming", "asynchronous"]
+
+[features]
+default = []
+hickory = ["dep:hickory-resolver", "dep:tokio"]
+
+[dependencies]
+serde.workspace = true
+humantime-serde.workspace = true
+thiserror.workspace = true
+hickory-resolver = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["sync"], optional = true }
+
+[dev-dependencies]
+serde_yaml.workspace = true
+tokio.workspace = true

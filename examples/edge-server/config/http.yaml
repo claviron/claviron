@@ -1,0 +1,72 @@
+# Listener identity is independent of bind address and host routing.
+# Request defaults are inherited by each host; connection limits belong to a group.
+# These public groups keep positive per-worker connection budgets and finite H1
+# header deadlines. Omission inherits the parent or Hyper's native default;
+# explicit header_read_timeout: null disables the deadline. Reserve null for
+# a restricted network/firewall or trusted ingress enforcing its own deadline:
+# host/path ACLs run too late to protect incomplete headers.
+# TCP accept_retry defaults to {initial: 50ms, max: 1s}; changes need listener
+# restart. Its bounded backoff is separate from connection and graceful timeouts.
+defaults:
+  request:
+    # Requests one host serves at once in a worker, on every path to it
+    # (router, bypass, relays); past it a request waits its
+    # requests.queue_timeout, then 503. A host may write its own, or off.
+    max_concurrent_requests: 1000
+
+  listener:
+    proxy:
+      headers: [ x-forwarded-for, x-real-ip, forwarded ]
+      trusted: [ 10.8.0.0/24, 192.168.8.0/24, 192.168.65.1/32 ]
+    # Every listener decides these two, as a value or `off`; the library
+    # invents neither. A listener or a host below may only narrow them.
+    requests:
+      max_body_size: 64 MiB
+      body_read_timeout: 30s
+      # Until the reply's head, on every path; the reply's body is not
+      # counted, so a streamed download or an event stream is not cut. Was
+      # defaults.request.tuning.request_timeout, which only the router saw.
+      head_timeout: 60s
+    responses:
+      # The longest gap between two pieces of a reply (was tuning's
+      # response_body_idle_timeout, an axum layer that guarded axum's replies
+      # only and hid every reply's length).
+      body_idle_timeout: 60s
+    # The largest request head this edge lets in, 16 KiB on both protocols,
+    # and matched to Orbit: an inbox frame is read in one piece, so it holds
+    # a head this size plus our own fields (ORBIT_TRANSPORT_INBOX_PAYLOAD_
+    # CAPACITY = 17408 in .cargo/config.toml). A larger head is answered 431
+    # here rather than 503 at the frame. Raise the three together.
+    h1:
+      max_buf_size: 16384
+    h2:
+      max_header_list_size: 16384
+
+# The two addresses come from the environment so one config serves a laptop
+# and a host whose public ports belong to another server: `scripts/edge.sh`
+# supplies 0.0.0.0:80 and 0.0.0.0:443 unless EDGE_HTTP_LISTEN / EDGE_TLS_LISTEN
+# say otherwise (on de02, loopback ports beside portico).
+listeners:
+  public-http:
+    transport: tcp
+    tls: false
+    protocols: h1
+    listen: "${EDGE_HTTP_LISTEN}"
+    max_connections: 100
+    graceful_timeout: 5s
+    h1:
+      header_read_timeout: 90s
+    # Hosts opt into non-SSL app serving with transport.non_ssl: serve.
+    # Redirect is a host policy, not a listener implementation.
+
+metrics:
+  enabled: true
+  publish_interval: 1s
+  max_age: 5s
+
+watchdog:
+  check_interval: 5s
+  stall_timeout: 120s
+  warn_threshold: 10
+  panic_threshold: 100
+  panic_on_hol: true

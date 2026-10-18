@@ -1,0 +1,89 @@
+[package]
+autotests = false
+name = "claviron-runner"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Shared HTTP and Orbit ingress, routing, and launch support for Claviron application runners"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["application-server", "runtime", "http", "claviron"]
+categories = ["web-programming::http-server", "asynchronous", "network-programming"]
+
+[features]
+default = []
+# `register_router`: the application's axum router, the owner as its fallback.
+axum = ["dep:axum", "claviron-http/routing"]
+# HTTPS on the runner's TCP listener, optionally requiring a client certificate.
+tls = ["dep:claviron-tls", "dep:rustls", "dep:thiserror", "dep:tokio-rustls"]
+# Explicit static mounts in front of the owner, from Claviron's file service.
+files = [
+    "axum",
+    "dep:claviron-files",
+    "claviron-files/axum",
+]
+
+# Claviron's broadcasting in front of the owner, on the sockets and over Orbit.
+broadcast = ["axum", "dep:claviron-broadcast", "dep:claviron-websocket"]
+# The launch's shared options from the command line.
+cli = ["dep:clap"]
+# Workers under Claviron's supervisor, and its section of the launch.
+supervisor = ["dep:claviron-supervisor"]
+# An owner's WebSocket on the runner's own sockets, spoken with fastwebsockets.
+websocket = ["dep:fastwebsockets"]
+# Development's reload: native source notifications, the owner's reaction.
+watch = ["dep:notify"]
+
+[dependencies]
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+# Claviron runtime and application services
+claviron-broadcast = { version = "0.2.0-alpha.17", path = "../broadcast", optional = true }
+claviron-app = { version = "0.2.0-alpha.17", path = "../app" }
+claviron-files = { version = "0.2.0-alpha.17", path = "../files", optional = true }
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["server"] }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-supervisor = { version = "0.2.0-alpha.17", path = "../supervisor", optional = true }
+claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
+claviron-tls = { version = "0.2.0-alpha.17", path = "../tls", optional = true }
+claviron-websocket = { version = "0.2.0-alpha.17", path = "../websocket", optional = true }
+
+# Async execution
+async-trait.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "rt", "sync"] }
+tokio-util.workspace = true
+
+# HTTP routing, bodies and socket transports
+axum = { workspace = true, optional = true }
+bytes.workspace = true
+fastwebsockets = { workspace = true, features = ["upgrade"], optional = true }
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["http1", "http2", "server"] }
+hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
+tower = { workspace = true, features = ["util"] }
+
+# Listener TLS
+rustls = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+
+# Launch configuration and command line
+clap = { workspace = true, features = ["derive"], optional = true }
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+
+# Development source notifications
+notify = { version = "8.2", optional = true }
+
+# Diagnostics
+thiserror = { workspace = true, optional = true }
+tracing.workspace = true
+
+[dev-dependencies]
+rcgen.workspace = true
+tempfile = "3"
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "test-util"] }

@@ -1,0 +1,4 @@
+connection:x-private, Keep-Alive
+x-private:secret
+keep-alive:timeout=5
+x-end-to-end:keep

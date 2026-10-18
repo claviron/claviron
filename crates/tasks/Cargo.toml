@@ -1,0 +1,54 @@
+[package]
+autotests = false
+name = "claviron-tasks"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Lifecycle-managed tasks, scheduling, and fleet dispatch for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["claviron", "tasks", "scheduler", "background", "async"]
+categories = ["asynchronous", "concurrency"]
+
+[features]
+metrics = ["dep:claviron-metrics", "orbitive/metrics"]
+# `log: { channel: <name> }`: task output as records in a declared log channel.
+log-pipeline = ["dep:claviron-logging", "claviron-logging/pipeline"]
+
+[dependencies]
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
+claviron-metrics = { version = "0.2.0-alpha.17", path = "../metrics", optional = true }
+claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
+claviron-logging = { version = "0.2.0-alpha.17", path = "../logging", optional = true }
+orbitive.workspace = true
+# Macro deps
+inventory.workspace = true
+claviron-macros = { version = "0.2.0-alpha.17", path = "../macros" }
+
+# ── shared infrastructure (workspace SoT) ────────────────────────────
+tokio.workspace = true
+tokio-util.workspace = true
+async-trait.workspace = true
+arc-swap.workspace = true
+futures-util.workspace = true
+dotenw.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+nix.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+fastrand.workspace = true
+blake3.workspace = true
+bytes.workspace = true
+
+# crate specific dependencies
+cron.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
+tempfile = "3"

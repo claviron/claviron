@@ -1,0 +1,27 @@
+[package]
+autotests = false
+name = "claviron-ffi"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Foreign HTTP handler ABI, response types, and buffer ownership helpers for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["ffi", "http", "streaming", "claviron"]
+categories = ["external-ffi-bindings", "web-programming::http-server"]
+
+[dependencies]
+# claviron libs
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", optional = true }
+# worksapce
+axum = { workspace = true, optional = true }
+bytes.workspace = true
+http.workspace = true
+thiserror.workspace = true
+
+[features]
+default = []
+axum = ["dep:axum"]
+http = ["dep:claviron-http", "claviron-http/axum"]

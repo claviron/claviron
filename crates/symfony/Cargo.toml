@@ -1,0 +1,36 @@
+[package]
+name = "claviron-symfony"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+autotests = false
+description = "Symfony integration package boundary for Claviron's embedded PHP runtime"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["symfony", "php", "application-server", "claviron"]
+categories = ["web-programming::http-server"]
+
+[dependencies]
+claviron-auth = { version = "0.2.0-alpha.17", path = "../auth" }
+claviron-app = { version = "0.2.0-alpha.17", path = "../app" }
+claviron-php-embed = { version = "0.2.0-alpha.17", path = "../php-embed" }
+claviron-pusher = { version = "0.2.0-alpha.17", path = "../pusher" }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-broadcast = { version = "0.2.0-alpha.17", path = "../broadcast" }
+arc-swap.workspace = true
+ext-php-rs.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+claviron-http = { version = "0.2.0-alpha.17", path = "../http" }
+claviron-php = { version = "0.2.0-alpha.17", path = "../php", features = ["php_embed"] }
+futures-util.workspace = true
+http.workspace = true
+http-body-util.workspace = true
+tempfile = "3"
+tokio.workspace = true
+tokio-util.workspace = true
+
+

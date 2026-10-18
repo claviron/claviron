@@ -1,0 +1,40 @@
+startup:
+  timeout: "5s"                    # Initial worker boot acknowledgement deadline.
+reload:
+  timeout: "5s"                    # Correlated worker reload completion deadline.
+# NO_IMPLICIT_TERMINATION: null means no deadline and no SIGKILL.
+shutdown:
+  timeout: "30s"
+
+# Supervisor loop cadence.
+monitor:
+  interval: "5s"                   # Evaluate worker health and rotation.
+
+# Worker liveness. Do not tune this for metrics freshness tests.
+heartbeat:
+  interval: "1s"                   # Worker heartbeat runnable cadence.
+  timeout: "10s"                   # Age of the last accepted heartbeat.
+
+# Worker management snapshot transport.
+snapshot:
+  publish_interval: "1s"            # How often the master publishes its complete worker view.
+  max_age: "5s"                     # Maximum snapshot age accepted by management clients.
+
+# Metrics transport.
+metrics:
+  publish_interval: "10s"           # Observational snapshots; /metrics renders Prometheus text.
+  max_age: "1m"
+
+# Rotation policy. Rotation is disabled when both trigger fields are absent.
+rotation:
+  max_age: "48h"
+  rss_threshold: "1 GiB"            # Actual process RSS, without subtracting cache.
+
+# Failure recovery, not an explicit manager restart or policy rotation.
+recovery:
+  max_attempts: 10
+  window: "10m"                    # Healthy uptime after which the failure budget resets.
+  backoff:
+    initial: "2s"
+    multiplier: 2
+    max: "60s"

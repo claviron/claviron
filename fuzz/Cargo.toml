@@ -1,0 +1,37 @@
+[package]
+name = "claviron-fuzz"
+version = "0.1.0"
+publish = false
+license = "MIT OR Apache-2.0"
+edition = "2024"
+autobins = false
+autotests = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+claviron = { path = "..", default-features = false, features = ["http"] }
+http = "1"
+serde = "1"
+
+[[bin]]
+name = "request_authority"
+path = "fuzz_targets/request_authority.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "forwarding"
+path = "fuzz_targets/forwarding.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "route_table"
+path = "fuzz_targets/route_table.rs"
+test = false
+doc = false

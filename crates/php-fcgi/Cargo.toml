@@ -1,0 +1,54 @@
+[package]
+autotests = false
+name = "claviron-php-fcgi"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "PHP-FPM FastCGI gateway with connection pooling and streaming responses for Claviron"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["php", "fastcgi", "php-fpm", "gateway", "claviron"]
+categories = ["web-programming::http-server", "network-programming", "asynchronous"]
+
+[features]
+default = []
+axum = ["dep:axum"]
+metrics = ["dep:claviron-metrics", "dep:serde_json", "orbitive/metrics"]
+tasks = ["dep:claviron-tasks", "dep:futures"]
+
+[dependencies]
+# internal
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["axum", "server"] }
+claviron-metrics = { version = "0.2.0-alpha.17", path = "../metrics", optional = true }
+claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
+claviron-php = { version = "0.2.0-alpha.17", path = "../php", features = ["php_fcgi"] }
+claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+claviron-tasks = { version = "0.2.0-alpha.17", path = "../tasks", optional = true }
+# crate only
+fastcgi-client.workspace = true
+orbitive.workspace = true
+
+# workspace
+arc-swap.workspace = true
+async-trait.workspace = true
+bytes.workspace = true
+futures-util.workspace = true
+http-body-util.workspace = true
+http-body.workspace = true
+http.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+#optional
+axum = { workspace = true, optional = true }
+futures = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
+[dev-dependencies]
+serde_yaml.workspace = true

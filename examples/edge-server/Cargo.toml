@@ -1,0 +1,49 @@
+[package]
+name = "edge-server"
+version = "0.1.0"
+publish = false
+edition = "2024"
+description = "A minimal Claviron edge for supervisor lifecycle scenarios."
+
+# This composition exercises the edge and supervisor without interpreters,
+# upstream applications, DNS resolution, or the task service.
+
+[workspace]
+
+[features]
+bench = ["claviron/bench"]
+
+[dependencies]
+claviron = { path = "../../", default-features = false, features = [
+    "edge",
+    "log-pipeline",
+] }
+
+clap = { version = "4.6", features = ["derive"] }
+mimalloc = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tracing = "0.1"
+
+[[bin]]
+name = "edge-server"
+path = "src/main.rs"
+
+# Matched to `claviron-full`, so a measurement taken against one is comparable
+# with the other. An optimisation level that differs between two sides of a
+# comparison makes the comparison say nothing.
+[profile.dev]
+codegen-units = 256
+debug = 1
+incremental = true
+lto = false
+opt-level = 1
+panic = "abort"
+
+[profile.release]
+codegen-units = 1
+debug = 0
+incremental = false
+lto = "thin"
+opt-level = 3
+panic = "unwind"
+strip = true

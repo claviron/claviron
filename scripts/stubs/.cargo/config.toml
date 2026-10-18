@@ -1,0 +1,167 @@
+# AppServer's Orbit shared-memory geometry.
+#
+# Every value here is read at build time (`option_env!`) by a crate in
+# AppServer's dependency graph and fixes the shape of a segment in the `appsrv`
+# fleet. YAML and reload cannot change them. A binary built with one shape
+# refuses to open a segment that has another, so changing any value that is
+# not marked "not geometry" means:
+#
+#   stop the server
+#   sudo orbit clear appsrv --all --yes      (the server runs as root, so do its segments)
+#   rebuild, start
+#
+# Clearing kind 198 signs every player out; see "Sessions" below.
+#
+# The list is complete: `option_env!` names in the resolved graph were
+# collected and compared with this file on 2026-10-04. A value equal to the
+# library default is still written down, so the shape is declared here and a
+# changed default upstream is not taken silently. Three values are below the
+# library default and are marked as such.
+[env]
+
+# ── Fleet ────────────────────────────────────────────────────────────────────
+# Seats in the fleet, master included: 17 seats 16 workers. Every per-node
+# ring and table below has this many lanes. `--workers` chooses how many are
+# used; it cannot exceed this.
+CLAVIRON_FLEET_CAPACITY = { value = "17", force = true }
+
+# ── Events ───────────────────────────────────────────────────────────────────
+# Fleet ring (kind 220): service events between master and workers.
+ORBIT_EVENT_RING_CAPACITY = { value = "1024", force = true }
+ORBIT_EVENT_RING_PAYLOAD_CAPACITY = { value = "512", force = true }
+
+# Application ring (kind 234): what PHP publishes and receives, for instance
+# `claviron_event_publish_shared`. One event, topic and header included, may be
+# at most the payload capacity.
+ORBIT_APP_EVENT_RING_CAPACITY = { value = "256", force = true }
+ORBIT_APP_EVENT_RING_PAYLOAD_CAPACITY = { value = "8192", force = true }
+
+# Invocation ring (kind 241): calls from one fleet member to another.
+ORBIT_INVOKE_RING_CAPACITY = { value = "256", force = true }
+ORBIT_INVOKE_RING_PAYLOAD_CAPACITY = { value = "8192", force = true }
+
+# ── Sessions ─────────────────────────────────────────────────────────────────
+# Auth state (kind 198): the table behind `crates/auth`, one slot per live
+# session or replay record. This is the ceiling on players signed in at once
+# across the fleet; at the ceiling a new session is refused (`StateFull`), it
+# does not evict an old one. Slots free as sessions lapse (`auth.yaml`: idle,
+# lifetime, max_sessions_per_user).
+#
+# 1024 is the library default and what Claviron Downstream has run with. It is a
+# capacity decision, not a tuning knob: raise it before the audience needs it.
+# The table survives a restart, which is what keeps players signed in across
+# one; clearing it to resize signs everyone out.
+ORBIT_AUTH_STATE_CAPACITY = { value = "1024", force = true }
+
+# ── Cache ────────────────────────────────────────────────────────────────────
+# Orbit cache stores (`cache.yaml`): each process keeps its own copy and these
+# two rings carry the mutations and their payloads to the others.
+ORBIT_CACHE_MUTATION_RING_CAPACITY = { value = "1024", force = true }
+ORBIT_CACHE_MUTATION_RING_PAYLOAD_CAPACITY = { value = "1024", force = true }
+ORBIT_CACHE_PAYLOAD_RING_CAPACITY = { value = "1024", force = true }
+ORBIT_CACHE_PAYLOAD_RING_PAYLOAD_CAPACITY = { value = "4096", force = true }
+
+# ── Locks ────────────────────────────────────────────────────────────────────
+# Fleet locks: state table (kind 228) and its event ring (kind 229).
+ORBIT_LOCK_STATE_CAPACITY = { value = "256", force = true }
+ORBIT_LOCK_STATE_PAYLOAD_CAPACITY = { value = "960", force = true }
+ORBIT_LOCK_EVENT_RING_CAPACITY = { value = "1024", force = true }
+ORBIT_LOCK_EVENT_RING_PAYLOAD_CAPACITY = { value = "1024", force = true }
+
+# ── Counters and cells ───────────────────────────────────────────────────────
+# The two keyed tables every process opens at boot. Capacity is a power of two
+# and the key and text maxima size every slot.
+#
+# Below the library default (counters 1024, cells 4096). Nothing in Claviron Downstream
+# writes to either today: PHP calls no `claviron_counter_*` or `claviron_cell_*`
+# function. Raise these before something starts keying them per player.
+ORBIT_COUNTER_CAPACITY = { value = "256", force = true }
+ORBIT_COUNTER_KEY_MAX = { value = "240", force = true }
+ORBIT_CELL_CAPACITY = { value = "256", force = true }
+ORBIT_CELL_TEXT_CAPACITY = { value = "1024", force = true }
+ORBIT_CELL_TEXT_MAX = { value = "240", force = true }
+
+# ── Byte streams ─────────────────────────────────────────────────────────────
+# Fleet byte streams (kind 246): streams one node may hold open at once, and
+# the bytes each direction holds before its writer waits.
+#
+# Below the library default of 256 lanes. Nothing in Claviron Downstream opens a stream
+# today: browser WebSockets (wallet stream, broadcast) run on the socket
+# itself. The table is part of the build through claviron-broadcast, so its
+# shape is declared; raise the lanes before something starts holding streams.
+ORBIT_STREAM_LANE_CAPACITY = { value = "16", force = true }
+ORBIT_STREAM_BUFFER_BYTES = { value = "65536", force = true }
+
+# ── Orbit transport ──────────────────────────────────────────────────────────
+# An HTTP exchange between an edge worker and an application process on the
+# same host: heads on the inbox ring (kind 202), bodies on a duplex stream
+# slot (kind 211). Claviron Downstream serves PHP in process and routes nothing this
+# way, but the tables are part of the build. These are the library defaults,
+# which is what any application process built separately would map.
+ORBIT_TRANSPORT_FLEET_CAPACITY = { value = "32", force = true }
+ORBIT_TRANSPORT_INBOX_CAPACITY = { value = "128", force = true }
+ORBIT_TRANSPORT_INBOX_PAYLOAD_CAPACITY = { value = "17408", force = true }
+ORBIT_TRANSPORT_LANE_CAPACITY = { value = "128", force = true }
+ORBIT_TRANSPORT_BUFFER_BYTES = { value = "65536", force = true }
+
+# ── Static files ─────────────────────────────────────────────────────────────
+# File arena: small bodies, identity and encoded, cached once for the fleet.
+# Slots name records (a power of two); bytes are the ring that holds them. A
+# record larger than a quarter of the ring is refused whole. Shared memory is
+# backed as it is touched, so the ring costs what it holds, not its size.
+#
+# Above the library default (4096 slots, 64 MiB). On Linux in a container,
+# /dev/shm must be at least ORBIT_ARENA_BYTES.
+ORBIT_ARENA_SLOTS = { value = "32768", force = true }
+ORBIT_ARENA_BYTES = { value = "1073741824", force = true }
+
+# Not geometry: the file service's threshold. Below it a file is cached whole
+# in the arena, at or above it the disk tier serves it. A record holds the body
+# and its encoded twin, so this may be at most an eighth of ORBIT_ARENA_BYTES;
+# the build refuses a pair that disagrees. Library default 1 MiB; 4 MiB keeps
+# the SPA's bundled scripts in the arena.
+CLAVIRON_FILES_MAX_CACHE_BODY_BYTES = { value = "4194304", force = true }
+
+# ── Upstreams ────────────────────────────────────────────────────────────────
+# Origin state (kind 222): keyed origin-state slots for the fleet, a power of
+# two. Not a connection limit.
+ORBIT_UPSTREAM_STATE_CAPACITY = { value = "1024", force = true }
+
+# Name resolution (kind 248): bindings, the bytes one serialized membership
+# may take, canonical address slots per binding, and concurrent owners per
+# slot. A full owner registration refuses new IO.
+ORBIT_UPSTREAM_RESOLUTION_CAPACITY = { value = "16", force = true }
+ORBIT_UPSTREAM_RESOLUTION_PAYLOAD_CAPACITY = { value = "8192", force = true }
+ORBIT_UPSTREAM_RESOLUTION_ADDRESS_CAPACITY = { value = "16", force = true }
+ORBIT_UPSTREAM_RESOLUTION_OWNER_CAPACITY = { value = "64", force = true }
+
+# Not geometry: spare header entries reserved per upstream request beyond the
+# computed rewrites. Zero still reserves what is needed. Fleet peers need not
+# share it.
+CLAVIRON_UPSTREAM_HEADER_RESERVE = { value = "0", force = true }
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+# Log ring: records kept per node lane before the oldest is overwritten, the
+# bytes in one frame, and the most frames one record may span. A longer record
+# is truncated and marked.
+ORBIT_LOG_RING_CAPACITY = { value = "1024", force = true }
+ORBIT_LOG_RING_PAYLOAD_CAPACITY = { value = "2048", force = true }
+ORBIT_LOG_RECORD_MAX_FRAMES = { value = "32", force = true }
+
+# ── TLS sessions ─────────────────────────────────────────────────────────────
+# rustls session storage shared by the workers (kind 231), so a resumed
+# handshake lands on any of them: sets x ways entries, and the maxima that
+# size each one.
+ORBIT_RUSTLS_SESSION_SET_COUNT = { value = "256", force = true }
+ORBIT_RUSTLS_SESSION_WAYS = { value = "8", force = true }
+ORBIT_RUSTLS_SESSION_DOMAIN_CAPACITY = { value = "64", force = true }
+ORBIT_RUSTLS_SESSION_KEY_CAPACITY = { value = "64", force = true }
+ORBIT_RUSTLS_SESSION_VALUE_CAPACITY = { value = "16384", force = true }
+
+# ── Metrics (not compiled) ───────────────────────────────────────────────────
+# Read by orbit-metrics, which is not in AppServer's build: the `metrics`
+# feature is off, so these two have no effect today. They are kept so the
+# rings have a declared shape the day the feature is turned on.
+ORBIT_METRIC_SNAPSHOT_RING_CAPACITY = { value = "1024", force = true }
+ORBIT_KEYED_METRIC_RING_CAPACITY = { value = "4096", force = true }
+

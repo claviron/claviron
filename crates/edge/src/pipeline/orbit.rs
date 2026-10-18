@@ -1,0 +1,571 @@
+//! Dispatch to an application process over Orbit shared memory.
+//!
+//! The same prefix-layer shape PHP and JavaScript routes use, and the same
+//! host pipeline around it — what differs is only where the application is.
+//! PHP runs in this worker, JavaScript runs in this worker, and this one runs
+//! in a process of its own that the edge reaches by name.
+//!
+//! ## What the edge knows
+//!
+//! The destination fleet and application name. Not a port, not a socket path, not an
+//! interpreter, not a virtual environment, and not how many processes answer
+//! to it. It reads the lanes serving that name, picks the idlest — a depth it
+//! reads rather than a load anybody reports — and writes.
+//!
+//! ## Streaming, both ways
+//!
+//! The request body is pumped into the exchange's stream while the reply is
+//! being waited for, and the response body is handed to the client as a stream
+//! rather than collected. Both matter: the first is what lets an application
+//! answer a large upload with 413 without reading it, and the second is what
+//! makes SSE and chunked output arrive as they are produced.
+
+use std::future::Future;
+use std::sync::Arc;
+
+use axum::extract::{Request, State};
+use axum::middleware::Next;
+use axum::response::{IntoResponse, Response};
+use axum::{Router, middleware};
+use claviron_http::ext::{ConnCtx, PathPrefix};
+use claviron_http::policy::{
+    BodyNeed, HttpPolicy, RequestPolicy, RequestPolicyOverride,
+};
+use claviron_orbit::transport::client::{LentRead, LentWrite};
+use claviron_orbit::transport::{
+    Exchange, ExchangeReply, HttpVersion, Message, MessageReader,
+    TRANSPORT_BUFFER_BYTES, TransportService, write_message,
+};
+use claviron_runtime::{AppState, FleetName};
+use http::StatusCode;
+use http_body_util::BodyExt;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+
+#[derive(Clone)]
+struct OrbitRoute {
+    path: Option<PathPrefix>,
+    fleet_name: FleetName,
+    application: Arc<str>,
+    transport: Option<Arc<TransportService>>,
+    requests: RequestPolicyOverride,
+    /// This worker's shutdown, at which an event stream ends its own side
+    /// ([`claviron_http::body::EndsAtShutdown`]).
+    shutdown: tokio_util::sync::CancellationToken,
+}
+
+async fn dispatch(
+    State(route): State<OrbitRoute>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if route
+        .path
+        .as_ref()
+        .is_some_and(|prefix| !prefix.has_path_segment(request.uri().path()))
+    {
+        return next.run(request).await;
+    }
+
+    let Some(transport) = route.transport.as_ref() else {
+        return unavailable(
+            "the Orbit transport is not registered in this process",
+        );
+    };
+    let client = match transport.client(route.fleet_name) {
+        Ok(client) => client,
+        Err(error) => {
+            return unavailable(&format!(
+                "destination fleet '{}' is unreachable: {error}",
+                route.fleet_name
+            ));
+        }
+    };
+
+    let websocket =
+        claviron_websocket::is_h1_header_upgrade(&request, "websocket");
+    let (mut parts, body) = request.into_parts();
+    // The edge's policy for this host, narrowed by this application's block.
+    let policy = parts
+        .extensions
+        .get::<HttpPolicy>()
+        .map(|policy| policy.requests)
+        .unwrap_or(RequestPolicy::unlimited())
+        .narrow(&route.requests);
+    // `Arc<ConnCtx>` is what the transports insert; asked for bare, it was
+    // never there and the application saw no addresses.
+    let connection = parts.extensions.get::<Arc<ConnCtx>>().cloned();
+    // What completing an upgrade needs, taken before the parts are spent:
+    // Hyper's handle on the connection, the owner of the session that
+    // outlives this request, and the key the handshake answers.
+    let upgrade = websocket.then(|| Upgrade {
+        on_upgrade: parts.extensions.remove::<hyper::upgrade::OnUpgrade>(),
+        sessions: parts
+            .extensions
+            .get::<claviron_http::session::SessionSpawner>()
+            .cloned(),
+        key: parts
+            .headers
+            .get(http::header::SEC_WEBSOCKET_KEY)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned),
+    });
+    let exchange = Exchange {
+        // The caller fills these three; they are its own address book.
+        correlation: 0,
+        origin: 0,
+        body: None,
+        method: parts.method.as_str().to_owned(),
+        scheme: claviron_http::ext::request_scheme(&parts.extensions)
+            .map_or_else(
+                || "http".to_owned(),
+                |scheme| scheme.as_str().to_owned(),
+            ),
+        version: HttpVersion::from(parts.version),
+        // ASGI carries both, so both cross: `path` is decoded and `raw_path`
+        // is what arrived. Deciding which the application may see is not this
+        // layer's to make.
+        path: percent_decoded(parts.uri.path()),
+        raw_path: parts.uri.path().as_bytes().to_vec(),
+        query: parts.uri.query().unwrap_or_default().as_bytes().to_vec(),
+        headers: exchange_headers(&parts.uri, &parts.headers),
+        client: connection.as_ref().map(|connection| connection.remote),
+        server: connection.as_ref().map(|connection| {
+            std::net::SocketAddr::new(
+                connection.local_ip,
+                connection.local_port,
+            )
+        }),
+        upgrade: websocket,
+    };
+
+    // Known empty — a GET, or a declared length of zero — means there is
+    // nothing to pump, and the direction can end before the application looks.
+    // A WebSocket keeps it open: once accepted, its messages travel on it.
+    let body_follows = !http_body::Body::is_end_stream(&body);
+    let pending = match client.send(
+        &route.application,
+        exchange,
+        body_follows || websocket,
+    ) {
+        Ok(pending) => pending,
+        // Capacity or absence, never time: nothing has run, so this is a 503
+        // and the client may try again.
+        Err(error) => {
+            tracing::debug!(application = %route.application, "exchange refused: {error}");
+            return unavailable(&error.to_string());
+        }
+    };
+
+    // The request body travels while the reply is being waited for. A reply
+    // that starts before the body finishes is a feature of the slot, not a
+    // case to handle.
+    let correlation = pending.correlation;
+    let (mut request_body, response_body, reply) = pending.split();
+    let mut to_application = None;
+    if websocket {
+        to_application = Some(request_body);
+    } else if body_follows {
+        // The application takes pieces as they come; the policy may still
+        // say to take the body whole first — the direction then carries it in
+        // one write.
+        let declared = http_body::Body::size_hint(&body).exact();
+        let whole = policy
+            .delivery(BodyNeed::Stream, declared, false)
+            .takes_whole(declared);
+        tokio::spawn(async move {
+            let mut body = body;
+            if whole {
+                match body.collect().await {
+                    Ok(collected) => {
+                        if request_body
+                            .write_all(&collected.to_bytes())
+                            .await
+                            .is_ok()
+                        {
+                            let _ = request_body.shutdown().await;
+                        }
+                    }
+                    Err(_) => request_body.reset(),
+                }
+                return;
+            }
+            while let Some(frame) = body.frame().await {
+                // A read that fails — too large, stalled, the client gone —
+                // cuts the body short, and a short body must not end the way
+                // a whole one does.
+                let Ok(frame) = frame else {
+                    request_body.reset();
+                    return;
+                };
+                let Ok(chunk) = frame.into_data() else { continue };
+                if request_body.write_all(&chunk).await.is_err() {
+                    return;
+                }
+            }
+            // Ending the direction is how the application learns the body is
+            // complete.
+            let _ = request_body.shutdown().await;
+        });
+    } else {
+        // Already ended by `send`; the half goes straight back to its slot.
+        drop(request_body);
+    }
+
+    let head = match reply.head().await {
+        Ok(head) => head,
+        // The application took the request and did not answer: its process is
+        // gone. That is a gateway failure, not a refusal to admit.
+        Err(error) => {
+            tracing::debug!(correlation, "no reply: {error}");
+            return (
+                StatusCode::BAD_GATEWAY,
+                [(http::header::CONNECTION, "close")],
+            )
+                .into_response();
+        }
+    };
+
+    if let Some(upgrade) = upgrade
+        && head.status == StatusCode::SWITCHING_PROTOCOLS.as_u16()
+        && let Some(to_application) = to_application
+    {
+        return accept_websocket(
+            correlation,
+            &head,
+            upgrade,
+            to_application,
+            response_body,
+        );
+    }
+
+    let mut response = Response::builder().status(head.status);
+    for (name, value) in &head.headers {
+        let (Ok(name), Ok(value)) = (
+            http::HeaderName::from_bytes(name),
+            http::HeaderValue::from_bytes(value),
+        ) else {
+            tracing::debug!(
+                correlation,
+                "reply carries a header this edge cannot send"
+            );
+            continue;
+        };
+        response = response.header(name, value);
+    }
+
+    // Streamed, not collected: an event held back to fill a buffer is an event
+    // delivered late, and a response longer than memory is a response that
+    // must not be held in it.
+    //
+    // Read in pieces as large as the reply says it is, up to one window. The
+    // stream's own default is 4 KiB, which cut a 64 KiB body into sixteen
+    // reads — sixteen allocations, sixteen body frames, sixteen writes to the
+    // client — for bytes that were all in the ring at once. A reply that
+    // gives no length, an event stream, reads a window at a time and takes
+    // whatever has arrived.
+    let piece = reply_length(&head.headers)
+        .map_or(TRANSPORT_BUFFER_BYTES, |length| {
+            length.clamp(1, TRANSPORT_BUFFER_BYTES)
+        });
+    let body = axum::body::Body::from_stream(
+        tokio_util::io::ReaderStream::with_capacity(response_body, piece),
+    );
+    match response.body(body) {
+        // An event stream never ends on its own, so the drain would wait out
+        // its whole bound. The application process is not ours to stop, so
+        // the edge ends its side, as it does for an upstream origin; the
+        // application learns it as a client that left.
+        Ok(response) => claviron_http::body::ends_at_shutdown(
+            response.map(|body| body.map_err(Into::into).boxed_unsync()),
+            route.shutdown.clone().cancelled_owned(),
+        )
+        .map(axum::body::Body::new),
+        Err(error) => {
+            tracing::debug!(correlation, "reply could not be rebuilt: {error}");
+            (StatusCode::BAD_GATEWAY, [(http::header::CONNECTION, "close")])
+                .into_response()
+        }
+    }
+}
+
+/// What an accepted WebSocket needs from the request it arrived as.
+struct Upgrade {
+    on_upgrade: Option<hyper::upgrade::OnUpgrade>,
+    sessions: Option<claviron_http::session::SessionSpawner>,
+    key: Option<String>,
+}
+
+/// The application said 101: finish the handshake and hand the connection to
+/// a session that outlives this request.
+///
+/// The session is spawned before the 101 goes back, on the owner that joins it
+/// at shutdown, as the upgrade crate does for its own routes.
+fn accept_websocket(
+    correlation: u64,
+    head: &ExchangeReply,
+    upgrade: Upgrade,
+    to_application: LentWrite,
+    from_application: LentRead,
+) -> Response {
+    let (Some(on_upgrade), Some(sessions), Some(key)) =
+        (upgrade.on_upgrade, upgrade.sessions, upgrade.key)
+    else {
+        tracing::debug!(
+            correlation,
+            "accepted a WebSocket this connection cannot upgrade"
+        );
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    let mut response = Response::builder()
+        .status(StatusCode::SWITCHING_PROTOCOLS)
+        .header(http::header::UPGRADE, "websocket")
+        .header(http::header::CONNECTION, "Upgrade")
+        .header(
+            http::header::SEC_WEBSOCKET_ACCEPT,
+            claviron_websocket::websocket_accept_key(&key),
+        );
+    // What the application added — a chosen subprotocol, a cookie.
+    for (name, value) in &head.headers {
+        let (Ok(name), Ok(value)) = (
+            http::HeaderName::from_bytes(name),
+            http::HeaderValue::from_bytes(value),
+        ) else {
+            continue;
+        };
+        response = response.header(name, value);
+    }
+    let shutdown = sessions.clone();
+    let session = async move {
+        tokio::select! {
+            biased;
+            _ = shutdown.wait_graceful_shutdown() => {
+                let mut to_application = to_application;
+                let _ = to_application.shutdown().await;
+            }
+            upgraded = on_upgrade => match upgraded {
+                Ok(upgraded) => {
+                    serve_websocket(
+                        correlation,
+                        hyper_util::rt::TokioIo::new(upgraded),
+                        to_application,
+                        from_application,
+                        shutdown.wait_graceful_shutdown(),
+                    )
+                    .await;
+                }
+                Err(error) => tracing::debug!(
+                    correlation,
+                    "WebSocket upgrade failed: {error}"
+                ),
+            },
+        }
+    };
+    if let Err(error) = sessions.spawn(session) {
+        tracing::debug!(
+            correlation,
+            "WebSocket session was not started: {error}"
+        );
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    response.body(axum::body::Body::empty()).unwrap_or_else(|error| {
+        tracing::debug!(correlation, "101 could not be built: {error}");
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    })
+}
+
+/// Speak the WebSocket protocol with the client, and pass whole messages to
+/// and from the application as records on the slot.
+///
+/// Fragments are joined, pings answered and closes echoed here; the
+/// application sees text, binary and the close that ends them. Records from
+/// the application are read with a [`MessageReader`], which keeps its place
+/// when `select!` drops a read halfway, so both directions are served from
+/// this one task.
+/// Listener shutdown stops reads, completes a message already being forwarded,
+/// and sends a going-away close without awaiting either peer's close reply.
+/// It ends this exchange, not the destination application process.
+async fn serve_websocket<S, W, R>(
+    correlation: u64,
+    stream: S,
+    mut to_application: W,
+    mut from_application: R,
+    shutdown: impl Future<Output = ()>,
+) where
+    S: AsyncRead + AsyncWrite + Unpin,
+    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin,
+{
+    use fastwebsockets::{
+        FragmentCollector, Frame, OpCode, Payload, Role, WebSocket,
+    };
+
+    let mut socket = WebSocket::after_handshake(stream, Role::Server);
+    socket.set_auto_pong(true);
+    socket.set_auto_close(true);
+    let mut socket = FragmentCollector::new(socket);
+
+    let mut records = MessageReader::new();
+    tokio::pin!(shutdown);
+
+    loop {
+        tokio::select! {
+            biased;
+            _ = &mut shutdown => {
+                tracing::debug!(correlation, "Orbit WebSocket listener shutting down");
+                let _ = socket.write_frame(Frame::close(1001, b"")).await;
+                break;
+            }
+            frame = socket.read_frame() => {
+                let inbound = match frame {
+                    Ok(frame) => match frame.opcode {
+                        OpCode::Text => match String::from_utf8(frame.payload.to_vec()) {
+                            Ok(text) => Message::Text(text),
+                            Err(_) => Message::Close { code: 1007, reason: String::new() }
+                        },
+                        OpCode::Binary => Message::Binary(frame.payload.to_vec()),
+                        OpCode::Close => {
+                            let (code, reason) = close_details(&frame.payload);
+                            Message::Close { code, reason }
+                        }
+                        _ => continue
+                    },
+                    // The client is gone without a close: 1006 is the code
+                    // that says so, and it is never sent on the wire.
+                    Err(_) => Message::Close { code: 1006, reason: String::new() }
+                };
+                let closing = matches!(inbound, Message::Close { .. });
+                if write_message(&mut to_application, &inbound).await.is_err() || closing {
+                    break;
+                }
+            }
+            message = records.read(&mut from_application) => {
+                // A malformed record ends the session as the application's
+                // end would.
+                let sent = match message.ok().flatten() {
+                    Some(Message::Text(text)) => {
+                        socket.write_frame(Frame::text(Payload::Owned(text.into_bytes()))).await
+                    }
+                    Some(Message::Binary(bytes)) => {
+                        socket.write_frame(Frame::binary(Payload::Owned(bytes))).await
+                    }
+                    Some(Message::Close { code, reason }) => {
+                        let _ = socket.write_frame(Frame::close(code, reason.as_bytes())).await;
+                        break;
+                    }
+                    // The application ended without a close.
+                    None => {
+                        let _ = socket.write_frame(Frame::close(1011, b"")).await;
+                        break;
+                    }
+                };
+                if sent.is_err() {
+                    break;
+                }
+            }
+        }
+    }
+    let _ = to_application.shutdown().await;
+    tracing::debug!(correlation, "WebSocket session ended");
+}
+
+/// A close frame's code and reason; 1005 when it carries none.
+fn close_details(payload: &[u8]) -> (u16, String) {
+    if payload.len() < 2 {
+        return (1005, String::new());
+    }
+    let code = u16::from_be_bytes([payload[0], payload[1]]);
+    (code, String::from_utf8_lossy(&payload[2..]).into_owned())
+}
+
+/// The body length a reply declares, if it declares one.
+fn reply_length(headers: &[(Vec<u8>, Vec<u8>)]) -> Option<usize> {
+    let (_, value) = headers
+        .iter()
+        .find(|(name, _)| name.eq_ignore_ascii_case(b"content-length"))?;
+    std::str::from_utf8(value).ok()?.trim().parse().ok()
+}
+
+fn percent_decoded(path: &str) -> String {
+    percent_encoding::percent_decode_str(path).decode_utf8_lossy().into_owned()
+}
+
+// Admission has already validated authority. Orbit carries a path and headers,
+// not a URI authority field, so H2/H3 :authority must cross as Host. Absolute
+// HTTP/1 targets likewise retain their authority precedence over Host.
+fn exchange_headers(
+    uri: &http::Uri,
+    headers: &http::HeaderMap,
+) -> claviron_orbit::transport::Headers {
+    let authority = uri.authority();
+    let mut result =
+        Vec::with_capacity(headers.len() + usize::from(authority.is_some()));
+    if let Some(authority) = authority {
+        result.push((b"host".to_vec(), authority.as_str().as_bytes().to_vec()));
+    }
+    result.extend(headers.iter().filter_map(|(name, value)| {
+        if authority.is_some() && name == http::header::HOST {
+            return None;
+        }
+        Some((name.as_str().as_bytes().to_vec(), value.as_bytes().to_vec()))
+    }));
+    result
+}
+
+fn unavailable(reason: &str) -> Response {
+    tracing::debug!("orbit dispatch unavailable: {reason}");
+    (StatusCode::SERVICE_UNAVAILABLE, [(http::header::RETRY_AFTER, "1")])
+        .into_response()
+}
+
+#[cfg(test)]
+#[path = "../../tests/pipeline/orbit.rs"]
+mod tests;
+
+/// Mount one application, reached over shared memory, at a segment-safe
+/// prefix.
+pub fn build_application_router(
+    base: Router,
+    state: &AppState,
+    path: Option<PathPrefix>,
+    fleet_name: FleetName,
+    application: impl Into<Arc<str>>,
+    requests: RequestPolicyOverride,
+) -> Router {
+    let application = application.into();
+    let transport = state.registry_ref().resolve::<TransportService>();
+    match transport.as_ref() {
+        None => tracing::error!(
+            fleet_name = %fleet_name,
+            application = %application,
+            "an Orbit route is configured but the transport is not registered in this build"
+        ),
+        // Join here rather than at the first request. Clients join an
+        // destination fleet lazily so that a server routing to no
+        // application never creates segments — but this *is* a route to one,
+        // and this runs once per worker when its router is built. So the lane
+        // is there before the first request, and a fleet this process cannot
+        // reach is an error in the log at boot rather than a 503 at an unlucky
+        // moment.
+        Some(transport) => {
+            transport.track_target(fleet_name, &application);
+            if let Err(error) = transport.client(fleet_name) {
+                tracing::error!(
+                    fleet_name = %fleet_name,
+                    application = %application,
+                    "an Orbit route is configured but its fleet cannot be joined: {error}"
+                );
+            }
+        }
+    }
+    base.layer(middleware::from_fn_with_state(
+        OrbitRoute {
+            path,
+            fleet_name,
+            application,
+            transport,
+            requests,
+            shutdown: state.shutdown_token(),
+        },
+        dispatch,
+    ))
+}

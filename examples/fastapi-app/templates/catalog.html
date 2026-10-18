@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ title }} · page {{ page }}</title>
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/">FastApi Store</a>
+    <nav>
+      {% for section in sections %}
+      <a href="/c/{{ section | lower }}"{% if section == current %} class="active"{% endif %}>{{ section }}</a>
+      {% endfor %}
+    </nav>
+  </header>
+  <main>
+    <h1>{{ title }}</h1>
+    <p class="summary">Showing {{ items | length }} of {{ total }} products, sorted by {{ sort }}.</p>
+    <table class="catalog">
+      <thead>
+        <tr><th>SKU</th><th>Product</th><th>Category</th><th>Stock</th><th class="price">Price</th></tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+        <tr class="{{ loop.cycle('odd', 'even') }}{% if item.stock == 0 %} sold-out{% endif %}">
+          <td><code>{{ item.sku }}</code></td>
+          <td><a href="/p/{{ item.sku }}">{{ item.name }}</a><br><small>{{ item.blurb }}</small></td>
+          <td>{{ item.category }}</td>
+          <td>{% if item.stock %}{{ item.stock }}{% else %}<em>sold out</em>{% endif %}</td>
+          <td class="price">{{ "%.2f" | format(item.price) }} €</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </main>
+  <footer>Rendered for {{ client }} · page {{ page }}</footer>
+</body>
+</html>

@@ -1,0 +1,52 @@
+[package]
+name = "claviron-hyper"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Native Hyper-based HTTP/1.1 and HTTP/2 TCP transport for the Claviron edge"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["http", "http2", "hyper", "server", "claviron"]
+categories = ["web-programming::http-server", "asynchronous", "network-programming"]
+
+[features]
+default = ["tls"]
+tls = ["dep:claviron-tls", "dep:tokio-rustls"]
+acme = ["claviron-edge/acme"]
+metrics = ["claviron-http/metrics", "claviron-edge/metrics"]
+geoip = ["dep:claviron-geoip"]
+
+[dependencies]
+serde.workspace = true
+# internal
+claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
+claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+claviron-geoip = { version = "0.2.0-alpha.17", path = "../geoip", optional = true }
+claviron-types = { version = "0.2.0-alpha.17", path = "../types", features = ["ssl"] }
+claviron-tls = { version = "0.2.0-alpha.17", path = "../tls", optional = true }
+claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["server"] }
+claviron-edge = { version = "0.2.0-alpha.17", path = "../edge", features = ["server", "axum"] }
+# workspace
+tokio.workspace = true
+async-trait.workspace = true
+arc-swap.workspace = true
+futures-util.workspace = true
+hyper.workspace = true
+tokio-rustls = { workspace = true, optional = true }
+hyper-util.workspace = true
+tracing.workspace = true
+socket2 = { workspace = true }
+http.workspace = true
+http-body-util.workspace = true
+thiserror.workspace = true
+bytes.workspace = true
+
+[dev-dependencies]
+h2 = "0.4"
+tokio = { workspace = true, features = ["test-util"] }
+rcgen.workspace = true
+serde_yaml.workspace = true
+axum.workspace = true
+tempfile = "3"

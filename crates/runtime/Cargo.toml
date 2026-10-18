@@ -1,0 +1,41 @@
+[package]
+autotests = false
+name = "claviron-runtime"
+version.workspace = true
+publish.workspace = true
+edition = "2024"
+description = "Claviron runtime state, service lifecycle, configuration, and process-local events"
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["runtime", "services", "lifecycle", "claviron"]
+categories = ["asynchronous", "concurrency"]
+
+# NOTE: The generic composition kernel lives in `continuo`. This crate is
+# Claviron-specific glue: AppState, run-mode metadata, env snapshotting, and
+# the AppState-owned local callback dispatcher over Continuo's event primitive.
+
+[features]
+config-watch = ["continuo/config-watch"]
+
+[dependencies]
+claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
+tokio-util.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+libc.workspace = true
+continuo.workspace = true
+congif.workspace = true
+dotenw.workspace = true
+orbitive.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+
+[[test]]
+name = "env_scrub"
+path = "tests/env_scrub.rs"
+
+[[test]]
+name = "events"
+path = "tests/events.rs"

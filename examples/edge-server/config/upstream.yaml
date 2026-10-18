@@ -1,0 +1,240 @@
+# Named profiles -> application routes.
+# Every policy override belongs to its profile; omitted fields use the
+# library's typed built-in values and never inherit from another YAML block.
+# Capacity is required per profile; it is not inherited or a request queue.
+# Relative certificate/socket paths are relative to the application cwd.
+# tcp:// speaks H1 or H2C according to protocol; tls:// adds outbound TLS.
+# Hostname origins resolve through the resolver this application binds
+# (apps::resolver); a hostname with no bound resolver is a boot error.
+# Raw TCP/TLS passthrough belongs to a separate project.
+
+# Fleet metrics publication; ignored when the metrics feature is disabled.
+metrics:
+  interval: 1s  # Built-in default: publish once per second.
+  max_age: 5s   # Built-in default: older peer snapshots are stale.
+
+upstreams:
+  # Capacity is 16 per edge worker: sixty-four client connections spread over
+  # four workers. It holds where `SO_REUSEPORT` spreads them (Linux); on macOS
+  # every connection lands on one worker, which then waits for pool capacity.
+
+
+  # Benchmark: the same gufi process reached two ways, so the only difference
+  # between these profiles and the `orbit:` route beside them is the
+  # transport. Capacity is deliberately generous — this measures the hop, not
+  # a pool under pressure.
+  gufi_tcp:
+    protocol: h1
+    connection:
+      connect_timeout: 1s
+    authority: bench.local
+    origins:
+      - name: tcp
+        target: tcp://127.0.0.1:8100
+    capacity:
+      max_live: 16
+      max_idle: 16
+    # A benchmark origin comes and goes: the script stops one application and
+    # starts the next for every row. Without this the edge remembers the gap —
+    # the recovery probe backs off to a minute, and a run measures 503s while
+    # a healthy process sits there answering nobody. Production wants the long
+    # backoff; a bench does not.
+    health:
+      recovery_probe:
+        initial_backoff: 100ms
+        max_backoff: 500ms
+    lifecycle:
+      drain_timeout: 5s
+
+  # The same two targets over h2c, because h1 gives the socket one request
+  # per connection while the Orbit lane is multiplexed by construction.
+  # Comparing against h1 alone measures the weaker arrangement.
+  gufi_tcp_h2:
+    protocol: h2
+    connection:
+      connect_timeout: 1s
+    authority: bench.local
+    origins:
+      - name: tcp_h2c
+        target: tcp://127.0.0.1:8100
+    capacity:
+      max_live: 16
+      max_idle: 16
+    # A benchmark origin comes and goes: the script stops one application and
+    # starts the next for every row. Without this the edge remembers the gap —
+    # the recovery probe backs off to a minute, and a run measures 503s while
+    # a healthy process sits there answering nobody. Production wants the long
+    # backoff; a bench does not.
+    health:
+      recovery_probe:
+        initial_backoff: 100ms
+        max_backoff: 500ms
+    lifecycle:
+      drain_timeout: 5s
+
+  gufi_uds_h2:
+    protocol: h2
+    connection:
+      connect_timeout: 1s
+    authority: bench.local
+    origins:
+      - name: uds_h2c
+        target: unix:///tmp/gufi-bench.sock
+    capacity:
+      max_live: 16
+      max_idle: 16
+    # A benchmark origin comes and goes: the script stops one application and
+    # starts the next for every row. Without this the edge remembers the gap —
+    # the recovery probe backs off to a minute, and a run measures 503s while
+    # a healthy process sits there answering nobody. Production wants the long
+    # backoff; a bench does not.
+    health:
+      recovery_probe:
+        initial_backoff: 100ms
+        max_backoff: 500ms
+    lifecycle:
+      drain_timeout: 5s
+
+  gufi_uds:
+    protocol: h1
+    connection:
+      connect_timeout: 1s
+    authority: bench.local
+    origins:
+      - name: uds
+        target: unix:///tmp/gufi-bench.sock
+    capacity:
+      max_live: 16
+      max_idle: 16
+    # A benchmark origin comes and goes: the script stops one application and
+    # starts the next for every row. Without this the edge remembers the gap —
+    # the recovery probe backs off to a minute, and a run measures 503s while
+    # a healthy process sits there answering nobody. Production wants the long
+    # backoff; a bench does not.
+    health:
+      recovery_probe:
+        initial_backoff: 100ms
+        max_backoff: 500ms
+    lifecycle:
+      drain_timeout: 5s
+
+  # The same socket, cold: nothing is kept between requests, so each one pays a
+  # connect and a close. This is nginx's default in front of an application —
+  # an `upstream` block without `keepalive` — and so the arrangement most
+  # Python deployments actually run.
+  gufi_uds_cold:
+    protocol: h1
+    connection:
+      connect_timeout: 1s
+    authority: bench.local
+    origins:
+      - name: uds
+        target: unix:///tmp/gufi-bench.sock
+    capacity:
+      max_live: 16
+      max_idle: 0
+    # A benchmark origin comes and goes: the script stops one application and
+    # starts the next for every row. Without this the edge remembers the gap —
+    # the recovery probe backs off to a minute, and a run measures 503s while
+    # a healthy process sits there answering nobody. Production wants the long
+    # backoff; a bench does not.
+    health:
+      recovery_probe:
+        initial_backoff: 100ms
+        max_backoff: 500ms
+    lifecycle:
+      drain_timeout: 5s
+
+  # Four processes each, so a comparison can hold the process count equal.
+  # Note what this costs the socket side: one origin per process, written by
+  # hand. The Orbit route needs none of it — the lanes are read.
+  gufi_udsn:
+    protocol: h1
+    connection:
+      connect_timeout: 1s
+    authority: bench.local
+    origins:
+      - { name: uds_1, target: "unix:///tmp/gufi-bench-1.sock" }
+      - { name: uds_2, target: "unix:///tmp/gufi-bench-2.sock" }
+      - { name: uds_3, target: "unix:///tmp/gufi-bench-3.sock" }
+      - { name: uds_4, target: "unix:///tmp/gufi-bench-4.sock" }
+    # Fill-first, each edge worker from its own origin: a load that does not
+    # fill a process stays on as few as it needs, one per worker, and the rest
+    # sleep. An origin is full at `capacity.max_live`, and the next one takes
+    # the overflow. `round_robin` spreads every worker over every process —
+    # the arrangement that made more processes slower, not faster.
+    balance:
+      algorithm: first
+    capacity:
+      max_live: 16
+      max_idle: 16
+    # A benchmark origin comes and goes: the script stops one application and
+    # starts the next for every row. Without this the edge remembers the gap —
+    # the recovery probe backs off to a minute, and a run measures 503s while
+    # a healthy process sits there answering nobody. Production wants the long
+    # backoff; a bench does not.
+    health:
+      recovery_probe:
+        initial_backoff: 100ms
+        max_backoff: 500ms
+    lifecycle:
+      drain_timeout: 5s
+
+  gufi_tcpn:
+    protocol: h1
+    connection:
+      connect_timeout: 1s
+    authority: bench.local
+    origins:
+      - { name: tcp_1, target: "tcp://127.0.0.1:8101" }
+      - { name: tcp_2, target: "tcp://127.0.0.1:8102" }
+      - { name: tcp_3, target: "tcp://127.0.0.1:8103" }
+      - { name: tcp_4, target: "tcp://127.0.0.1:8104" }
+    # Fill-first, each edge worker from its own origin: a load that does not
+    # fill a process stays on as few as it needs, one per worker, and the rest
+    # sleep. An origin is full at `capacity.max_live`, and the next one takes
+    # the overflow. `round_robin` spreads every worker over every process —
+    # the arrangement that made more processes slower, not faster.
+    balance:
+#      algorithm: first
+      algorithm: round-robin
+    capacity:
+      max_live: 16
+      max_idle: 16
+    # A benchmark origin comes and goes: the script stops one application and
+    # starts the next for every row. Without this the edge remembers the gap —
+    # the recovery probe backs off to a minute, and a run measures 503s while
+    # a healthy process sits there answering nobody. Production wants the long
+    # backoff; a bench does not.
+    health:
+      recovery_probe:
+        initial_backoff: 100ms
+        max_backoff: 500ms
+    lifecycle:
+      drain_timeout: 5s
+
+apps:
+
+  # Benchmark: one catch-all each, so the host's every path reaches gufi and
+  # the only difference from the `orbit:` route beside it is the transport.
+  gufi_tcp:
+    routes:
+      - profile: gufi_tcp
+  gufi_uds:
+    routes:
+      - profile: gufi_uds
+  gufi_uds_cold:
+    routes:
+      - profile: gufi_uds_cold
+  gufi_tcp_h2:
+    routes:
+      - profile: gufi_tcp_h2
+  gufi_uds_h2:
+    routes:
+      - profile: gufi_uds_h2
+  gufi_udsn:
+    routes:
+      - profile: gufi_udsn
+  gufi_tcpn:
+    routes:
+      - profile: gufi_tcpn
