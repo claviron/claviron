@@ -1,6 +1,6 @@
 [package]
 name = "claviron"
-keywords = ["application-server", "runtime", "http3", "embedded", "shared-memory"]
+keywords = ["application-server", "runtime", "http3", "php", "shared-memory"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming", "concurrency"]
 authors = ["iadev09 <iadev09@claviron.dev>"]
 description = "Embeddable Rust runtime and server fabric for fleet-aware application servers"
