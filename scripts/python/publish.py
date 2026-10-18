@@ -69,9 +69,9 @@ def write_json(path, data):
 
 
 def fingerprint(root):
-    """Require a fixed clean checkout; include the ignored Cargo lockfile too."""
+    """Require a fixed clean checkout for preparation, including its Cargo lockfile."""
     if run(root, "git", "status", "--porcelain", "--untracked-files=all").strip():
-        raise PublishError("Commit or remove working-tree changes before preparing/publishing.")
+        raise PublishError("Commit or remove working-tree changes before preparing.")
     revision = run(root, "git", "rev-parse", "HEAD").strip()
     lock = root / "Cargo.lock"
     return {
@@ -417,14 +417,14 @@ class Publisher:
         self.save()
 
     def publish(self, packages, order):
-        source = fingerprint(self.root)
+        # Publication uses the prepared bytes and metadata, not the current checkout.
         # Preflight every artifact before sending the first one.
         for name in order:
             package = packages[name]
             entry = self.entry(name, package["version"])
             if entry.get("published"):
                 continue
-            self.artifact(name, package["version"], source)
+            self.artifact(name, package["version"])
             if entry.get("attempt"):
                 raise PublishError(f"{name}: previous upload is {entry['attempt']} but not indexed. No automatic resend; reconcile with crates.io first.")
         token = None
@@ -435,14 +435,12 @@ class Publisher:
                 continue
             token = token or cargo_token()
             while True:
-                if fingerprint(self.root) != source:
-                    raise PublishError("Source changed during publication; stopped.")
                 retry_at = entry.get("retry_at")
                 if retry_at and retry_at > time.time():
                     remaining = retry_at - time.time()
                     print(f"Rate limited: waiting until {datetime.fromtimestamp(retry_at, timezone.utc).isoformat()} ({remaining:.0f}s)", flush=True)
                     time.sleep(remaining)
-                content = self.artifact(name, version, source)
+                content = self.artifact(name, version)
                 entry["attempt"] = "uncertain"
                 self.save()  # Durable before the network write, including Ctrl-C/crash.
                 print(f"Uploading: {name}@{version}", flush=True)
@@ -478,11 +476,11 @@ class Publisher:
                 print(f"Published: {name}@{version}", flush=True)
                 break
 
-    def artifact(self, name, version, source):
+    def artifact(self, name, version):
         entry = self.entry(name, version)
         path = self.directory / f"{name}-{version}.crate"
-        if entry.get("source") != source or not path.exists() or not entry.get("metadata"):
-            raise PublishError(f"{name}@{version}: run prepare for this checkout first.")
+        if not entry.get("source") or not path.exists() or not entry.get("metadata"):
+            raise PublishError(f"{name}@{version}: run prepare first.")
         content = path.read_bytes()
         if digest(content) != entry.get("sha256"):
             raise PublishError(f"{path.name}: artifact checksum changed. Nothing resent.")

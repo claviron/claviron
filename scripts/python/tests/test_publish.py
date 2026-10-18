@@ -188,6 +188,26 @@ version = "2"
             self.assertEqual(sleep.call_count, 1)
             self.assertTrue(app.entry("demo", "1.0.0")["published"])
 
+    @patch.object(publisher, "fingerprint", side_effect=AssertionError("Publication must not inspect the checkout"))
+    @patch.object(publisher, "cargo_token", return_value="not-a-real-token")
+    def test_prepared_upload_does_not_depend_on_current_checkout(self, *_):
+        record = {"vers": "1.0.0", "cksum": publisher.digest(b"prepared"), "yanked": False}
+        registry = FakeRegistry([
+            (200, headers(), b"{}"),
+            (200, headers(), json.dumps(record).encode()),
+        ])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = self.prepare_fake(root, registry)
+            (root / "Cargo.toml").write_text("Uncommitted changes after preparation")
+            (root / "Cargo.lock").write_text("Changed lockfile after preparation")
+            with patch.object(publisher.subprocess, "run", side_effect=AssertionError("No Git or Cargo commands")):
+                app.publish({"demo": package("demo")}, ["demo"])
+            self.assertTrue(app.entry("demo", "1.0.0")["published"])
+            self.assertEqual(registry.calls[0][0][1], publisher.upload_body(
+                app.entry("demo", "1.0.0")["metadata"], b"prepared",
+            ))
+
     @patch.object(publisher, "fingerprint", return_value={"revision": "fixed"})
     @patch.object(publisher, "cargo_token", return_value="not-a-real-token")
     def test_uncertain_and_accepted_unindexed_uploads_are_never_resent(self, *_):
