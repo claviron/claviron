@@ -361,8 +361,7 @@ standards. Their identifiers are stable search keys across code and documentatio
 
 ## Development status
 
-Claviron is in alpha. This repository contains the implementation; the current
-crates.io package is a name-reservation placeholder.
+Claviron is in alpha and available on [crates.io](https://crates.io/crates/claviron).
 
 APIs and configuration may change between alpha releases. Backward compatibility
 is not guaranteed.
