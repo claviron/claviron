@@ -2,14 +2,16 @@
 name = "claviron-laravel"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Native Laravel adapters for Claviron authentication, broadcasting, configuration, and console execution"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
 include = [
     "/src/**/*.rs",
+    "/tests/**",
+    "/php/tests/**",
     "/README.md",
     "/php/composer.json",
     "/php/README.md",

@@ -5,7 +5,7 @@
 # is involved.
 
 # Language and style edition
-edition = "2024"                    # Parse as Rust 2024 when rustfmt runs outside Cargo
+edition.workspace= true                    # Parse as Rust 2024 when rustfmt runs outside Cargo
 style_edition = "2024"              # 2024 style rules, stated rather than inherited from `edition`
 
 # Whitespace

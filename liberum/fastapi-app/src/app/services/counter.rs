@@ -24,8 +24,8 @@
 //! service at all:
 //!
 //! ```python
-//! import claviron
-//! claviron.counter("hits").increment()
+//! import gufi
+//! gufi.counter("hits").increment()
 //! ```
 //!
 //! What the service adds is its lifecycle. The master (or a single process)
@@ -48,7 +48,7 @@ use claviron::{
 /// Where the count is kept between runs, under the application root.
 const COUNTER_FILE: &str = "storage/counter";
 
-/// The key in the fleet's counter table; `claviron.counter("hits")` in Python.
+/// The key in the fleet's counter table; `gufi.counter("hits")` in Python.
 const KEY: &str = "hits";
 
 #[derive(Default)]

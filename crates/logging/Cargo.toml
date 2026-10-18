@@ -2,13 +2,13 @@
 name = "claviron-logging"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Process diagnostics and fleet-buffered log channels for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["claviron", "logging", "tracing", "observability", "otlp"]
 categories = ["development-tools::debugging", "asynchronous"]
 # Tests live under tests/ and are included by their modules.

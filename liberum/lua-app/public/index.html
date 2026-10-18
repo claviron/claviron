@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claviron · Lua</title>
+<style>
+  :root { --bg: #fbfaf7; --fg: #1d1c1a; --muted: #6b675f; --line: #e3dfd6; --accent: #2f5d8a; --code: #f1eee7; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151514; --fg: #ecebe6; --muted: #9b978d; --line: #2c2b28; --accent: #7fb0dd; --code: #1f1e1c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 48px 16px 80px; }
+  h1 { font-size: 28px; margin: 0 0 4px; }
+  .lede { color: var(--muted); margin: 0 0 36px; }
+  section { border-top: 1px solid var(--line); padding: 22px 0; }
+  h2 { font-size: 17px; margin: 0 0 4px; }
+  h2 code { font-weight: 600; }
+  p { margin: 0 0 12px; color: var(--muted); }
+  code, pre, textarea, input { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  input, textarea { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+  textarea { width: 100%; min-height: 72px; resize: vertical; margin-bottom: 8px; }
+  button { padding: 8px 14px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent); color: var(--bg); font: inherit; font-size: 14px; cursor: pointer; }
+  pre { background: var(--code); padding: 12px; border-radius: 6px; overflow-x: auto; margin: 10px 0 0; min-height: 2.5em; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Lua on Claviron</h1>
+  <p class="lede">A Lua 5.5 application loaded once per worker and woken by requests — routed by <code>claviron.router</code>, served under <code>/lua</code>.</p>
+
+  <section>
+    <h2><code>GET /lua</code></h2>
+    <p>The request as the application sees it. <code>served</code> counts this worker's requests: state stays between them.</p>
+    <button data-get="/lua">Send</button>
+    <pre id="out-info"></pre>
+  </section>
+
+  <section>
+    <h2><code>GET /lua/hello/{name}</code></h2>
+    <p>A path parameter.</p>
+    <div class="row"><input id="name" value="world" aria-label="name"><button id="hello">Send</button></div>
+    <pre id="out-hello"></pre>
+  </section>
+
+  <section>
+    <h2><code>GET /lua/count</code></h2>
+    <p>A reply whose body is a function: each call is one piece, sent as it is made.</p>
+    <button id="count">Stream</button>
+    <pre id="out-count"></pre>
+  </section>
+
+  <section>
+    <h2><code>GET /lua/db/{n}</code></h2>
+    <p>SQL with <code>claviron.db</code>, on the server's own PostgreSQL pool: a series of <code>n</code> rows, each value typed as Lua holds it.</p>
+    <div class="row"><input id="db-n" value="5" aria-label="rows"><button id="db">Query</button></div>
+    <pre id="out-db"></pre>
+  </section>
+
+  <section>
+    <h2><code>POST /lua/echo</code></h2>
+    <p>The request body, read with <code>request:body()</code> and decoded by <code>claviron.json</code>.</p>
+    <textarea id="echo-body" aria-label="JSON body">{"order": 7, "items": ["tea", "bread"], "paid": true}</textarea>
+    <button id="echo">Send</button>
+    <pre id="out-echo"></pre>
+  </section>
+
+  <section>
+    <h2><code>POST /lua/words</code></h2>
+    <p>Words and numbers in a text, found with <code>claviron.regex</code> — Rust's regex, which never backtracks.</p>
+    <textarea id="words-body" aria-label="text">Lua is small, Lua is fast; 5.5 came out in 2025 and Lua keeps its 30 years of simplicity.</textarea>
+    <button id="words">Send</button>
+    <pre id="out-words"></pre>
+  </section>
+  <section>
+    <h2><code>wss:// /lua/socket</code></h2>
+    <p>A chat among the sockets of one worker: the Lua state is shared, so a table holds who is connected. <code>/who</code> asks how many; open a second tab to talk to it.</p>
+    <div class="row"><button id="connect">Connect</button><input id="line" placeholder="message or /who" aria-label="message" disabled><button id="say" disabled>Send</button></div>
+    <pre id="out-socket"></pre>
+  </section>
+</main>
+<script>
+  const show = (id, text) => { document.getElementById(id).textContent = text; };
+  const pretty = async (response) => {
+    const text = await response.text();
+    try { return `${response.status}\n` + JSON.stringify(JSON.parse(text), null, 2); }
+    catch { return `${response.status}\n${text}`; }
+  };
+  const run = async (id, request) => {
+    show(id, "…");
+    try { show(id, await pretty(await request())); }
+    catch (error) { show(id, String(error)); }
+  };
+
+  document.querySelector("[data-get='/lua']").onclick = () =>
+    run("out-info", () => fetch("/lua?from=page"));
+  document.getElementById("hello").onclick = () =>
+    run("out-hello", () => fetch("/lua/hello/" + encodeURIComponent(document.getElementById("name").value || "world")));
+  document.getElementById("db").onclick = () =>
+    run("out-db", () => fetch("/lua/db/" + encodeURIComponent(document.getElementById("db-n").value || "5")));
+  document.getElementById("echo").onclick = () =>
+    run("out-echo", () => fetch("/lua/echo", { method: "POST", body: document.getElementById("echo-body").value }));
+  document.getElementById("words").onclick = () =>
+    run("out-words", () => fetch("/lua/words", { method: "POST", body: document.getElementById("words-body").value }));
+
+  document.getElementById("count").onclick = async () => {
+    const out = document.getElementById("out-count");
+    out.textContent = "";
+    const started = performance.now();
+    const response = await fetch("/lua/count");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const ms = Math.round(performance.now() - started);
+      out.textContent += `+${ms}ms  ${decoder.decode(value, { stream: true })}`;
+    }
+  };
+  let socket = null;
+  const log = (line) => {
+    const out = document.getElementById("out-socket");
+    out.textContent += line + "\n";
+    out.scrollTop = out.scrollHeight;
+  };
+  const input = document.getElementById("line");
+  const say = document.getElementById("say");
+  const send = () => {
+    if (socket && input.value) { socket.send(input.value); input.value = ""; }
+  };
+  document.getElementById("connect").onclick = (event) => {
+    if (socket) { socket.close(1000, "bye"); return; }
+    socket = new WebSocket(`wss://${location.host}/lua/socket`);
+    event.target.textContent = "Connecting…";
+    socket.onopen = () => {
+      event.target.textContent = "Disconnect";
+      input.disabled = say.disabled = false;
+      input.focus();
+      log("— connected");
+    };
+    socket.onmessage = (message) => log("< " + message.data);
+    socket.onclose = (close) => {
+      log(`— closed ${close.code}${close.reason ? " " + close.reason : ""}`);
+      socket = null;
+      event.target.textContent = "Connect";
+      input.disabled = say.disabled = true;
+    };
+  };
+  say.onclick = send;
+  input.onkeydown = (event) => { if (event.key === "Enter") send(); };
+</script>
+</body>
+</html>

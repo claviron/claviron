@@ -1,17 +1,17 @@
 [package]
-autotests = false
 name = "claviron-helpers"
-version.workspace = true
-publish.workspace = true
-edition = "2024"
 description = "Shared configuration adapters and encoding conventions for Claviron"
-license.workspace = true
-repository.workspace = true
-authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
 keywords = ["claviron", "configuration", "serde", "encoding", "utilities"]
 categories = ["config", "encoding"]
+autotests = false
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+include.workspace = true
 
 [dependencies]
 

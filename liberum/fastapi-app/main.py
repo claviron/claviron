@@ -9,17 +9,17 @@ from fastapi.templating import Jinja2Templates
 
 
 try:
-    import claviron
+    import gufi
 except ImportError:
     # Served by a plain ASGI server — uvicorn, for a measurement beside gufi —
     # there is no Claviron to greet, and the app serves the same without it.
-    claviron = None
+    gufi = None
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    if claviron is not None:
-        response = await claviron.invoke(
+    if gufi is not None:
+        response = await gufi.invoke(
             "claviron.ping.v1",
             {"echo": "FastApiApp"},
         )
@@ -49,9 +49,9 @@ async def orders():
 async def python_hits():
     # The same count Rust's `/hits` adds to: one value for every worker, kept
     # by Claviron in shared memory. Nothing to register — the key is the name.
-    if claviron is None:
+    if gufi is None:
         return {"hits": None, "from": "python"}
-    return {"hits": claviron.counter("hits").increment(), "from": "python"}
+    return {"hits": gufi.counter("hits").increment(), "from": "python"}
 
 
 @app.get("/hello/{name}")

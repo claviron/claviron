@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-edge"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Protocol-independent HTTP host admission, routing, and application dispatch for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["http", "routing", "edge", "claviron"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming"]
 

@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-bench"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Opt-in native HTTP benchmark handlers and edge/runner registrations for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["benchmark", "http", "claviron"]
 categories = ["development-tools::profiling", "web-programming::http-server"]
 

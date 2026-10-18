@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-metrics"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Composition of independently owned Prometheus metric families for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["claviron", "metrics", "prometheus", "monitoring", "observability"]
 categories = ["development-tools::profiling"]
 

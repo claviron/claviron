@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-http"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Shared HTTP types, request policy, configuration, and routing contracts for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["http", "routing", "middleware", "claviron"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming"]
 

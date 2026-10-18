@@ -38,6 +38,18 @@ need additional tools. Embedded PHP, for example, requires a matching ZTS embed
 build and `PHP` / `PHP_CONFIG` settings; see its
 [requirements](crates/php-embed/README.md#requirements-and-optional-capabilities).
 
+### Local Python tools
+
+The root `pyproject.toml` manages a local, non-packaged Python 3.15+ environment;
+it does not define a Python distribution of Claviron. `uv sync` installs the
+`dev` group. Use `uv sync --group test` for HTTP/database test clients and pytest,
+or `uv sync --group bench` for numerical analysis tools. These environments do
+not build the Rust workspace or start an application.
+
+Gufi owns Python execution and provides the native `gufi` module inside its
+interpreter. That module is separate from this repository's local project name;
+it is not supplied by a Python package installed from this checkout.
+
 ## Keep changes focused
 
 Use existing feature combinations before introducing a new feature. Preserve
@@ -96,6 +108,10 @@ Tests, fixtures, benchmarks, application examples, local configuration and
 development tools stay in Git, not registry packages. Run their checks from a
 checkout. Use `cargo package --list --workspace` to inspect package contents
 without building or publishing.
+
+Internal Rust dependencies retain local paths for development and use crates.io
+when packaged. Select `--registry crates-io` explicitly when publishing so a
+maintainer's local default cannot redirect the upload to a private registry.
 
 ## Reports and pull requests
 

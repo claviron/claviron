@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-tls"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Shared certificate resolution, TLS policy, and mutual TLS configuration for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["tls", "mtls", "rustls", "certificates", "claviron"]
 categories = ["cryptography", "network-programming"]
 

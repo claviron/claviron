@@ -1,15 +1,17 @@
 [package]
 name = "claviron"
-version.workspace = true
-publish.workspace = true
-edition = "2024"
 keywords = ["application-server", "runtime", "http3", "embedded", "shared-memory"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming", "concurrency"]
-authors = ["ilker Arabaci <iarabaci@claviron.dev>"]
+authors = ["iadev09 <iadev09@claviron.dev>"]
 description = "Embeddable Rust runtime and server fabric for fleet-aware application servers"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
 license.workspace = true
 repository.workspace = true
-include = ["/src/**/*.rs", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
+homepage.workspace = true
+include.workspace = true
+
 
 [features]
 # Sections below are grouped by concern, alphabetised within each group.
@@ -271,12 +273,13 @@ members = [
 resolver = "3"
 
 [workspace.package]
+edition = "2024"
 version = "0.2.0-alpha.17"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/claviron/claviron"
-authors = ["ilker Arabaci <iarabaci@claviron.dev>"]
-# Pre-releases go to the claviron registry only; a final version is published to
-# crates.io by hand, never by accident.
+homepage = "https://github.com/claviron"
+authors = ["ilker Arabaci <iadev09@claviron.dev>"]
+include = ["/src/**/*.rs", "/build.rs", "/tests/**", "/examples/**", "/benches/**", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
 publish = true
 
 [workspace.dependencies]

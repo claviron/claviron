@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-runtime"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Claviron runtime state, service lifecycle, configuration, and process-local events"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["runtime", "services", "lifecycle", "claviron"]
 categories = ["asynchronous", "concurrency"]
 

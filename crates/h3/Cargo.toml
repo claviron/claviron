@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-h3"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Native QUIC, HTTP/3, and WebTransport ingress for the Claviron edge"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["http3", "quic", "webtransport", "server", "claviron"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming"]
 

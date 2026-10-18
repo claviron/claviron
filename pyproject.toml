@@ -1,0 +1,25 @@
+[project]
+name = "claviron"
+version = "0.2.0-alpha.17"
+description = "Local development tools for the Claviron Rust repository"
+requires-python = ">=3.15"
+classifiers = ["Private :: Do Not Upload"]
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "pyrefly>=0.60.0",
+]
+test = [
+    "pytest",
+    "psycopg[binary]>=3.3.4",
+    "python-dotenv>=1.2.2",
+    "httpx[http2]>=0.28.1",
+]
+bench = [
+    "scipy>=1.17.1",
+]
+
+# This name identifies a local tool environment, not Gufi's native Python module.
+[tool.uv]
+package = false

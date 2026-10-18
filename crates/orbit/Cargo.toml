@@ -2,13 +2,13 @@
 name = "claviron-orbit"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Claviron lifecycle bindings for Orbitive shared memory, events, locks, counters, and application transport"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["shared-memory", "ipc", "runtime", "claviron"]
 categories = ["concurrency", "asynchronous"]
 # `tests/event.rs`, `tests/counter.rs`, and `tests/registry.rs` are private

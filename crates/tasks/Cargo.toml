@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-tasks"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Lifecycle-managed tasks, scheduling, and fleet dispatch for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["claviron", "tasks", "scheduler", "background", "async"]
 categories = ["asynchronous", "concurrency"]
 

@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-websocket"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Listener-owned HTTP/1 WebSocket upgrade integration for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["claviron", "websocket", "http", "upgrade"]
 categories = ["network-programming", "web-programming::http-server", "asynchronous"]
 

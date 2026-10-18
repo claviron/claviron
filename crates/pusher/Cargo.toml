@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-pusher"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Pusher-compatible wire messages, signing, and target configuration for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["claviron", "pusher", "websocket", "realtime", "broadcast"]
 categories = ["network-programming", "web-programming::http-server"]
 

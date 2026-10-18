@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-sys"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Native socket, process identity, and OS primitives for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["claviron", "process", "sockets", "unix", "system"]
 categories = ["os::unix-apis", "network-programming"]
 

@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-broadcast"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Realtime sessions, channel publication, and fleet fanout for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["claviron", "broadcast", "pusher", "websocket", "realtime"]
 categories = ["network-programming", "asynchronous", "concurrency"]
 

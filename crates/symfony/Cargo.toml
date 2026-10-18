@@ -2,15 +2,16 @@
 name = "claviron-symfony"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 autotests = false
 description = "Symfony integration package boundary for Claviron's embedded PHP runtime"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
 include = [
     "/src/**/*.rs",
+    "/php/tests/**",
     "/README.md",
     "/php/composer.json",
     "/php/README.md",

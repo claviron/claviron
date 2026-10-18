@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-upstream"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "HTTP reverse proxying, origin pools, and upstream lifecycle for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["claviron", "proxy", "http", "upstream", "load-balancing"]
 categories = ["network-programming", "web-programming::http-server", "asynchronous"]
 

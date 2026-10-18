@@ -2,14 +2,14 @@
 name = "claviron-auth"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 autotests = false
-description = "Schema-independent authentication contracts for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
+description = "Schema-independent authentication contracts for Claviron"
 keywords = ["claviron", "authentication", "identity", "session", "csrf"]
 categories = ["authentication", "asynchronous"]
 

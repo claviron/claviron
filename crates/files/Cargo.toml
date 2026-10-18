@@ -3,13 +3,13 @@ autotests = false
 name = "claviron-files"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Static file serving, representation caching, and resource fallback for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
-include = ["/src/**/*.rs", "/README.md"]
+include.workspace = true
 keywords = ["claviron", "static-files", "http", "caching", "compression"]
 categories = ["filesystem", "caching", "web-programming::http-server"]
 

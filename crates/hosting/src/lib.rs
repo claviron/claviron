@@ -6,12 +6,14 @@
 
 mod error;
 mod event;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 mod store;
 mod types;
 
 pub use claviron_types::CertificateKind;
 pub use error::{HostingError, Result};
 pub use event::HostingChanged;
+#[cfg(any(feature = "postgres", feature = "sqlite"))]
 pub use store::HostingStore;
 pub use types::{
     Certificate, CertificateAlias, CertificateIssuer, HostedCertificate,
@@ -19,7 +21,7 @@ pub use types::{
     VhostImport,
 };
 
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", any(feature = "postgres", feature = "sqlite")))]
 mod service;
-#[cfg(feature = "server")]
+#[cfg(all(feature = "server", any(feature = "postgres", feature = "sqlite")))]
 pub use service::{HostingService, register};

@@ -2,14 +2,15 @@
 name = "claviron-php-embed"
 version.workspace = true
 publish.workspace = true
-edition = "2024"
+edition.workspace= true
 description = "Managed in-process PHP execution, application hosting, and native extensions for Claviron"
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
 authors.workspace = true
-readme = "README.md"
 include = [
     "/src/**/*.rs",
+    "/tests/**",
     "/README.md",
     "/build.rs",
     "/php/composer.json",
