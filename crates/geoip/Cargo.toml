@@ -13,11 +13,23 @@ keywords = ["claviron", "geoip", "maxmind", "country", "geolocation"]
 categories = ["network-programming"]
 
 [dependencies]
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-# workspace
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-runtime.workspace = true
+
+# ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
+
+# ── Networking utilities ────────────────────────────────────────────────
+# Country lookup from the configured MaxMind database.
+maxminddb.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 tracing.workspace = true
+
+# ── In-memory caching / concurrent maps ─────────────────────────────────
+# Process-local IP-to-country lookup cache.
 moka.workspace = true
 once_cell.workspace = true
-maxminddb.workspace = true

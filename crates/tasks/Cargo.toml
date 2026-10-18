@@ -19,37 +19,54 @@ metrics = ["dep:claviron-metrics", "orbitive/metrics"]
 log-pipeline = ["dep:claviron-logging", "claviron-logging/pipeline"]
 
 [dependencies]
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
-claviron-metrics = { version = "0.2.0-alpha.17", path = "../metrics", optional = true }
-claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
-claviron-logging = { version = "0.2.0-alpha.17", path = "../logging", optional = true }
-orbitive.workspace = true
-# Macro deps
-inventory.workspace = true
-claviron-macros = { version = "0.2.0-alpha.17", path = "../macros" }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-helpers.workspace = true
+claviron-logging = { workspace = true, optional = true }
+claviron-macros.workspace = true
+claviron-metrics = { workspace = true, optional = true }
+claviron-orbit.workspace = true
+claviron-runtime.workspace = true
+claviron-sys.workspace = true
 
-# ── shared infrastructure (workspace SoT) ────────────────────────────
+# ── Async runtime & primitives ──────────────────────────────────────────
+arc-swap.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
-async-trait.workspace = true
-arc-swap.workspace = true
-futures-util.workspace = true
-dotenw.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
 serde_yaml.workspace = true
-nix.workspace = true
-tracing.workspace = true
-thiserror.workspace = true
-fastrand.workspace = true
-blake3.workspace = true
-bytes.workspace = true
 
-# crate specific dependencies
-cron.workspace = true
+# ── Crypto / hashing / encoding ─────────────────────────────────────────
+blake3.workspace = true
+fastrand.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
+nix.workspace = true
+
+# ── Time / identifiers ──────────────────────────────────────────────────
 chrono.workspace = true
+# Cron expressions and the Chrono timestamps required by their iterator.
+cron.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+thiserror.workspace = true
+tracing.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes.workspace = true
+# Collect task registrations emitted by #[task] across the linked binary.
+inventory.workspace = true
+
+# ── Published sibling libraries shared through workspace dependencies ───
+dotenw.workspace = true
+orbitive.workspace = true
 
 [dev-dependencies]
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_json.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

@@ -29,14 +29,27 @@ ssl = [
 ]
 
 [dependencies]
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
-base64ct = { workspace = true, optional = true }
-dirs = { workspace = true, optional = true }
-fastrand = { workspace = true, optional = true }
-rcgen = { workspace = true, optional = true }
-rustls = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 serde_yaml = { workspace = true, optional = true }
-thiserror = { workspace = true, optional = true }
-time = { workspace = true, optional = true }
+
+# ── TLS / certificates ──────────────────────────────────────────────────
+# Certificate, CA and CSR generation.
+rcgen = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true }
+# Certificate/CSR parsing and certificate signature checks.
 x509-parser = { workspace = true, optional = true, features = ["verify-aws"] }
+
+# ── Crypto / hashing / encoding ─────────────────────────────────────────
+base64ct = { workspace = true, optional = true }
+fastrand = { workspace = true, optional = true }
+
+# ── System / OS bindings ────────────────────────────────────────────────
+dirs = { workspace = true, optional = true }
+
+# ── Time / identifiers ──────────────────────────────────────────────────
+time = { workspace = true, optional = true }
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+thiserror = { workspace = true, optional = true }

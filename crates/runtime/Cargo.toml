@@ -21,17 +21,26 @@ categories = ["asynchronous", "concurrency"]
 config-watch = ["continuo/config-watch"]
 
 [dependencies]
-claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
-tokio-util.workspace = true
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-sys.workspace = true
+
+# ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
-tracing.workspace = true
-libc.workspace = true
-continuo.workspace = true
-congif.workspace = true
-dotenw.workspace = true
-orbitive.workspace = true
 futures-util.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
+libc.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+tracing.workspace = true
+
+# ── Published sibling libraries shared through workspace dependencies ───
+congif.workspace = true
+continuo.workspace = true
+dotenw.workspace = true
+orbitive.workspace = true
 
 [[test]]
 name = "env_scrub"

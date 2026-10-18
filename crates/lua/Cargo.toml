@@ -48,39 +48,59 @@ sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite"]
 tasks = ["dep:claviron-tasks", "server"]
 
 [dependencies]
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-app = { workspace = true, optional = true }
+claviron-db = { workspace = true, default-features = false, optional = true }
+claviron-helpers = { workspace = true, optional = true }
+claviron-http = { workspace = true, optional = true }
+claviron-logging = { workspace = true, optional = true }
+claviron-orbit = { workspace = true, optional = true }
+claviron-runtime = { workspace = true, optional = true }
+claviron-tasks = { workspace = true, optional = true }
+claviron-websocket = { workspace = true, optional = true }
+
+# ── Async runtime & primitives ──────────────────────────────────────────
 async-trait = { workspace = true, optional = true }
-axum = { workspace = true, optional = true }
-bytes = { workspace = true, optional = true }
-claviron-db = { version = "0.2.0-alpha.17", path = "../db", default-features = false, optional = true }
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers", optional = true }
-claviron-http = { version = "0.2.0-alpha.17", path = "../http", optional = true }
-claviron-app = { version = "0.2.0-alpha.17", path = "../app", optional = true }
-claviron-logging = { version = "0.2.0-alpha.17", path = "../logging", optional = true }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime", optional = true }
-claviron-websocket = { version = "0.2.0-alpha.17", path = "../websocket", optional = true }
-claviron-tasks = { version = "0.2.0-alpha.17", path = "../tasks", optional = true }
-# Pinned by minor: every minor release so far has changed the API. `vendored`
-# builds Lua 5.5 from source into the binary, so every host runs one build.
-fastwebsockets = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["fs", "rt", "sync", "time"] }
+tokio-util.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde = { workspace = true, optional = true }
+serde_json.workspace = true
+serde_yaml = { workspace = true, optional = true }
+
+# ── HTTP core ───────────────────────────────────────────────────────────
+fastwebsockets = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
 http-body = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
-mlua = { version = "0.12", features = ["lua55", "vendored", "async", "send", "serde"] }
+# Method-specific route lookup for Lua applications.
 matchit = "0.9"
-regex.workspace = true
+# Outbound claviron.fetch requests under the configured host policy.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2"], optional = true }
-serde = { workspace = true, optional = true }
-serde_json.workspace = true
-serde_yaml = { workspace = true, optional = true }
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
+axum = { workspace = true, optional = true }
+
+# ── PHP / FFI ───────────────────────────────────────────────────────────
+# Pinned by minor: every minor release so far has changed the API. `vendored`
+# builds Lua 5.5 from source into the binary, so every host runs one build.
+mlua = { version = "0.12", features = ["lua55", "vendored", "async", "send", "serde"] }
+
+# ── Database / cache backends ───────────────────────────────────────────
 sqlx = { workspace = true, optional = true }
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs", "rt", "sync", "time"] }
-tokio-util.workspace = true
 tracing.workspace = true
 
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes = { workspace = true, optional = true }
+regex.workspace = true
+
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
 tokio = { workspace = true, features = ["macros", "rt"] }

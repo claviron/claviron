@@ -14,14 +14,22 @@ authors.workspace = true
 include.workspace = true
 
 [dependencies]
-
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
-time.workspace = true
+
+# ── Crypto / hashing / encoding ─────────────────────────────────────────
 base64ct.workspace = true
-uuid.workspace = true
+
+# ── Time / identifiers ──────────────────────────────────────────────────
 humantime.workspace = true
-regex.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
+# Human-readable byte sizes in configuration adapters.
 byte-unit.workspace = true
+regex.workspace = true
 
 [dev-dependencies]
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true

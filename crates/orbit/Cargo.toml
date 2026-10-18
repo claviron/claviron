@@ -16,24 +16,42 @@ categories = ["concurrency", "asynchronous"]
 autotests = false
 
 [dependencies]
-orbitive = { workspace = true, features = ["arena", "cache", "cell", "events", "lock", "counter", "invoke-tokio", "link-tokio", "link-events", "stream-tokio"] }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-bytes.workspace = true
-http.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-async-trait.workspace = true
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-runtime.workspace = true
+
+# ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
-thiserror.workspace = true
-continuo = { workspace = true, features = ["fleet"] }
-serde.workspace = true
-humantime-serde.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
 tokio-util.workspace = true
 
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
+http.workspace = true
+
+# ── Time / identifiers ──────────────────────────────────────────────────
+humantime-serde.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+thiserror.workspace = true
+tracing.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes.workspace = true
+
+# ── Published sibling libraries shared through workspace dependencies ───
+continuo = { workspace = true, features = ["fleet"] }
+orbitive = { workspace = true, features = ["arena", "cache", "cell", "events", "lock", "counter", "invoke-tokio", "link-tokio", "link-events", "stream-tokio"] }
+
 [dev-dependencies]
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde_yaml.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
 nix.workspace = true
-serde_yaml.workspace = true
 
 [[test]]
 name = "counter_shm"

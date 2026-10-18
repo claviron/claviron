@@ -15,33 +15,45 @@ categories = ["development-tools::debugging", "asynchronous"]
 autotests = false
 
 [dependencies]
-arc-swap.workspace = true
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-tracing-subscriber.workspace = true
-tracing-journald.workspace = true
-time.workspace = true
-tracing.workspace = true
-thiserror.workspace = true
-# The system log's block of logging.yaml.
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-serde.workspace = true
-serde_yaml.workspace = true
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-helpers.workspace = true
+# Fleet log channels use an Orbit ring with a single writer.
+claviron-orbit = { workspace = true, optional = true }
+claviron-runtime.workspace = true
 
-# The log pipeline: channels from logging.yaml, an Orbit ring, one writer.
+# ── Async runtime & primitives ──────────────────────────────────────────
+arc-swap.workspace = true
 async-trait = { workspace = true, optional = true }
-bytes = { workspace = true, optional = true }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
-orbitive = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde.workspace = true
+serde_json = { workspace = true, optional = true }
+serde_yaml.workspace = true
+
+# ── Time / identifiers ──────────────────────────────────────────────────
+time.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 # The OTLP channel adapter: OpenTelemetry's logs bridge and its OTLP/HTTP
 # exporter, with reqwest's blocking client and no TLS features (http only).
 opentelemetry = { version = "0.33", default-features = false, features = ["logs"], optional = true }
-opentelemetry_sdk = { version = "0.33", default-features = false, features = ["logs"], optional = true }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["logs", "http-proto", "reqwest-blocking-client"], optional = true }
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["logs"], optional = true }
+thiserror.workspace = true
+tracing.workspace = true
+# System journal output for the configured tracing sink.
+tracing-journald.workspace = true
+tracing-subscriber.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes = { workspace = true, optional = true }
+
+# ── Published sibling libraries shared through workspace dependencies ───
+orbitive = { workspace = true, optional = true }
 
 [dev-dependencies]
+# ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"
 
 [features]

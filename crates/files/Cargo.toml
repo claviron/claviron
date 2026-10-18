@@ -24,35 +24,59 @@ metrics = ["claviron-http/metrics"]
 cache = []
 
 [dependencies]
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-arc-swap.workspace = true
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["axum"] }
-claviron-tasks = { version = "0.2.0-alpha.17", path = "../tasks", optional = true }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-helpers.workspace = true
+claviron-http = { workspace = true, features = ["axum"] }
+claviron-orbit = { workspace = true, optional = true }
+claviron-runtime.workspace = true
+claviron-tasks = { workspace = true, optional = true }
 
+# ── Async runtime & primitives ──────────────────────────────────────────
+arc-swap.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+# HTTP date headers and conditional-request comparisons.
+httpdate.workspace = true
+percent-encoding.workspace = true
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
 axum = { workspace = true, optional = true }
+
+# ── Crypto / hashing / encoding ─────────────────────────────────────────
 blake3.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+tracing.workspace = true
+
+# ── In-memory caching / concurrent maps ─────────────────────────────────
+dashmap.workspace = true
+once_cell.workspace = true
+
+# ── Compression / mime detection ────────────────────────────────────────
 brotli.workspace = true
+# Magic-byte MIME fallback for extensionless files.
+infer.workspace = true
+# Extension-based MIME fallback beyond the built-in fast map.
+mime_guess.workspace = true
+zstd.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
 byte-unit.workspace = true
 bytes.workspace = true
-dashmap.workspace = true
-futures-util.workspace = true
-http-body-util.workspace = true
-http-body.workspace = true
-http.workspace = true
-httpdate.workspace = true
-infer.workspace = true
-mime_guess.workspace = true
-once_cell.workspace = true
-percent-encoding.workspace = true
-serde.workspace = true
-tokio-util.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-zstd.workspace = true
-async-trait.workspace = true
 
 [dev-dependencies]
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

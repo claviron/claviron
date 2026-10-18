@@ -20,34 +20,58 @@ metrics = ["claviron-http/metrics", "claviron-edge/metrics"]
 geoip = ["dep:claviron-geoip"]
 
 [dependencies]
-serde.workspace = true
-# internal
-claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-geoip = { version = "0.2.0-alpha.17", path = "../geoip", optional = true }
-claviron-types = { version = "0.2.0-alpha.17", path = "../types", features = ["ssl"] }
-claviron-tls = { version = "0.2.0-alpha.17", path = "../tls", optional = true }
-claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["server"] }
-claviron-edge = { version = "0.2.0-alpha.17", path = "../edge", features = ["server", "axum"] }
-# workspace
-tokio.workspace = true
-async-trait.workspace = true
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-edge = { workspace = true, features = ["server", "axum"] }
+claviron-geoip = { workspace = true, optional = true }
+claviron-http = { workspace = true, features = ["server"] }
+claviron-runtime.workspace = true
+claviron-sys.workspace = true
+claviron-tls = { workspace = true, optional = true }
+claviron-types = { workspace = true, features = ["ssl"] }
+
+# ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
+async-trait.workspace = true
 futures-util.workspace = true
-hyper.workspace = true
-tokio-rustls = { workspace = true, optional = true }
-hyper-util.workspace = true
-tracing.workspace = true
-socket2 = { workspace = true }
+tokio.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
 http.workspace = true
 http-body-util.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+
+# ── TLS / certificates ──────────────────────────────────────────────────
+tokio-rustls = { workspace = true, optional = true }
+
+# ── System / OS bindings ────────────────────────────────────────────────
+socket2 = { workspace = true }
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
+tracing.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
 bytes.workspace = true
 
 [dev-dependencies]
-h2 = "0.4"
+# ── Async runtime & primitives ──────────────────────────────────────────
 tokio = { workspace = true, features = ["test-util"] }
-rcgen.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
+h2 = "0.4"
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
 axum.workspace = true
+
+# ── TLS / certificates ──────────────────────────────────────────────────
+rcgen.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

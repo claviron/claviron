@@ -34,48 +34,68 @@ axum = ["dep:axum", "dep:headers", "dep:serde_json"]
 routing = ["axum", "dep:serde_yaml"]
 
 [dependencies]
-claviron-cache = { version = "0.2.0-alpha.17", path = "../cache", optional = true }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-cache = { workspace = true, optional = true }
 # Not optional: the watchdog is a runtime organ, not a metric, and it parses
 # its own durations from configuration like everything else here.
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-claviron-macros = { version = "0.2.0-alpha.17", path = "../macros" }
-claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
-claviron-metrics = { version = "0.2.0-alpha.17", path = "../metrics", optional = true }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
-claviron-types = { version = "0.2.0-alpha.17", path = "../types" }
-claviron-tls = { version = "0.2.0-alpha.17", path = "../tls", optional = true }
-orbitive = { workspace = true, optional = true }
+claviron-helpers.workspace = true
+claviron-macros.workspace = true
+claviron-metrics = { workspace = true, optional = true }
+claviron-orbit = { workspace = true, optional = true }
+claviron-runtime.workspace = true
+claviron-sys.workspace = true
+claviron-tls = { workspace = true, optional = true }
+claviron-types.workspace = true
 
-# conditional dependencisies
-axum = { workspace = true, optional = true }
-headers = { workspace = true, optional = true }
+# ── Async runtime & primitives ──────────────────────────────────────────
+arc-swap = { workspace = true, optional = true }
+async-trait.workspace = true
+futures-util = { workspace = true, optional = true }
+pin-project-lite.workspace = true
+tokio = { workspace = true, features = ["fs"] }
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde.workspace = true
 serde_json = { workspace = true, optional = true }
+# Regex patterns in static-route caching configuration.
+serde_regex.workspace = true
 serde_yaml = { workspace = true, optional = true }
 
-# workspace
-tokio = { workspace = true, features = ["fs"] }
-arc-swap = { workspace = true, optional = true }
-futures-util = { workspace = true, optional = true }
-tracing.workspace = true
-pin-project-lite.workspace = true
-byte-unit.workspace = true
-once_cell.workspace = true
-regex.workspace = true
-serde.workspace = true
-serde_regex.workspace = true
-ipnet.workspace = true
-bytes.workspace = true
-
+# ── HTTP core ───────────────────────────────────────────────────────────
+headers = { workspace = true, optional = true }
+http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
-http.workspace = true
-rustls = { workspace = true, optional = true }
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
+axum = { workspace = true, optional = true }
 tower.workspace = true
-async-trait.workspace = true
+
+# ── TLS / certificates ──────────────────────────────────────────────────
+rustls = { workspace = true, optional = true }
+
+# ── Networking utilities ────────────────────────────────────────────────
+ipnet.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+tracing.workspace = true
+
+# ── In-memory caching / concurrent maps ─────────────────────────────────
+once_cell.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
+byte-unit.workspace = true
+bytes.workspace = true
+regex.workspace = true
+
+# ── Published sibling libraries shared through workspace dependencies ───
+orbitive = { workspace = true, optional = true }
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
 futures-util.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
 
 [[test]]

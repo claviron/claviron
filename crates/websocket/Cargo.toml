@@ -14,27 +14,44 @@ keywords = ["claviron", "websocket", "http", "upgrade"]
 categories = ["network-programming", "web-programming::http-server", "asynchronous"]
 
 [dependencies]
-# internal
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["axum", "server"] }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-types = { version = "0.2.0-alpha.17", path = "../types" }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-helpers.workspace = true
+claviron-http = { workspace = true, features = ["axum", "server"] }
+claviron-runtime.workspace = true
+claviron-types.workspace = true
 
-# workspace
+# ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
-axum.workspace = true
-bytes.workspace = true
+tokio.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
 http.workspace = true
 hyper.workspace = true
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
+axum.workspace = true
+
+# ── Crypto / hashing / encoding ─────────────────────────────────────────
 sha1.workspace = true
-tokio.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 tracing.workspace = true
 
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes.workspace = true
+
 [dev-dependencies]
-hyper-util.workspace = true
-http-body-util.workspace = true
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
+http-body-util.workspace = true
+hyper-util.workspace = true
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
 tower.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"
 
 [[test]]

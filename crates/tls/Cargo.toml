@@ -25,24 +25,35 @@ db = [
 ]
 
 [dependencies]
-#interanal
-claviron-types = { version = "0.2.0-alpha.17", path = "../types", features = ["ssl"] }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
-claviron-hosting = { version = "0.2.0-alpha.17", path = "../hosting", optional = true }
-claviron-db = { version = "0.2.0-alpha.17", path = "../db", optional = true }
-# workspace
-orbitive = { workspace = true, features = ["rustls"] }
-x509-parser.workspace = true
-rustls.workspace = true
-tracing.workspace = true
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-db = { workspace = true, optional = true }
+claviron-helpers.workspace = true
+claviron-hosting = { workspace = true, optional = true }
+claviron-orbit.workspace = true
+claviron-runtime.workspace = true
+claviron-types = { workspace = true, features = ["ssl"] }
+
+# ── Async runtime & primitives ──────────────────────────────────────────
+arc-swap.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
 serde_json.workspace = true
+
+# ── TLS / certificates ──────────────────────────────────────────────────
+rustls.workspace = true
+# X.509 certificate parsing for chain loading and mTLS identity checks.
+x509-parser.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
-tokio.workspace = true
-async-trait.workspace = true
-arc-swap.workspace = true
+tracing.workspace = true
+
+# ── Published sibling libraries shared through workspace dependencies ───
+orbitive = { workspace = true, features = ["rustls"] }
 
 [dev-dependencies]
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true

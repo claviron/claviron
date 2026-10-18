@@ -19,34 +19,59 @@ default = []
 pusher = ["claviron-pusher/axum"]
 
 [dependencies]
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-app.workspace = true
+claviron-orbit.workspace = true
+claviron-pusher.workspace = true
+claviron-runtime.workspace = true
+claviron-websocket.workspace = true
+
+# ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
 async-trait.workspace = true
-axum.workspace = true
-bytes.workspace = true
-chrono.workspace = true
-claviron-app = { version = "0.2.0-alpha.17", path = "../app" }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
-claviron-pusher = { version = "0.2.0-alpha.17", path = "../pusher" }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-websocket = { version = "0.2.0-alpha.17", path = "../websocket" }
+tokio.workspace = true
+tokio-util.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde.workspace = true
+serde_json.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
 fastwebsockets.workspace = true
 http.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
 hyper-util.workspace = true
-orbitive.workspace = true
-serde.workspace = true
-serde_json.workspace = true
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
+axum.workspace = true
+
+# ── Time / identifiers ──────────────────────────────────────────────────
+# Local RFC3339 timestamps for channel occupancy webhooks.
+chrono.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
 tracing.workspace = true
 
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes.workspace = true
+
+# ── Published sibling libraries shared through workspace dependencies ───
+orbitive.workspace = true
+
 [dev-dependencies]
-claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["axum", "server"] }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-http = { workspace = true, features = ["axum", "server"] }
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
-tempfile = "3"
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
 tower.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
+tempfile = "3"
 
 [[test]]
 name = "websocket"

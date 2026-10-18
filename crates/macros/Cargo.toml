@@ -16,6 +16,7 @@ categories = ["development-tools::procedural-macro-helpers", "config"]
 proc-macro = true
 
 [dependencies]
+# ── Proc macros ─────────────────────────────────────────────────────────
 proc-macro2.workspace = true
 quote.workspace = true
 syn.workspace = true

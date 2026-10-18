@@ -20,17 +20,28 @@ categories = ["os::unix-apis", "network-programming"]
 legacy-linux = []
 
 [dependencies]
-# workspace
-blake3.workspace = true
-hostname.workspace = true
-serde.workspace = true
+# ── Async runtime & primitives ──────────────────────────────────────────
 tokio.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde.workspace = true
+
+# ── Crypto / hashing / encoding ─────────────────────────────────────────
+# Stable filesystem lock names derived from process identity names.
+blake3.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
+hostname.workspace = true
 socket2.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 tracing.workspace = true
 
 # Unix-only: kinfo_proc (FreeBSD), task_info (macOS), procfs paths.
 [target.'cfg(unix)'.dependencies]
+# ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
 
 [dev-dependencies]
+# ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

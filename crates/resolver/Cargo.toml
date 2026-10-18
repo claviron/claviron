@@ -17,12 +17,26 @@ default = []
 hickory = ["dep:hickory-resolver", "dep:tokio"]
 
 [dependencies]
-serde.workspace = true
-humantime-serde.workspace = true
-thiserror.workspace = true
-hickory-resolver = { workspace = true, optional = true }
+# ── Async runtime & primitives ──────────────────────────────────────────
 tokio = { workspace = true, features = ["sync"], optional = true }
 
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde.workspace = true
+
+# ── Networking utilities ────────────────────────────────────────────────
+# Opt-in DNS driver; the application explicitly binds its resolver factory.
+hickory-resolver = { workspace = true, optional = true }
+
+# ── Time / identifiers ──────────────────────────────────────────────────
+# Human-readable DNS timeouts and cache TTLs in configuration.
+humantime-serde.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+thiserror.workspace = true
+
 [dev-dependencies]
-serde_yaml.workspace = true
+# ── Async runtime & primitives ──────────────────────────────────────────
 tokio.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde_yaml.workspace = true

@@ -54,47 +54,72 @@ postgres = [
 ]
 
 [dependencies]
-claviron-auth = { version = "0.2.0-alpha.17", path = "../auth", features = ["orbit"], optional = true }
-claviron-logging = { version = "0.2.0-alpha.17", path = "../logging", optional = true }
-claviron-app = { version = "0.2.0-alpha.17", path = "../app" }
-claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["server"] }
-claviron-php = { version = "0.2.0-alpha.17", path = "../php", features = ["php_embed"] }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-tasks = { version = "0.2.0-alpha.17", path = "../tasks", optional = true }
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-claviron-cache = { version = "0.2.0-alpha.17", path = "../cache", optional = true }
-claviron-db = { version = "0.2.0-alpha.17", path = "../db", default-features = false, optional = true }
-claviron-metrics = { version = "0.2.0-alpha.17", path = "../metrics", optional = true }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
-orbitive.workspace = true
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-app.workspace = true
+claviron-auth = { workspace = true, features = ["orbit"], optional = true }
+claviron-cache = { workspace = true, optional = true }
+claviron-db = { workspace = true, default-features = false, optional = true }
+claviron-helpers.workspace = true
+claviron-http = { workspace = true, features = ["server"] }
+claviron-logging = { workspace = true, optional = true }
+claviron-metrics = { workspace = true, optional = true }
+claviron-orbit.workspace = true
+claviron-php = { workspace = true, features = ["php_embed"] }
+claviron-runtime.workspace = true
+claviron-tasks = { workspace = true, optional = true }
 
-async-trait.workspace = true
+# ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
-congif.workspace = true
-bytes.workspace = true
+async-trait.workspace = true
 futures-util.workspace = true
-fastrand.workspace = true
-http-body.workspace = true
-http-body-util.workspace = true
-http.workspace = true
-serde.workspace = true
-serde_yaml.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
-regex.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
 axum = { workspace = true, optional = true }
+
+# ── PHP / FFI ───────────────────────────────────────────────────────────
+# Embedded PHP lifecycle, Zend value conversion and native registrations.
+ext-php-rs.workspace = true
+
+# ── Crypto / hashing / encoding ─────────────────────────────────────────
+fastrand.workspace = true
+
+# ── Database / cache backends ───────────────────────────────────────────
 sqlx = { workspace = true, optional = true }
+
+# ── System / OS bindings ────────────────────────────────────────────────
+libc.workspace = true
+
+# ── Time / identifiers ──────────────────────────────────────────────────
 # Date/time construction for the PostgreSQL type layer; same 0.3 line sqlx uses.
 time = { workspace = true, optional = true }
-
-ext-php-rs.workspace = true
-libc.workspace = true
 uuid = { workspace = true, optional = true }
 
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+thiserror.workspace = true
+tracing.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes.workspace = true
+regex.workspace = true
+
+# ── Published sibling libraries shared through workspace dependencies ───
+congif.workspace = true
+orbitive.workspace = true
+
 [dev-dependencies]
+# ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"
 
 [[test]]

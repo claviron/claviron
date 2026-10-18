@@ -27,28 +27,46 @@ http = [
 axum = ["http", "dep:axum", "claviron-http/axum"]
 
 [dependencies]
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-claviron-http = { version = "0.2.0-alpha.17", path = "../http", optional = true }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-helpers.workspace = true
+claviron-http = { workspace = true, optional = true }
 
-axum = { workspace = true, optional = true }
-http = { workspace = true, optional = true }
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, optional = true }
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 hex.workspace = true
 hmac.workspace = true
-hyper-util = { workspace = true, optional = true }
-hyper = { workspace = true, optional = true }
+# Pusher body_md5 payload digest; request signatures use HMAC-SHA256.
 md-5.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
-thiserror.workspace = true
-tokio = { workspace = true, optional = true }
-tracing = { workspace = true, optional = true }
+
+# ── HTTP core ───────────────────────────────────────────────────────────
+http = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
+axum = { workspace = true, optional = true }
+
+# ── Networking utilities ────────────────────────────────────────────────
 url.workspace = true
 
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+thiserror.workspace = true
+tracing = { workspace = true, optional = true }
+
 [dev-dependencies]
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-bytes.workspace = true
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-runtime.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes.workspace = true
 
 [[test]]
 name = "lifecycle"

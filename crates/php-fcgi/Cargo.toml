@@ -20,36 +20,49 @@ metrics = ["dep:claviron-metrics", "dep:serde_json", "orbitive/metrics"]
 tasks = ["dep:claviron-tasks", "dep:futures"]
 
 [dependencies]
-# internal
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["axum", "server"] }
-claviron-metrics = { version = "0.2.0-alpha.17", path = "../metrics", optional = true }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
-claviron-php = { version = "0.2.0-alpha.17", path = "../php", features = ["php_fcgi"] }
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-claviron-tasks = { version = "0.2.0-alpha.17", path = "../tasks", optional = true }
-# crate only
-fastcgi-client.workspace = true
-orbitive.workspace = true
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-helpers.workspace = true
+claviron-http = { workspace = true, features = ["axum", "server"] }
+claviron-metrics = { workspace = true, optional = true }
+claviron-orbit.workspace = true
+claviron-php = { workspace = true, features = ["php_fcgi"] }
+claviron-runtime.workspace = true
+claviron-tasks = { workspace = true, optional = true }
 
-# workspace
+# ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
 async-trait.workspace = true
-bytes.workspace = true
-futures-util.workspace = true
-http-body-util.workspace = true
-http-body.workspace = true
-http.workspace = true
-serde.workspace = true
-thiserror.workspace = true
-tokio-util.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-
-#optional
-axum = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
+futures-util.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde.workspace = true
 serde_json = { workspace = true, optional = true }
 
+# ── HTTP core ───────────────────────────────────────────────────────────
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
+axum = { workspace = true, optional = true }
+
+# ── PHP / FFI ───────────────────────────────────────────────────────────
+# FastCGI wire requests, response streams and persistent backend connections.
+fastcgi-client.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+thiserror.workspace = true
+tracing.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes.workspace = true
+
+# ── Published sibling libraries shared through workspace dependencies ───
+orbitive.workspace = true
+
 [dev-dependencies]
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true

@@ -83,56 +83,73 @@ http3 = ["server", "claviron-http/http3"]
 webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport"]
 
 [dependencies]
-#internal
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-logging = { version = "0.2.0-alpha.17", path = "../logging", optional = true }
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-claviron-types = { version = "0.2.0-alpha.17", path = "../types" }
-claviron-hosting = { version = "0.2.0-alpha.17", path = "../hosting", optional = true }
-claviron-tls = { version = "0.2.0-alpha.17", path = "../tls" }
-claviron-db = { version = "0.2.0-alpha.17", path = "../db", optional = true, features = ["server"] }
-claviron-pusher = { version = "0.2.0-alpha.17", path = "../pusher", optional = true }
-claviron-broadcast = { version = "0.2.0-alpha.17", path = "../broadcast", optional = true }
-claviron-http = { version = "0.2.0-alpha.17", path = "../http", features = ["server"] }
-claviron-upstream = { version = "0.2.0-alpha.17", path = "../upstream", optional = true }
-claviron-websocket = { version = "0.2.0-alpha.17", path = "../websocket", optional = true }
-hyper = { workspace = true, optional = true }
-hyper-util = { workspace = true, optional = true }
-fastwebsockets = { workspace = true, optional = true }
-claviron-php = { version = "0.2.0-alpha.17", path = "../php", optional = true }
-claviron-php-fcgi = { version = "0.2.0-alpha.17", path = "../php-fcgi", optional = true }
-claviron-php-embed = { version = "0.2.0-alpha.17", path = "../php-embed", optional = true }
-claviron-lua = { version = "0.2.0-alpha.17", path = "../lua", optional = true, features = ["app"] }
-claviron-files = { version = "0.2.0-alpha.17", path = "../files" }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-broadcast = { workspace = true, optional = true }
+claviron-db = { workspace = true, optional = true, features = ["server"] }
+claviron-files.workspace = true
+claviron-helpers.workspace = true
+claviron-hosting = { workspace = true, optional = true }
+claviron-http = { workspace = true, features = ["server"] }
+claviron-logging = { workspace = true, optional = true }
+claviron-lua = { workspace = true, optional = true, features = ["app"] }
+claviron-orbit = { workspace = true, optional = true }
+claviron-php = { workspace = true, optional = true }
+claviron-php-embed = { workspace = true, optional = true }
+claviron-php-fcgi = { workspace = true, optional = true }
+claviron-pusher = { workspace = true, optional = true }
+claviron-runtime.workspace = true
+claviron-tls.workspace = true
+claviron-types.workspace = true
+claviron-upstream = { workspace = true, optional = true }
+claviron-websocket = { workspace = true, optional = true }
 
-# workspace
+# ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
 async-trait.workspace = true
-axum = { workspace = true, optional = true }
-bytes.workspace = true
-h3-quinn = { workspace = true, features = ["datagram"], optional = true }
-h3-webtransport = { workspace = true, optional = true }
-http.workspace = true
-http-body = { workspace = true, optional = true }
-ipnet.workspace = true
 pin-project-lite = { workspace = true, optional = true }
-regex.workspace = true
+tokio.workspace = true
+tokio-util = { workspace = true, optional = true }
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
 serde_json.workspace = true
 serde_yaml.workspace = true
-thiserror.workspace = true
-tokio.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
+fastwebsockets = { workspace = true, optional = true }
+http.workspace = true
+http-body = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
 percent-encoding = { workspace = true, optional = true }
-tokio-util = { workspace = true, optional = true }
-tower-http = { workspace = true, optional = true }
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
+axum = { workspace = true, optional = true }
 tower.workspace = true
+tower-http = { workspace = true, optional = true }
+
+# ── Networking utilities ────────────────────────────────────────────────
+ipnet.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+thiserror.workspace = true
 tracing.workspace = true
 
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes.workspace = true
+regex.workspace = true
+
+# ── HTTP/3 (QUIC) ───────────────────────────────────────────────────────
+h3-quinn = { workspace = true, features = ["datagram"], optional = true }
+h3-webtransport = { workspace = true, optional = true }
+
 [dev-dependencies]
-tempfile = "3"
+# ── HTTP core ───────────────────────────────────────────────────────────
 http-body-util.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
+tempfile = "3"
 
 [[test]]
 name = "authority"

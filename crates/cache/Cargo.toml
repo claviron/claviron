@@ -26,20 +26,37 @@ file = ["dep:cacache"]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(claviron_redis_tls_rustls_legacy)'] }
 
 [dependencies]
-bytes.workspace = true
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-helpers.workspace = true
+claviron-orbit.workspace = true
+claviron-runtime.workspace = true
+
+# ── Async runtime & primitives ──────────────────────────────────────────
+arc-swap.workspace = true
+async-trait.workspace = true
+tokio.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+# Validated binary archives for composite cache values.
 rkyv.workspace = true
 serde.workspace = true
-tokio.workspace = true
-url = { workspace = true, optional = true }
-serde_yaml.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
+axum = { workspace = true, optional = true }
+
+# ── Database / cache backends ───────────────────────────────────────────
+# Content-addressed disk storage for the file cache driver.
+cacache = { workspace = true, optional = true }
+redis = { workspace = true, optional = true }
+
+# ── Networking utilities ────────────────────────────────────────────────
+url = { workspace = true, optional = true }
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
 tracing.workspace = true
-async-trait.workspace = true
-arc-swap.workspace = true
-axum = { workspace = true, optional = true }
-redis = { workspace = true, optional = true }
-cacache = { workspace = true, optional = true }
+
+# ── Misc utilities ──────────────────────────────────────────────────────
+bytes.workspace = true

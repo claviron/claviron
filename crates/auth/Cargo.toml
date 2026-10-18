@@ -18,18 +18,29 @@ csrf = ["dep:hmac", "dep:sha2", "dep:hex"]
 orbit = ["dep:orbitive", "orbitive/auth"]
 
 [dependencies]
-continuo.workspace = true
-hmac = { workspace = true, optional = true }
-sha2 = { workspace = true, optional = true }
-hex = { workspace = true, optional = true }
-uuid.workspace = true
-time.workspace = true
-orbitive = { workspace = true, optional = true }
+# ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
+hex = { workspace = true, optional = true }
+# Session-bound CSRF token signatures.
+hmac = { workspace = true, optional = true }
 serde_json.workspace = true
+sha2 = { workspace = true, optional = true }
+
+# ── Time / identifiers ──────────────────────────────────────────────────
+time.workspace = true
+uuid.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
 
+# ── Published sibling libraries shared through workspace dependencies ───
+continuo.workspace = true
+orbitive = { workspace = true, optional = true }
+
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
 tokio.workspace = true
 
 [[test]]

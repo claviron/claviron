@@ -26,21 +26,31 @@ server = [
 ]
 
 [dependencies]
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-helpers.workspace = true
+claviron-runtime = { workspace = true, optional = true }
 
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime", optional = true }
-
-sqlx = { workspace = true }
-async-trait = { workspace = true, optional = true }
+# ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap = { workspace = true, optional = true }
-
-thiserror.workspace = true
-tracing.workspace = true
+async-trait = { workspace = true, optional = true }
 tokio.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
+
+# ── Database / cache backends ───────────────────────────────────────────
+sqlx = { workspace = true }
+
+# ── Networking utilities ────────────────────────────────────────────────
 url.workspace = true
 
-[dev-dependencies]
-serde_yaml.workspace = true
-tempfile = "3"
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+thiserror.workspace = true
+tracing.workspace = true
 
+[dev-dependencies]
+# ── Serialization & parsing ─────────────────────────────────────────────
+serde_yaml.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
+tempfile = "3"

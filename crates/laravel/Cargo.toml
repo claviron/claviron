@@ -25,29 +25,47 @@ categories = ["web-programming::http-server", "api-bindings", "asynchronous"]
 autotests = false
 
 [dependencies]
-claviron-auth = { version = "0.2.0-alpha.17", path = "../auth" }
-claviron-app = { version = "0.2.0-alpha.17", path = "../app" }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-app.workspace = true
+claviron-auth.workspace = true
+claviron-broadcast.workspace = true
+claviron-php-embed.workspace = true
+claviron-pusher.workspace = true
+claviron-runtime.workspace = true
+
+# ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
-claviron-php-embed = { version = "0.2.0-alpha.17", path = "../php-embed" }
-claviron-pusher = { version = "0.2.0-alpha.17", path = "../pusher" }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-broadcast = { version = "0.2.0-alpha.17", path = "../broadcast" }
-ext-php-rs.workspace = true
-congif.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_json.workspace = true
+
+# ── PHP / FFI ───────────────────────────────────────────────────────────
+ext-php-rs.workspace = true
+
+# ── Time / identifiers ──────────────────────────────────────────────────
 time.workspace = true
 
+# ── Published sibling libraries shared through workspace dependencies ───
+congif.workspace = true
+
 [dev-dependencies]
-claviron-http = { version = "0.2.0-alpha.17", path = "../http" }
-claviron-php = { version = "0.2.0-alpha.17", path = "../php", features = ["php_embed"] }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-http.workspace = true
+claviron-php = { workspace = true, features = ["php_embed"] }
+
+# ── Async runtime & primitives ──────────────────────────────────────────
 futures-util.workspace = true
-http.workspace = true
-http-body-util.workspace = true
-tempfile = "3"
 tokio.workspace = true
 tokio-util.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
+http.workspace = true
+http-body-util.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
+tempfile = "3"
 
 [[test]]
 name = "native_registration"

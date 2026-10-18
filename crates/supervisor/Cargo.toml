@@ -17,26 +17,42 @@ categories = ["concurrency", "asynchronous"]
 metrics = ["dep:claviron-metrics", "dep:orbitive"]
 
 [dependencies]
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-claviron-metrics = { version = "0.2.0-alpha.17", path = "../metrics", optional = true }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit" }
-claviron-sys = { version = "0.2.0-alpha.17", path = "../sys" }
-orbitive = { workspace = true, features = ["metrics"], optional = true }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-helpers.workspace = true
+claviron-metrics = { workspace = true, optional = true }
+claviron-orbit.workspace = true
+claviron-runtime.workspace = true
+claviron-sys.workspace = true
+
+# ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
+async-trait.workspace = true
+futures-util.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
-async-trait.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
-serde_yaml.workspace = true
-nix.workspace = true
-humantime.workspace = true
-tracing.workspace = true
-thiserror.workspace = true
-byte-unit.workspace = true
 serde_json.workspace = true
+serde_yaml.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
+nix.workspace = true
+
+# ── Time / identifiers ──────────────────────────────────────────────────
+humantime.workspace = true
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
+thiserror.workspace = true
+tracing.workspace = true
+
+# ── Misc utilities ──────────────────────────────────────────────────────
+byte-unit.workspace = true
 bytes.workspace = true
-futures-util.workspace = true
+
+# ── Published sibling libraries shared through workspace dependencies ───
+orbitive = { workspace = true, features = ["metrics"], optional = true }
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
 tokio = { workspace = true, features = ["test-util"] }

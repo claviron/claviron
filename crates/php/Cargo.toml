@@ -20,14 +20,24 @@ php_embed = []
 php_fcgi = []
 
 [dependencies]
-claviron-app = { version = "0.2.0-alpha.17", path = "../app" }
-axum = { workspace = true, optional = true }
-claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }
-claviron-http = { version = "0.2.0-alpha.17", path = "../http" }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
-http.workspace = true
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-app.workspace = true
+claviron-helpers.workspace = true
+claviron-http.workspace = true
+claviron-runtime.workspace = true
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
+
+# ── HTTP core ───────────────────────────────────────────────────────────
+http.workspace = true
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
+axum = { workspace = true, optional = true }
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 tracing.workspace = true
 
 [dev-dependencies]
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true

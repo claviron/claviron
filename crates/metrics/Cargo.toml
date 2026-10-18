@@ -16,5 +16,8 @@ categories = ["development-tools::profiling"]
 [features]
 defatult = []
 [dependencies]
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-runtime.workspace = true
+
+# ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }

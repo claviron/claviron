@@ -32,20 +32,29 @@ sqlite = ["sqlx/sqlite", "claviron-db?/sqlite", "dep:serde_json"]
 postgres = ["sqlx/postgres", "claviron-db?/postgres"]
 
 [dependencies]
-# internal
-claviron-types = { version = "0.2.0-alpha.17", path = "../types", default-features = false }
-claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime", optional = true }
-claviron-orbit = { version = "0.2.0-alpha.17", path = "../orbit", optional = true }
-claviron-db = { version = "0.2.0-alpha.17", path = "../db", optional = true }
+# ── Internal workspace crates ───────────────────────────────────────────
+claviron-db = { workspace = true, optional = true }
+claviron-orbit = { workspace = true, optional = true }
+claviron-runtime = { workspace = true, optional = true }
+claviron-types = { workspace = true, default-features = false }
 
-# workspace
-sqlx.workspace = true
-tracing.workspace = true
+# ── Async runtime & primitives ──────────────────────────────────────────
+async-trait = { workspace = true, optional = true }
+
+# ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
 serde_json = { workspace = true, optional = true }
+
+# ── Database / cache backends ───────────────────────────────────────────
+sqlx.workspace = true
+
+# ── Time / identifiers ──────────────────────────────────────────────────
 time.workspace = true
-async-trait = { workspace = true, optional = true }
+
+# ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
 tokio.workspace = true
