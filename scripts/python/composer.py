@@ -22,6 +22,7 @@ from urllib.parse import urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[2]
+PROJECT = "claviron"
 
 
 class ReleaseError(Exception):
@@ -72,7 +73,7 @@ def selected(path, includes):
 
 
 def snapshot(root, package, ref):
-    source = (root / package["repository"]).resolve()
+    source = source_repository(root, package)
     prefix = package["directory"].strip("/")
     for path in [prefix, package["license"], *package["include"]]:
         if PurePosixPath(path).is_absolute() or ".." in PurePosixPath(path).parts:
@@ -118,6 +119,12 @@ def snapshot(root, package, ref):
             if not any(name == path or name.startswith(path.rstrip("/") + "/") for name in files):
                 raise ReleaseError(f"An autoload path is absent from the export: {path}")
     return source, revision, files
+
+
+def source_repository(root, package):
+    if "repository" in package:
+        raise ReleaseError("Composer sources must belong to this repository; repository overrides are not supported.")
+    return root.resolve()
 
 
 def mirror_path(root, config, package):
@@ -220,17 +227,17 @@ def main(argv=None):
     parser.add_argument("--send", action="store_true", help="Actually push a prepared distribution")
     args = parser.parse_args(argv)
     try:
-        config = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["claviron"]["composer"]
+        config = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"][PROJECT]["composer"]
         package = next((p for p in config["packages"] if p["name"] == args.package), None)
         if package is None:
             raise ReleaseError("Unknown configured Composer package.")
+        source = source_repository(ROOT, package)
         remote = args.remote or package.get("remote")
         if remote:
             validate_remote(remote)
         if args.send and args.command != "publish":
             raise ReleaseError("--send is only valid with publish.")
         if args.command == "plan":
-            source = (ROOT / package["repository"]).resolve()
             manifest = json.loads((source / package["directory"] / "composer.json").read_text())
             print(f"{package['name']}: {source / package['directory']}")
             print("Export: " + ", ".join(package["include"]) + ", LICENSE")

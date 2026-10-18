@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 import tomllib
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 
@@ -25,7 +25,7 @@ class ComposerReleaseTests(unittest.TestCase):
                 "state-directory": "target/composer",
                 "packages": [{"name": "example/package", "remote": "https://example.test/distribution.git"}],
             }
-            document = {"tool": {"claviron": {"composer": config}}}
+            document = {"tool": {publisher.PROJECT: {"composer": config}}}
             with patch.object(publisher, "ROOT", root), patch.object(Path, "read_text", return_value=""), \
                  patch.object(tomllib, "loads", return_value=document), \
                  patch.object(publisher, "prepare", return_value=(root / "mirror.git", "prepared")) as prepare, \
@@ -39,11 +39,10 @@ class ComposerReleaseTests(unittest.TestCase):
 
     def source(self, root):
         package = {
-            "name": "example/package", "repository": "source", "directory": "php",
+            "name": "example/package", "directory": "php",
             "license": "LICENSE", "include": ["composer.json", "README.md", "src", "runners"],
         }
-        source = root / "source"
-        source.mkdir()
+        source = root
         publisher.git(source, "init", "--initial-branch=main")
         publisher.git(source, "config", "user.name", "Example Publisher")
         publisher.git(source, "config", "user.email", "publisher@example.test")
@@ -68,7 +67,7 @@ class ComposerReleaseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source, package, config = self.source(root)
-            # A dirty sibling file is irrelevant to this committed package.
+            # An unrelated dirty file is irrelevant to this committed package.
             (source / "unrelated.txt").write_text("Local work\n")
             mirror, commit = publisher.prepare(root, config, package, "v1.0.0")
             metadata = json.loads(publisher.git(mirror, "show", "v1.0.0:composer.json"))
@@ -134,6 +133,18 @@ class ComposerReleaseTests(unittest.TestCase):
                 publisher.validate_tag(tag)
         with self.assertRaises(publisher.ReleaseError):
             publisher.validate_remote("https://token@example.test/package.git")
+
+    def test_rejects_external_source_repository(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.assertEqual(publisher.source_repository(root, {}), root.resolve())
+            with self.assertRaisesRegex(publisher.ReleaseError, "repository overrides"):
+                publisher.snapshot(root, {"repository": "../other"}, "HEAD")
+
+    def test_cli_rejects_unowned_package_before_any_git_operation(self):
+        with patch.object(publisher, "git") as git, redirect_stderr(io.StringIO()):
+            self.assertEqual(publisher.main(["publish", "--package", "unowned/package", "--tag", "v1.0.0", "--send"]), 1)
+            git.assert_not_called()
 
 
 if __name__ == "__main__":

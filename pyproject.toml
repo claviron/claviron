@@ -35,16 +35,7 @@ state-directory = "target/composer"
 
 [[tool.claviron.composer.packages]]
 name = "claviron/sapi"
-remote = "https://github.com/claviron/php-sapi.git"
-repository = "."
+remote = "git@github.com:claviron/sapi.git"
 directory = "crates/php-embed/php"
 license = "LICENSE-MIT"
 include = ["composer.json", "README.md", "src", "fallback"]
-
-[[tool.claviron.composer.packages]]
-name = "claviron/laravel"
-remote = "https://github.com/claviron/php-laravel.git"
-repository = "../lumenize"
-directory = "php"
-license = "LICENSE"
-include = ["composer.json", "README.md", "src", "config", "runners", "stubs"]
