@@ -72,6 +72,10 @@ masters cannot share one lane allocation scheme merely by using the same fleet
 name. Master or host failure recovery still needs external supervision; retained
 shared resources also follow their own reconciliation contracts.
 
+[Worker adoption](../../docs/design/WORKER_ADOPTION.md) describes the explicit
+ownership transfer used when a successor master finds surviving workers.
+Process survival does not by itself guarantee service-state continuity.
+
 ## Configuration
 
 The supervisor reads `supervisor.yaml` from the configured directory. Runner

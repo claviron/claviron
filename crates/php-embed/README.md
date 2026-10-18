@@ -105,6 +105,12 @@ buffered application contract.
 
 ## Native capabilities and environment
 
+The PostgreSQL bridge lets a native host function borrow the PHP request's
+existing database session through `postgres::with_request_connection`, so both
+languages participate in the same transaction rather than acquiring unrelated
+connections. [CONNECTION_HIJACK](../../docs/design/CONNECTION_HIJACK.md) explains
+the request ownership and cleanup boundary.
+
 `extension::PhpEmbedExtension` contributes compiled-in functions, classes,
 enums, per-thread setup, and optional Zend observers. Contributions are frozen
 before SAPI startup, with metadata owned for the process lifetime. This is not

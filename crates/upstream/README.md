@@ -76,6 +76,10 @@ can declare a warm floor. A response retains its lease until EOF. Dropping a
 partial body closes that connection rather than returning unread bytes to the
 pool.
 
+[Hot client pools](../../docs/design/HOT_CLIENT_POOL.md) explains the preparation
+and reuse policy, including why a warm floor is not an unconditional promise
+that a client is immediately available.
+
 H2 uses a process-local connection per origin with stream-based admission.
 `max_streams` sets the stream limit, falling back to `max_live` when omitted.
 Finishing or cancelling a response releases its stream permit, not unrelated

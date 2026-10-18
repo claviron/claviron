@@ -33,8 +33,10 @@ lifecycle.
 Cargo features select capabilities; typed registration and configuration
 determine how they run.
 
-The [Graceful ownership design note](docs/design/GRACEFUL_OWNERSHIP.md)
-explains who owns accepted work and what authorizes shutdown escalation.
+The [design notes](docs/design/README.md) explain the choices behind application
+routing, host identity, same-OS cooperation and lifetime ownership.
+[Graceful ownership](docs/design/GRACEFUL_OWNERSHIP.md) defines who owns accepted
+work and what authorizes shutdown escalation.
 
 ## Crate guide and feature relationships
 
@@ -338,6 +340,24 @@ playground where applications built on Claviron come to life. Its FastAPI,
 JavaScript and Laravel examples connect to one edge over Orbit Link. Each keeps
 its own application process and dependencies; the edge owns HTTP ingress. Launchers live in
 `liberum/scripts/`. These sources are available in Git, not the Cargo package.
+
+## Architectural Design Contracts
+
+These notes explain the choices behind Claviron's behavior, not new protocol
+standards. Their identifiers are stable search keys across code and documentation.
+
+- [BYPASS_PIPELINE](docs/design/BYPASS_PIPELINE.md) — routing shaped around your application, including gradual adoption of Rust.
+- [HOST_BINDING](docs/design/HOST_BINDING.md) — bind TLS connections to the host selected at acceptance.
+- [EARLY_DATA_POLICY](docs/design/EARLY_DATA_POLICY.md) — separate 0-RTT support from permission to execute early requests.
+- [CONNECTION_HIJACK](docs/design/CONNECTION_HIJACK.md) — let PHP and Rust use the same request-owned PostgreSQL session.
+- [LIFETIME_POLICY](docs/design/LIFETIME_POLICY.md) — prepare work before the hot path without moving safety checks away from their evidence.
+- [GRACEFUL_OWNERSHIP](docs/design/GRACEFUL_OWNERSHIP.md) — accepted work owns its drain; no implicit termination deadline.
+- [HOT_CLIENT_POOL](docs/design/HOT_CLIENT_POOL.md) — retain usable clients with explicit warm-capacity and reuse policies.
+- [WORKER_ADOPTION](docs/design/WORKER_ADOPTION.md) — transfer surviving workers through verified identity and explicit acceptance.
+- [FLEETAWARE](docs/design/FLEETAWARE.md) — cooperate across sibling processes on one OS, not an implied cloud cluster.
+- [ORBIT_CELL](docs/design/ORBIT_CELL.md) — bind declared shared values to runtime-managed cell lifetimes.
+- [ORBIT_LINK](docs/design/ORBIT_LINK.md) — connect named applications through bounded inboxes and asynchronous SHM streams.
+- [PRODUCTION_ENVIRONMENT](docs/design/PRODUCTION_ENVIRONMENT.md) — choose the deployment environment explicitly and control what hosted execution inherits.
 
 ## Development status
 

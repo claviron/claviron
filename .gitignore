@@ -92,7 +92,7 @@ core.*
 # docs
 *.md
 !README.md
-!/docs/design/GRACEFUL_OWNERSHIP.md
+!/docs/**/*.md
 !/CONTRIBUTING.md
 !/SECURITY.md
 !/.agents/skills/*/SKILL.md

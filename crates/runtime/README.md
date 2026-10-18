@@ -91,6 +91,11 @@ running child process. The legacy `env_snapshot()` accessor remains a frozen
 startup view; live configuration uses the prepared catalog and environment
 handles instead.
 
+The [environment design note](../../docs/design/PRODUCTION_ENVIRONMENT.md)
+separates explicit production selection from process-env hygiene.
+[Lifetime policy](../../docs/design/LIFETIME_POLICY.md) explains why preparation
+and request-time work have different owners.
+
 ## Process-local callbacks
 
 This registration callback listens for the local process startup event:

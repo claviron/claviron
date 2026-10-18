@@ -56,6 +56,11 @@ requires a prepared binding. Clones refer to the same managed allocation.
 Allocation and stale-handle errors remain errors rather than silently becoming
 zero-valued state.
 
+The [cell design note](../../docs/design/ORBIT_CELL.md) explains declaration,
+binding and managed allocation lifetime. [Fleet awareness](../../docs/design/FLEETAWARE.md)
+defines the same-OS scope; [Orbit Link](../../docs/design/ORBIT_LINK.md) describes
+how independently running applications communicate within it.
+
 ## Events and invocations
 
 The process-local event bus and fleet event transport are distinct. Cross-process
