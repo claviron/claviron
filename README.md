@@ -33,6 +33,9 @@ lifecycle.
 Cargo features select capabilities; typed registration and configuration
 determine how they run.
 
+The [Graceful ownership design note](docs/design/GRACEFUL_OWNERSHIP.md)
+explains who owns accepted work and what authorizes shutdown escalation.
+
 ## Crate guide and feature relationships
 
 The root `claviron` crate is the public facade. Applications select its features

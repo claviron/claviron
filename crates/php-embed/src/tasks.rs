@@ -70,10 +70,13 @@ fn executor(runtime: Arc<PhpEmbedRuntime>) -> Executor {
 /// finishes or the task is cancelled, then drain it.
 ///
 /// The drain deadline belongs to the task, not to this module. `None` waits
-/// indefinitely and never interrupts — `GRACEFUL_OWNERSHIP:
-/// NO_IMPLICIT_TERMINATION` — and a value is the operator authorising the
-/// interrupt, which is the only thing that ends a loop that never asks
+/// indefinitely and never interrupts — see
+/// [GRACEFUL_OWNERSHIP: NO_IMPLICIT_TERMINATION][graceful-ownership].
+/// A value is the operator authorising the interrupt, which is the only thing
+/// that ends a loop that never asks
 /// `claviron_is_cancelled()`.
+///
+/// [graceful-ownership]: https://github.com/claviron/claviron/blob/main/docs/design/GRACEFUL_OWNERSHIP.md
 async fn run(
     execution: TaskExecution,
     runtime: Arc<PhpEmbedRuntime>,

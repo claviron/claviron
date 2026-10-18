@@ -194,11 +194,14 @@ pub struct RotationConfig {
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ShutdownConfig {
-    /// `NO_IMPLICIT_TERMINATION` policy for worker drains.
+    /// [GRACEFUL_OWNERSHIP: NO_IMPLICIT_TERMINATION][graceful-ownership]
+    /// policy for worker drains.
     ///
     /// `None` is an explicit unbounded policy, not a missing value: runtime
     /// code must wait indefinitely and must not synthesize a fallback.
     /// `Some(d)` authorizes SIGKILL escalation after `d`.
+    ///
+    /// [graceful-ownership]: https://github.com/claviron/claviron/blob/main/docs/design/GRACEFUL_OWNERSHIP.md
     #[serde(
         default,
         serialize_with = "serialize_optional_duration",

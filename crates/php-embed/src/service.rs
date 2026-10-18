@@ -141,12 +141,11 @@ impl PhpEmbedRuntimeBuilder {
     /// [`execution_timeout`](Self::execution_timeout) for that.
     ///
     /// `None` waits indefinitely and is never overridden — that is
-    /// `GRACEFUL_OWNERSHIP: NO_IMPLICIT_TERMINATION` in
-    /// `claviron-runtime/ARCHITECTURE.md`, and no default, fallback or helper
-    /// may turn it into a duration.
+    /// [GRACEFUL_OWNERSHIP: NO_IMPLICIT_TERMINATION][graceful-ownership],
+    /// and no default, fallback or helper may turn it into a duration.
     ///
     /// `Some(d)` authorises this owner to abandon **or force** the work it
-    /// accepted once `d` has passed — the architecture's words. For embedded
+    /// accepted once `d` has passed — the contract's words. For embedded
     /// PHP, forcing means asking Zend to end the execution through its own
     /// timeout path, scoped to this service's generation and to threads
     /// actually executing. The drain then allows a short window for the VM to
@@ -158,6 +157,8 @@ impl PhpEmbedRuntimeBuilder {
     /// the interrupt does not land — a script blocked in a native call never
     /// reaches a VM interrupt point — but the second half stopped being true
     /// when the interrupt landed, and the two had disagreed since.
+    ///
+    /// [graceful-ownership]: https://github.com/claviron/claviron/blob/main/docs/design/GRACEFUL_OWNERSHIP.md
     pub fn graceful_timeout(
         mut self,
         timeout: Option<Duration>,

@@ -571,7 +571,10 @@ pub(crate) async fn shutdown_workers_inner(
 ///
 /// `shutdown_timeout` is the operator's policy: `Some(d)` authorizes one
 /// `SIGKILL` to the still-live identity after `d`; `None` waits for as long
-/// as it takes. NO_IMPLICIT_TERMINATION: nothing else here is a deadline.
+/// as it takes. Nothing else here is a deadline; see
+/// [GRACEFUL_OWNERSHIP: NO_IMPLICIT_TERMINATION][graceful-ownership].
+///
+/// [graceful-ownership]: https://github.com/claviron/claviron/blob/main/docs/design/GRACEFUL_OWNERSHIP.md
 pub(crate) async fn await_slot_exit(
     control: &WorkerControl,
     worker_id: WorkerId,

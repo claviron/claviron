@@ -86,7 +86,10 @@ pub struct TaskExecution {
     pub stop: StopContext,
     pub runtime: TaskRuntime,
     /// The task's `graceful_timeout`. `None` waits indefinitely and never
-    /// interrupts — `GRACEFUL_OWNERSHIP: NO_IMPLICIT_TERMINATION`.
+    /// interrupts — see
+    /// [GRACEFUL_OWNERSHIP: NO_IMPLICIT_TERMINATION][graceful-ownership].
+    ///
+    /// [graceful-ownership]: https://github.com/claviron/claviron/blob/main/docs/design/GRACEFUL_OWNERSHIP.md
     pub graceful_timeout: Option<Duration>,
     /// Daemon timing on `each` or `pool` dispatch: one long-lived program that
     /// owns its slot, rather than a bounded occurrence that ends.

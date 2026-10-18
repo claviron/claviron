@@ -165,8 +165,8 @@ impl TaskExecutions {
     /// Request cooperative shutdown and wait for actual OS-thread completion.
     ///
     /// `None` is deliberately indefinite and never interrupts: that is
-    /// `GRACEFUL_OWNERSHIP: NO_IMPLICIT_TERMINATION`, and an operator who wrote
-    /// no deadline gets no kill. A deadline is the operator authorising the
+    /// [GRACEFUL_OWNERSHIP: NO_IMPLICIT_TERMINATION][graceful-ownership].
+    /// An operator who wrote no deadline gets no kill. A deadline authorises the
     /// opposite, so it escalates rather than merely giving up.
     ///
     /// `drain` against a deadline the caller owns.
@@ -175,6 +175,8 @@ impl TaskExecutions {
     /// in the slot supervisor — the attempt loop and the final teardown — and
     /// a `Duration` would hand each of them the full grace, letting one stuck
     /// slot spend the budget twice.
+    ///
+    /// [graceful-ownership]: https://github.com/claviron/claviron/blob/main/docs/design/GRACEFUL_OWNERSHIP.md
     pub(crate) async fn drain_until(
         &mut self,
         deadline: Option<tokio::time::Instant>,
