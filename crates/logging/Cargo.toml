@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = ["/src/**/*.rs", "/README.md"]
 keywords = ["claviron", "logging", "tracing", "observability", "otlp"]
 categories = ["development-tools::debugging", "asynchronous"]
 # Tests live under tests/ and are included by their modules.

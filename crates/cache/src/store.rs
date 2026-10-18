@@ -70,9 +70,10 @@ impl CacheStoreResolver for HashMap<String, Arc<dyn CacheStore>> {
 
 /// Build-time factory for one cache backend family.
 ///
-/// Third-party drivers register this trait with [`CacheRegistry`]. They may
-/// deserialize the common `cache.yaml` store options, ignore them, or use
-/// configuration owned by their own provider.
+/// Third-party drivers register this trait with
+/// [`CacheRegistry`](crate::CacheRegistry). They may deserialize the common
+/// `cache.yaml` store options, ignore them, or use configuration owned by their
+/// own provider.
 pub trait CacheDriver: Any + Send + Sync + 'static {
     fn driver_name(&self) -> &'static str;
 

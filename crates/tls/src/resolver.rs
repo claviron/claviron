@@ -138,7 +138,7 @@ impl CertResolver {
 
     /// Remove the certificate identified by `cn` together with **every other
     /// hostname pointing to the same `Arc<CertifiedKey>`** (CN entry + all
-    /// aliases that were installed via [`upsert_host`] with the same
+    /// aliases that were installed via [`Self::upsert_host`] with the same
     /// `Arc::clone`). Returns the number of hostname entries removed.
     ///
     /// **What:** Looks up the `Arc<CertifiedKey>` registered under `cn`,
@@ -160,7 +160,7 @@ impl CertResolver {
     /// everywhere" path.
     ///
     /// **Don't use when:** removing a single SAN/alias — use
-    /// [`remove_host`] instead. Calling `remove_cert` on a SAN's hostname
+    /// [`Self::remove_host`] instead. Calling `remove_cert` on a SAN's hostname
     /// would still remove the whole cert (every alias shares the same
     /// Arc), which is almost certainly not what you want.
     pub fn remove_cert(

@@ -112,11 +112,9 @@ impl TransportSegment {
         let lane = self
             .inbox()
             .targets(application)
-            .into_iter()
-            .filter(|(lane, _)| {
+            .into_iter().find(|(lane, _)| {
                 matches!(self.inbox().role(*lane).ok().flatten(), Some(role) if role != super::EDGE_RUNTIME)
             })
-            .next()
             .ok_or_else(|| Error::NoConsumer(application.to_owned()))?
             .0;
         if let Err(error) = self.inbox().write(lane, &command.encode()?) {

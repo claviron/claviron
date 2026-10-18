@@ -8,6 +8,16 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = [
+    "/src/**/*.rs",
+    "/README.md",
+    "/php/composer.json",
+    "/php/README.md",
+    "/php/src/**/*.php",
+    "/php/config/*.php",
+    "/php/runners/*.php",
+    "/php/stubs/*.php",
+]
 keywords = ["laravel", "php", "embedded", "runtime", "claviron"]
 categories = ["web-programming::http-server", "api-bindings", "asynchronous"]
 autotests = false

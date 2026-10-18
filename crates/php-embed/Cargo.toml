@@ -8,6 +8,14 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = [
+    "/src/**/*.rs",
+    "/README.md",
+    "/build.rs",
+    "/php/composer.json",
+    "/php/src/**/*.php",
+    "/php/fallback/*.php",
+]
 keywords = ["php", "embedded", "sapi", "runtime", "claviron"]
 categories = ["web-programming::http-server", "api-bindings", "asynchronous"]
 build = "build.rs"

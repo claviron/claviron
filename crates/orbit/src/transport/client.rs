@@ -22,7 +22,7 @@
 //! A kept slot is not a connection and is not tied to the process at the other
 //! end. The application opens its side for one exchange and lets it go, and
 //! re-arming hands that side to whichever process the next exchange is
-//! addressed to. See [`Hot`].
+//! addressed to. The caller retains these slots in its internal hot-slot cache.
 //!
 //! Nothing else is. No health probe, no warm floor, no retry: there is no
 //! acknowledgement to retry against, and a request that was written was
@@ -320,8 +320,16 @@ pub struct TransportClient {
 
 #[derive(Default)]
 struct ApplicationBatch {
-    completed: Option<(u64, Option<u32>, u64, Vec<Vec<u8>>)>,
+    completed: Option<CompletedApplicationBatch>,
     pending: Option<PendingApplicationBatch>,
+}
+
+/// A complete snapshot from one exact runner lane incarnation.
+struct CompletedApplicationBatch {
+    incarnation: u64,
+    pid: Option<u32>,
+    batch: u64,
+    rows: Vec<Vec<u8>>,
 }
 
 struct PendingApplicationBatch {
@@ -344,7 +352,7 @@ struct PendingApplicationBatch {
 #[derive(Default)]
 struct Directory {
     generation: u64,
-    lanes: std::collections::HashMap<Box<str>, Arc<[usize]>>,
+    lanes: HashMap<Box<str>, Arc<[usize]>>,
 }
 
 impl Directory {
@@ -428,10 +436,11 @@ impl TransportClient {
             .expect("application state lock")
             .get(&peer.lane)
             .and_then(|batch| batch.completed.as_ref())
-            .filter(|(incarnation, pid, _, _)| {
-                *incarnation == peer.incarnation && *pid == peer.pid
+            .filter(|completed| {
+                completed.incarnation == peer.incarnation
+                    && completed.pid == peer.pid
             })
-            .map(|(_, _, _, rows)| rows.clone());
+            .map(|completed| completed.rows.clone());
         if state.is_none() {
             request_application_state(&self.segment, peer);
         }
@@ -852,48 +861,65 @@ fn accept_application_state(
     }
     let pid = inbox.owner(lane).ok().flatten();
     let mut states = states.lock().expect("application state lock");
-    let entry = states.entry(lane).or_default();
-    if entry.completed.as_ref().is_some_and(
-        |(incarnation, previous_pid, batch, _)| {
-            *incarnation == notice.incarnation
-                && *previous_pid == pid
-                && *batch >= notice.batch
-        },
+    states.entry(lane).or_default().accept(notice, pid);
+}
+
+impl ApplicationBatch {
+    /// Merge a decoded row after the caller has validated its live lane owner
+    /// and bounded row count. Partial snapshots are never exposed as complete.
+    fn accept(
+        &mut self,
+        notice: ApplicationStateNotice,
+        pid: Option<u32>,
     ) {
-        return;
-    }
-    let replace = entry.pending.as_ref().is_none_or(|pending| {
-        pending.incarnation != notice.incarnation
-            || pending.pid != pid
-            || notice.batch > pending.batch
-    });
-    if replace {
-        // A newer observation is in flight. Do not present the prior
-        // lifecycle as current while only part of this batch has arrived.
-        entry.completed = None;
-        entry.pending = Some(PendingApplicationBatch {
-            incarnation: notice.incarnation,
-            pid,
-            batch: notice.batch,
-            rows: vec![None; usize::from(notice.row_count)],
+        if self.completed.as_ref().is_some_and(|completed| {
+            completed.incarnation == notice.incarnation
+                && completed.pid == pid
+                && completed.batch >= notice.batch
+        }) {
+            return;
+        }
+        let replace = self.pending.as_ref().is_none_or(|pending| {
+            pending.incarnation != notice.incarnation
+                || pending.pid != pid
+                || notice.batch > pending.batch
         });
-    }
-    let Some(pending) = entry.pending.as_mut() else { return };
-    if pending.incarnation != notice.incarnation
-        || pending.pid != pid
-        || pending.batch != notice.batch
-        || pending.rows.len() != usize::from(notice.row_count)
-    {
-        return;
-    }
-    pending.rows[usize::from(notice.row_index)] = Some(notice.payload);
-    if pending.rows.iter().all(Option::is_some) {
-        let rows = pending.rows.iter().flatten().cloned().collect();
-        entry.completed =
-            Some((pending.incarnation, pending.pid, pending.batch, rows));
-        entry.pending = None;
+        if replace {
+            // A newer observation is in flight. Do not present the prior
+            // lifecycle as current while only part of this batch has arrived.
+            self.completed = None;
+            self.pending = Some(PendingApplicationBatch {
+                incarnation: notice.incarnation,
+                pid,
+                batch: notice.batch,
+                rows: vec![None; usize::from(notice.row_count)],
+            });
+        }
+        let Some(pending) = self.pending.as_mut() else { return };
+        if pending.incarnation != notice.incarnation
+            || pending.pid != pid
+            || pending.batch != notice.batch
+            || pending.rows.len() != usize::from(notice.row_count)
+        {
+            return;
+        }
+        pending.rows[usize::from(notice.row_index)] = Some(notice.payload);
+        if pending.rows.iter().all(Option::is_some) {
+            let rows = pending.rows.iter().flatten().cloned().collect();
+            self.completed = Some(CompletedApplicationBatch {
+                incarnation: pending.incarnation,
+                pid: pending.pid,
+                batch: pending.batch,
+                rows,
+            });
+            self.pending = None;
+        }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/transport/client.rs"]
+mod tests;
 
 /// Hand one frame to whoever is waiting for it.
 fn deliver(

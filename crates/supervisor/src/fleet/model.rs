@@ -291,7 +291,7 @@ impl WorkerPhase {
     }
 }
 
-/// [`WorkerPhase`] as published: the same states, without the lane watch,
+/// Published worker phase: the internal phase's states, without the lane watch,
 /// presence record or request clock that only this master can act on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WorkerObservedPhase {

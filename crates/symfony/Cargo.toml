@@ -9,6 +9,14 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = [
+    "/src/**/*.rs",
+    "/README.md",
+    "/php/composer.json",
+    "/php/README.md",
+    "/php/src/**/*.php",
+    "/php/stubs/*.php",
+]
 keywords = ["symfony", "php", "application-server", "claviron"]
 categories = ["web-programming::http-server"]
 

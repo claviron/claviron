@@ -24,7 +24,7 @@ pub mod deny;
 pub(crate) mod loader;
 #[cfg(feature = "server")]
 pub mod pipeline;
-#[cfg(feature = "extensions")]
+#[cfg(feature = "axum")]
 pub use pipeline::merged::extensions as extension;
 #[cfg(feature = "server")]
 mod provider;

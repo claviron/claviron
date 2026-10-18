@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = ["/src/**/*.rs", "/README.md"]
 keywords = ["http", "routing", "middleware", "claviron"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming"]
 
@@ -29,7 +30,7 @@ metrics = [
     "orbitive/metrics",
 ]
 cache = ["axum", "dep:claviron-cache"]
-axum = ["dep:axum", "dep:headers", "dep:serde_json", "dep:moka"]
+axum = ["dep:axum", "dep:headers", "dep:serde_json"]
 routing = ["axum", "dep:serde_yaml"]
 
 [dependencies]
@@ -50,7 +51,6 @@ orbitive = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
 headers = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
-moka = { workspace = true, optional = true }
 serde_yaml = { workspace = true, optional = true }
 
 # workspace

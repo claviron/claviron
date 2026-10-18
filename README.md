@@ -55,7 +55,7 @@ path.
 
 | Crate | Responsibility | Facade selection |
 | --- | --- | --- |
-| [edge](crates/edge/README.md) | Virtual-host publication, admission, response-owner selection, and route extensions. Also documents the `edge_config` alias. | `edge`; ready-made directives: `edge-extensions` |
+| [edge](crates/edge/README.md) | Virtual-host publication, admission, response-owner selection, and consumer-defined route extensions. Also documents the `edge_config` alias. | `edge` |
 | [http](crates/http/README.md) | Transport-neutral bodies, HTTP policies, listener declarations, and shared routing contracts. | `http`; Axum integration: `axum` |
 | [hyper](crates/hyper/README.md) | Edge's native HTTP/1.1 and HTTP/2 listener and connection drivers. | Selected by `edge`; no separate `hyper` feature |
 | [h3](crates/h3/README.md) | HTTP/3 over QUIC and its native request/connection integration. | `http3` (includes `tls`) |
@@ -274,6 +274,10 @@ Routing configuration is extensible too. A service's `Routable::route_extensions
 can supply [route directives](crates/edge/README.md#route-extensions) with their
 own codecs and compilers. Edge prepares them with the host's routes; requests
 use the compiled handlers rather than interpreting configuration again.
+A framework running on Claviron can use this API to add its own typed vhost
+and route settings, such as a locale or `csrf: true`. The framework defines
+their behavior and responses; Claviron provides the extension points, not
+application conventions.
 
 The same environment preparation serves Claviron services, embedded applications,
 and external programs. Each execution receives its declared values. Preparation
@@ -313,11 +317,19 @@ actually needs:
 - `edge` composes the supervised HTTP edge with Axum routing, static-file
   support, and native cleartext HTTP/1 and HTTP/2 ingress.
 
-Add `tls`, `http3`, `edge-extensions`, `php_embed`, `tasks`, or `cache` as needed.
+Add `tls`, `http3`, `php_embed`, `tasks`, or `cache` as needed.
 
 Applications register their own components through `Server::register` or
 `Server::with_services`, then provide the configuration and adapters their
 composition requires. The crate READMEs provide focused integration examples.
+
+## liberum
+
+[liberum](https://github.com/claviron/claviron/tree/main/liberum) is an open
+playground where applications built on Claviron come to life. Its FastAPI,
+JavaScript and Laravel examples connect to one edge over Orbit Link. Each keeps
+its own application process and dependencies; the edge owns HTTP ingress. Launchers live in
+`liberum/scripts/`. These sources are available in Git, not the Cargo package.
 
 ## Development status
 

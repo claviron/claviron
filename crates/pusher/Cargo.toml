@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = ["/src/**/*.rs", "/README.md"]
 keywords = ["claviron", "pusher", "websocket", "realtime", "broadcast"]
 categories = ["network-programming", "web-programming::http-server"]
 

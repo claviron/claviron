@@ -29,7 +29,7 @@ pub mod iso8601 {
     }
 }
 
-/// Serialize Option<OffsetDateTime> as ISO 8601 string or null
+/// Serialize `Option<OffsetDateTime>` as an ISO 8601 string or null.
 pub mod iso8601_option {
     use time::format_description::well_known::Rfc3339;
 

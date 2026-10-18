@@ -28,8 +28,8 @@ pub struct CertAuthority {
 
 impl CertAuthority {
     /// Name anchors the caller already holds. The policy of *where* an
-    /// authority comes from stays with [`CertAuthority::load`]; this is the
-    /// value itself, for a test or a future non-file source.
+    /// authority comes from stays with TLS configuration; this constructor
+    /// stores the supplied value without loading a source.
     pub fn new(
         path: PathBuf,
         roots: Vec<CertificateDer<'static>>,

@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = ["/src/**/*.rs", "/README.md"]
 keywords = ["benchmark", "http", "claviron"]
 categories = ["development-tools::profiling", "web-programming::http-server"]
 

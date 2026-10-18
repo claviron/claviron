@@ -288,7 +288,8 @@ pub fn ends_at_shutdown(
 
 /// Hand a reply back as its policy says: held — to be sent whole with its
 /// length known — or passed on as it comes. The reply's own head decides
-/// first ([`ResponsePolicy::delivery`]: `X-Accel-Buffering`, then
+/// first ([`ResponsePolicy::delivery`](crate::policy::ResponsePolicy::delivery):
+/// `X-Accel-Buffering`, then
 /// `text/event-stream`, then the policy), and `X-Accel-Buffering` is removed:
 /// it is a word to the proxy, not the client.
 ///

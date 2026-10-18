@@ -85,6 +85,18 @@ Tests should demonstrate a regression or meaningful contract:
 Benchmarks should state the platform, build profile, workload, concurrency, and
 comparison boundary. Separate transport measurements from application throughput.
 
+## Registry package contents
+
+Each package uses an explicit `include` list: Rust sources, README, and any
+required build script or runtime assets. Preserve PHP adapters and entry points,
+embedded Lua modules, and their license notices. Add new non-Rust build inputs
+to the owning package's list when introducing them.
+
+Tests, fixtures, benchmarks, application examples, local configuration and
+development tools stay in Git, not registry packages. Run their checks from a
+checkout. Use `cargo package --list --workspace` to inspect package contents
+without building or publishing.
+
 ## Reports and pull requests
 
 Report suspected vulnerabilities privately as described in [SECURITY.md](SECURITY.md).

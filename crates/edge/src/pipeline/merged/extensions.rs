@@ -1,12 +1,5 @@
 //! Host-bound adapter for HTTP's shared routing extension contract.
 
-#[cfg(feature = "extensions")]
-pub mod ajax_only;
-#[cfg(all(feature = "extensions", feature = "auth"))]
-pub mod csrf;
-#[cfg(feature = "extensions")]
-pub mod rate_limit;
-
 use claviron_runtime::registry::Result;
 use serde::de::DeserializeOwned;
 use std::sync::Arc;

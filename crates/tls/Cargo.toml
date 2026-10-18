@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = ["/src/**/*.rs", "/README.md"]
 keywords = ["tls", "mtls", "rustls", "certificates", "claviron"]
 categories = ["cryptography", "network-programming"]
 

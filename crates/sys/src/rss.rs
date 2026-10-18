@@ -1,6 +1,6 @@
 //! Resident Set Size (RSS) lookup for any pid — own process or external.
 //!
-//! Single entry point: [`read_rss(pid: Option<u32>)`].
+//! Single entry point: [`read_rss`].
 //! - `pid = None`  → query the calling process. Linux uses
 //!   `/proc/self/status`, FreeBSD uses `sysctl(KERN_PROC_PID, getpid())`,
 //!   and macOS uses `proc_pid_rusage`.

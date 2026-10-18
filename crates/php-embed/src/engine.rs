@@ -263,7 +263,8 @@ impl PhpSapiEngine {
 
     /// Drain the pool: stop accepting new jobs and wait for in-flight
     /// PHP execution to finish. No-op if the pool was never started.
-    /// See [`pool::SapiThreadPool::drain`] for full semantics.
+    /// Returns whether all request threads finished and were joined. A finite
+    /// grace may interrupt remaining PHP executions; `None` waits indefinitely.
     pub async fn drain(
         &self,
         grace: Option<Duration>,

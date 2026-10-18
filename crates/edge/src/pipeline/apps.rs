@@ -135,6 +135,15 @@ impl AppKind {
 use crate::pipeline::merged::routing::RouteContext;
 pub use claviron_http::admission::Admission;
 
+/// Prepared route-extension effects, resolved once during host composition.
+#[cfg(feature = "axum")]
+#[derive(Default)]
+pub(crate) struct ResolvedRouteExtensions {
+    pub(crate) handler: Option<Router<AppState>>,
+    pub(crate) conditions: Vec<Arc<dyn claviron_http::routing::RouteCondition>>,
+    pub(crate) layers: Vec<Arc<dyn claviron_http::routing::RouteLayer>>,
+}
+
 /// A host's application and what its requests are admitted under.
 #[derive(Clone)]
 pub struct HostApp {
@@ -631,9 +640,9 @@ impl HostAppRegistry {
     /// # When not to use
     ///
     /// - You want to own every middleware decision (no claviron
-    ///   stack) → use [`register_router`].
+    ///   stack) → use [`Self::register_router`].
     /// - You don't want axum at all (custom protocol, hot-path
-    ///   service) → use [`register_bypass`].
+    ///   service) → use [`Self::register_bypass`].
     /// - The host has no Rust code at all (purely config-driven) →
     ///   don't register; the default pipeline is built automatically.
     ///
@@ -684,9 +693,9 @@ impl HostAppRegistry {
     /// # When not to use
     ///
     /// - You want claviron middleware around your routes →
-    ///   [`register_app`].
+    ///   [`Self::register_app`].
     /// - You want to skip axum entirely (e.g. raw `tower::Service`,
-    ///   custom protocol, no router overhead) → [`register_bypass`].
+    ///   custom protocol, no router overhead) → [`Self::register_bypass`].
     /// - The host is config-only → don't register.
     ///
     /// # Lifecycle
@@ -740,9 +749,9 @@ impl HostAppRegistry {
     ///
     /// # When not to use
     ///
-    /// - You want path-based routing → [`register_router`] gives you
+    /// - You want path-based routing → [`Self::register_router`] gives you
     ///   axum without the claviron layers.
-    /// - You want claviron's standard pipeline → [`register_app`].
+    /// - You want claviron's standard pipeline → [`Self::register_app`].
     ///
     /// # Why the factory takes `AppState`, `Host`, `Arc<HostConfig>`
     ///
@@ -889,35 +898,19 @@ impl HostAppRegistry {
     }
 
     #[cfg(feature = "axum")]
-    pub(crate) fn resolve_route_extensions(
-        &self,
-        context: &RouteContext<'_>,
-    ) -> Result<(
-        Option<Router<AppState>>,
-        Vec<Arc<dyn claviron_http::routing::RouteCondition>>,
-        Vec<Arc<dyn claviron_http::routing::RouteLayer>>,
-    )> {
-        self.resolve_extensions(context, false)
-    }
-
-    #[cfg(feature = "axum")]
     pub(crate) fn resolve_host_layers(
         &self,
         context: &RouteContext<'_>,
     ) -> Result<Vec<Arc<dyn claviron_http::routing::RouteLayer>>> {
-        self.resolve_extensions(context, true).map(|(_, _, layers)| layers)
+        self.resolve_extensions(context, true).map(|resolved| resolved.layers)
     }
 
     #[cfg(feature = "axum")]
-    fn resolve_extensions(
+    pub(crate) fn resolve_extensions(
         &self,
         context: &RouteContext<'_>,
         inherited_only: bool,
-    ) -> Result<(
-        Option<Router<AppState>>,
-        Vec<Arc<dyn claviron_http::routing::RouteCondition>>,
-        Vec<Arc<dyn claviron_http::routing::RouteLayer>>,
-    )> {
+    ) -> Result<ResolvedRouteExtensions> {
         use claviron_http::routing::RouteEffect;
         let providers = self
             .routables
@@ -1004,7 +997,7 @@ impl HostAppRegistry {
                 RouteEffect::Layer(layer) => layers.push(layer),
             }
         }
-        Ok((handler, conditions, layers))
+        Ok(ResolvedRouteExtensions { handler, conditions, layers })
     }
 
     fn routable_binding(

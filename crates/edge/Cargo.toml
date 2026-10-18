@@ -9,15 +9,12 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = ["/src/**/*.rs", "/README.md"]
 keywords = ["http", "routing", "edge", "claviron"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming"]
 
 [features]
 default = []
-# Optional ready-made typed route directives, compiled through the same
-# extension contract downstream providers use. Never part of the default.
-extensions = ["axum", "claviron-auth?/csrf"]
-auth = ["dep:claviron-auth"]
 acme = ["claviron-http/acme"]
 server = [
     "claviron-http/server",
@@ -87,7 +84,6 @@ webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport"]
 
 [dependencies]
 #internal
-claviron-auth = { version = "0.2.0-alpha.17", path = "../auth", optional = true }
 claviron-runtime = { version = "0.2.0-alpha.17", path = "../runtime" }
 claviron-logging = { version = "0.2.0-alpha.17", path = "../logging", optional = true }
 claviron-helpers = { version = "0.2.0-alpha.17", path = "../helpers" }

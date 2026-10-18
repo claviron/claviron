@@ -1,0 +1,7 @@
+# Must match ../edge-server for the same application transport fleet.
+[env]
+ORBIT_TRANSPORT_INBOX_CAPACITY = { value = "128", force = true }
+ORBIT_TRANSPORT_INBOX_PAYLOAD_CAPACITY = { value = "17408", force = true }
+ORBIT_TRANSPORT_LANE_CAPACITY = { value = "128", force = true }
+ORBIT_TRANSPORT_BUFFER_BYTES = { value = "65536", force = true }
+ORBIT_TRANSPORT_FLEET_CAPACITY = { value = "32", force = true }

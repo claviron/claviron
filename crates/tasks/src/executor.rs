@@ -94,7 +94,7 @@ pub struct TaskExecution {
 }
 
 /// Runs one [`TaskExecution`]. Installed once by the crate that owns the
-/// embedded engine; see [`TaskService::set_php_executor`].
+/// embedded engine; see [`TaskService::set_executor`].
 ///
 /// A return after cancellation must mean owned execution has drained/joined.
 /// Environment renewal cancels only this instance and awaits that return
@@ -102,7 +102,7 @@ pub struct TaskExecution {
 /// `Exit(Cancelled | Shutdown)` acknowledges the stop; other errors refuse
 /// replacement and enter the runner's existing failure policy.
 ///
-/// [`TaskService::set_php_executor`]: crate::service::TaskService::set_php_executor
+/// [`TaskService::set_executor`]: crate::service::TaskService::set_executor
 pub type Executor = Arc<
     dyn Fn(TaskExecution) -> BoxFuture<'static, TaskResult<()>> + Send + Sync,
 >;

@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = ["/src/**/*.rs", "/README.md"]
 keywords = ["http", "http2", "hyper", "server", "claviron"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming"]
 

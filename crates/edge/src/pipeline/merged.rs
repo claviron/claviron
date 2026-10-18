@@ -18,6 +18,7 @@ use claviron_http::routing::AxumPipeline;
 use claviron_runtime::AppState;
 use claviron_types::Host;
 
+use super::apps::ResolvedRouteExtensions;
 use crate::config::HostConfig;
 
 #[cfg(feature = "websocket")]
@@ -121,12 +122,16 @@ pub fn create_router(
                     route: config.as_ref(),
                     prefix: rule,
                 };
-                let (handler, resolved_conditions, layers) = match &registry {
+                let ResolvedRouteExtensions {
+                    handler,
+                    conditions: resolved_conditions,
+                    layers,
+                } = match &registry {
                     Some(registry) => {
-                        registry.resolve_route_extensions(&context)?
+                        registry.resolve_extensions(&context, false)?
                     }
                     None if config.extensions.is_empty() => {
-                        (None, Vec::new(), Vec::new())
+                        ResolvedRouteExtensions::default()
                     }
                     None => {
                         return Err(claviron_runtime::registry::Error::msg(

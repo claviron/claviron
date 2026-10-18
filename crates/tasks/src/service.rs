@@ -300,7 +300,7 @@ fn same_timing_kind(
     )
 }
 
-/// Idiomatic builder for TaskService that returns Arc<TaskService>
+/// Builder for [`TaskService`] that returns `Arc<TaskService>`.
 pub struct TaskServiceBuilder {
     svc: TaskService,
 }

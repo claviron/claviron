@@ -1,6 +1,11 @@
 [package]
 autotests = false
-include = ["src/**", "lua/**", "tests/**", "Cargo.toml", "README.md", "claviron.d.lua"]
+include = [
+    "/src/**/*.rs",
+    "/README.md",
+    "/lua/*.lua",
+    "/lua/*.LICENSE",
+]
 name = "claviron-lua"
 version.workspace = true
 publish.workspace = true

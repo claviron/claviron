@@ -327,7 +327,7 @@ impl VhostResolver {
         table.resolve(host)
     }
 
-    /// Strict variant of [`resolve`] — does not fall back to the
+    /// Strict variant of [`Self::resolve`] — does not fall back to the
     /// `default` catchall.
     pub fn resolve_exact(
         &self,

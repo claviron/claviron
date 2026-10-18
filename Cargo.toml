@@ -9,6 +9,7 @@ authors = ["ilker Arabaci <iarabaci@claviron.dev>"]
 description = "Embeddable Rust runtime and server fabric for fleet-aware application servers"
 license.workspace = true
 repository.workspace = true
+include = ["/src/**/*.rs", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
 
 [features]
 # Sections below are grouped by concern, alphabetised within each group.
@@ -20,7 +21,7 @@ repository.workspace = true
 default = []
 
 # ── Core ─────────────────────────────────────────────────────────────
-auth = ["dep:claviron-auth", "claviron-auth/csrf", "claviron-php-embed?/auth", "claviron-edge?/auth"]
+auth = ["dep:claviron-auth", "claviron-auth/csrf", "claviron-php-embed?/auth"]
 application = ["runtime", "dep:claviron-app"]
 clients = ["orbitive/client-pool", "dep:serde", "dep:humantime-serde"]
 clients-fleet = ["clients", "orbitive/client-pool-fleet"]
@@ -103,9 +104,6 @@ edge = [
 ]
 
 # Static assets can be served by an application without virtual hosts or edge dispatch.
-# Ready-made edge extensions; custom directive registration only needs edge.
-edge-extensions = ["edge", "claviron-edge/extensions"]
-
 files = ["dep:claviron-files", "claviron-runner?/files"]
 
 # ── Metrics extras
@@ -279,7 +277,7 @@ repository = "https://github.com/claviron/claviron"
 authors = ["ilker Arabaci <iarabaci@claviron.dev>"]
 # Pre-releases go to the claviron registry only; a final version is published to
 # crates.io by hand, never by accident.
-publish = ["claviron"]
+publish = true
 
 [workspace.dependencies]
 # ─────────────────────────────────────────────────────────────────────

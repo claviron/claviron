@@ -10,8 +10,6 @@ mod ctx;
 mod error;
 pub mod ext;
 pub mod forwarding;
-#[cfg(feature = "axum")]
-pub mod layers;
 #[cfg(feature = "server")]
 pub mod listener;
 #[cfg(feature = "metrics")]

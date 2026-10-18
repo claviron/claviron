@@ -12,7 +12,7 @@ use crate::{CacheDriver, CacheProvider, CacheStore, Error};
 ///
 /// Drivers may be added by downstream application registration after
 /// `claviron-cache` registers its built-ins; `cache.yaml` arrives afterwards,
-/// prepared by Congif, through [`Self::configure`]. During boot the registry
+/// prepared by Congif. During boot the registry
 /// builds every configured store from the registered drivers, completes
 /// cross-store links, publishes the final [`CacheProvider`] catalog, and
 /// seals itself against runtime mutation.

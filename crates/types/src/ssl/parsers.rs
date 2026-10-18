@@ -31,7 +31,8 @@ pub fn take_first_cert_from_der(
 }
 
 /// #CERT_CHAIN_SAVING
-/// Parses a PEM-encoded certificate chain and converts it into a Vec<CertificateDer>.
+/// Parses a PEM-encoded certificate chain and concatenates its DER bytes into
+/// a `Vec<u8>`.
 /// Used when importing new or renewed certificates before storing or serving them.
 pub fn concat_chain_bytes_from_pem(pem: &[u8]) -> Result<Vec<u8>, Error> {
     let mut out = Vec::new();

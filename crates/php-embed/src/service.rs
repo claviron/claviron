@@ -257,7 +257,7 @@ impl PhpEmbedRuntimeBuilder {
 /// One embedded PHP runtime with an optional request pool, PHP task executor,
 /// and persistent application pools. The builder is configuration-free; [`crate::register`]
 /// reads `php.yaml` and composes this same service internally.
-/// It is not runnable: registration installs independent [`PhpSapiService`] and
+/// It is not runnable: registration installs independent [`PhpScriptService`] and
 /// [`PhpApplicationService`] runnables on workers and standalone processes, and
 /// — with the `tasks` feature — the executor that runs `php:` tasks.
 /// Downstream applications import these types through claviron::ephp.

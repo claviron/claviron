@@ -1,0 +1,77 @@
+# HTTP and Pusher WebSockets both arrive over Orbit. Start from this root.
+fleet_name: octane
+icon: laravel
+request_mode: application
+try_files: true
+assets: [ build, images ]
+#tcp: 127.0.0.1:3000
+#uds: /tmp/octane-app.sock
+orbit: true
+cache: { } # No native stores; Laravel currently selects its array cache.
+database:
+  postgres:
+    octane:
+      url: ${DATABASE_URL}
+      pool:
+        pool_size: 32
+        idle_size: 2
+        acquire_timeout: 10s
+        idle_timeout: 5m
+        max_lifetime: 30m
+# Aligned with the shared transport lane capacity.
+max_in_flight: 128
+max_concurrent_requests: 128
+requests:
+  max_body_size: 64 MiB
+  body_read_timeout: 30s
+  head_timeout: 60s
+responses:
+  body_idle_timeout: 60s
+broadcasting:
+  key: ${PUSHER_APP_KEY}
+  secret: ${PUSHER_APP_SECRET}
+  client_events: true
+logging:
+  system_log:
+    path: storage/logs/octane-app.log
+    format: line
+    truncate: true
+  channels:
+    laravel:
+      adapter: file
+      path: storage/logs/lumenize.log
+      format: line
+      truncate: true
+php:
+  events:
+    capacity: 128
+  engine:
+    ini_path: ${PHP_DIR}/etc/php.ini
+    ini_scan_dir: ${PHP_DIR}/etc/conf.d/embed
+  lifecycle:
+    graceful_timeout: null
+    execution_timeout: 30s
+  sapi: null
+  application:
+    script_path: application.php
+    env_file: .env
+    env:
+      OCTANE_SERVER: claviron
+      CACHE_STORE: array
+      SESSION_DRIVER: file
+      SESSION_BLOCK: "false"
+      BROADCAST_CONNECTION: claviron
+      LOG_CHANNEL: claviron
+    pool:
+      min_idle: 1
+      max_idle: 1
+      max_size: 8
+      idle_timeout: 60s
+      max_life: 5m
+      max_requests: 1000
+      maintenance_interval: 100ms
+      max_waiting: 256
+    retry:
+      max_attempts: null
+      backoff: 1s
+      backoff_max: 10s

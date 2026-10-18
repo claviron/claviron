@@ -8,7 +8,7 @@ HTTP/3 integration own their wire protocols; this crate owns the common hosting
 contract above them.
 
 Applications normally use `claviron::edge` through the root crate's `edge`
-feature. Enable TLS, HTTP/3, application adapters, and ready-made route extensions
+feature. Enable TLS, HTTP/3, and application adapters
 explicitly as needed. The edge is neither an interpreter nor a language-specific
 application framework.
 
@@ -145,11 +145,29 @@ unavailable directives fail preparation rather than being silently ignored.
 Request handling uses the prepared route layers, not a per-request extension
 registry lookup.
 
-The implementation's `extensions` feature supplies ready-made directives. The
-root facade exposes it as `edge-extensions`, including the typed
-`claviron::edge::extension` surface. Enabling that feature makes directives
-available; it does not automatically impose rate limits, authentication, or
-CSRF policy on every route.
+`claviron::edge::extension` exposes the generic directive, condition and layer
+contracts with the ordinary Axum routing surface; no separate extension feature
+is required. Applications and frameworks own concrete directives such as AJAX
+admission, CSRF and rate limits, including their errors and response policy.
+Register them through `Server::with_edge_extension`, `HostAppRegistry` or a
+matched `Routable` provider. Claviron installs no application policy implicitly.
+
+A framework built on Claviron can add its own typed settings to a vhost's
+routing configuration without changing Claviron's schema. For example, after
+registering framework-owned `locale` and `csrf` directives, a route could declare:
+
+```yaml
+routes:
+  /:
+    locale: tr
+    csrf: true
+```
+
+These are illustrative framework settings, not built-in Claviron directives.
+The framework owns their types, validation, request behavior and failure
+responses. Claviron supplies the configuration extension points and prepares
+their effects with the host's routes. Host-level layer inheritance is explicit
+through `RouteExtension::inherit_from_host`, not automatic for every custom key.
 
 ## Reload and connection lifetime
 

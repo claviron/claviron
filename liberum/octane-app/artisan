@@ -1,0 +1,26 @@
+#!/usr/bin/env php
+<?php
+
+use Illuminate\Foundation\Application;
+use Symfony\Component\Console\Input\ArgvInput;
+
+define('LARAVEL_START', microtime(true));
+
+// Register the Composer autoloader...
+require __DIR__.'/vendor/autoload.php';
+
+//// The path may also be exported by a developer shell. This bootstrap contains
+//// only portable host/application values; runtime-only policy is supplied by
+//// Claviron's Rust application and task configuration.
+//$bootstrap = getenv('CLAVIRON_PHP_BOOTSTRAP');
+//if ($bootstrap !== false && $bootstrap !== '') {
+//    (require $bootstrap)(__DIR__, 'octane');
+//}
+
+// Bootstrap Laravel and handle the command...
+/** @var Application $app */
+$app = require_once __DIR__.'/bootstrap/app.php';
+
+$status = $app->handleCommand(new ArgvInput);
+
+exit($status);

@@ -155,10 +155,13 @@ where
     let source = owner.source().path;
     let root = normalized_source(&source).await?;
     let part: VhostDocument = reader.read_source(owner).await?;
-    let mut document = VhostDocument::default();
-    document.root = Some(root.clone());
+
+    let mut document =
+        VhostDocument { root: Some(root.clone()), ..VhostDocument::default() };
+
     document.files.insert(root.clone(), Arc::new(part));
     document.includes.insert(root.clone(), reader.includes_for(&source)?);
+
     assemble_document(owner, reader, document, None, &[]).await
 }
 
@@ -176,8 +179,12 @@ where
     if previous.root.is_none() {
         return read_document(owner, reader).await;
     }
-    let mut document = VhostDocument::default();
-    document.root = previous.root.clone();
+
+    let document = VhostDocument {
+        root: previous.root.clone(),
+        ..VhostDocument::default()
+    };
+
     assemble_document(owner, reader, document, Some(&previous), changed).await
 }
 

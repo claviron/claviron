@@ -58,8 +58,7 @@ async fn invalid_policy_leaves_active_policy_and_notification_unchanged() {
         ServiceSnapshotPolicy::new(initial.publish_interval(), Duration::ZERO),
         ServiceSnapshotPolicy::new(Duration::MAX, initial.max_age()),
     ] {
-        let invalid =
-            OrbitConfig { service_snapshots: policy, ..OrbitConfig::default() };
+        let invalid = OrbitConfig { service_snapshots: policy };
         assert!(publisher.validate_config(&invalid).is_err());
         assert!(publisher.configure(&invalid).await.is_err());
         assert_eq!(publisher.policy(), initial);

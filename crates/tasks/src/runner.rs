@@ -66,7 +66,8 @@ impl Drop for ExecutionGuard {
     }
 }
 
-/// One unit of cancellable, retryable work managed by [`TaskService`].
+/// One unit of cancellable, retryable work managed by
+/// [`TaskService`](crate::service::TaskService).
 ///
 /// Wraps an `async` function (or external process) into a re-entrant
 /// supervisor that the service can spawn under an automatic trigger
@@ -250,8 +251,9 @@ impl StopContext {
 ///   `concurrency: 4` produces workers numbered 1..=4. Under
 ///   `dispatch: pool`, this is the stable fleet slot identity; ownership may
 ///   move to another runtime without changing the number.
-/// - `attempt` — 1-indexed retry counter; resets to 1 on long-lived
-///   runs (see [`BACKOFF_RESET_SECS`]).
+/// - `attempt` — 1-indexed retry counter. If retry policy permits another
+///   attempt after an execution lasting at least 300 seconds, that attempt
+///   resets to 1; reaching the attempt limit still stops retries.
 /// - `task_scope` — eligible runtime roles (`master` / `workers` / `fleet`).
 /// - `task_dispatch` — execution distribution (`each` / `one` / `pool`).
 /// - `run_mode` — the **process** role from the runtime

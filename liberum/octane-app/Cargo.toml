@@ -1,0 +1,20 @@
+[package]
+name = "octane-app"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Laravel application hosted by Lumenize behind a separate Claviron edge."
+
+[workspace]
+
+[features]
+# LEGACY_LINUX: build for Linux kernels older than 5.3 (AlmaLinux 8's 4.18),
+# which have no pidfd for watching worker processes:
+#   ./scripts/octane-app.sh --legacy-linux
+legacy-linux = ["lumenize/legacy-linux"]
+
+[dependencies]
+lumenize = { path = "../../../lumenize", default-features = false, features = ["cli", "broadcast", "log", "files", "postgres"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+mimalloc = "0.1"

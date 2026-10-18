@@ -100,6 +100,11 @@ async fn force_during_session_drain_joins_children() {
 }
 
 #[tokio::test]
+async fn driver_panic_joins_children_before_releasing_capacity() {
+    verify_cleanup(StopAt::Panic).await;
+}
+
+#[tokio::test]
 async fn one_failed_stream_does_not_cancel_other_streams() {
     let gate = Gate::new(Some(1), TIMEOUT);
     let permit = gate.try_enter().unwrap();

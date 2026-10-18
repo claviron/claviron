@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 readme = "README.md"
+include = ["/src/**/*.rs", "/README.md"]
 keywords = ["shared-memory", "ipc", "runtime", "claviron"]
 categories = ["concurrency", "asynchronous"]
 # `tests/event.rs`, `tests/counter.rs`, and `tests/registry.rs` are private
