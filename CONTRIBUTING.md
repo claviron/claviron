@@ -93,6 +93,10 @@ Tests should demonstrate a regression or meaningful contract:
 - Use small fixtures with reserved names such as `example.test`. Do not load
   personal deployment configuration or require live external services.
 - Keep PHP, JavaScript, and other foreign-language fixtures in their own files.
+- Keep sanitized `.env` fixtures and their environment variants under
+  `crates/*/tests/fixtures/` in version control. They are test inputs, not local
+  deployment configuration; never put real credentials in them or exclude them
+  merely because their names contain `.env`.
 
 Benchmarks should state the platform, build profile, workload, concurrency, and
 comparison boundary. Separate transport measurements from application throughput.
