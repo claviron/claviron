@@ -109,9 +109,13 @@ def dependency_order(packages):
             elif dep.get("registry") or (dep.get("source") or "").startswith("git+"):
                 raise PublishError(f"{name}: {dep['name']} is not a crates.io dependency.")
         edges[name] = dependencies
+    return publication_order(edges)
+
+
+def publication_order(edges):
     # Publish the facade last, including siblings it does not directly depend on.
     if "claviron" in edges:
-        edges["claviron"].update(set(packages) - {"claviron"})
+        edges["claviron"].update(set(edges) - {"claviron"})
     order = []
     remaining = {name: set(deps) for name, deps in edges.items()}
     while remaining:
@@ -314,6 +318,31 @@ class Publisher:
     def entry(self, name, version):
         return self.state["releases"].setdefault(f"{name}@{version}", {})
 
+    def prepared_selection(self, names, version):
+        """Select recorded artifacts, including dependencies retired from the checkout."""
+        packages, edges = {}, {}
+
+        def include(name):
+            if name in packages:
+                return
+            entry = self.state["releases"].get(f"{name}@{version}")
+            if not entry or not (entry.get("metadata") or entry.get("published")):
+                raise PublishError(f"{name}@{version}: no prepared release receipt. Nothing uploaded.")
+            if not entry.get("published"):
+                self.artifact(name, version)
+            packages[name] = {"name": name, "version": version}
+            edges[name] = set()
+            for dependency in entry.get("metadata", {}).get("deps", []):
+                other = dependency["name"]
+                # Recorded members of the same release are ordered even when optional.
+                if f"{other}@{version}" in self.state["releases"]:
+                    include(other)
+                    edges[name].add(other)
+
+        for name in names:
+            include(name)
+        return packages, publication_order(edges)
+
     def published(self, name, version, refresh=False):
         entry = self.entry(name, version)
         # Exact versions are immutable. Persist positive results, never negative ones.
@@ -457,7 +486,15 @@ class Publisher:
                     if 400 <= status < 500:
                         entry.pop("attempt", None)
                         self.save()
-                    raise PublishError(f"Upload failed for {name}: HTTP {status}. Stopped; no automatic resend.")
+                    try:
+                        errors = json.loads(body).get("errors", [])
+                        details = "; ".join(error["detail"] for error in errors if isinstance(error.get("detail"), str))
+                    except (ValueError, TypeError, AttributeError, KeyError):
+                        details = ""
+                    # Only display protocol error messages, never request credentials or raw HTML.
+                    details = details.replace(token, "[redacted]")
+                    detail = f" {details}" if details else ""
+                    raise PublishError(f"Upload failed for {name}: HTTP {status}.{detail} Stopped; no automatic resend.")
                 try:
                     response = json.loads(body or b"{}")
                 except ValueError as error:
@@ -506,12 +543,15 @@ def main(argv=None):
     parser.add_argument("--refresh", action="store_true", help="Recheck even known published immutable versions")
     parser.add_argument("--no-verify", action="store_true", help="Prepare only: skip Cargo build verification explicitly")
     parser.add_argument("--send", action="store_true", help="Publish only: authorize actual registry uploads")
+    parser.add_argument("--package", action="append", help="Plan/publish only: select a prepared package and its recorded release dependencies; may be repeated")
     parser.add_argument("--request-timeout", type=float, help="Explicit network timeout in seconds; otherwise wait without a deadline")
     args = parser.parse_args(argv)
     if args.no_verify and args.command != "prepare":
         parser.error("--no-verify is only valid with prepare")
     if args.send and args.command != "publish":
         parser.error("--send is only valid with publish")
+    if args.package and args.command == "prepare":
+        parser.error("--package selects existing artifacts only; use it with plan or publish")
     if args.command == "publish" and not args.send:
         parser.error("publish requires --send; use plan for a read-only registry check")
     if args.request_timeout is not None and args.request_timeout <= 0:
@@ -520,12 +560,15 @@ def main(argv=None):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())
         config = project["tool"]["claviron"]["publish"]
         directory = ROOT / config["state-directory"]
-        metadata = json.loads(run(ROOT, "cargo", "metadata", "--no-deps", "--offline", "--format-version", "1"))
         version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
-        packages = packages_from(metadata, version)
-        order = dependency_order(packages)
         with exclusive(directory):
             publisher = Publisher(ROOT, directory, Registry(args.request_timeout))
+            if args.package:
+                packages, order = publisher.prepared_selection(args.package, version)
+            else:
+                metadata = json.loads(run(ROOT, "cargo", "metadata", "--no-deps", "--offline", "--format-version", "1"))
+                packages = packages_from(metadata, version)
+                order = dependency_order(packages)
             for index, name in enumerate(order, 1):
                 published = publisher.published(name, version, args.refresh)
                 print(f"{index:02d}. {name}@{version}: {'published — skip' if published else 'pending'}", flush=True)

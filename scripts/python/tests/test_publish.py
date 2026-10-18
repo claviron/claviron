@@ -170,6 +170,53 @@ version = "2"
         entry["metadata_sha256"] = publisher.digest(json.dumps(entry["metadata"], sort_keys=True).encode())
         return app
 
+    def test_prepared_selection_orders_retired_dependencies_without_cargo(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = self.prepare_fake(root, FakeRegistry([]))
+            demo = app.entry("demo", "1.0.0")
+            demo["metadata"]["deps"] = [{"name": "retired", "optional": True}]
+            demo["metadata_sha256"] = publisher.digest(json.dumps(demo["metadata"], sort_keys=True).encode())
+            app.entry("retired", "1.0.0").update({
+                "source": {"revision": "older"}, "sha256": publisher.digest(b"retired"),
+                "metadata": {"name": "retired", "vers": "1.0.0", "deps": [{"name": "core"}]},
+            })
+            retired = app.entry("retired", "1.0.0")
+            retired["metadata_sha256"] = publisher.digest(json.dumps(retired["metadata"], sort_keys=True).encode())
+            (root / "retired-1.0.0.crate").write_bytes(b"retired")
+            app.entry("core", "1.0.0")["published"] = "indexed-checksum"
+            app.entry("unrelated", "1.0.0")["published"] = "other-checksum"
+            with patch.object(publisher.subprocess, "run", side_effect=AssertionError("No Cargo or Git")):
+                packages, order = app.prepared_selection(["demo"], "1.0.0")
+            self.assertEqual(order, ["core", "retired", "demo"])
+            self.assertEqual(set(packages), {"core", "retired", "demo"})
+            self.assertFalse(app.registry.calls)
+            (root / "retired-1.0.0.crate").write_bytes(b"tampered")
+            with self.assertRaisesRegex(publisher.PublishError, "checksum"):
+                app.prepared_selection(["demo"], "1.0.0")
+
+    def test_prepared_selection_requires_a_receipt(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = self.prepare_fake(root, FakeRegistry([]))
+            app.entry("lookup-only", "1.0.0")
+            with self.assertRaisesRegex(publisher.PublishError, "no prepared release receipt"):
+                app.prepared_selection(["lookup-only"], "1.0.0")
+
+    @patch.object(publisher, "cargo_token", return_value="not-a-real-token")
+    def test_rejection_displays_registry_detail_without_retrying(self, *_):
+        registry = FakeRegistry([(400, headers(), json.dumps({"errors": [
+            {"detail": "no known crate named `retired`; not-a-real-token"},
+        ]}).encode())])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            app = self.prepare_fake(root, registry)
+            with self.assertRaisesRegex(publisher.PublishError, "no known crate named `retired`") as result:
+                app.publish({"demo": package("demo")}, ["demo"])
+            self.assertNotIn("not-a-real-token", str(result.exception))
+            self.assertNotIn("attempt", app.entry("demo", "1.0.0"))
+            self.assertEqual(len(registry.calls), 1)
+
     @patch.object(publisher, "fingerprint", return_value={"revision": "fixed"})
     @patch.object(publisher, "cargo_token", return_value="not-a-real-token")
     def test_429_resends_same_archive_without_repackaging(self, *_):
