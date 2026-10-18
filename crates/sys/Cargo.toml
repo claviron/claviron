@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["claviron", "process", "sockets", "unix", "system"]
+keywords = ["process", "sockets", "unix", "system"]
 categories = ["os::unix-apis", "network-programming"]
 
 [features]

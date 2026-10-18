@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["claviron", "dns", "resolver", "hickory", "async"]
+keywords = ["dns", "resolver", "hickory", "async"]
 categories = ["network-programming", "asynchronous"]
 
 [features]

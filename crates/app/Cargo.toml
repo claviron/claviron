@@ -10,7 +10,7 @@ homepage.workspace = true
 authors.workspace = true
 include.workspace = true
 description = "Runtime-qualified application identity, control, status, and events for Claviron"
-keywords = ["application", "lifecycle", "events", "claviron"]
+keywords = ["application", "lifecycle", "events", "runtime", "async"]
 categories = ["asynchronous", "concurrency"]
 
 [dependencies]

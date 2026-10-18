@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["php", "fastcgi", "php-fpm", "gateway", "claviron"]
+keywords = ["php", "fastcgi", "php-fpm", "gateway", "async"]
 categories = ["web-programming::http-server", "network-programming", "asynchronous"]
 
 [features]

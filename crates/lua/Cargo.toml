@@ -16,7 +16,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
-keywords = ["lua", "scripting", "embedded", "claviron"]
+keywords = ["lua", "scripting", "interpreter", "embedding", "async"]
 categories = ["web-programming::http-server", "asynchronous"]
 
 [features]

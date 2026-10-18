@@ -504,8 +504,9 @@ class Publisher:
                 entry["attempt"] = "accepted"
                 entry.pop("retry_at", None)
                 self.save()
-                if response.get("warnings"):
-                    print(f"Registry warnings for {name}: {json.dumps(response['warnings'])}", flush=True)
+                warnings = {kind: messages for kind, messages in (response.get("warnings") or {}).items() if messages}
+                if warnings:
+                    print(f"Registry warnings for {name}: {json.dumps(warnings)}", flush=True)
                 # Only re-fetch the crate just uploaded. Cached unrelated crates stay untouched.
                 self.indices.pop(name, None)
                 if not self.published(name, version):

@@ -10,7 +10,7 @@ homepage.workspace = true
 authors.workspace = true
 include.workspace = true
 description = "Schema-independent authentication contracts for Claviron"
-keywords = ["claviron", "authentication", "identity", "session", "csrf"]
+keywords = ["authentication", "identity", "session", "csrf", "security"]
 categories = ["authentication", "asynchronous"]
 
 [features]

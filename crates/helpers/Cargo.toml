@@ -1,7 +1,7 @@
 [package]
 name = "claviron-helpers"
 description = "Shared configuration adapters and encoding conventions for Claviron"
-keywords = ["claviron", "configuration", "serde", "encoding", "utilities"]
+keywords = ["config", "serde", "encoding"]
 categories = ["config", "encoding"]
 autotests = false
 version.workspace = true

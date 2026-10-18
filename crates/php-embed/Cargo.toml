@@ -17,7 +17,7 @@ include = [
     "/php/src/**/*.php",
     "/php/fallback/*.php",
 ]
-keywords = ["php", "embedded", "sapi", "runtime", "claviron"]
+keywords = ["php", "embedding", "sapi", "runtime", "ffi"]
 categories = ["web-programming::http-server", "api-bindings", "asynchronous"]
 build = "build.rs"
 # tests/supervisor.rs is included as a private unit-test module.

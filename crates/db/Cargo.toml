@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["claviron", "sqlx", "postgresql", "mysql", "sqlite"]
+keywords = ["database", "sqlx", "postgres", "mysql", "sqlite"]
 categories = ["database", "asynchronous"]
 
 [features]

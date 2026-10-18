@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["hostname", "certificates", "tls", "claviron"]
+keywords = ["hostname", "certificates", "tls"]
 categories = ["network-programming", "cryptography"]
 
 [features]

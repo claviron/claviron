@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["http", "routing", "edge", "php", "claviron"]
+keywords = ["http", "routing", "proxy", "php", "http3"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming"]
 
 [features]

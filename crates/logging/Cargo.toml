@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["claviron", "logging", "tracing", "observability", "otlp"]
+keywords = ["logging", "tracing", "observability", "otlp", "async"]
 categories = ["development-tools::debugging", "asynchronous"]
 # Tests live under tests/ and are included by their modules.
 autotests = false

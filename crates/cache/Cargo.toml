@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["claviron", "cache", "redis", "shared-memory"]
+keywords = ["cache", "redis", "shared-memory", "async"]
 categories = ["caching", "asynchronous", "concurrency"]
 
 [features]

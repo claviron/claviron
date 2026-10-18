@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["claviron", "static-files", "http", "caching", "compression"]
+keywords = ["static-files", "http", "cache", "compression", "filesystem"]
 categories = ["filesystem", "caching", "web-programming::http-server"]
 
 [features]

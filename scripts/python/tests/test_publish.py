@@ -255,6 +255,33 @@ version = "2"
                 app.entry("demo", "1.0.0")["metadata"], b"prepared",
             ))
 
+    @patch.object(publisher, "cargo_token", return_value="not-a-real-token")
+    def test_upload_only_prints_nonempty_registry_warnings(self, *_):
+        record = {"vers": "1.0.0", "cksum": publisher.digest(b"prepared"), "yanked": False}
+        for warnings in (
+            None,
+            {},
+            {"invalid_categories": [], "invalid_badges": [], "other": []},
+            {"invalid_categories": ["unknown-category"], "invalid_badges": [], "other": []},
+            {"invalid_categories": [], "invalid_badges": [], "other": ["Example registry warning"]},
+        ):
+            with self.subTest(warnings=warnings), tempfile.TemporaryDirectory() as temporary:
+                registry = FakeRegistry([
+                    (200, headers(), json.dumps({"warnings": warnings}).encode()),
+                    (200, headers(), json.dumps(record).encode()),
+                ])
+                app = self.prepare_fake(Path(temporary), registry)
+                with patch("sys.stdout", new_callable=io.StringIO) as output, patch.object(
+                    publisher.subprocess, "run", side_effect=AssertionError("No Git or Cargo commands"),
+                ):
+                    app.publish({"demo": package("demo")}, ["demo"])
+                expected = {kind: messages for kind, messages in (warnings or {}).items() if messages}
+                warning_lines = [line for line in output.getvalue().splitlines() if line.startswith("Registry warnings")]
+                self.assertEqual(len(warning_lines), int(bool(expected)))
+                if expected:
+                    self.assertEqual(warning_lines[0], f"Registry warnings for demo: {json.dumps(expected)}")
+                self.assertTrue(app.entry("demo", "1.0.0")["published"])
+
     @patch.object(publisher, "fingerprint", return_value={"revision": "fixed"})
     @patch.object(publisher, "cargo_token", return_value="not-a-real-token")
     def test_uncertain_and_accepted_unindexed_uploads_are_never_resent(self, *_):

@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["supervisor", "workers", "process", "claviron"]
+keywords = ["supervisor", "workers", "process", "async"]
 categories = ["concurrency", "asynchronous"]
 
 [features]

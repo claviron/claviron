@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["ffi", "http", "streaming", "claviron"]
+keywords = ["ffi", "http", "streaming", "bindings"]
 categories = ["external-ffi-bindings", "web-programming::http-server"]
 
 [dependencies]

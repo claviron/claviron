@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["claviron", "tasks", "scheduler", "background", "async"]
+keywords = ["tasks", "scheduler", "background", "async", "cron"]
 categories = ["asynchronous", "concurrency"]
 
 [features]

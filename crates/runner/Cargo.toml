@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["application-server", "runtime", "http", "claviron"]
+keywords = ["application-server", "runtime", "http", "async", "ipc"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming"]
 
 [features]

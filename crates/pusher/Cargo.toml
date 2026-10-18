@@ -10,8 +10,8 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["claviron", "pusher", "websocket", "realtime", "broadcast"]
-categories = ["network-programming", "web-programming::http-server"]
+keywords = ["pusher", "websocket", "realtime", "broadcast", "protocol"]
+categories = ["web-programming::websocket", "network-programming"]
 
 [features]
 default = []

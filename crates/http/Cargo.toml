@@ -10,8 +10,8 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["http", "routing", "middleware", "claviron"]
-categories = ["web-programming::http-server", "asynchronous", "network-programming"]
+keywords = ["http", "routing", "middleware", "websocket", "async"]
+categories = ["web-programming::http-server", "web-programming::websocket", "asynchronous", "network-programming"]
 
 [features]
 default = []

@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["claviron", "geoip", "maxmind", "country", "geolocation"]
+keywords = ["geoip", "maxmind", "country", "geolocation"]
 categories = ["network-programming"]
 
 [dependencies]

@@ -10,8 +10,8 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["claviron", "proxy", "http", "upstream", "load-balancing"]
-categories = ["network-programming", "web-programming::http-server", "asynchronous"]
+keywords = ["proxy", "http", "upstream", "load-balancing", "async"]
+categories = ["web-programming::http-server", "web-programming::http-client", "network-programming", "asynchronous"]
 
 [features]
 default = []

@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["runtime", "services", "lifecycle", "claviron"]
+keywords = ["runtime", "services", "lifecycle", "events", "async"]
 categories = ["asynchronous", "concurrency"]
 
 # NOTE: The generic composition kernel lives in `continuo`. This crate is
