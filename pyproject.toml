@@ -27,3 +27,24 @@ package = false
 # Local release artifacts and receipts; never part of a registry package.
 [tool.claviron.publish]
 state-directory = "target/publisher"
+
+# Composer distribution mirrors are generated from committed package snapshots.
+# These paths are local tooling inputs, never published package metadata.
+[tool.claviron.composer]
+state-directory = "target/composer"
+
+[[tool.claviron.composer.packages]]
+name = "claviron/sapi"
+remote = "https://github.com/claviron/php-sapi.git"
+repository = "."
+directory = "crates/php-embed/php"
+license = "LICENSE-MIT"
+include = ["composer.json", "README.md", "src", "fallback"]
+
+[[tool.claviron.composer.packages]]
+name = "claviron/laravel"
+remote = "https://github.com/claviron/php-laravel.git"
+repository = "../lumenize"
+directory = "php"
+license = "LICENSE"
+include = ["composer.json", "README.md", "src", "config", "runners", "stubs"]
