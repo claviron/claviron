@@ -1,6 +1,6 @@
 [project]
 name = "claviron"
-version = "0.2.0-alpha.17"
+version = "0.2.0-alpha.18"
 description = "Local development tools for the Claviron Rust repository"
 requires-python = ">=3.15"
 classifiers = ["Private :: Do Not Upload"]

@@ -163,8 +163,7 @@ own adapters above it.
 
 ## Status and license
 
-Part of Claviron's alpha development series; APIs may change. This README
-describes the current source tree, not the placeholder package on crates.io.
+Part of Claviron's alpha development series; APIs and configuration may change.
 
 The Rust crate is licensed under either
 [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT) or

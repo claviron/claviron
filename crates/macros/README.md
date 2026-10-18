@@ -98,8 +98,7 @@ reload a service; those responsibilities stay with the configuration owner.
 
 ## Status and license
 
-Part of Claviron's alpha development series; APIs may change. This README
-describes the current source tree, not the placeholder package on crates.io.
+Part of Claviron's alpha development series; APIs and configuration may change.
 
 Licensed under either [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT)
 or [Apache-2.0](https://github.com/claviron/claviron/blob/main/LICENSE-APACHE), at your option.
