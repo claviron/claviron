@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use claviron_metrics::{MetricsFamily, MetricsProvider};
 use claviron_orbit::{FleetProvider, OrbitStateExt};
+use claviron_runtime::metrics::{MetricsFamily, MetricsProvider};
 use claviron_runtime::registry::{
     Component, ComponentOrder, Runnable, priority,
 };
@@ -191,7 +191,7 @@ pub fn register(
     service: Arc<TaskService>,
 ) -> registry::Result<()> {
     if state.registry_ref().resolve::<MetricsProvider>().is_none() {
-        claviron_metrics::register(state)?;
+        claviron_runtime::metrics::register(state)?;
     }
     state
         .registry_ref()

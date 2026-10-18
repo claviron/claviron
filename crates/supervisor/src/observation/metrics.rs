@@ -4,9 +4,9 @@ use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use claviron_metrics::{MetricsFamily, MetricsProvider};
 use claviron_orbit::placement::{Scope, Scoped};
 use claviron_orbit::{FleetProvider, OrbitStateExt};
+use claviron_runtime::metrics::{MetricsFamily, MetricsProvider};
 use claviron_runtime::registry::{
     self, Component, ComponentOrder, Runnable, priority,
 };
@@ -515,7 +515,7 @@ fn ensure_metrics_provider(
     state: &AppState
 ) -> registry::Result<Arc<MetricsProvider>> {
     if state.registry_ref().resolve::<MetricsProvider>().is_none() {
-        claviron_metrics::register(state)?;
+        claviron_runtime::metrics::register(state)?;
     }
     state.registry_ref().resolve::<MetricsProvider>().ok_or_else(|| {
         registry::Error::msg("MetricsProvider registration failed")

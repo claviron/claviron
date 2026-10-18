@@ -125,7 +125,7 @@ impl Drop for AttemptGuard {
 // ---------------------------------------------------------------------------
 
 /// Compute the `role` label for the current process. The label
-/// values are documented in `crates/claviron-metrics/src/tasks.rs`:
+/// values are documented in this crate's task metric store and snapshot types:
 /// `master` / `worker_<id>` / `standalone`.
 pub fn role_label_from_run_mode(mode: claviron_runtime::RunMode) -> String {
     match mode {

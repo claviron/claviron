@@ -3,8 +3,8 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
-use claviron_metrics::MetricsProvider;
 use claviron_runtime::AppState;
+use claviron_runtime::metrics::MetricsProvider;
 
 pub fn routes(_state: &AppState) -> Router<AppState> {
     Router::new().route("/metrics", get(metrics_endpoint))

@@ -103,7 +103,7 @@ make one validator's decision valid under another policy.
 
 - [Runtime](../runtime/README.md): typed service bindings and local events.
 - [Orbit](../orbit/README.md): Claviron's same-host fleet integration.
-- [Laravel](../laravel/README.md): opt-in framework auth/session integration.
+- [Laravel](https://github.com/claviron/lumenize): opt-in framework auth/session integration.
 - [HTTP](../http/README.md): request context; application ingress owns admission.
 
 ## Status and license

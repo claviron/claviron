@@ -144,9 +144,9 @@ The implementation's optional `pusher` feature adds an external HTTP target
 adapter through [claviron-pusher](../pusher/README.md). It is not needed for
 native publication or local sessions. Edge selects it for its HTTP bindings.
 
-- [WebSocket](../websocket/README.md): HTTP/1 upgrade ownership.
+- [WebSocket](../http/docs/upgrade/README.md): HTTP/1 upgrade ownership.
 - [Orbit](../orbit/README.md): bounded fleet state and transport.
-- [Laravel](../laravel/README.md): native framework publication.
+- [Laravel](https://github.com/claviron/lumenize): native framework publication.
 - [Edge](../edge/README.md) and [Runner](../runner/README.md): HTTP composition.
 
 ## Status and license

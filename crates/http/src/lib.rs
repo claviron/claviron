@@ -40,3 +40,6 @@ pub use ext::Cache;
 pub use ext::Inject;
 #[cfg(feature = "server")]
 pub use listener::ListenerId;
+
+#[cfg(feature = "websocket")]
+pub mod upgrade;

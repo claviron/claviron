@@ -9,7 +9,7 @@ pub use claviron_app as app;
 #[cfg(feature = "auth")]
 pub use claviron_auth as auth;
 #[cfg(feature = "bench")]
-pub use claviron_bench as bench;
+pub mod bench;
 #[cfg(feature = "server")]
 pub mod server;
 #[cfg(feature = "broadcast")]
@@ -36,14 +36,12 @@ pub use claviron_helpers as helpers;
 pub use claviron_hosting as hosting;
 #[cfg(feature = "http")]
 pub use claviron_http as http;
-#[cfg(feature = "laravel")]
-pub use claviron_laravel as laravel;
+#[cfg(feature = "websocket")]
+pub use claviron_http::upgrade as websocket;
 #[cfg(feature = "logging")]
 pub use claviron_logging as logging;
 #[cfg(feature = "lua")]
 pub use claviron_lua as lua;
-#[cfg(feature = "metrics")]
-pub use claviron_metrics as metrics;
 #[cfg(feature = "orbit")]
 pub use claviron_orbit as orbit;
 #[cfg(feature = "php")]
@@ -58,6 +56,8 @@ pub use claviron_resolver as resolver;
 pub use claviron_runner as runner;
 #[cfg(feature = "runtime")]
 pub use claviron_runtime as runtime;
+#[cfg(feature = "metrics")]
+pub use claviron_runtime::metrics;
 #[cfg(feature = "runtime")]
 pub use claviron_runtime::*;
 #[cfg(feature = "supervisor")]
@@ -72,8 +72,6 @@ pub use claviron_tls as tls;
 pub use claviron_types::ssl;
 #[cfg(feature = "upstream")]
 pub use claviron_upstream as upstream;
-#[cfg(feature = "websocket")]
-pub use claviron_websocket as websocket;
 pub use error::{Error, Result};
 pub use orbitive;
 #[cfg(feature = "clients")]

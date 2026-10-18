@@ -105,7 +105,7 @@ the external HTTP adapter does not implement the Broadcast service.
 ## Related crates
 
 - [Broadcast](../broadcast/README.md): live sessions, publication, and fleet fanout.
-- [WebSocket](../websocket/README.md): native HTTP/1 upgrade handoff.
+- [WebSocket](../http/docs/upgrade/README.md): native HTTP/1 upgrade handoff.
 - [HTTP](../http/README.md): trusted headers, bodies, and session ownership.
 - [Edge](../edge/README.md): host target selection and prepared routes.
 

@@ -47,3 +47,6 @@ pub use state::{
 };
 
 pub type Runtime = continuo::Runtime<AppState>;
+
+#[cfg(feature = "metrics")]
+pub mod metrics;

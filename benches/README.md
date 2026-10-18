@@ -27,7 +27,7 @@ Unix-socket comparisons here, or report a codec result as SHM transport speed.
 
 HTTP/1, HTTP/2, HTTP/3, TLS, worker scaling, and real TCP/UDS/Orbit application
 paths belong in a separate executable harness with an explicit load generator.
-Use the shared workloads in [claviron-bench](../crates/bench/README.md):
+Use the shared workloads in [claviron::bench](../docs/bench/README.md):
 
 - `/bench/plain`: a small static response.
 - `/bench/json`: per-request JSON serialization.

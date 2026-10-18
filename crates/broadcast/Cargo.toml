@@ -21,10 +21,10 @@ pusher = ["claviron-pusher/axum"]
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-app.workspace = true
+claviron-http = { workspace = true, features = ["websocket"] }
 claviron-orbit.workspace = true
 claviron-pusher.workspace = true
 claviron-runtime.workspace = true
-claviron-websocket.workspace = true
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true

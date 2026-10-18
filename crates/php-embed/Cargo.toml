@@ -30,7 +30,7 @@ default = ["opcache-intercept"]
 # applications and multi-worker execution. Neither feature is facade-forwarded.
 apcu-intercept = []
 opcache-intercept = []
-metrics = ["dep:claviron-metrics", "orbitive/metrics"]
+metrics = ["claviron-runtime/metrics", "orbitive/metrics"]
 axum = ["dep:axum", "claviron-http/axum"]
 tasks = ["dep:claviron-tasks"]
 cache = ["dep:claviron-cache"]
@@ -62,7 +62,6 @@ claviron-db = { workspace = true, default-features = false, optional = true }
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
 claviron-logging = { workspace = true, optional = true }
-claviron-metrics = { workspace = true, optional = true }
 claviron-orbit.workspace = true
 claviron-php = { workspace = true, features = ["php_embed"] }
 claviron-runtime.workspace = true

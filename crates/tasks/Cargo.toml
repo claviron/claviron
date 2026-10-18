@@ -14,7 +14,7 @@ keywords = ["claviron", "tasks", "scheduler", "background", "async"]
 categories = ["asynchronous", "concurrency"]
 
 [features]
-metrics = ["dep:claviron-metrics", "orbitive/metrics"]
+metrics = ["claviron-runtime/metrics", "orbitive/metrics"]
 # `log: { channel: <name> }`: task output as records in a declared log channel.
 log-pipeline = ["dep:claviron-logging", "claviron-logging/pipeline"]
 
@@ -23,7 +23,6 @@ log-pipeline = ["dep:claviron-logging", "claviron-logging/pipeline"]
 claviron-helpers.workspace = true
 claviron-logging = { workspace = true, optional = true }
 claviron-macros.workspace = true
-claviron-metrics = { workspace = true, optional = true }
 claviron-orbit.workspace = true
 claviron-runtime.workspace = true
 claviron-sys.workspace = true

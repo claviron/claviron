@@ -7,6 +7,8 @@ mod broadcast;
 #[cfg(feature = "axum")]
 use axum::Router;
 use claviron_http::ext::HostKey;
+#[cfg(feature = "websocket")]
+use claviron_http::upgrade::{H1UpgradeRegistry, H1UpgradeRoute};
 use claviron_runtime::AppState;
 use claviron_runtime::registry::{
     Bootable, Component, Error, Reloadable, Resolve, Result, priority,
@@ -14,8 +16,6 @@ use claviron_runtime::registry::{
 use claviron_types::Host;
 #[cfg(feature = "upstream")]
 use claviron_upstream::UpstreamProvider;
-#[cfg(feature = "websocket")]
-use claviron_websocket::{H1UpgradeRegistry, H1UpgradeRoute};
 use tracing::error;
 
 use crate::VhostResolver;

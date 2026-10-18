@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use claviron_metrics::{MetricsFamily, MetricsProvider};
 use claviron_orbit::{FleetProvider, OrbitStateExt};
+use claviron_runtime::metrics::{MetricsFamily, MetricsProvider};
 use claviron_runtime::registry::{Component, Runnable, priority};
 use claviron_runtime::{AppState, RunContext, registry};
 use orbitive::metrics::{OrbitMetricCollector, OrbitMetricPublisher};
@@ -141,7 +141,7 @@ pub fn register(
     _provider: Arc<UpstreamProvider>,
 ) -> registry::Result<()> {
     if state.registry_ref().resolve::<MetricsProvider>().is_none() {
-        claviron_metrics::register(state)?;
+        claviron_runtime::metrics::register(state)?;
     }
     state
         .registry_ref()

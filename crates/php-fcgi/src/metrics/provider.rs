@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use claviron_metrics::{MetricsFamily, MetricsProvider};
 use claviron_orbit::OrbitStateExt;
+use claviron_runtime::metrics::{MetricsFamily, MetricsProvider};
 use claviron_runtime::{AppState, registry};
 use orbitive::metrics::OrbitMetricCollector;
 
@@ -105,7 +105,7 @@ pub fn register(
     source: Arc<FcgiMetricsProvider>,
 ) -> registry::Result<()> {
     if state.registry_ref().resolve::<MetricsProvider>().is_none() {
-        claviron_metrics::register(state)?;
+        claviron_runtime::metrics::register(state)?;
     }
     let provider =
         state.registry_ref().resolve::<MetricsProvider>().ok_or_else(|| {

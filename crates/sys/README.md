@@ -107,7 +107,7 @@ observation, not HTTP status codes or runtime registry errors.
 - [Runtime](../runtime/README.md): lifecycle and shared process context.
 - [Supervisor](../supervisor/README.md): process ownership and fleet supervision.
 - [Tasks](../tasks/README.md): external command execution and exit policy.
-- [Hyper](../hyper/README.md) and [H3](../h3/README.md): transport listeners above
+- [Hyper](../edge/docs/tcp/README.md) and [H3](../edge/docs/quic/README.md): transport listeners above
   these socket primitives.
 
 ## Status and license

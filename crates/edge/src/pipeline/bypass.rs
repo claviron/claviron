@@ -45,8 +45,8 @@ pub trait BypassHandler: Send + Sync + 'static {
 /// Transport boundaries box their native body into `RouteBody` before
 /// calling `handle`:
 ///
-/// * h1/h2: `claviron_hyper::service` boxes `Incoming` after host admission.
-/// * h3: `claviron_h3` boxes `Full`
+/// * h1/h2: `claviron_edge::tcp::service` boxes `Incoming` after host admission.
+/// * h3: `claviron_edge::quic` boxes `Full`
 ///   (buffered) or `StreamBody` (streaming).
 #[derive(Clone)]
 pub enum BypassService {

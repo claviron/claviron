@@ -175,7 +175,7 @@ is an integration dependency selection, not another listener or proxy engine.
 - [TLS](../tls/README.md): process certificate management.
 - [Orbit](../orbit/README.md): same-host membership and availability coordination.
 - [Edge](../edge/README.md): host selection, static fallthrough, and proxy binding.
-- [WebSocket](../websocket/README.md): native application upgrades, distinct from
+- [WebSocket](../http/docs/upgrade/README.md): native application upgrades, distinct from
   transparent upstream tunnels.
 
 ## Status and license

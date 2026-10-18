@@ -8,6 +8,11 @@ primitives and the traits a consumer's state must implement; it does not supply
 Claviron's application state. This crate implements those contracts for
 `AppState` and connects them to Claviron's process model.
 
+The opt-in `metrics` feature exposes the [metric-family composition registry](docs/metrics/README.md)
+as `claviron_runtime::metrics` (also `claviron::metrics` through the facade).
+Owners retain their counters, snapshots, and fleet transport. Enabling this
+registry does not select HTTP, Edge, or a scrape endpoint.
+
 It also exposes typed service registration, configuration access, process-local
 events, and cooperative drain primitives. It does not open listeners, choose
 application engines, or supervise child processes by itself.

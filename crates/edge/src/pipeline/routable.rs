@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 #[cfg(feature = "axum")]
 use axum::Router;
+#[cfg(feature = "websocket")]
+use claviron_http::upgrade::H1UpgradeRoute;
 use claviron_runtime::AppState;
 use claviron_runtime::registry::{AnyComponent, Result};
 use claviron_types::Host;
-#[cfg(feature = "websocket")]
-use claviron_websocket::H1UpgradeRoute;
 
 use super::apps::BypassFactory;
 #[cfg(feature = "axum")]

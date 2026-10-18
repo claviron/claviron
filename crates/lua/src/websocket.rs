@@ -22,14 +22,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use async_trait::async_trait;
 use axum::body::Body;
-use claviron_runtime::AppState;
-use claviron_runtime::registry::{
-    Error as RegistryError, Result as RegistryResult,
-};
-use claviron_websocket::{
+use claviron_http::upgrade::{
     H1UpgradeAccept, H1UpgradeContext, H1UpgradeHandler, H1UpgradeReject,
     H1UpgradeResult, H1UpgradeState, is_h1_header_upgrade,
     websocket_response_headers,
+};
+use claviron_runtime::AppState;
+use claviron_runtime::registry::{
+    Error as RegistryError, Result as RegistryResult,
 };
 use fastwebsockets::{
     FragmentCollector, Frame, OpCode, Payload, Role, WebSocket,

@@ -30,7 +30,7 @@ clients-fleet = ["clients", "orbitive/client-pool-fleet"]
 http = ["runtime", "dep:claviron-http"]
 axum = ["http", "claviron-http/axum", "dep:axum", "claviron-php-embed?/axum", "claviron-runner?/axum"]
 # Native benchmark handlers. Adapt existing compositions without selecting one.
-bench = ["axum", "dep:claviron-bench"]
+bench = ["axum", "dep:serde", "dep:async-trait"]
 logging = ["dep:claviron-logging"]
 # Declared log channels (logging.yaml): records buffered in an Orbit ring and
 # written by one writer per fleet. See crates/logging/ARCHITECTURE.md.
@@ -47,7 +47,7 @@ log-pipeline = [
 log-otlp = ["log-pipeline", "claviron-logging/otlp"]
 # The shared shell of a language runner: one application, its owner last.
 # See crates/runner/ARCHITECTURE.md.
-runner = ["server", "http", "dep:claviron-runner", "claviron-bench?/runner"]
+runner = ["server", "http", "dep:claviron-runner"]
 
 # Development's reload for a runner: native source notifications.
 runner-watch = ["runner", "claviron-runner/watch"]
@@ -98,11 +98,8 @@ edge = [
     "axum",
     "files",
     "claviron-http/server",
-    "dep:claviron-hyper",
     "dep:claviron-edge",
-    "claviron-edge/server",
-    "claviron-edge/axum",
-    "claviron-bench?/edge",
+    "claviron-edge/tcp",
 ]
 
 # Static assets can be served by an application without virtual hosts or edge dispatch.
@@ -110,10 +107,10 @@ files = ["dep:claviron-files", "claviron-runner?/files"]
 
 # ── Metrics extras
 metrics = [
-    "dep:claviron-metrics",
+    "runtime",
+    "claviron-runtime/metrics",
     "claviron-supervisor?/metrics",
-    "claviron-h3?/metrics",
-    "claviron-hyper?/metrics",
+    "claviron-edge?/metrics",
     "claviron-http?/metrics",
     "claviron-upstream?/metrics",
     "claviron-files?/metrics",
@@ -121,28 +118,22 @@ metrics = [
     "claviron-php-embed?/metrics",
     "claviron-tasks?/metrics",
 ]
-http01 = ["claviron-hyper?/acme", "claviron-edge?/acme"]
+http01 = ["claviron-edge?/acme"]
 ffi = ["dep:claviron-ffi"]
 # ── Protocols ────────────────────────────────────────────────────────
-http3 = [
-    "tls",
-    "dep:claviron-h3",
-    "dep:quinn",
-    "dep:quinn-deferred-config",
-    "claviron-edge/http3",
-]
+http3 = ["tls", "claviron-edge/quic", "dep:quinn", "dep:quinn-deferred-config"]
 # DNS origins are always available; the application binds the resolver
 # (`dyn ResolverFactory`, e.g. `resolver-hickory`). A hostname origin with no
 # bound resolver is a boot error.
 upstream = ["dep:claviron-upstream", "claviron-edge?/upstream", "resolver"]
-websocket = ["dep:claviron-websocket", "claviron-edge?/websocket", "claviron-edge?/websocket", "claviron-runner?/websocket", "claviron-lua?/websocket"]
+websocket = ["claviron-http/websocket", "claviron-edge?/websocket", "claviron-runner?/websocket", "claviron-lua?/websocket", "http"]
 webtransport = ["edge", "http3", "claviron-edge/webtransport"]
 broadcast = ["websocket", "dep:claviron-broadcast", "claviron-edge?/broadcast", "claviron-runner?/broadcast"]
 
 # ── TLS / SSL ────────────────────────────────────────────────────────
 mtls = ["ssl"]
 ssl = ["dep:claviron-types", "claviron-types/ssl"]
-tls = ["ssl", "dep:claviron-tls", "claviron-hyper?/tls", "claviron-runner?/tls"]
+tls = ["ssl", "dep:claviron-tls", "claviron-edge?/tls", "claviron-runner?/tls"]
 
 # ── Data ─────────────────────────────────────────────────────────────
 cache = ["dep:claviron-cache", "claviron-cache/axum", "claviron-http?/cache", "claviron-files?/cache", "claviron-php-embed?/cache"]
@@ -153,8 +144,6 @@ sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite", "claviron-hosting?/sqlite",
 redis = ["claviron-cache?/redis", "dep:redis"]
 
 # ── Apps / services ──────────────────────────────────────────────────
-laravel = ["cache", "php_embed", "broadcast", "dep:claviron-laravel"]
-symfony = ["cache", "php_embed", "broadcast", "dep:claviron-symfony"]
 php = ["dep:claviron-php", "claviron-edge?/php"]
 php_fcgi = ["php", "dep:claviron-php-fcgi", "claviron-php/php_fcgi", "claviron-edge/php_fcgi"]
 # A PHP application server need not carry edge dispatch or virtual hosts.
@@ -165,7 +154,7 @@ php_embed = ["php", "dep:claviron-php-embed", "claviron-php/php_embed", "claviro
 hosting = ["tls", "db", "dep:claviron-hosting", "claviron-hosting/server", "claviron-edge?/db"]
 
 # ── Misc ─────────────────────────────────────────────────────────────
-geoip = ["dep:claviron-geoip", "claviron-h3?/geoip", "claviron-hyper?/geoip"]
+geoip = ["dep:claviron-geoip", "claviron-edge?/geoip"]
 tasks = ["dep:claviron-tasks", "dep:tokio-util", "claviron-lua?/tasks", "claviron-files?/tasks", "claviron-php-fcgi?/tasks", "claviron-php-embed?/tasks"]
 sys = ["dep:claviron-sys"]
 
@@ -173,7 +162,6 @@ sys = ["dep:claviron-sys"]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-app = { workspace = true, optional = true }
 claviron-auth = { workspace = true, optional = true }
-claviron-bench = { workspace = true, optional = true }
 claviron-broadcast = { workspace = true, optional = true }
 claviron-cache = { workspace = true, optional = true }
 claviron-db = { workspace = true, optional = true }
@@ -181,15 +169,11 @@ claviron-edge = { workspace = true, optional = true }
 claviron-ffi = { workspace = true, features = ["http"], optional = true }
 claviron-files = { workspace = true, features = ["axum"], optional = true }
 claviron-geoip = { workspace = true, optional = true }
-claviron-h3 = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-hosting = { workspace = true, optional = true }
 claviron-http = { workspace = true, optional = true }
-claviron-hyper = { workspace = true, optional = true, default-features = false }
-claviron-laravel = { workspace = true, optional = true }
 claviron-logging = { workspace = true, optional = true }
 claviron-lua = { workspace = true, optional = true }
-claviron-metrics = { workspace = true, optional = true }
 claviron-orbit = { workspace = true, optional = true }
 claviron-php = { workspace = true, optional = true }
 claviron-php-embed = { workspace = true, optional = true }
@@ -198,15 +182,14 @@ claviron-resolver = { workspace = true, optional = true }
 claviron-runner = { workspace = true, optional = true }
 claviron-runtime = { workspace = true, optional = true }
 claviron-supervisor = { workspace = true, optional = true }
-claviron-symfony = { workspace = true, optional = true }
 claviron-sys = { workspace = true, optional = true }
 claviron-tasks = { workspace = true, optional = true }
 claviron-tls = { workspace = true, optional = true }
 claviron-types = { workspace = true, optional = true }
 claviron-upstream = { workspace = true, optional = true }
-claviron-websocket = { workspace = true, optional = true }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
+async-trait = { workspace = true, optional = true }
 tokio.workspace = true
 tokio-util = { workspace = true, optional = true }
 
@@ -250,7 +233,6 @@ tempfile = "3"
 members = [
     "crates/app",
     "crates/auth",
-    "crates/bench",
     "crates/broadcast",
     "crates/cache",
     "crates/db",
@@ -258,16 +240,12 @@ members = [
     "crates/ffi",
     "crates/files",
     "crates/geoip",
-    "crates/h3",
     "crates/helpers",
     "crates/hosting",
     "crates/http",
-    "crates/hyper",
-    "crates/laravel",
     "crates/logging",
     "crates/lua",
     "crates/macros",
-    "crates/metrics",
     "crates/orbit",
     "crates/php",
     "crates/php-embed",
@@ -277,13 +255,11 @@ members = [
     "crates/runner",
     "crates/runtime",
     "crates/supervisor",
-    "crates/symfony",
     "crates/sys",
     "crates/tasks",
     "crates/tls",
     "crates/types",
     "crates/upstream",
-    "crates/websocket",
 ]
 resolver = "3"
 
@@ -310,7 +286,6 @@ publish = true
 # ── Internal workspace crates ────────────────────────────────────────
 claviron-app = { version = "0.2.0-alpha.17", path = "crates/app" }
 claviron-auth = { version = "0.2.0-alpha.17", path = "crates/auth" }
-claviron-bench = { version = "0.2.0-alpha.17", path = "crates/bench" }
 claviron-broadcast = { version = "0.2.0-alpha.17", path = "crates/broadcast" }
 claviron-cache = { version = "0.2.0-alpha.17", path = "crates/cache" }
 claviron-db = { version = "0.2.0-alpha.17", path = "crates/db" }
@@ -318,16 +293,12 @@ claviron-edge = { version = "0.2.0-alpha.17", path = "crates/edge" }
 claviron-ffi = { version = "0.2.0-alpha.17", path = "crates/ffi" }
 claviron-files = { version = "0.2.0-alpha.17", path = "crates/files" }
 claviron-geoip = { version = "0.2.0-alpha.17", path = "crates/geoip" }
-claviron-h3 = { version = "0.2.0-alpha.17", path = "crates/h3" }
 claviron-helpers = { version = "0.2.0-alpha.17", path = "crates/helpers" }
 claviron-hosting = { version = "0.2.0-alpha.17", path = "crates/hosting" }
 claviron-http = { version = "0.2.0-alpha.17", path = "crates/http" }
-claviron-hyper = { version = "0.2.0-alpha.17", path = "crates/hyper" }
-claviron-laravel = { version = "0.2.0-alpha.17", path = "crates/laravel" }
 claviron-logging = { version = "0.2.0-alpha.17", path = "crates/logging" }
 claviron-lua = { version = "0.2.0-alpha.17", path = "crates/lua" }
 claviron-macros = { version = "0.2.0-alpha.17", path = "crates/macros" }
-claviron-metrics = { version = "0.2.0-alpha.17", path = "crates/metrics" }
 claviron-orbit = { version = "0.2.0-alpha.17", path = "crates/orbit" }
 claviron-php = { version = "0.2.0-alpha.17", path = "crates/php" }
 claviron-php-embed = { version = "0.2.0-alpha.17", path = "crates/php-embed" }
@@ -337,13 +308,11 @@ claviron-resolver = { version = "0.2.0-alpha.17", path = "crates/resolver" }
 claviron-runner = { version = "0.2.0-alpha.17", path = "crates/runner" }
 claviron-runtime = { version = "0.2.0-alpha.17", path = "crates/runtime" }
 claviron-supervisor = { version = "0.2.0-alpha.17", path = "crates/supervisor" }
-claviron-symfony = { version = "0.2.0-alpha.17", path = "crates/symfony" }
 claviron-sys = { version = "0.2.0-alpha.17", path = "crates/sys" }
 claviron-tasks = { version = "0.2.0-alpha.17", path = "crates/tasks" }
 claviron-tls = { version = "0.2.0-alpha.17", path = "crates/tls" }
 claviron-types = { version = "0.2.0-alpha.17", path = "crates/types" }
 claviron-upstream = { version = "0.2.0-alpha.17", path = "crates/upstream" }
-claviron-websocket = { version = "0.2.0-alpha.17", path = "crates/websocket" }
 
 # ── Async runtime & primitives ───────────────────────────────────────
 arc-swap = "1.9"

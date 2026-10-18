@@ -1,15 +1,14 @@
-# claviron-symfony
+# Symfony Composer adapter
 
-Symfony integration package boundary for Claviron's embedded PHP runtime.
+PHP integration for Claviron's embedded PHP runtime.
 
 The current working adapter lives in the companion [Composer package](php/README.md),
-`claviron/symfony`. The Rust library target is currently empty: it does not expose
-a Symfony service, native registration function, or framework-specific request
-implementation. This distinction matters when composing a deployment; selecting
-a Cargo feature is not a substitute for installing and configuring the PHP adapter.
+`claviron/symfony`. There is no Rust package, Symfony-specific native registration
+function or framework request implementation in the Claviron workspace.
+Installing and configuring the PHP adapter is separate from selecting its engine.
 
-The root facade's `symfony` feature selects embedded PHP, cache, broadcast, and
-this package dependency. There is currently no `claviron::symfony` re-export.
+Select the general `php_embed` capability; there is no facade `symfony` feature
+or `claviron::symfony` re-export.
 The application uses the shared embedded-PHP engine and its application lifecycle,
 not a second Symfony-specific HTTP listener.
 

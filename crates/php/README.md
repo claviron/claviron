@@ -88,7 +88,7 @@ their respective adapters and application policy.
 - [Embedded PHP](../php-embed/README.md): SAPI, pools, native functions/classes,
   applications, tasks, and console execution.
 - [FastCGI](../php-fcgi/README.md): external FPM entries and request forwarding.
-- [Laravel](../laravel/README.md): framework drivers above embedded execution.
+- [Laravel](https://github.com/claviron/lumenize): framework drivers above embedded execution.
 - [HTTP](../http/README.md): shared bodies, context, and policy.
 - [Edge](../edge/README.md) and [Runner](../runner/README.md): host-aware versus
   single-application HTTP composition.

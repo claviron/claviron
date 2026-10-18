@@ -47,7 +47,7 @@ access-log = [
     "dep:http-body",
     "dep:http-body-util",
 ]
-websocket = ["server", "dep:claviron-websocket", "claviron-lua?/websocket", "dep:hyper"]
+websocket = ["server", "claviron-http/websocket", "claviron-lua?/websocket", "dep:hyper"]
 
 broadcast = ["server", "dep:claviron-pusher", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
 
@@ -67,9 +67,8 @@ orbit = [
     "dep:http-body-util",
     "dep:percent-encoding",
     "dep:tokio-util",
-    # A WebSocket reached over Orbit: the edge completes the upgrade and speaks
-    # the protocol, the application sees whole messages.
-    "dep:claviron-websocket",
+    # Edge owns the upgrade and protocol; Link carries whole messages.
+    "claviron-http/websocket",
     "dep:hyper",
     "dep:hyper-util",
     "dep:fastwebsockets",
@@ -81,12 +80,27 @@ postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
 metrics = ["axum", "claviron-http/metrics"]
 http3 = ["server", "claviron-http/http3"]
 webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport"]
+# Native drivers are opt-in; host declarations alone open no sockets.
+tcp = [
+    "server", "axum", "claviron-types/ssl", "dep:claviron-sys",
+    "dep:hyper", "dep:hyper-util", "dep:http-body-util",
+    "dep:futures-util", "dep:socket2",
+]
+tls = ["dep:rustls", "dep:tokio-rustls"]
+# Preserve the native H3 driver's existing WebTransport binding contract.
+quic = [
+    "http3", "webtransport", "claviron-types/ssl", "dep:claviron-sys",
+    "dep:h3", "dep:quinn", "dep:quinn-deferred-config", "dep:rustls",
+    "dep:futures-util", "dep:http-body", "dep:http-body-util",
+]
+geoip = ["dep:claviron-geoip"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-broadcast = { workspace = true, optional = true }
 claviron-db = { workspace = true, optional = true, features = ["server"] }
 claviron-files.workspace = true
+claviron-geoip = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-hosting = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
@@ -98,14 +112,15 @@ claviron-php-embed = { workspace = true, optional = true }
 claviron-php-fcgi = { workspace = true, optional = true }
 claviron-pusher = { workspace = true, optional = true }
 claviron-runtime.workspace = true
+claviron-sys = { workspace = true, optional = true }
 claviron-tls.workspace = true
 claviron-types.workspace = true
 claviron-upstream = { workspace = true, optional = true }
-claviron-websocket = { workspace = true, optional = true }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
 async-trait.workspace = true
+futures-util = { workspace = true, optional = true }
 pin-project-lite = { workspace = true, optional = true }
 tokio.workspace = true
 tokio-util = { workspace = true, optional = true }
@@ -129,6 +144,13 @@ axum = { workspace = true, optional = true }
 tower.workspace = true
 tower-http = { workspace = true, optional = true }
 
+# ── TLS / certificates ──────────────────────────────────────────────────
+rustls = { workspace = true, optional = true }
+tokio-rustls = { workspace = true, optional = true }
+
+# ── System / OS bindings ────────────────────────────────────────────────
+socket2 = { workspace = true, optional = true }
+
 # ── Networking utilities ────────────────────────────────────────────────
 ipnet.workspace = true
 
@@ -141,12 +163,26 @@ bytes.workspace = true
 regex.workspace = true
 
 # ── HTTP/3 (QUIC) ───────────────────────────────────────────────────────
+h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, features = ["datagram"], optional = true }
 h3-webtransport = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true }
+# Select each host's QUIC TLS configuration from its ClientHello SNI.
+quinn-deferred-config = { workspace = true, optional = true }
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["test-util"] }
+
 # ── HTTP core ───────────────────────────────────────────────────────────
+h2 = "0.4"
 http-body-util.workspace = true
+
+# ── Web framework (axum + tower) ────────────────────────────────────────
+axum.workspace = true
+
+# ── TLS / certificates ──────────────────────────────────────────────────
+rcgen.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

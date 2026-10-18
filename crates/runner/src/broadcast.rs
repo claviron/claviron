@@ -14,8 +14,8 @@ use std::sync::Arc;
 use axum::{Router, middleware};
 use claviron_broadcast::{BroadcastService, BroadcastSession};
 use claviron_http::session::SessionSpawner;
+use claviron_http::upgrade::{H1UpgradeMiddlewareState, H1UpgradeRegistry};
 use claviron_runtime::{AppState, registry};
-use claviron_websocket::{H1UpgradeMiddlewareState, H1UpgradeRegistry};
 use http::{Method, StatusCode, Version};
 
 use crate::routing::AppRequest;
@@ -59,7 +59,7 @@ impl Broadcast {
             .fallback_service(inner)
             .layer(middleware::from_fn_with_state(
                 upgrade,
-                claviron_websocket::h1_upgrade_middleware,
+                claviron_http::upgrade::h1_upgrade_middleware,
             ));
         Ok((Some(Arc::new(Self { paths, service })), router))
     }

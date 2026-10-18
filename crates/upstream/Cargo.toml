@@ -17,14 +17,13 @@ categories = ["network-programming", "web-programming::http-server", "asynchrono
 default = []
 
 axum = ["dep:axum"]
-metrics = ["dep:claviron-metrics", "orbitive/metrics"]
+metrics = ["claviron-runtime/metrics", "orbitive/metrics"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
 claviron-macros.workspace = true
-claviron-metrics = { workspace = true, optional = true }
 claviron-orbit.workspace = true
 # Contracts only; the application binds the resolver (`dyn ResolverFactory`).
 claviron-resolver = { workspace = true, default-features = false }

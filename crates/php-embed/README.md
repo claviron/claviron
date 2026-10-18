@@ -152,7 +152,7 @@ does not by itself provide the embedding library.
 Facade features such as `auth`, `cache`, `postgres`, `mysql`, `tasks`,
 `log-pipeline`, and `metrics` extend an already selected embedded runtime.
 The engine remains framework-neutral. The companion Composer package is
-[`claviron/sapi`](php/composer.json); [Laravel](../laravel/README.md) layers its
+[`claviron/sapi`](php/composer.json); [Laravel](https://github.com/claviron/lumenize) layers its
 own adapters above it.
 
 ## Status and license

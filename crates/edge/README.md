@@ -1,16 +1,22 @@
 # claviron-edge
 
-Protocol-independent HTTP host admission, routing, and application dispatch.
+HTTP host admission, routing, application dispatch, and optional native transports.
 
 The edge decides which virtual host owns a request, applies that host's admission
-policy, and selects its application. Native HTTP/1 and HTTP/2 drivers and the
-HTTP/3 integration own their wire protocols; this crate owns the common hosting
-contract above them.
+policy, and selects its application. Its opt-in [TCP](docs/tcp/README.md) and
+[QUIC](docs/quic/README.md) modules own native wire protocols and connection
+lifecycle separately from the shared hosting pipeline.
 
 Applications normally use `claviron::edge` through the root crate's `edge`
 feature. Enable TLS, HTTP/3, and application adapters
 explicitly as needed. The edge is neither an interpreter nor a language-specific
 application framework.
+
+Direct crate consumers select `tcp` for HTTP/1.1 and HTTP/2, add `tls` for
+the HTTPS driver, or select `quic` for HTTP/3 and its native WebTransport
+bindings. The existing `http3` feature exposes shared H3 declarations;
+`quic` additionally selects the driver. Selecting a feature does not register
+or start a listener. Runner retains its own ingress and does not depend on Edge.
 
 ## Two HTTP server compositions
 

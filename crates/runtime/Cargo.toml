@@ -19,6 +19,7 @@ categories = ["asynchronous", "concurrency"]
 
 [features]
 config-watch = ["continuo/config-watch"]
+metrics = []
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────

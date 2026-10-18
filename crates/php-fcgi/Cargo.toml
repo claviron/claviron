@@ -16,14 +16,13 @@ categories = ["web-programming::http-server", "network-programming", "asynchrono
 [features]
 default = []
 axum = ["dep:axum"]
-metrics = ["dep:claviron-metrics", "dep:serde_json", "orbitive/metrics"]
+metrics = ["claviron-runtime/metrics", "dep:serde_json", "orbitive/metrics"]
 tasks = ["dep:claviron-tasks", "dep:futures"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["axum", "server"] }
-claviron-metrics = { workspace = true, optional = true }
 claviron-orbit.workspace = true
 claviron-php = { workspace = true, features = ["php_fcgi"] }
 claviron-runtime.workspace = true

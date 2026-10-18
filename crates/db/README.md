@@ -122,7 +122,7 @@ database service. Selecting a backend does not open a connection before boot or
 supply connection settings.
 
 - [Runtime](../runtime/README.md): ordered boot and prepared configuration.
-- [Laravel](../laravel/README.md): framework database adapters above native pools.
+- [Laravel](https://github.com/claviron/lumenize): framework database adapters above native pools.
 - [Runner](../runner/README.md): enclosing application composition and boot options.
 
 ## Status and license

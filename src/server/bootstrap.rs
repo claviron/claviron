@@ -247,7 +247,10 @@ pub async fn start_services(
 }
 
 pub fn register(state: &AppState) -> Result<()> {
-    #[cfg(any(all(feature = "tls", feature = "postgres"), feature = "tasks"))]
+    #[cfg(any(
+        all(feature = "hosting", feature = "postgres"),
+        feature = "tasks"
+    ))]
     let registry = state.registry_ref();
     #[cfg(feature = "tls")]
     claviron_tls::resolver::register(state)?;
@@ -443,12 +446,12 @@ pub fn register(state: &AppState) -> Result<()> {
 pub(super) fn with_http_services(runtime: Runtime) -> Runtime {
     #[cfg(all(feature = "edge", feature = "tls"))]
     let runtime = runtime.with_services::<(
-        claviron_hyper::HttpServer,
-        claviron_hyper::HttpsServer,
+        claviron_edge::tcp::HttpServer,
+        claviron_edge::tcp::HttpsServer,
     )>();
     #[cfg(all(feature = "edge", not(feature = "tls")))]
-    let runtime = runtime.with_services::<claviron_hyper::HttpServer>();
+    let runtime = runtime.with_services::<claviron_edge::tcp::HttpServer>();
     #[cfg(all(feature = "edge", feature = "http3"))]
-    let runtime = runtime.with_services::<claviron_h3::H3Server>();
+    let runtime = runtime.with_services::<claviron_edge::quic::H3Server>();
     runtime
 }

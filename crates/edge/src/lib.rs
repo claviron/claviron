@@ -1,9 +1,10 @@
-//! Protocol-agnostic HTTP edge composition.
+//! HTTP edge composition with independently selected native transport drivers.
 //!
 //! Transport drivers hand accepted connection and request facts to this crate.
 //! It owns host admission and selects the response owner: a merged application
 //! router, an axum-free bypass such as upstream/FCGI, or a native session
-//! binding. HTTP/1.1, HTTP/2, and HTTP/3 wire mechanics remain in their drivers.
+//! binding. The `tcp` and `quic` modules retain separate HTTP/1.1, HTTP/2,
+//! and HTTP/3 wire mechanics and connection ownership.
 
 // The Axum upstream handler proves Send through nested native Hyper futures.
 // Match upstream's finite proof depth without boxing the request path.
@@ -229,3 +230,8 @@ pub use pipeline::{
 };
 #[cfg(all(feature = "server", feature = "axum"))]
 pub use pipeline::{Routable, RouteLayerContext};
+
+#[cfg(feature = "quic")]
+pub mod quic;
+#[cfg(feature = "tcp")]
+pub mod tcp;

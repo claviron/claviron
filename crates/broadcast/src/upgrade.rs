@@ -5,12 +5,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::body::Body;
-use claviron_runtime::{AppState, registry};
-use claviron_websocket::{
+use claviron_http::upgrade::{
     H1UpgradeAccept, H1UpgradeContext, H1UpgradeHandler, H1UpgradeReject,
     H1UpgradeResult, H1UpgradeState, is_h1_header_upgrade,
     websocket_response_headers,
 };
+use claviron_runtime::{AppState, registry};
 use http::Request;
 use hyper::upgrade::Upgraded;
 

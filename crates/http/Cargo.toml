@@ -22,16 +22,11 @@ orbit = []
 acme = []
 http3 = []
 server = ["dep:arc-swap", "dep:claviron-tls", "dep:rustls", "dep:futures-util"]
-metrics = [
-    "axum",
-    "dep:claviron-metrics",
-    "dep:claviron-orbit",
-    "dep:orbitive",
-    "orbitive/metrics",
-]
+metrics = ["axum", "claviron-runtime/metrics", "dep:claviron-orbit", "dep:orbitive", "orbitive/metrics"]
 cache = ["axum", "dep:claviron-cache"]
 axum = ["dep:axum", "dep:headers", "dep:serde_json"]
 routing = ["axum", "dep:serde_yaml"]
+websocket = ["server", "axum", "dep:hyper", "dep:sha1"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
@@ -40,7 +35,6 @@ claviron-cache = { workspace = true, optional = true }
 # its own durations from configuration like everything else here.
 claviron-helpers.workspace = true
 claviron-macros.workspace = true
-claviron-metrics = { workspace = true, optional = true }
 claviron-orbit = { workspace = true, optional = true }
 claviron-runtime.workspace = true
 claviron-sys.workspace = true
@@ -66,10 +60,15 @@ headers = { workspace = true, optional = true }
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
+hyper = { workspace = true, optional = true }
 
 # ── Web framework (axum + tower) ────────────────────────────────────────
 axum = { workspace = true, optional = true }
 tower.workspace = true
+
+# ── Crypto / hashing / encoding ─────────────────────────────────────────
+# RFC 6455 handshake digest; enabled only with HTTP/1 upgrades.
+sha1 = { workspace = true, optional = true }
 
 # ── TLS / certificates ──────────────────────────────────────────────────
 rustls = { workspace = true, optional = true }
@@ -98,6 +97,12 @@ futures-util.workspace = true
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
 
+# ── HTTP core ───────────────────────────────────────────────────────────
+hyper-util.workspace = true
+
+# ── System / OS bindings ────────────────────────────────────────────────
+tempfile = "3"
+
 [[test]]
 name = "authority"
 
@@ -108,3 +113,8 @@ required-features = ["server"]
 [[test]]
 name = "session"
 required-features = ["server"]
+
+[[test]]
+name = "upgrade_lifecycle"
+path = "tests/upgrade/lifecycle.rs"
+required-features = ["websocket"]

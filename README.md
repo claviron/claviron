@@ -57,8 +57,8 @@ path.
 | --- | --- | --- |
 | [edge](crates/edge/README.md) | Virtual-host publication, admission, response-owner selection, and consumer-defined route extensions. Also documents the `edge_config` alias. | `edge` |
 | [http](crates/http/README.md) | Transport-neutral bodies, HTTP policies, listener declarations, and shared routing contracts. | `http`; Axum integration: `axum` |
-| [hyper](crates/hyper/README.md) | Edge's native HTTP/1.1 and HTTP/2 listener and connection drivers. | Selected by `edge`; no separate `hyper` feature |
-| [h3](crates/h3/README.md) | HTTP/3 over QUIC and its native request/connection integration. | `http3` (includes `tls`) |
+| [edge::tcp](crates/edge/docs/tcp/README.md) | Edge's native HTTP/1.1 and HTTP/2 listener and connection drivers. | Selected by `edge` |
+| [edge::quic](crates/edge/docs/quic/README.md) | Edge's HTTP/3 over QUIC and native request/connection integration. | `http3` (includes `tls`) |
 | [tls](crates/tls/README.md) | TLS handshakes, shared certificate resolution, and mTLS client-auth policy. | `tls` (includes `ssl`) |
 | [files](crates/files/README.md) | Static-file serving, caching, and response construction. | `files`; included by `edge`, usable without it |
 | [upstream](crates/upstream/README.md) | HTTP origin selection, pools, forwarding, and reload. | `upstream` (includes resolver contracts) |
@@ -87,8 +87,6 @@ are available through the [managed extensions](#managed-extensions-and-clients).
 | [php](crates/php/README.md) | Shared PHP configuration and execution-adapter contracts. | `php` |
 | [php-embed](crates/php-embed/README.md) | Embedded ZTS PHP with request-scoped Script mode, persistent Application mode, native functions, and fixed or elastic pools. | `php_embed` (includes `php`) |
 | [php-fcgi](crates/php-fcgi/README.md) | Dispatch to PHP-FPM through FastCGI rather than embedding Zend. | `php_fcgi` (includes `php`) |
-| [laravel](crates/laravel/README.md) | Native and Composer integration for Laravel on the shared PHP runtime. | `laravel` (includes `php_embed`, `cache`, and `broadcast`) |
-| [symfony](crates/symfony/README.md) | Buffered persistent-kernel Composer adapter. | `symfony` selects dependencies; integration lives in the Composer package |
 | [lua](crates/lua/README.md) | Lua 5.5 scripts, managed Olua applications, and Rust-provided modules. | `lua`; outbound HTTP: `lua-fetch` |
 
 **Script mode** runs PHP request startup and shutdown for each request, including
@@ -100,6 +98,13 @@ declared capacity and retire excess idle instances.
 
 Install the companion Composer package for Laravel or Symfony integration.
 Lua likewise supports fresh script states and persistent application states.
+
+Laravel's native and Composer adapters live in the independent
+[Lumenize library](https://github.com/claviron/lumenize). A custom Edge host
+registers those adapters during its own boot without using Lumenize Runner.
+The [Symfony Composer adapter](crates/symfony/README.md) remains available as PHP
+source; it has no Rust workspace package or facade feature. The general PHP
+engine stays framework-independent, selected with `php_embed`.
 
 ### Companion JavaScript integrations
 
@@ -122,7 +127,7 @@ multiple application instances can join while retaining their own runtime.
 
 | Crate | Responsibility | Facade selection |
 | --- | --- | --- |
-| [websocket](crates/websocket/README.md) | Shared WebSocket contracts and transport integration. | `websocket` |
+| [http::upgrade](crates/http/docs/upgrade/README.md) | HTTP/1 WebSocket admission and listener-owned handoff; also exposed as `claviron::websocket`. | `websocket` |
 | [pusher](crates/pusher/README.md) | Pusher-compatible wire messages, signing, and channel authorization primitives. | Through `broadcast::protocol::pusher`; no separate facade feature |
 | [broadcast](crates/broadcast/README.md) | Live broadcast applications, publication, presence, and delivery. | `broadcast` (includes `websocket`) |
 
@@ -131,8 +136,8 @@ multiple application instances can join while retaining their own runtime.
 | Crate | Responsibility | Facade selection |
 | --- | --- | --- |
 | [logging](crates/logging/README.md) | Tracing setup and optional declared, fleet-written log channels. | `logging`; channels: `log-pipeline`; OTLP adapter: `log-otlp` |
-| [metrics](crates/metrics/README.md) | Runtime measurements and optional subsystem instrumentation. | `metrics` |
-| [bench](crates/bench/README.md) | Shared native HTTP workloads with explicit Edge or runner registration. | `bench`; combine with `edge` or `runner` for its adapter |
+| [runtime::metrics](crates/runtime/docs/metrics/README.md) | Runtime-owned metric-family composition; also exposed as `claviron::metrics`. | `metrics` |
+| [bench](docs/bench/README.md) | Façade module with shared native HTTP workloads and explicit Edge or runner registration. | `bench`; combine with `edge` or `runner` for its adapter |
 
 ### Shared primitives and code generation
 

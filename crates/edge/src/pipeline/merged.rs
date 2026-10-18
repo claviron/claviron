@@ -66,7 +66,7 @@ pub fn create_router(
         .filter(|registry| {
             host_cfg.transport.h1.upgrade && registry.has_host(host_key)
         })
-        .map(|registry| claviron_websocket::H1UpgradeMiddlewareState {
+        .map(|registry| claviron_http::upgrade::H1UpgradeMiddlewareState {
             app_state: state.clone(),
             registry,
             host: host_key.clone(),
@@ -88,7 +88,7 @@ pub fn create_router(
             (Some(upgrade_state), true) => {
                 router.layer(middleware::from_fn_with_state(
                     upgrade_state.clone(),
-                    claviron_websocket::h1_upgrade_middleware,
+                    claviron_http::upgrade::h1_upgrade_middleware,
                 ))
             }
             _ => router,
@@ -207,7 +207,7 @@ pub fn create_router(
         (Some(upgrade_state), false) => {
             router.layer(middleware::from_fn_with_state(
                 upgrade_state.clone(),
-                claviron_websocket::h1_upgrade_middleware,
+                claviron_http::upgrade::h1_upgrade_middleware,
             ))
         }
         _ => router,

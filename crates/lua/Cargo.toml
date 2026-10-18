@@ -35,7 +35,7 @@ app = ["server", "dep:bytes", "dep:claviron-app", "dep:claviron-helpers", "dep:c
 axum = ["app", "dep:axum", "claviron-http/axum", "claviron-http/lua"]
 # WebSockets for applications: `websocket:` on a `lua:` route, over an
 # HTTP/1.1 Upgrade or an HTTP/2 extended CONNECT.
-websocket = ["axum", "dep:claviron-websocket", "dep:fastwebsockets", "dep:hyper", "dep:hyper-util"]
+websocket = ["axum", "claviron-http/websocket", "dep:fastwebsockets", "dep:hyper", "dep:hyper-util"]
 # Shared SQL dependencies; query adapters require `postgres` or `mysql`.
 db = ["server", "dep:claviron-db", "claviron-db/server", "dep:futures-util", "dep:sqlx", "sqlx/json"]
 # `claviron.db.mysql`, on the MySQL pools.
@@ -57,7 +57,6 @@ claviron-logging = { workspace = true, optional = true }
 claviron-orbit = { workspace = true, optional = true }
 claviron-runtime = { workspace = true, optional = true }
 claviron-tasks = { workspace = true, optional = true }
-claviron-websocket = { workspace = true, optional = true }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait = { workspace = true, optional = true }

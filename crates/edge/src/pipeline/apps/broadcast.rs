@@ -5,13 +5,13 @@ use async_trait::async_trait;
 use claviron_broadcast::stream::FastWebSocketStream;
 use claviron_broadcast::{BroadcastService, BroadcastSession};
 use claviron_http::session::SessionSpawner;
+use claviron_http::upgrade::H1UpgradeRoute;
 use claviron_http::{RouteBody, RouteResponse, empty_body, err_status};
 use claviron_runtime::{
     AppState,
     registry::{Error, Result},
 };
 use claviron_types::Host;
-use claviron_websocket::H1UpgradeRoute;
 use http::{Request, StatusCode};
 
 use crate::config::HostConfig;

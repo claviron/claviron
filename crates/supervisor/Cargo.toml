@@ -14,12 +14,11 @@ keywords = ["supervisor", "workers", "process", "claviron"]
 categories = ["concurrency", "asynchronous"]
 
 [features]
-metrics = ["dep:claviron-metrics", "dep:orbitive"]
+metrics = ["claviron-runtime/metrics", "dep:orbitive"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-helpers.workspace = true
-claviron-metrics = { workspace = true, optional = true }
 claviron-orbit.workspace = true
 claviron-runtime.workspace = true
 claviron-sys.workspace = true

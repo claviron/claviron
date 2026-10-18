@@ -8,11 +8,11 @@ use bytes::Bytes;
 use claviron_broadcast::{BroadcastConfig, BroadcastService, pusher_routes};
 use claviron_http::ext::ConnCtx;
 use claviron_http::session::SessionOwner;
-use claviron_runtime::registry::Runnable;
-use claviron_runtime::{AppState, Gate, RunContext};
-use claviron_websocket::{
+use claviron_http::upgrade::{
     H1UpgradeMiddlewareState, H1UpgradeRegistry, h1_upgrade_middleware,
 };
+use claviron_runtime::registry::Runnable;
+use claviron_runtime::{AppState, Gate, RunContext};
 use fastwebsockets::{FragmentCollector, Frame, Payload, Role, WebSocket};
 use http::{Method, Request, StatusCode, header};
 use http_body_util::Empty;

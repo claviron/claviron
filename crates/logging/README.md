@@ -134,7 +134,7 @@ process diagnostics, not as a pipeline channel adapter.
 
 - [Runtime](../runtime/README.md): prepared environments, lifecycle, reopen events.
 - [Orbit](../orbit/README.md): shared log buffer and native readiness.
-- [Laravel](../laravel/README.md): framework/Monolog channel integration.
+- [Laravel](https://github.com/claviron/lumenize): framework/Monolog channel integration.
 - [Tasks](../tasks/README.md): stdout/stderr and optional named-channel routing.
 - [Edge](../edge/README.md): HTTP access-record production.
 

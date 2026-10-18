@@ -82,7 +82,7 @@ async fn dispatch(
     };
 
     let websocket =
-        claviron_websocket::is_h1_header_upgrade(&request, "websocket");
+        claviron_http::upgrade::is_h1_header_upgrade(&request, "websocket");
     let (mut parts, body) = request.into_parts();
     // The edge's policy for this host, narrowed by this application's block.
     let policy = parts
@@ -322,7 +322,7 @@ fn accept_websocket(
         .header(http::header::CONNECTION, "Upgrade")
         .header(
             http::header::SEC_WEBSOCKET_ACCEPT,
-            claviron_websocket::websocket_accept_key(&key),
+            claviron_http::upgrade::websocket_accept_key(&key),
         );
     // What the application added — a chosen subprotocol, a cookie.
     for (name, value) in &head.headers {

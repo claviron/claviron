@@ -14,7 +14,7 @@ pub use apps::{
     HostAppSnapshot,
 };
 #[cfg(feature = "websocket")]
-pub use claviron_websocket::{
+pub use claviron_http::upgrade::{
     H1UpgradeAccept, H1UpgradeAuthenticated, H1UpgradeBinding,
     H1UpgradeContext, H1UpgradeHandler, H1UpgradeRegistry, H1UpgradeReject,
     H1UpgradeResult, H1UpgradeRoute, H1UpgradeState, is_h1_header_upgrade,

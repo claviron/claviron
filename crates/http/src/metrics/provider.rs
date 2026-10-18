@@ -4,8 +4,8 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
-use claviron_metrics::{MetricsFamily, MetricsProvider};
 use claviron_orbit::{FleetProvider, OrbitStateExt};
+use claviron_runtime::metrics::{MetricsFamily, MetricsProvider};
 use claviron_runtime::registry::{Component, Runnable, priority};
 use claviron_runtime::{AppState, RunContext, registry};
 use orbitive::metrics::{OrbitMetricCollector, OrbitMetricPublisher};
@@ -271,7 +271,7 @@ pub(crate) fn register(
     config: ConfigReader,
 ) -> registry::Result<()> {
     if state.registry_ref().resolve::<MetricsProvider>().is_none() {
-        claviron_metrics::register(state)?;
+        claviron_runtime::metrics::register(state)?;
     }
     let metrics =
         state.registry_ref().resolve::<MetricsProvider>().ok_or_else(|| {

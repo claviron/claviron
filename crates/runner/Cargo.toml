@@ -27,7 +27,7 @@ files = [
 ]
 
 # Claviron's broadcasting in front of the owner, on the sockets and over Orbit.
-broadcast = ["axum", "dep:claviron-broadcast", "dep:claviron-websocket"]
+broadcast = ["axum", "dep:claviron-broadcast", "claviron-http/websocket"]
 # The launch's shared options from the command line.
 cli = ["dep:clap"]
 # Workers under Claviron's supervisor, and its section of the launch.
@@ -49,7 +49,6 @@ claviron-runtime.workspace = true
 claviron-supervisor = { workspace = true, optional = true }
 claviron-sys.workspace = true
 claviron-tls = { workspace = true, optional = true }
-claviron-websocket = { workspace = true, optional = true }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true

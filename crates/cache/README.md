@@ -137,7 +137,7 @@ capability of the normal `redis` feature.
 
 - [Runtime](../runtime/README.md): registry, prepared configuration, and lifecycle.
 - [Orbit](../orbit/README.md): bounded same-host shared state and cache transport.
-- [Laravel](../laravel/README.md): framework cache integration above this API.
+- [Laravel](https://github.com/claviron/lumenize): framework cache integration above this API.
 
 ## Status and license
 

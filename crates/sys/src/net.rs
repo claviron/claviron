@@ -7,7 +7,7 @@
 //! Lives in `claviron-sys` (not in a "claviron-net" crate) because
 //! this is **socket-option plumbing**, not networking. Real network
 //! abstractions (TLS termination, HTTP framing, vhost dispatch) live
-//! one layer up in `claviron-hyper` / `claviron-h3` / etc.
+//! one layer up in Edge's TCP/QUIC drivers or another listener owner.
 
 use std::io;
 use std::net::{SocketAddr, UdpSocket as StdUdpSocket};

@@ -1,12 +1,12 @@
 //! What a transport driver is allowed to see of this crate.
 //!
-//! A transport — `claviron-hyper`, `claviron-h3` — has to resolve a host
+//! A transport — Edge's `tcp` or `quic` module — has to resolve a host
 //! before it can route to one: the TLS handshake picks a certificate by SNI,
 //! and the request's authority is checked against what that handshake agreed,
 //! both of them before any router exists. So the transports import from here,
 //! and that direction is right.
 //!
-//! How far in they reached was not. `claviron-hyper` and `claviron-h3` both
+//! How far in they reached was not. The TCP and QUIC drivers both
 //! imported `claviron_edge::loader::table::VhostTable` — three levels into a
 //! neighbour's loader, a module whose job is reading YAML. Nothing stopped the
 //! next transport from importing the snapshot writer beside it or the config
