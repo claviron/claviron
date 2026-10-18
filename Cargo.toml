@@ -52,8 +52,8 @@ runner = ["server", "http", "dep:claviron-runner"]
 # Development's reload for a runner: native source notifications.
 runner-watch = ["runner", "claviron-runner/watch"]
 
-# A runner launch's shared options from its command line.
-runner-cli = ["runner", "claviron-runner/cli"]
+# Add command-line options to an already-selected runner.
+runner-cli = ["claviron-runner?/cli"]
 # Lua 5.5 scripts in a fresh sandboxed state each; with `orbit`, the fleet's
 # state as Lua modules, and with `tasks`, `lua:` tasks. See crates/lua/ARCHITECTURE.md.
 lua = ["dep:claviron-lua", "claviron-lua/orbit", "claviron-lua/server", "claviron-lua/app", "claviron-edge?/lua", "claviron-http?/lua"]

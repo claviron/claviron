@@ -1,7 +1,7 @@
 # Laravel application over Orbit
 
 A Laravel application with its own Rust binary, hosted by
-[Lumenize](https://crates.io/crates/lumenize) in persistent PHP Application mode.
+[Lumenize](https://crates.io/crates/lumenize) with its `runner` feature in persistent PHP Application mode.
 A separate Claviron edge sends HTTP and Pusher WebSocket traffic to application
 `octane-app` in fleet `octane` over [Orbit Link](https://crates.io/crates/orbitive).
 The edge does not embed PHP; this application does not open a TCP or UDS listener.

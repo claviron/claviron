@@ -113,8 +113,10 @@ Independent masters must not assume they can allocate the same fleet lanes.
 
 The implementation crate has no default features. Its capabilities are `axum`,
 `tls`, `files`, `broadcast`, `cli`, `supervisor`, `websocket`, and `watch`.
-The root facade exposes composed feature selections, including `runner-cli` and
-`runner-watch`; facade and implementation feature names are not interchangeable.
+The root facade's `runner-cli` extends an already-selected `runner`; it does not
+enable the shell on its own. Select both for command-line launch options.
+`runner-watch` selects the runner and its watcher. Facade and implementation
+feature names are not interchangeable.
 
 Source watching uses native file notifications for development. The engine
 chooses whether a change restarts its application or requests worker replacement;
