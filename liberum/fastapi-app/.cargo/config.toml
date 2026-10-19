@@ -49,9 +49,3 @@ ORBIT_TRANSPORT_BUFFER_BYTES = { value = "65536", force = true }
 # Read at build time by both binaries. Change it here and in the other
 # project, or neither: Orbit refuses at open a segment of another shape.
 ORBIT_TRANSPORT_FLEET_CAPACITY = { value = "32", force = true }
-
-# The de02 Gitea's Cargo registry: where pre-releases are published and
-# where consumers take them from. Gitea sits behind portico as
-# git.claviron.dev, reachable over the VPN and from de02 (ACL).
-[registries.de02]
-index = "sparse+https://git.claviron.dev/api/packages/developer/cargo/"

@@ -9,8 +9,8 @@
     ],
     "license": "MIT",
     "require": {
-        "claviron/laravel": "0.1.0",
-        "claviron/sapi": "0.1.0",
+        "claviron/laravel": "0.1.2",
+        "claviron/sapi": "0.1.1",
         "php": "^8.3",
         "laravel/framework": "^13.35",
         "laravel/octane": "^2.21",

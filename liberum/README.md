@@ -76,12 +76,17 @@ These applications consume released packages, not moving sibling checkouts:
 | Lumenize | `0.2.0-alpha.18` |
 | Gufi | `0.1.0-alpha.2` |
 | `@claviron/orbit` | `0.1.0` |
-| `claviron/sapi`, `claviron/laravel` | `0.1.0` |
+| `claviron/sapi` | `0.1.1` |
+| `claviron/laravel` | `0.1.2` |
 
 Publish these releases before installing the examples. Rust requirements use
 exact versions; the JavaScript and PHP integration requirements are pinned as
 well. A native Orbit addon must be available for the consumer's OS and CPU.
 No launcher silently falls back to a sibling source tree.
+
+The Rust hosts resolve Claviron, Lumenize and Gufi from crates.io, with no
+`path` dependencies or local patches. FastAPI also declares Claviron directly:
+the published Gufi `0.1.0-alpha.2` does not yet re-export its Claviron facade.
 
 ## Shared demonstration data
 
@@ -97,9 +102,19 @@ is not yet exposed; its DB diagnostic reports 501 instead of using PostgreSQL im
 See the shared database README for explicit migration commands, snapshot
 handling and the restriction against sharing a live file across OS/VM hosts.
 
-The migration from local dependencies is not complete until Cargo, npm and
-Composer lockfiles have been regenerated against the published releases.
-Existing local-path lock entries are not registry release evidence. The optional
+After switching an existing checkout from local sources, resolve each Rust
+workspace without compiling:
+
+```sh
+cargo update --workspace --manifest-path edge-server/Cargo.toml
+cargo update --workspace --manifest-path fastapi-app/Cargo.toml
+cargo update --workspace --manifest-path octane-app/Cargo.toml
+```
+
+These commands run from `liberum/`. Generated Cargo lockfiles remain locally
+ignored. Registry packages must have a crates.io source and checksum in each
+lockfile; an old local-path entry is not registry release evidence. npm and
+Composer have separate lockfiles and installation steps. The optional
 Python/PHP benchmark tools still use a sibling `bench` checkout; they are a
 separate development-only dependency, not a published example runtime.
 

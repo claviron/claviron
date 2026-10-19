@@ -10,7 +10,7 @@ The edge does not embed PHP; this application does not open a TCP or UDS listene
 
 Cargo consumes Lumenize `0.2.0-alpha.18` from crates.io with `runner` and `cli`;
 imports use `lumenize::{Options, Runner}`. Composer consumes `claviron/laravel`
-and `claviron/sapi` `0.1.0` from Packagist. These releases must exist before
+`0.1.2` and `claviron/sapi` `0.1.1` from Packagist. These releases must exist before
 installation; no sibling integration checkout is selected automatically.
 PHP imports use `Lumenize\\` for
 Laravel integration; native engine classes retain `Claviron\\`.

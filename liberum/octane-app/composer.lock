@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "33e403149dc6c54ddf394c750d653b88",
+    "content-hash": "e7fb55bc5c2beedacb1d3414d1b55e6b",
     "packages": [
         {
             "name": "brick/math",
@@ -142,20 +142,20 @@
         },
         {
             "name": "claviron/laravel",
-            "version": "v0.1.0",
+            "version": "v0.1.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/claviron/laravel.git",
-                "reference": "8e73a5097187c71d362e1a576ffc6ad31917c89b"
+                "reference": "b56614b8364a4aa62ffbb14037c4f51a6ae35205"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/claviron/laravel/zipball/8e73a5097187c71d362e1a576ffc6ad31917c89b",
-                "reference": "8e73a5097187c71d362e1a576ffc6ad31917c89b",
+                "url": "https://api.github.com/repos/claviron/laravel/zipball/b56614b8364a4aa62ffbb14037c4f51a6ae35205",
+                "reference": "b56614b8364a4aa62ffbb14037c4f51a6ae35205",
                 "shasum": ""
             },
             "require": {
-                "claviron/sapi": "0.1.0",
+                "claviron/sapi": "0.1.1",
                 "illuminate/auth": "^11.0 || ^12.0 || ^13.0",
                 "illuminate/broadcasting": "^11.0 || ^12.0 || ^13.0",
                 "illuminate/cache": "^11.0 || ^12.0 || ^13.0",
@@ -200,22 +200,22 @@
             "description": "Claviron drivers and adapters for Laravel: cache, sessions, database, broadcasting, queue, schedule, and the Octane client",
             "support": {
                 "issues": "https://github.com/claviron/laravel/issues",
-                "source": "https://github.com/claviron/laravel/tree/v0.1.0"
+                "source": "https://github.com/claviron/laravel/tree/v0.1.2"
             },
-            "time": "2026-10-18T22:23:54+00:00"
+            "time": "2026-10-18T23:55:32+00:00"
         },
         {
             "name": "claviron/sapi",
-            "version": "v0.1.0",
+            "version": "v0.1.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/claviron/sapi.git",
-                "reference": "e16e18a2538548ccb5376d12b09f51c1aaab3928"
+                "reference": "444287972e233d1cb87834429af7cf41da48fdbe"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/claviron/sapi/zipball/e16e18a2538548ccb5376d12b09f51c1aaab3928",
-                "reference": "e16e18a2538548ccb5376d12b09f51c1aaab3928",
+                "url": "https://api.github.com/repos/claviron/sapi/zipball/444287972e233d1cb87834429af7cf41da48fdbe",
+                "reference": "444287972e233d1cb87834429af7cf41da48fdbe",
                 "shasum": ""
             },
             "require": {
@@ -242,7 +242,7 @@
                 "issues": "https://github.com/claviron/claviron/issues",
                 "source": "https://github.com/claviron/claviron/tree/main/crates/php-embed/php"
             },
-            "time": "2026-10-18T22:23:54+00:00"
+            "time": "2026-10-18T23:48:12+00:00"
         },
         {
             "name": "dflydev/dot-access-data",
