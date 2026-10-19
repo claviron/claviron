@@ -50,24 +50,15 @@ __pycache__
 
 # --- Secrets & local config ---
 /.cargo/config.toml
-# Only root environments are private; nested examples and fixtures are source.
 /.env
 /.env.*
-!/.env.example
 /*.env
 *.key
 *.pem
 *.pfx
 *.p12
-/liberum/database/*.sqlite-*
 *.local
 /*.local
-
-# Sanitized test environments are source fixtures, not deployment secrets.
-!/crates/**/tests/fixtures/**/.env
-!/crates/**/tests/fixtures/**/.env.*
-!/crates/**/tests/fixtures/**/*.env
-!/crates/**/tests/fixtures/**/*.env.*
 
 # --- Editor / IDE ---
 /.idea/

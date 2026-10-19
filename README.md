@@ -333,13 +333,13 @@ Applications register their own components through `Server::register` or
 `Server::with_services`, then provide the configuration and adapters their
 composition requires. The crate READMEs provide focused integration examples.
 
-## liberum
+## Examples
 
-[liberum](https://github.com/claviron/claviron/tree/main/liberum) is an open
+[examples](https://github.com/claviron/claviron/tree/main/examples) is an open
 playground where applications built on Claviron come to life. Its FastAPI,
 JavaScript and Laravel examples connect to one edge over Orbit Link. Each keeps
 its own application process and dependencies; the edge owns HTTP ingress. Launchers live in
-`liberum/scripts/`. These sources are available in Git, not the Cargo package.
+`examples`. These sources are available in Git, not the Cargo package.
 
 ## Architectural Design Contracts
 

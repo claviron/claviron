@@ -7,7 +7,7 @@ import sqlite3
 
 
 def database_summary() -> dict:
-    path = Path(os.environ.get("LIBERUM_DATABASE", "../database/demo.sqlite"))
+    path = Path(os.environ.get("EXAMPLES_DATABASE", "../database/demo.sqlite"))
     if not path.is_absolute():
         path = Path(__file__).resolve().parent / path
     # No automatic creation or migrations while serving requests.

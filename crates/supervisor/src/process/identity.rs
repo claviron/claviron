@@ -14,8 +14,8 @@ use crate::lifecycle::operation::OperationId;
 use crate::presence::{PresencePhase, WorkerPresence};
 use crate::{Error, Result, WorkerBootstrap};
 
-/// Orbit kind of the master generation ring. Grep `const .*KIND: u8` before
-/// reusing a number; see `/Volumes/Liberum/AGENTS.md` Rule 5b.
+/// Orbit kind of the master generation ring. Retained SHM segments outlive
+/// processes; verify existing kind ownership and record shape before reuse.
 pub(crate) const MASTER_GENERATION_RING_KIND: u8 = 238;
 const MASTER_GENERATION_FRAME_KIND: u8 = 1;
 /// Only master lane `0` is written; the ring is per node because that is the

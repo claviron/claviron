@@ -1,0 +1,37 @@
+*.log
+.DS_Store
+.phpactor.json
+.phpunit.result.cache
+/.codex
+/.cursor/
+/.idea
+/.nova
+/.phpunit.cache
+# Shared editor setup; active personal settings remain local.
+/.vscode/*
+!/.vscode/extensions.json
+!/.vscode/tasks.json
+!/.vscode/settings.json
+/.zed
+/auth.json
+/node_modules
+/public/build
+/public/fonts-manifest.dev.json
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+/vendor
+_ide_helper.php
+Homestead.json
+Homestead.yaml
+Thumbs.db
+
+
+# Added by cargo
+
+/target
+/Cargo.lock
+!/composer.lock
+
+/storage/lumenize.sock

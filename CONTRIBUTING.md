@@ -70,7 +70,7 @@ language tools without automatic formatting or fixes on save. Keep personal
 interpreter paths, credentials, terminal profiles and themes in local/user
 settings. The scripts remain the validation authority regardless of editor.
 
-For applications, open the individual [liberum](liberum/README.md#editor-workspaces)
+For applications, open the individual [examples](examples/README.md#editor-workspaces)
 folder or its optional multi-root workspace instead. Each application has its
 own extension suggestions and tasks; its Cargo commands never select the library
 workspace by accident.

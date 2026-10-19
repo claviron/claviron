@@ -1,7 +1,0 @@
-/target/
-# Shared editor setup; active personal settings remain local.
-/.vscode/*
-!/.vscode/extensions.json
-!/.vscode/tasks.json
-!/.vscode/settings.example.json
-Cargo.lock

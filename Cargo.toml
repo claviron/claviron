@@ -58,8 +58,7 @@ runner-cli = ["claviron-runner?/cli"]
 # state as Lua modules, and with `tasks`, `lua:` tasks. See crates/lua/ARCHITECTURE.md.
 lua = ["dep:claviron-lua", "claviron-lua/orbit", "claviron-lua/server", "claviron-lua/app", "claviron-lua/fetch", "claviron-edge?/lua", "claviron-http?/lua"]
 
-resolver = ["dep:claviron-resolver"]
-resolver-hickory = ["resolver", "claviron-resolver/hickory"]
+
 runtime = ["dep:claviron-runtime"]
 # Native configuration notifications for opt-in ConfigObserver owners.
 # Independent of the runner's application-source watching.
@@ -124,8 +123,12 @@ http3 = ["tls", "claviron-edge/quic", "dep:quinn", "dep:quinn-deferred-config"]
 # (`dyn ResolverFactory`, e.g. `resolver-hickory`). A hostname origin with no
 # bound resolver is a boot error.
 upstream = ["dep:claviron-upstream", "claviron-edge?/upstream", "resolver"]
+resolver = ["dep:claviron-resolver"]
+resolver-hickory = ["resolver", "claviron-resolver/hickory"]
+# http connect extensions
 websocket = ["claviron-http/websocket", "claviron-edge?/websocket", "claviron-runner?/websocket", "claviron-lua?/websocket", "http"]
 webtransport = ["edge", "http3", "claviron-edge/webtransport"]
+# pusher and broadcast replacement for embeded apps
 broadcast = ["websocket", "dep:claviron-broadcast", "claviron-edge?/broadcast", "claviron-runner?/broadcast"]
 
 # ── TLS / SSL ────────────────────────────────────────────────────────

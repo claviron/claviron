@@ -22,8 +22,8 @@ use crate::lifecycle::{
     WorkerIdentity,
 };
 
-/// Orbit kind of the presence ring. Grep `const .*KIND: u8` before reusing a
-/// number; see `/Volumes/Liberum/AGENTS.md` Rule 5b.
+/// Orbit kind of the presence ring. Retained SHM segments outlive processes;
+/// verify existing kind ownership and record shape before reuse.
 pub(crate) const PRESENCE_RING_KIND: u8 = 239;
 const PRESENCE_RING_CAPACITY: usize = 64;
 const PRESENCE_FRAME_KIND: u8 = 1;
