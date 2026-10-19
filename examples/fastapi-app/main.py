@@ -31,7 +31,7 @@ async def lifespan(_: FastAPI):
 app = FastAPI(lifespan=lifespan)
 
 if os.environ.get("LIBERUM_BENCH") == "1":
-    from liberum_bench.fastapi import router as bench_router
+    from claviron_bench.fastapi import router as bench_router
 
     app.include_router(bench_router)
 

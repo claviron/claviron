@@ -39,6 +39,7 @@ composer.phar
 *.sock
 *.pid
 *.lock
+!/examples/fastapi-app/uv.lock
 *.log
 logs/
 /tmp/

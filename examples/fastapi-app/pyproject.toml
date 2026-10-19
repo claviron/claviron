@@ -8,7 +8,4 @@ dependencies = [
 ]
 
 [dependency-groups]
-bench = ["liberum-bench"]
-
-[tool.uv.sources]
-liberum-bench = { path = "../../../bench/packages/python", editable = true }
+bench = ["claviron-bench[fastapi]==0.1.0"]
