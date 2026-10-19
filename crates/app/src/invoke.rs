@@ -178,7 +178,15 @@ impl InvocationRouter {
             })?;
         let operations = self.operations();
         if operations.is_empty() {
-            info!("invocation router has no handlers; idling until cancelled");
+            if state.is_worker() {
+                tracing::debug!(
+                    "invocation router has no handlers; idling until cancelled"
+                );
+            } else {
+                info!(
+                    "invocation router has no handlers; idling until cancelled"
+                );
+            }
             cancellation.cancelled().await;
             return Ok(());
         }
@@ -188,7 +196,11 @@ impl InvocationRouter {
                 bus.subscribe(*operation).map_err(|error| error.to_string())
             })
             .collect::<Result<Vec<_>, _>>()?;
-        info!(operations = ?operations, "invocation router listening");
+        if state.is_worker() {
+            tracing::debug!(operations = ?operations, "invocation router listening");
+        } else {
+            info!(operations = ?operations, "invocation router listening");
+        }
         let gate = Arc::new(Gate::new(Some(MAX_IN_FLIGHT), ACQUIRE_TIMEOUT));
 
         loop {

@@ -54,7 +54,11 @@ where
                         group.listener().id
                     ))
                 })?;
-            info!(listener = %group.listener().id, address = %socket.local_addr()?, "🌐 TCP listener bound");
+            if matches!(run_mode, RunMode::Worker(_)) {
+                debug!(listener = %group.listener().id, address = %socket.local_addr()?, "🌐 TCP listener bound");
+            } else {
+                info!(listener = %group.listener().id, address = %socket.local_addr()?, "🌐 TCP listener bound");
+            }
             sockets.push(socket);
         }
         bound.push((group.clone(), sockets));

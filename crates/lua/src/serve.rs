@@ -151,7 +151,11 @@ impl LuaApplications {
                 let replaced = managed.loaded.replace(Arc::new(application));
                 let generation = managed.generation;
                 drop(applications);
-                tracing::info!(application = %name, module = %config.module.display(), generation, "🌙 Lua application loaded");
+                if state.is_worker() {
+                    tracing::debug!(application = %name, module = %config.module.display(), generation, "🌙 Lua application loaded");
+                } else {
+                    tracing::info!(application = %name, module = %config.module.display(), generation, "🌙 Lua application loaded");
+                }
                 if let Some(replaced) = replaced {
                     self.retire(replaced);
                     emit(

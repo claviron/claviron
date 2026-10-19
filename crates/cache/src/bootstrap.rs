@@ -74,7 +74,15 @@ fn compose(
     registry.register(orbit.service())?;
 
     if from_file {
-        info!(path = %cache_path.display(), "📦 cache registry composed; stores follow the prepared configuration");
+        if state.is_worker() {
+            tracing::debug!(path = %cache_path.display(), "📦 cache registry composed; stores follow the prepared configuration");
+        } else {
+            info!(path = %cache_path.display(), "📦 cache registry composed; stores follow the prepared configuration");
+        }
+    } else if state.is_worker() {
+        tracing::debug!(
+            "📦 cache registry composed from supplied configuration"
+        );
     } else {
         info!("📦 cache registry composed from supplied configuration");
     }

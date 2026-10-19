@@ -84,7 +84,21 @@ impl HostingService {
         self.server_id
             .set(server.id)
             .map_err(|_| Error::msg("HostingService booted more than once"))?;
-        info!(server_id = server.id, name = %server.name, "HostingService bootstrapped");
+        if state.is_worker() {
+            tracing::debug!(
+                profile = %db.hosting_profile(),
+                server_id = server.id,
+                name = %server.name,
+                "HostingService bootstrapped"
+            );
+        } else {
+            info!(
+                profile = %db.hosting_profile(),
+                server_id = server.id,
+                name = %server.name,
+                "HostingService bootstrapped"
+            );
+        }
         Ok(())
     }
 }

@@ -998,7 +998,17 @@ impl Configurable for PhpFcgiService {
                 .map_err(congif::Error::msg)?;
         }
         self.apply(config).await.map_err(congif::Error::msg)?;
-        info!("📦 PhpFcgiService configured {}", self.config_path.display());
+        if self.state.is_worker() {
+            tracing::debug!(
+                "📦 PhpFcgiService configured {}",
+                self.config_path.display()
+            );
+        } else {
+            info!(
+                "📦 PhpFcgiService configured {}",
+                self.config_path.display()
+            );
+        }
         Ok(())
     }
 

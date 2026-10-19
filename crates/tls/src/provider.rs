@@ -225,9 +225,15 @@ async fn merge_db_certs(
         }
     };
     let added = snapshot.populate_from_db(&store, server_id).await?;
-    tracing::info!(
-        "📜 merged {added} DB-managed cert SNI entries into TLS snapshot"
-    );
+    if state.is_worker() {
+        tracing::debug!(
+            "📜 merged {added} DB-managed cert SNI entries into TLS snapshot"
+        );
+    } else {
+        tracing::info!(
+            "📜 merged {added} DB-managed cert SNI entries into TLS snapshot"
+        );
+    }
     Ok(())
 }
 

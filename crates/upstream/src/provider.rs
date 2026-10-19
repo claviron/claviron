@@ -359,10 +359,17 @@ impl Bootable<AppState, UpstreamDeps> for UpstreamProvider {
         .await?;
 
         register_upstream_orbit_events(state)?;
-        tracing::info!(
-            "📦 UpstreamProvider loaded {}",
-            self.config_path.display()
-        );
+        if state.is_worker() {
+            tracing::debug!(
+                "📦 UpstreamProvider loaded {}",
+                self.config_path.display()
+            );
+        } else {
+            tracing::info!(
+                "📦 UpstreamProvider loaded {}",
+                self.config_path.display()
+            );
+        }
         Ok(())
     }
 }

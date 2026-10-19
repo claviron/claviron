@@ -84,7 +84,11 @@ impl H3Server {
                         snapshot.listener.id
                     ))
                 })?;
-                info!(listener = %snapshot.listener.id, address = %endpoint.local_addr()?, "🌐 QUIC listener bound");
+                if self.state.is_worker() {
+                    debug!(listener = %snapshot.listener.id, address = %endpoint.local_addr()?, "🌐 QUIC listener bound");
+                } else {
+                    info!(listener = %snapshot.listener.id, address = %endpoint.local_addr()?, "🌐 QUIC listener bound");
+                }
                 endpoints.push(endpoint);
             }
             bound.push((snapshot.clone(), endpoints));

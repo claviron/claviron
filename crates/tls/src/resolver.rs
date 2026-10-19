@@ -375,10 +375,20 @@ impl Bootable<AppState, HostingDeps> for CertResolverProvider {
         trace!(resolver = %format_args!("{:p}", Arc::as_ptr(&certificates.resolver)), process_id = std::process::id(), cert_count = count, "Shared TLS resolver registered");
         registry.register(certificates.resolver)?;
         if let Some(authority) = certificates.authority {
-            info!(authority = ?authority, "📜 Certificate authority loaded");
+            if state.is_worker() {
+                tracing::debug!(authority = ?authority, "📜 Certificate authority loaded");
+            } else {
+                info!(authority = ?authority, "📜 Certificate authority loaded");
+            }
             registry.insert(authority)?;
         }
-        info!("📜 Certificate resolver initialized certs={count}");
+        if state.is_worker() {
+            tracing::debug!(
+                "📜 Certificate resolver initialized certs={count}"
+            );
+        } else {
+            info!("📜 Certificate resolver initialized certs={count}");
+        }
         Ok(())
     }
 }

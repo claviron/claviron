@@ -82,9 +82,15 @@ impl VhostAliasListener {
                 Ok(claviron_db::Pool::Postgres(pool)) => pool,
                 #[allow(unreachable_patterns)] // a build with only PostgreSQL
                 Ok(_) => {
-                    info!(
-                        "hosting data is in `{profile}`: listening for hosting events"
-                    );
+                    if state.is_worker() {
+                        tracing::debug!(
+                            "hosting data is in `{profile}`: listening for hosting events"
+                        );
+                    } else {
+                        info!(
+                            "hosting data is in `{profile}`: listening for hosting events"
+                        );
+                    }
                     let mut events = state
                         .events()
                         .subscribe::<claviron_hosting::HostingChanged>(
@@ -131,10 +137,18 @@ impl VhostAliasListener {
                     _ = context.cancelled() => return Ok(()),
                     channel = ChannelListener::open(&state, &pool, &[VHOST_ALIAS_NOTIFY_CHANNEL]) => channel
                 };
-                info!(
-                    "📡 listening postgres channel '{}' (server_id={})",
-                    VHOST_ALIAS_NOTIFY_CHANNEL, server_id
-                );
+                if state.is_worker() {
+                    tracing::debug!(
+                        "📡 listening postgres channel '{}' (server_id={})",
+                        VHOST_ALIAS_NOTIFY_CHANNEL,
+                        server_id
+                    );
+                } else {
+                    info!(
+                        "📡 listening postgres channel '{}' (server_id={})",
+                        VHOST_ALIAS_NOTIFY_CHANNEL, server_id
+                    );
+                }
 
                 loop {
                     let notice = tokio::select! {

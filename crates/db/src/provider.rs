@@ -501,7 +501,11 @@ fn build_state(
         }
     });
 
-    info!("DbService state built");
+    if app.is_worker() {
+        tracing::debug!("DbService state built");
+    } else {
+        info!("DbService state built");
+    }
     Ok(state)
 }
 
