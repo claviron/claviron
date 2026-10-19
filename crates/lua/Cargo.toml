@@ -36,7 +36,7 @@ axum = ["app", "dep:axum", "claviron-http/axum", "claviron-http/lua"]
 # WebSockets for applications: `websocket:` on a `lua:` route, over an
 # HTTP/1.1 Upgrade or an HTTP/2 extended CONNECT.
 websocket = ["axum", "claviron-http/websocket", "dep:fastwebsockets", "dep:hyper", "dep:hyper-util"]
-# Shared SQL dependencies; query adapters require `postgres` or `mysql`.
+# Shared SQL dependencies; adapters require `postgres`, `mysql` or `sqlite`.
 db = ["server", "dep:claviron-db", "claviron-db/server", "dep:futures-util", "dep:sqlx", "sqlx/json"]
 # `claviron.db.mysql`, on the MySQL pools.
 mysql = ["db", "claviron-db/mysql", "sqlx/mysql"]

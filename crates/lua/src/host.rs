@@ -64,7 +64,7 @@ pub fn engine(
         engine =
             engine.with(Arc::new(crate::fetch::FetchExtension::new(fetcher)));
     }
-    #[cfg(any(feature = "postgres", feature = "mysql"))]
+    #[cfg(any(feature = "postgres", feature = "mysql", feature = "sqlite"))]
     if let Some(service) =
         state.registry_ref().resolve::<claviron_db::DbService>()
     {

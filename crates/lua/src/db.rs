@@ -13,6 +13,7 @@
 //! end, { isolation = "serializable" })
 //!
 //! local my = claviron.db.mysql()               -- `?` placeholders; `insert_id`
+//! local sqlite = claviron.db.sqlite()          -- `?` placeholders; signed rowid
 //! ```
 //!
 //! The pools are Claviron's own: the same connections Rust, PHP and JavaScript
@@ -36,6 +37,8 @@
 mod mysql;
 #[cfg(feature = "postgres")]
 mod postgres;
+#[cfg(feature = "sqlite")]
+mod sqlite;
 
 use std::sync::Arc;
 
@@ -100,6 +103,8 @@ impl Extension for DbExtension {
             Backend::Postgres,
             #[cfg(feature = "mysql")]
             Backend::MySql,
+            #[cfg(feature = "sqlite")]
+            Backend::Sqlite,
         ];
         for &backend in backends {
             let service = Arc::clone(&self.service);
@@ -134,6 +139,8 @@ enum Backend {
     Postgres,
     #[cfg(feature = "mysql")]
     MySql,
+    #[cfg(feature = "sqlite")]
+    Sqlite,
 }
 
 impl Backend {
@@ -143,6 +150,8 @@ impl Backend {
             Self::Postgres => "postgres",
             #[cfg(feature = "mysql")]
             Self::MySql => "mysql",
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite => "sqlite",
         }
     }
 
@@ -156,6 +165,8 @@ impl Backend {
             Self::Postgres => service.postgres_named(name).is_some(),
             #[cfg(feature = "mysql")]
             Self::MySql => service.mysql_named(name).is_some(),
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite => service.sqlite_named(name).is_some(),
         }
     }
 }
@@ -220,7 +231,15 @@ struct Outcome {
     columns: Vec<String>,
     rows: Vec<Vec<Cell>>,
     affected: u64,
-    insert_id: Option<u64>,
+    insert_id: Option<InsertId>,
+}
+
+#[derive(Clone, Copy)]
+enum InsertId {
+    #[cfg(feature = "mysql")]
+    Unsigned(u64),
+    #[cfg(feature = "sqlite")]
+    Signed(i64),
 }
 
 fn unsupported(
@@ -277,8 +296,8 @@ fn rows(
     Ok(list)
 }
 
-/// `{ affected, insert_id }`; `insert_id` only where the server reports one
-/// (MySQL's `AUTO_INCREMENT`). PostgreSQL says it with `RETURNING`.
+/// `{ affected, insert_id }`: MySQL's `AUTO_INCREMENT` or SQLite's last rowid
+/// on this connection. PostgreSQL says it with `RETURNING`.
 fn done(
     lua: &Lua,
     outcome: &Outcome,
@@ -286,7 +305,12 @@ fn done(
     let table = lua.create_table()?;
     table.set("affected", outcome.affected)?;
     if let Some(id) = outcome.insert_id {
-        table.set("insert_id", id)?;
+        match id {
+            #[cfg(feature = "mysql")]
+            InsertId::Unsigned(id) => table.set("insert_id", id)?,
+            #[cfg(feature = "sqlite")]
+            InsertId::Signed(id) => table.set("insert_id", id)?,
+        }
     }
     Ok(table)
 }
@@ -372,6 +396,23 @@ impl Database {
                         .await
                         .map_err(database_failure)
                 }
+                #[cfg(feature = "sqlite")]
+                Backend::Sqlite => {
+                    let pool = self
+                        .service
+                        .sqlite_named(&self.name)
+                        .ok_or_else(|| {
+                            failure(format!(
+                                "sqlite connection \"{}\" is gone",
+                                self.name
+                            ))
+                        })?;
+                    let mut connection =
+                        pool.acquire().await.map_err(database_failure)?;
+                    sqlite::run(&mut connection, sql, params)
+                        .await
+                        .map_err(database_failure)
+                }
             }
         };
         tokio::select! {
@@ -418,6 +459,22 @@ impl Database {
                         .map(Open::MySql)
                         .map_err(database_failure)
                 }
+                #[cfg(feature = "sqlite")]
+                Backend::Sqlite => {
+                    let pool = self
+                        .service
+                        .sqlite_named(&self.name)
+                        .ok_or_else(|| {
+                            failure(format!(
+                                "sqlite connection \"{}\" is gone",
+                                self.name
+                            ))
+                        })?;
+                    sqlite::begin(&pool, settings)
+                        .await
+                        .map(Open::Sqlite)
+                        .map_err(database_failure)
+                }
             }
         };
         tokio::select! {
@@ -462,29 +519,8 @@ impl UserData for Database {
              this: UserDataRef<Database>,
              (body, options): (Function, Option<Table>)| async move {
                 let open = this.begin(settings(options)?).await?;
-                let state = Arc::new(Mutex::new(Some(open)));
-                let handle = lua.create_userdata(Transaction {
-                    state: Arc::clone(&state),
-                    execution: Arc::clone(&this.execution),
-                })?;
-                let returned = body.call_async::<MultiValue>(handle).await;
-                // Whatever the function did with its handle, the transaction
-                // ends here; a handle kept past this point finds it ended.
-                let open = state.lock().await.take();
-                match (returned, open) {
-                    (Ok(values), Some(open)) => {
-                        open.commit().await.map_err(database_failure)?;
-                        Ok(values)
-                    }
-                    (Err(error), Some(open)) => {
-                        // The function's error is the one the script sees; a
-                        // failed rollback leaves the connection to the pool,
-                        // which discards it.
-                        let _ = open.rollback().await;
-                        Err(error)
-                    }
-                    (returned, None) => returned,
-                }
+                Transaction::call(lua, Arc::clone(&this.execution), open, body)
+                    .await
             },
         );
         methods.add_method("name", |_, this, ()| Ok(this.name.clone()));
@@ -497,6 +533,8 @@ enum Open {
     Postgres(sqlx::Transaction<'static, sqlx::Postgres>),
     #[cfg(feature = "mysql")]
     MySql(sqlx::Transaction<'static, sqlx::MySql>),
+    #[cfg(feature = "sqlite")]
+    Sqlite(sqlx::Transaction<'static, sqlx::Sqlite>),
 }
 
 impl Open {
@@ -514,6 +552,10 @@ impl Open {
             Self::MySql(transaction) => {
                 mysql::run(transaction, sql, params).await
             }
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(transaction) => {
+                sqlite::run(transaction, sql, params).await
+            }
         }
     }
 
@@ -523,6 +565,8 @@ impl Open {
             Self::Postgres(transaction) => transaction.commit().await,
             #[cfg(feature = "mysql")]
             Self::MySql(transaction) => transaction.commit().await,
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(transaction) => transaction.commit().await,
         }
     }
 
@@ -532,6 +576,8 @@ impl Open {
             Self::Postgres(transaction) => transaction.rollback().await,
             #[cfg(feature = "mysql")]
             Self::MySql(transaction) => transaction.rollback().await,
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(transaction) => transaction.rollback().await,
         }
     }
 }
@@ -544,6 +590,32 @@ struct Transaction {
 }
 
 impl Transaction {
+    async fn call(
+        lua: Lua,
+        execution: Arc<Execution>,
+        open: Open,
+        body: Function,
+    ) -> mlua::Result<MultiValue> {
+        let state = Arc::new(Mutex::new(Some(open)));
+        let handle =
+            lua.create_userdata(Self { state: Arc::clone(&state), execution })?;
+        let returned = body.call_async::<MultiValue>(handle).await;
+        // A retained handle must be unusable after its callback finishes.
+        let open = state.lock().await.take();
+        match (returned, open) {
+            (Ok(values), Some(open)) => {
+                open.commit().await.map_err(database_failure)?;
+                Ok(values)
+            }
+            (Err(error), Some(open)) => {
+                // Preserve the callback's error if rollback also fails.
+                let _ = open.rollback().await;
+                Err(error)
+            }
+            (returned, None) => returned,
+        }
+    }
+
     async fn run(
         &self,
         sql: &str,

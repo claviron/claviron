@@ -9,7 +9,7 @@ use sqlx::{
     ValueRef,
 };
 
-use super::{Cell, Outcome, Param, Settings, unsupported};
+use super::{Cell, InsertId, Outcome, Param, Settings, unsupported};
 
 pub(super) async fn begin(
     pool: &MySqlPool,
@@ -56,7 +56,8 @@ pub(super) async fn run(
                 outcome.affected =
                     outcome.affected.saturating_add(done.rows_affected());
                 if done.last_insert_id() != 0 {
-                    outcome.insert_id = Some(done.last_insert_id());
+                    outcome.insert_id =
+                        Some(InsertId::Unsigned(done.last_insert_id()));
                 }
             }
             Either::Right(row) => push(&mut outcome, &row)?,

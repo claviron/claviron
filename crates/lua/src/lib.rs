@@ -9,7 +9,7 @@
 pub mod app;
 #[cfg(feature = "server")]
 pub mod config;
-#[cfg(any(feature = "postgres", feature = "mysql"))]
+#[cfg(any(feature = "postgres", feature = "mysql", feature = "sqlite"))]
 pub mod db;
 mod engine;
 #[cfg(feature = "orbit")]

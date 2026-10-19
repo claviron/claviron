@@ -96,7 +96,7 @@ implementation feature as a separate application choice:
 | `lua` + `tasks` | Lua scripts as task-service executions. |
 | `lua` + `websocket` | HTTP/1 Upgrade and HTTP/2 extended-CONNECT socket handlers. |
 | `lua-fetch` | Outbound HTTP, subject to `lua.yaml` host policy. |
-| `lua` + `postgres` or `mysql` | Query adapters using Claviron's configured database pools. |
+| `lua` + `postgres`, `mysql` or `sqlite` | Query adapters using Claviron's configured database pools. |
 | `lua` + `log-pipeline` | Records to declared log channels. |
 
 Orbit extensions provide cells, streams, events, and invocations over the host's
@@ -106,8 +106,12 @@ globals. Bounded event and invocation history is not a durable exactly-once queu
 Outbound fetch is closed unless `fetch.allow` permits a destination; redirects
 are checked too. Its pooled client and optional response-size bound come from
 configuration. Host allow rules are not a complete network-isolation mechanism.
-Database statements use bind parameters and configured pools; the current
-SQLite feature selects pools but does not implement a Lua SQLite query adapter.
+Database statements use bind parameters and configured pools.
+SQLite uses `claviron.db.sqlite(name)` on the configured pools, with the same
+`query`, `first`, `execute` and callback-based `transaction` methods. Parameters
+use `?`; result values retain SQLite's storage classes. Transactions accept
+serializable isolation; other isolation levels and per-transaction `read_only`
+are rejected rather than silently ignored.
 Unsupported SQL value types fail explicitly rather than receiving guessed Lua
 representations.
 

@@ -308,10 +308,10 @@ function regex.new(pattern) end
 ---What `execute` answers.
 ---@class claviron.Done
 ---@field affected integer  rows the statement changed
----@field insert_id? integer  MySQL's AUTO_INCREMENT id; PostgreSQL uses RETURNING
+---@field insert_id? integer  MySQL AUTO_INCREMENT or SQLite last rowid; PostgreSQL uses RETURNING
 
 ---Statements on one pooled connection: a named connection, or a transaction's.
----Parameters are `$1…` (PostgreSQL) or `?` (MySQL). `nil` and `db.null` are
+---Parameters are `$1…` (PostgreSQL) or `?` (MySQL/SQLite). `nil` and `db.null` are
 ---NULL, a table is JSON, a string that is not UTF-8 is bytes.
 ---@class claviron.Sql
 local Sql = {}
@@ -348,7 +348,7 @@ function Database:transaction(body, options) end
 ---@return string
 function Database:name() end
 
----The pools `db.yaml` declares; present when the host was built with `lua-db`.
+---The pools `db.yaml` declares; requires a database backend feature.
 ---@class claviron.db
 ---@field null lightuserdata  SQL NULL (the same value as `claviron.json.null`)
 local db = {}
@@ -361,6 +361,13 @@ function db.postgres(name) end
 ---@param name? string  default "default"
 ---@return claviron.Database
 function db.mysql(name) end
+
+---With the `sqlite` feature. Values use SQLite storage classes: INTEGER,
+---REAL, TEXT and BLOB. Booleans bind as integers; JSON tables bind as text.
+---Transactions accept serializable isolation, not per-transaction read_only.
+---@param name? string  default "default"
+---@return claviron.Database
+function db.sqlite(name) end
 
 -- Applications -----------------------------------------------------------------
 
