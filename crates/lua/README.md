@@ -95,7 +95,7 @@ implementation feature as a separate application choice:
 | `lua` | Engine, managed configuration/applications, and Orbit integration. |
 | `lua` + `tasks` | Lua scripts as task-service executions. |
 | `lua` + `websocket` | HTTP/1 Upgrade and HTTP/2 extended-CONNECT socket handlers. |
-| `lua-fetch` | Outbound HTTP, subject to `lua.yaml` host policy. |
+| `lua` | Includes outbound HTTP, subject to `lua.yaml` host policy. |
 | `lua` + `postgres`, `mysql` or `sqlite` | Query adapters using Claviron's configured database pools. |
 | `lua` + `log-pipeline` | Records to declared log channels. |
 

@@ -92,7 +92,7 @@ are available through the [managed extensions](#managed-extensions-and-clients).
 | [php](crates/php/README.md) | Shared PHP configuration and execution-adapter contracts. | `php` |
 | [php-embed](crates/php-embed/README.md) | Embedded ZTS PHP with request-scoped Script mode, persistent Application mode, native functions, and fixed or elastic pools. | `php_embed` (includes `php`) |
 | [php-fcgi](crates/php-fcgi/README.md) | Dispatch to PHP-FPM through FastCGI rather than embedding Zend. | `php_fcgi` (includes `php`) |
-| [lua](crates/lua/README.md) | Lua 5.5 scripts, managed Olua applications, and Rust-provided modules. | `lua`; outbound HTTP: `lua-fetch` |
+| [lua](crates/lua/README.md) | Lua 5.5 scripts, managed Olua applications, and Rust-provided modules. | `lua` (includes outbound HTTP) |
 
 **Script mode** runs PHP request startup and shutdown for each request, including
 an ordinary Laravel or Symfony front controller. **Application mode** keeps the

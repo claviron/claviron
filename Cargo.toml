@@ -56,9 +56,7 @@ runner-watch = ["runner", "claviron-runner/watch"]
 runner-cli = ["claviron-runner?/cli"]
 # Lua 5.5 scripts in a fresh sandboxed state each; with `orbit`, the fleet's
 # state as Lua modules, and with `tasks`, `lua:` tasks. See crates/lua/ARCHITECTURE.md.
-lua = ["dep:claviron-lua", "claviron-lua/orbit", "claviron-lua/server", "claviron-lua/app", "claviron-edge?/lua", "claviron-http?/lua"]
-# `claviron.fetch` for Lua scripts: HTTP out, to the hosts `lua.yaml` allows.
-lua-fetch = ["lua", "claviron-lua/fetch"]
+lua = ["dep:claviron-lua", "claviron-lua/orbit", "claviron-lua/server", "claviron-lua/app", "claviron-lua/fetch", "claviron-edge?/lua", "claviron-http?/lua"]
 
 resolver = ["dep:claviron-resolver"]
 resolver-hickory = ["resolver", "claviron-resolver/hickory"]
