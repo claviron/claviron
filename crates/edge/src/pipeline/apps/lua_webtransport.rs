@@ -65,23 +65,16 @@ fn configured_route<'a>(
     host: &'a HostConfig,
     path: &str,
     application: &str,
-) -> Option<&'a HostConfig> {
+) -> Option<&'a claviron_http::config::routes::LuaRouteConfig> {
     let selected = host.routes.find(path).map(|route| &**route).unwrap_or(host);
-    selected
-        .lua()
-        .iter()
-        .any(|route| {
-            route.application == application
-                && route.websockets().iter().any(|socket| {
-                    super::mounted_websocket_path(
-                        route.path.as_ref(),
-                        &socket.path,
-                    )
+    selected.lua().iter().find(|route| {
+        route.application == application
+            && route.websockets().iter().any(|socket| {
+                super::mounted_websocket_path(route.path.as_ref(), &socket.path)
                     .as_ref()
-                        == path
-                })
-        })
-        .then_some(selected)
+                    == path
+            })
+    })
 }
 
 #[async_trait]
@@ -104,10 +97,14 @@ impl WebTransportHandler for Handler {
         if ctx.path != self.path {
             return Err(WebTransportReject::new(StatusCode::NOT_FOUND));
         }
-        configured_route(&ctx.host_config, &ctx.path, &self.application)
-            .ok_or_else(|| WebTransportReject::new(StatusCode::NOT_FOUND))?;
+        let route =
+            configured_route(&ctx.host_config, &ctx.path, &self.application)
+                .ok_or_else(|| {
+                    WebTransportReject::new(StatusCode::NOT_FOUND)
+                })?;
         // Native CONNECT and H1 upgrade share the same browser-origin boundary.
-        if !super::lua_socket::same_origin(
+        if !super::lua_socket::allows_origin(
+            route.origin,
             &ctx.headers,
             &ctx.uri,
             &ctx.conn.scheme(),

@@ -3,6 +3,17 @@ use crate::ext::PathPrefix;
 use claviron_helpers::de::opt_one_or_many;
 use serde::Deserialize;
 
+/// Browser-origin admission for both socket transports of a Lua route.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LuaSocketOriginPolicy {
+    /// No Origin restriction, including for clients without the header.
+    #[default]
+    Any,
+    /// Require one HTTP(S) Origin matching the accepted scheme and authority.
+    SameOrigin,
+}
+
 /// One route mapping to a Lua application declared in `lua.yaml`.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -12,6 +23,9 @@ pub struct LuaRouteConfig {
     /// The application's name in `lua.yaml`.
     #[serde(deserialize_with = "deserialize_lua_application_name")]
     pub application: String,
+    /// Shared WS/WT admission; omission imposes no Origin restriction.
+    #[serde(default)]
+    pub origin: LuaSocketOriginPolicy,
     /// Exact WebSocket endpoints relative to this application's mount.
     #[serde(
         default,

@@ -1,6 +1,47 @@
 use super::*;
 use http::HeaderValue;
 
+#[test]
+fn route_origin_choice_applies_to_both_socket_transports() {
+    use claviron_http::config::routes::LuaRouteConfig;
+
+    let target = "/socket".parse::<Uri>().unwrap();
+    for (setting, policy) in [
+        ("", LuaSocketOriginPolicy::Any),
+        ("origin: any\n", LuaSocketOriginPolicy::Any),
+        ("origin: same-origin\n", LuaSocketOriginPolicy::SameOrigin),
+    ] {
+        let route: LuaRouteConfig = serde_yaml::from_str(&format!(
+            "application: demo\n{setting}websocket: {{path: /socket}}"
+        ))
+        .unwrap();
+        assert_eq!(route.origin, policy);
+        for origin in [None, Some("null"), Some("https://other.test")] {
+            assert_eq!(
+                allows_origin(
+                    route.origin,
+                    &request_headers(origin),
+                    &target,
+                    &Scheme::HTTPS
+                ),
+                policy == LuaSocketOriginPolicy::Any,
+            );
+        }
+        assert!(allows_origin(
+            route.origin,
+            &request_headers(Some("https://example.test")),
+            &target,
+            &Scheme::HTTPS,
+        ));
+    }
+    assert!(
+        serde_yaml::from_str::<LuaRouteConfig>(
+            "application: demo\norigin: same-orign"
+        )
+        .is_err()
+    );
+}
+
 fn request_headers(origin: Option<&str>) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(header::HOST, HeaderValue::from_static("example.test"));

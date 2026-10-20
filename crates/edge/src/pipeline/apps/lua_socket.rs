@@ -1,12 +1,25 @@
 //! Browser-origin admission shared by Lua H1/H2 WebSockets and H3 WebTransport.
 //!
-//! HTTP CORS cannot widen this same-origin boundary. This is not client
+//! HTTP CORS cannot widen an opted-in same-origin boundary. This is not client
 //! authentication: non-browser clients can supply their own Origin header.
 
 #[cfg(feature = "websocket")]
 use crate::pipeline::H1UpgradeHandler;
+use claviron_http::config::routes::lua::LuaSocketOriginPolicy;
 use http::uri::{Authority, Scheme};
 use http::{HeaderMap, Uri, header};
+
+pub(super) fn allows_origin(
+    policy: LuaSocketOriginPolicy,
+    headers: &HeaderMap,
+    uri: &Uri,
+    scheme: &Scheme,
+) -> bool {
+    match policy {
+        LuaSocketOriginPolicy::Any => true,
+        LuaSocketOriginPolicy::SameOrigin => same_origin(headers, uri, scheme),
+    }
+}
 
 /// Require one serialized HTTP(S) Origin matching the admitted request's
 /// authority and accepted transport scheme. Canonical vhost keys, listener
@@ -106,6 +119,7 @@ fn same_host(
 #[cfg(feature = "websocket")]
 pub(super) struct WebSocketUpgrade {
     pub(super) inner: claviron_lua::websocket::LuaWebSocketUpgradeHandler,
+    pub(super) origin: LuaSocketOriginPolicy,
 }
 
 #[cfg(feature = "websocket")]
@@ -127,7 +141,12 @@ impl H1UpgradeHandler for WebSocketUpgrade {
         state: &claviron_runtime::AppState,
         ctx: &crate::pipeline::H1UpgradeContext,
     ) -> crate::pipeline::H1UpgradeResult {
-        if !same_origin(&ctx.headers, &ctx.uri, &ctx.conn.scheme()) {
+        if !allows_origin(
+            self.origin,
+            &ctx.headers,
+            &ctx.uri,
+            &ctx.conn.scheme(),
+        ) {
             return Err(crate::pipeline::H1UpgradeReject::new(
                 http::StatusCode::FORBIDDEN,
                 None,

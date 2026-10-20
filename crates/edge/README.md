@@ -87,15 +87,23 @@ identity and follows the configured trust policy.
 
 ## Lua browser socket admission
 
-Configured Lua socket endpoints share strict same-origin admission across H1
-WebSocket Upgrade, H2 WebSocket CONNECT and H3 WebTransport CONNECT. Before
-acceptance, one HTTP(S) `Origin` must match the requested host, effective port
+Each `lua:` application route selects `origin: any` (the default, no Origin
+restriction) or `origin: same-origin`. The same choice applies to H1 WebSocket
+Upgrade, H2 WebSocket CONNECT and H3 WebTransport CONNECT. With `same-origin`,
+before acceptance, one HTTP(S) `Origin` must match the requested host, effective port
 and accepted transport scheme. Missing, opaque (`null`), malformed or repeated
 origins receive 403. HTTP CORS settings, including permissive CORS, do not widen
 this socket boundary. Aliases compare against the requested alias, not its
 canonical vhost key. This blocks other websites' browser connections; it is
 not user authentication, and native clients can forge Origin. Other registered
 handlers retain their own admission contracts.
+
+```yaml
+lua:
+  application: demo
+  origin: same-origin
+  websocket: { path: /socket }
+```
 
 ## Adding an application
 

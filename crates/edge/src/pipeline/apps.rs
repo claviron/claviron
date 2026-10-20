@@ -1436,6 +1436,7 @@ fn append_lua_websocket_routes(
                 &websocket.path,
             );
             let handler = Arc::new(lua_socket::WebSocketUpgrade {
+                origin: application.origin,
                 inner: claviron_lua::websocket::LuaWebSocketUpgradeHandler::new(
                     service.clone(),
                     application.application.as_str(),
@@ -1447,6 +1448,7 @@ fn append_lua_websocket_routes(
                     canonical.clone(),
                     path,
                     Arc::new(LuaWebSocketConnectHandler {
+                        origin: application.origin,
                         service: service.clone(),
                         application: Arc::from(
                             application.application.as_str(),
@@ -1462,6 +1464,7 @@ fn append_lua_websocket_routes(
 /// A Lua application's WebSocket over HTTP/2 extended CONNECT (RFC 8441).
 #[cfg(all(feature = "lua", feature = "websocket"))]
 struct LuaWebSocketConnectHandler {
+    origin: claviron_http::config::routes::lua::LuaSocketOriginPolicy,
     service: Arc<claviron_lua::serve::LuaApplications>,
     application: Arc<str>,
 }
@@ -1478,8 +1481,12 @@ impl crate::H2ConnectHandler for LuaWebSocketConnectHandler {
         _state: &AppState,
         ctx: &crate::AuthContext,
     ) -> crate::H2ConnectResult {
-        if !lua_socket::same_origin(&ctx.headers, &ctx.uri, &ctx.conn.scheme())
-        {
+        if !lua_socket::allows_origin(
+            self.origin,
+            &ctx.headers,
+            &ctx.uri,
+            &ctx.conn.scheme(),
+        ) {
             return Err(crate::H2ConnectReject::forbidden());
         }
         // RFC 8441 §5: 13 is the only version defined for this handshake.
