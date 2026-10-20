@@ -4,7 +4,7 @@
 ))]
 use std::sync::Arc;
 
-use claviron_runtime::{AppState, ProcessStarted, Runtime};
+use claviron_runtime::{AppState, ProcessStarted, Register, Runtime};
 #[cfg(feature = "supervisor")]
 use claviron_supervisor::{WorkersDraining, WorkersExited, signals};
 use tracing::error;
@@ -31,6 +31,8 @@ pub async fn start_services(
 
     // Reload hub (single instance)
     let registry = state.registry();
+    // Fleet dispatch is shared server infrastructure, including for extensions.
+    claviron_orbit::placement::OrbitDispatcher::register(&state)?;
     let mut runtime = Runtime::default();
     if let Some(dispatcher) =
         registry.resolve::<claviron_orbit::placement::OrbitDispatcher>()
