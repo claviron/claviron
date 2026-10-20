@@ -55,6 +55,9 @@ pub struct ApplicationConfig {
     /// Its WebSockets, when a `lua:` route declares any.
     #[serde(default)]
     pub websocket: SocketConfig,
+    /// Reliable WebTransport sessions use the same message/queue limits.
+    #[serde(default)]
+    pub webtransport: SocketConfig,
 }
 
 /// An application's WebSockets: the same two limits a JavaScript
@@ -108,6 +111,8 @@ pub struct LuaApplication {
     waiting: Semaphore,
     #[cfg(feature = "websocket")]
     socket: SocketConfig,
+    #[cfg(feature = "webtransport")]
+    webtransport: SocketConfig,
 }
 
 /// Pieces of a streamed reply between the handler and the client: one being
@@ -178,12 +183,20 @@ impl LuaApplication {
             concurrency: config.concurrency,
             #[cfg(feature = "websocket")]
             socket: config.websocket,
+            #[cfg(feature = "webtransport")]
+            webtransport: config.webtransport,
             waiting: Semaphore::new(config.max_waiting),
         })
     }
 
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// Observe this application's retirement while a native session opens.
+    #[cfg(feature = "webtransport")]
+    pub fn execution_stopping(&self) -> tokio_util::sync::CancellationToken {
+        self.execution.stopping().clone()
     }
 
     /// Requests the state may run at once, and how many it runs now.
@@ -194,34 +207,55 @@ impl LuaApplication {
     /// The handlers its sockets are served by — `websocket` on the table the
     /// module returned, or what `router:websocket` was given — looked up
     /// when a socket opens, so a module may set them after it returns.
-    #[cfg(feature = "websocket")]
-    pub(crate) fn websocket_handlers(&self) -> mlua::Result<Option<Table>> {
+    #[cfg(any(feature = "websocket", feature = "webtransport"))]
+    pub(crate) fn socket_handlers(
+        &self,
+        transport: crate::socket::Transport,
+    ) -> mlua::Result<Option<Table>> {
+        let name = transport.name();
         match &self.served {
-            Value::Table(table) => table.get("websocket"),
-            Value::UserData(data) => Ok(data
-                .borrow::<crate::router::Router>()
-                .ok()
-                .and_then(|router| router.websocket.clone())),
+            Value::Table(table) => table.get(name),
+            Value::UserData(data) => {
+                let router = data.borrow::<crate::router::Router>()?;
+                Ok(match transport {
+                    #[cfg(feature = "websocket")]
+                    crate::socket::Transport::WebSocket => {
+                        router.websocket.clone()
+                    }
+                    #[cfg(feature = "webtransport")]
+                    crate::socket::Transport::WebTransport => {
+                        router.webtransport.clone()
+                    }
+                })
+            }
             _ => Ok(None),
         }
     }
 
-    #[cfg(feature = "websocket")]
-    pub(crate) fn socket_config(&self) -> SocketConfig {
-        self.socket
+    #[cfg(any(feature = "websocket", feature = "webtransport"))]
+    pub(crate) fn socket_config(
+        &self,
+        transport: crate::socket::Transport,
+    ) -> SocketConfig {
+        match transport {
+            #[cfg(feature = "websocket")]
+            crate::socket::Transport::WebSocket => self.socket,
+            #[cfg(feature = "webtransport")]
+            crate::socket::Transport::WebTransport => self.webtransport,
+        }
     }
 
-    #[cfg(feature = "websocket")]
+    #[cfg(any(feature = "websocket", feature = "webtransport"))]
     pub(crate) fn lua(&self) -> &Lua {
         &self.lua
     }
 
-    #[cfg(feature = "websocket")]
+    #[cfg(any(feature = "websocket", feature = "webtransport"))]
     pub(crate) fn execution(&self) -> &Arc<Execution> {
         &self.execution
     }
 
-    #[cfg(feature = "websocket")]
+    #[cfg(any(feature = "websocket", feature = "webtransport"))]
     pub(crate) fn semaphore(&self) -> &Arc<Semaphore> {
         &self.permits
     }

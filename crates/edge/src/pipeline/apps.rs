@@ -3,6 +3,8 @@ use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "broadcast")]
 mod broadcast;
+#[cfg(all(feature = "lua", feature = "webtransport"))]
+mod lua_webtransport;
 
 #[cfg(feature = "axum")]
 use axum::Router;
@@ -1245,6 +1247,8 @@ impl HostAppRegistry {
                 &record.config,
                 &mut routable.h1_upgrades,
             )?;
+            #[cfg(all(feature = "lua", feature = "webtransport"))]
+            lua_webtransport::append_routes(state, canonical, &record.config)?;
             #[cfg(feature = "broadcast")]
             broadcast::append_routes(
                 state,
@@ -1531,6 +1535,7 @@ impl crate::H2ConnectHandler for LuaWebSocketConnectHandler {
                         url,
                         headers,
                         application,
+                        "HTTP/2.0",
                     )
                     .await;
                 }
@@ -1550,7 +1555,10 @@ impl crate::H2ConnectHandler for LuaWebSocketConnectHandler {
     }
 }
 
-#[cfg(all(feature = "lua", feature = "websocket"))]
+#[cfg(all(
+    feature = "lua",
+    any(feature = "websocket", feature = "webtransport")
+))]
 fn mounted_websocket_path(
     mount: Option<&claviron_http::ext::PathPrefix>,
     path: &claviron_http::ext::PathPrefix,

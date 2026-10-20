@@ -79,7 +79,7 @@ db = ["dep:claviron-db", "dep:claviron-hosting", "claviron-hosting/server"]
 postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
 metrics = ["axum", "claviron-http/metrics"]
 http3 = ["server", "claviron-http/http3"]
-webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport"]
+webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport", "claviron-lua?/webtransport"]
 # Native drivers are opt-in; host declarations alone open no sockets.
 tcp = [
     "server", "axum", "claviron-types/ssl", "dep:claviron-sys",

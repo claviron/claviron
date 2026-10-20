@@ -61,6 +61,7 @@ pub(crate) struct Router {
     /// `router:websocket({ open, message, close })`: what an application
     /// serving this router does with its sockets.
     pub(crate) websocket: Option<Table>,
+    pub(crate) webtransport: Option<Table>,
 }
 
 /// What a request finds.
@@ -155,6 +156,13 @@ impl UserData for Router {
             "websocket",
             |_, (this, handlers): (AnyUserData, Table)| {
                 this.borrow_mut::<Router>()?.websocket = Some(handlers);
+                Ok(this)
+            },
+        );
+        methods.add_function(
+            "webtransport",
+            |_, (this, handlers): (AnyUserData, Table)| {
+                this.borrow_mut::<Router>()?.webtransport = Some(handlers);
                 Ok(this)
             },
         );

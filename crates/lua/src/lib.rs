@@ -33,12 +33,16 @@ pub mod router;
 pub mod routing;
 #[cfg(feature = "app")]
 pub mod serve;
+#[cfg(any(feature = "websocket", feature = "webtransport"))]
+mod socket;
 #[cfg(feature = "orbit")]
 pub mod stream;
 #[cfg(feature = "tasks")]
 pub mod task;
 #[cfg(feature = "websocket")]
 pub mod websocket;
+#[cfg(feature = "webtransport")]
+pub mod webtransport;
 
 pub use engine::{Engine, Error, Extension, Output, Script};
 pub use execution::Execution;

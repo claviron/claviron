@@ -127,7 +127,7 @@ resolver = ["dep:claviron-resolver"]
 resolver-hickory = ["resolver", "claviron-resolver/hickory"]
 # http connect extensions
 websocket = ["claviron-http/websocket", "claviron-edge?/websocket", "claviron-runner?/websocket", "claviron-lua?/websocket", "http"]
-webtransport = ["edge", "http3", "claviron-edge/webtransport"]
+webtransport = ["edge", "http3", "claviron-edge/webtransport", "claviron-lua?/webtransport"]
 # pusher and broadcast replacement for embeded apps
 broadcast = ["websocket", "dep:claviron-broadcast", "claviron-edge?/broadcast", "claviron-runner?/broadcast"]
 

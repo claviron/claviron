@@ -95,6 +95,7 @@ implementation feature as a separate application choice:
 | `lua` | Engine, managed configuration/applications, and Orbit integration. |
 | `lua` + `tasks` | Lua scripts as task-service executions. |
 | `lua` + `websocket` | HTTP/1 Upgrade and HTTP/2 extended-CONNECT socket handlers. |
+| `lua` + `webtransport` | Reliable HTTP/3 WebTransport stream handlers. |
 | `lua` | Includes outbound HTTP, subject to `lua.yaml` host policy. |
 | `lua` + `postgres`, `mysql` or `sqlite` | Query adapters using Claviron's configured database pools. |
 | `lua` + `log-pipeline` | Records to declared log channels. |
@@ -102,6 +103,17 @@ implementation feature as a separate application choice:
 Orbit extensions provide cells, streams, events, and invocations over the host's
 registered resources. Shared state belongs there, not in another script's Lua
 globals. Bounded event and invocation history is not a durable exactly-once queue.
+
+`router:webtransport(handlers)` uses the same `open`, `message` and `close`
+callbacks as `router:websocket(handlers)`. Both can share one handlers table.
+Edge binds the route's declared `websocket` endpoints for either selected
+transport; WebTransport additionally requires WebTransport callbacks. Each
+socket exposes `transport` and `http_version` from the accepting server path.
+WebTransport uses one client-opened reliable bidirectional stream carrying
+Claviron Text/Binary/Close records (`u8 kind`, little-endian `u32 length`,
+payload); it does not carry WebSocket frames. Datagram handling is not included.
+The application's `webtransport` configuration uses the same `max_message_size`
+and `send_queue` settings as `websocket`. No new facade feature is needed.
 
 Outbound fetch is closed unless `fetch.allow` permits a destination; redirects
 are checked too. Its pooled client and optional response-size bound come from

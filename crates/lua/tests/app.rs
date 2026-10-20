@@ -22,6 +22,7 @@ async fn load(fixture: &str) -> Arc<LuaApplication> {
         concurrency: 1,
         max_waiting: 4,
         websocket: SocketConfig::default(),
+        webtransport: SocketConfig::default(),
     };
     Arc::new(
         LuaApplication::load(&engine, "test", &config).await.expect("load"),

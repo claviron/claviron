@@ -444,11 +444,13 @@ function Router:route(method, path, handler) end
 ---@field message? fun(socket: claviron.Socket, data: string, binary: boolean)
 ---@field close? fun(socket: claviron.Socket, code: integer, reason: string, clean: boolean)
 
----One WebSocket, held by the edge.
+---One WebSocket or reliable WebTransport stream, held by the edge.
 ---@class claviron.Socket
 ---@field id integer  unique within this worker
 ---@field url string
 ---@field headers table<string, string>
+---@field transport 'websocket'|'webtransport'
+---@field http_version 'HTTP/1.1'|'HTTP/2.0'|'HTTP/3.0'
 local Socket = {}
 
 ---A text message; `text` must be UTF-8. Waits while the send queue is full.
@@ -467,6 +469,11 @@ function Socket:close(code, reason) end
 ---@param handlers claviron.SocketHandlers
 ---@return claviron.Router
 function Router:websocket(handlers) end
+
+---Declare reliable WebTransport callbacks; serving requires the webtransport feature.
+---@param handlers claviron.SocketHandlers
+---@return claviron.Router
+function Router:webtransport(handlers) end
 
 ---What an application's module may return: it serves requests.
 ---@param request claviron.Request

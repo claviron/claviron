@@ -18,8 +18,11 @@
 //! upgraded transport to [`serve_websocket`].
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::Ordering;
 
+use crate::socket::{
+    Event, LuaSocket, NEXT_ID, Outbound, Transport, handle_events,
+};
 use async_trait::async_trait;
 use axum::body::Body;
 use claviron_http::upgrade::{
@@ -37,9 +40,8 @@ use fastwebsockets::{
 use http::Request;
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
-use mlua::{Function, LuaString, Table, UserData, UserDataMethods, Value};
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::app::LuaApplication;
 use crate::serve::LuaApplications;
@@ -62,7 +64,7 @@ pub fn prepare(
     let loaded = service
         .get(application)
         .ok_or_else(|| Refused::NotLoaded(application.to_owned()))?;
-    match loaded.websocket_handlers() {
+    match loaded.socket_handlers(Transport::WebSocket) {
         Ok(Some(_)) => Ok(loaded),
         _ => Err(Refused::NoHandlers(application.to_owned())),
     }
@@ -129,8 +131,14 @@ impl H1UpgradeHandler for LuaWebSocketUpgradeHandler {
             .map(str::to_owned)
             .unwrap_or_else(|| ctx.host.to_string());
         let url = format!("wss://{host}{}", ctx.uri);
-        serve_websocket(upgraded, url, header_pairs(&ctx.headers), application)
-            .await;
+        serve_websocket(
+            upgraded,
+            url,
+            header_pairs(&ctx.headers),
+            application,
+            "HTTP/1.1",
+        )
+        .await;
         Ok(())
     }
 }
@@ -148,92 +156,6 @@ pub fn header_pairs(headers: &http::HeaderMap) -> Vec<(String, String)> {
         .collect()
 }
 
-/// What the application writes to a socket.
-enum Outbound {
-    Text(String),
-    Binary(Vec<u8>),
-    Close(u16, String),
-}
-
-/// What a socket's events are made of, in the order they happened.
-enum Event {
-    Message(Vec<u8>, bool),
-    Close(u16, String, bool),
-}
-
-/// Ids tell sockets apart within this worker process.
-static NEXT_ID: AtomicU64 = AtomicU64::new(1);
-
-/// One socket as a handler holds it.
-struct LuaSocket {
-    id: u64,
-    url: String,
-    headers: Vec<(String, String)>,
-    outbound: mpsc::Sender<Outbound>,
-}
-
-fn failure(error: impl std::fmt::Display) -> mlua::Error {
-    mlua::Error::runtime(format!("socket: {error}"))
-}
-
-impl LuaSocket {
-    async fn queue(
-        &self,
-        message: Outbound,
-    ) -> mlua::Result<()> {
-        self.outbound
-            .send(message)
-            .await
-            .map_err(|_| failure("the socket is closed"))
-    }
-}
-
-impl UserData for LuaSocket {
-    fn add_fields<F: mlua::UserDataFields<Self>>(fields: &mut F) {
-        fields.add_field_method_get("id", |_, this| Ok(this.id));
-        fields.add_field_method_get("url", |_, this| Ok(this.url.clone()));
-        fields.add_field_method_get("headers", |lua, this| {
-            let table = lua.create_table()?;
-            for (name, value) in &this.headers {
-                table.set(name.as_str(), value.as_str())?;
-            }
-            Ok(table)
-        });
-    }
-
-    fn add_methods<M: UserDataMethods<Self>>(methods: &mut M) {
-        // A text message: the string must be UTF-8, as the protocol says.
-        methods.add_async_method(
-            "send",
-            |_, this: mlua::UserDataRef<LuaSocket>, text: LuaString| async move {
-                let text = text
-                    .to_str()
-                    .map_err(|_| failure("text is UTF-8; send bytes with send_binary"))?
-                    .to_string();
-                this.queue(Outbound::Text(text)).await
-            }
-        );
-        methods.add_async_method(
-            "send_binary",
-            |_, this: mlua::UserDataRef<LuaSocket>, bytes: LuaString| async move {
-                this.queue(Outbound::Binary(bytes.as_bytes().to_vec())).await
-            }
-        );
-        methods.add_async_method(
-            "close",
-            |_,
-             this: mlua::UserDataRef<LuaSocket>,
-             (code, reason): (Option<u16>, Option<String>)| async move {
-                this.queue(Outbound::Close(
-                    code.unwrap_or(1000),
-                    reason.unwrap_or_default(),
-                ))
-                .await
-            },
-        );
-    }
-}
-
 /// Serve one socket over an upgraded transport until either side closes it
 /// or the application stops. HTTP/1.1 `Upgrade` and HTTP/2 extended CONNECT
 /// both end here.
@@ -242,14 +164,17 @@ pub async fn serve_websocket(
     url: String,
     headers: Vec<(String, String)>,
     application: Arc<LuaApplication>,
+    http_version: &'static str,
 ) {
-    let config = application.socket_config();
+    let config = application.socket_config(Transport::WebSocket);
     let (outbound, mut queued) = mpsc::channel(config.send_queue.max(1));
     let socket = LuaSocket {
         id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
         url,
         headers,
         outbound,
+        transport: Transport::WebSocket,
+        http_version,
     };
     let id = socket.id;
     let (events, happened) = mpsc::channel::<Event>(1);
@@ -343,83 +268,6 @@ pub async fn serve_websocket(
     }
     drop(events);
     let _ = handling.await;
-}
-
-/// Run a socket's handlers: `open`, then each event in order.
-async fn handle_events(
-    application: Arc<LuaApplication>,
-    socket: LuaSocket,
-    mut happened: mpsc::Receiver<Event>,
-) {
-    let outbound = socket.outbound.clone();
-    let id = socket.id;
-    let run = async {
-        let lua = application.lua();
-        let handlers = application.websocket_handlers()?.ok_or_else(|| {
-            failure("the application no longer serves WebSockets")
-        })?;
-        let socket = lua.create_userdata(socket)?;
-        call(&application, &handlers, "open", (socket.clone(),)).await?;
-        while let Some(event) = happened.recv().await {
-            match event {
-                Event::Message(data, binary) => {
-                    let data = lua.create_string(data)?;
-                    call(
-                        &application,
-                        &handlers,
-                        "message",
-                        (socket.clone(), data, binary),
-                    )
-                    .await?;
-                }
-                Event::Close(code, reason, clean) => {
-                    call(
-                        &application,
-                        &handlers,
-                        "close",
-                        (socket.clone(), code, reason, clean),
-                    )
-                    .await?;
-                    break;
-                }
-            }
-        }
-        Ok::<(), mlua::Error>(())
-    };
-    if let Err(error) = run.await {
-        warn!(application = %application.name(), socket = id, "Lua WebSocket handler failed: {error}");
-        let _ = outbound
-            .send(Outbound::Close(1011, "application error".to_owned()))
-            .await;
-    }
-}
-
-/// Call one handler, when the application has it, holding a permit while it
-/// runs. A handler waits for a permit as long as it takes: a socket's events
-/// are not refused, they are only ordered behind the application's work.
-async fn call(
-    application: &Arc<LuaApplication>,
-    handlers: &Table,
-    name: &str,
-    arguments: impl mlua::IntoLuaMulti,
-) -> mlua::Result<()> {
-    let Some(handler) = handlers.get::<Option<Function>>(name)? else {
-        return Ok(());
-    };
-    let _permit = tokio::select! {
-        permit = Arc::clone(application.semaphore()).acquire_owned() => {
-            permit.map_err(|_| failure("the application stopped"))?
-        }
-        () = application.execution().stopping().cancelled() => {
-            return Err(failure("the application is stopping"));
-        }
-    };
-    tokio::select! {
-        done = handler.call_async::<Value>(arguments) => done.map(|_| ()),
-        () = application.execution().stopping().cancelled() => {
-            Err(failure("the application is stopping"))
-        }
-    }
 }
 
 fn close_details(payload: &[u8]) -> (u16, String) {
