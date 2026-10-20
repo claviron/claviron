@@ -69,6 +69,11 @@ go. The master manages that continuity; its own PID does not define it.
 A successor joins compatible retained state and reconciles living members
 instead of treating its boot as the birth of an empty system.
 
+The lifetime of a role is not the lifetime of the process serving it.
+Replacing worker #3 changes who serves that slot, not which slot the
+application means. We choose the continuity boundary around the role and
+its owned resources, rather than letting each process exit redefine it.
+
 This keeps compatible SHM resources useful across runtime and master
 replacement where their owners permit reuse. The OS sharing domain, rather
 than a convenient process restart, is the outer operating boundary. Each
