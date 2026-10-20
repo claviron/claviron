@@ -31,7 +31,7 @@ pub use routable::{HostBindingProvider, RouteBinding};
 pub use routable::{Routable, RouteLayerContext};
 #[cfg(feature = "webtransport")]
 pub use wt::{
-    H3WebTransportSession, WebTransportAccept, WebTransportBinding,
-    WebTransportHandler, WebTransportRegistry, WebTransportReject,
-    WebTransportResult,
+    H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,
+    WebTransportBinding, WebTransportHandler, WebTransportRegistry,
+    WebTransportReject, WebTransportResult,
 };

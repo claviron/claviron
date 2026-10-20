@@ -450,9 +450,9 @@ quinn-deferred-config = { version = "0.1", default-features = false, features = 
 # Keep direct H3 consumers on the same fork family to share Rust types.
 # Source and release policy: https://github.com/iadev09/h3
 # ─────────────────────────────────────────────────────────────────────
-h3 = { package = "h3-forked", version = "0.0.1" }
-h3-quinn = { package = "h3-quinn-forked", version = "0.0.1" }
-h3-webtransport = { package = "h3-webtransport-forked", version = "0.0.1" }
+h3 = { package = "h3-forked", version = "0.0.2" }
+h3-quinn = { package = "h3-quinn-forked", version = "0.0.2" }
+h3-webtransport = { package = "h3-webtransport-forked", version = "0.0.2" }
 
 # ── Published sibling libraries shared through workspace dependencies ──
 # Bounded state and shared-memory coordination across fleet processes.

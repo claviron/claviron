@@ -193,6 +193,28 @@ host. Policies designed for request-time lookup can change without rebuilding
 the application. Do not assume every reload updates every established
 connection in the same way.
 
+## HTTP/3 and WebTransport ownership
+
+Edge uses the crates.io H3 fork family `0.0.2`. One native connection driver
+continues accepting HTTP requests after a WebTransport CONNECT succeeds.
+Pending HEADERS resolution, session authorization and CONNECT response I/O
+progress independently; none hands the connection to an application session.
+
+`H3WebTransportSession::accept_bi().await` returns an
+`Option<H3WebTransportBiStream>`, already routed to that session ID rather than
+a native resolver. The input queue is bounded by the accepting listener's
+`quic.max_concurrent_bidi_streams`; an unavailable or full receiver refuses
+that stream without waiting in the shared HTTP acceptance loop. Ordinary HTTP
+requests never enter this receiver. Native outgoing stream/datagram methods
+remain available through the session's underlying H3 transport.
+
+Host admission, Origin checks, 0-RTT rejection and the original connection
+permit remain in place. On graceful shutdown or host retirement, new HTTP
+admission stops while the driver remains alive for accepted work. The native
+owner joins request/session tasks before releasing capacity, including after
+an explicitly forced drain. Built-in Lua and Broadcast handlers retain their
+existing single-bidi message loops.
+
 ## Related crates
 
 - [claviron-runtime](https://github.com/claviron/claviron/tree/main/crates/runtime): composition, events, and drain.

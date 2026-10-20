@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
@@ -12,8 +13,48 @@ use http::StatusCode;
 
 use super::connect::{AnyAuthenticated, AuthContext, normalize_connect_path};
 
-pub type H3WebTransportSession =
-    WebTransportSession<h3_quinn::Connection, Bytes>;
+type NativeSession = WebTransportSession<h3_quinn::Connection, Bytes>;
+
+/// A reliable incoming WebTransport bidirectional stream.
+pub type H3WebTransportBiStream =
+    h3_webtransport::stream::BidiStream<h3_quinn::BidiStream<Bytes>, Bytes>;
+
+/// One application session, with input routed by the native connection owner.
+///
+/// The H3 connection, ordinary HTTP requests and other sessions stay with the
+/// listener. Input is bounded by the listener's configured QUIC bidi limit.
+/// Native outgoing stream and datagram operations remain available through
+/// `Deref`; receiving a bidi stream never drives the HTTP/3 connection.
+pub struct H3WebTransportSession {
+    native: NativeSession,
+    incoming:
+        tokio::sync::Mutex<tokio::sync::mpsc::Receiver<H3WebTransportBiStream>>,
+}
+
+impl H3WebTransportSession {
+    #[cfg(feature = "quic")]
+    pub(crate) fn new(
+        native: NativeSession,
+        incoming: tokio::sync::mpsc::Receiver<H3WebTransportBiStream>,
+    ) -> Self {
+        Self { native, incoming: tokio::sync::Mutex::new(incoming) }
+    }
+
+    /// Receive this session's next bidi stream, or `None` after its driver ends.
+    /// Classification has already completed in the connection driver; an
+    /// ordinary HTTP request cannot escape into a session handler.
+    pub async fn accept_bi(&self) -> Option<H3WebTransportBiStream> {
+        self.incoming.lock().await.recv().await
+    }
+}
+
+impl Deref for H3WebTransportSession {
+    type Target = NativeSession;
+
+    fn deref(&self) -> &Self::Target {
+        &self.native
+    }
+}
 
 /// Application-owned WebTransport session handler.
 #[async_trait]

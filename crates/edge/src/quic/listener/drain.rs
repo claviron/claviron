@@ -34,8 +34,8 @@ pub(super) async fn drive(
     }
 }
 
-pub(super) async fn finish(
-    mut streams: JoinSet<()>,
+pub(super) async fn finish<T: 'static>(
+    mut streams: JoinSet<T>,
     permit: &Permit,
     exit: DriverExit,
     close: impl FnOnce(),
@@ -52,7 +52,7 @@ pub(super) async fn finish(
     debug!("H3 connection stopped after joining owned streams");
 }
 
-async fn join(streams: &mut JoinSet<()>) {
+async fn join<T: 'static>(streams: &mut JoinSet<T>) {
     while let Some(result) = streams.join_next().await {
         if let Err(error) = result
             && !error.is_cancelled()

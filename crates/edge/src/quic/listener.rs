@@ -24,6 +24,7 @@ use claviron_types::ssl::parsers::take_first_cert_from_der;
 use futures_util::FutureExt;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use h3_quinn::Connection as H3QuinnConnection;
+use h3_webtransport::server::{AcceptedBi, IncomingStream};
 use http::{Method, StatusCode};
 use quinn::crypto::rustls::HandshakeData;
 use quinn::{Connection as QuinnConnection, Endpoint, VarInt};
@@ -36,6 +37,11 @@ use crate::quic::request::{
     H3RequestHandler, RequestBodyMode, send_host_response, send_status_response,
 };
 use crate::quic::types::{H3Server, ServerSnapshot};
+
+enum StreamCompletion {
+    Request,
+    Session(h3_webtransport::SessionId),
+}
 
 fn bind_socket(
     addr: SocketAddr,
@@ -254,9 +260,12 @@ impl H3Server {
         permit: &Arc<Permit>,
         local_addr: SocketAddr,
         snapshot: Arc<ServerSnapshot>,
-        streams: &mut JoinSet<()>,
+        streams: &mut JoinSet<StreamCompletion>,
     ) {
-        use crate::quic::wt::{is_web_transport_connect, serve_web_transport};
+        use crate::quic::wt::{
+            H3Connection, SessionStreams, authorize_web_transport,
+            is_web_transport_connect, serve_web_transport,
+        };
 
         let conn = accepted.connection;
         let direct_client = snapshot.listener.proxy.is_none();
@@ -350,10 +359,18 @@ impl H3Server {
             deps.web_transport.has_host(&vctx.vhost_key.0);
         let quinn_conn = H3QuinnConnection::new(conn);
         let mut h3_builder = h3::server::builder();
-        if let ListenerSettings::Quic(settings) = &snapshot.listener.settings {
-            h3_builder
-                .max_field_section_size(settings.quic.max_field_section_size);
-        }
+        let ListenerSettings::Quic(settings) = &snapshot.listener.settings
+        else {
+            error!("QUIC listener has no QUIC settings");
+            return;
+        };
+        h3_builder.max_field_section_size(settings.quic.max_field_section_size);
+        let Some(input_capacity) = std::num::NonZeroUsize::new(
+            settings.quic.max_concurrent_bidi_streams as usize,
+        ) else {
+            error!("QUIC listener has no bidi stream capacity");
+            return;
+        };
         if web_transport_enabled {
             h3_builder
                 .enable_webtransport(true)
@@ -361,14 +378,14 @@ impl H3Server {
                 .enable_datagram(true);
         }
         let mut h3_conn = match h3_builder.build::<_, Bytes>(quinn_conn).await {
-            Ok(c) => c,
+            Ok(c) => H3Connection::new(c),
             Err(e) => {
                 error!("❌ Failed to build H3 connection: {e:?}");
                 return;
             }
         };
 
-        // DO NOT move `resolve_request().await` back into the `accept()` arm.
+        // DO NOT move `resolver.resolve().await` back into the `accept()` arm.
         //
         // `accept()` hands over a stream as soon as the peer opens it; its
         // HEADERS frame may arrive much later, or never. Awaiting it inside
@@ -379,10 +396,10 @@ impl H3Server {
         // slowloris-style). So headers are awaited here, concurrently, in
         // `resolving`, next to `accept()`.
         //
-        // Why not resolve inside the spawned per-request task instead: a
-        // WebTransport CONNECT is only recognised from its headers, and its
-        // session takes over `h3_conn`, which only this loop owns. Resolution
-        // therefore stays in the loop; handling is spawned into `streams`.
+        // Resolution classifies HTTP requests and WT data streams. This loop
+        // retains the H3 driver throughout both kinds of work; a WT session
+        // never takes it over. Authorization and CONNECT response I/O are also
+        // independent futures, so neither can stop other HTTP acceptance.
         //
         // Dropping a pending resolver is safe: h3 releases its request entry
         // on drop (see `RequestResolver::resolve_request`). The QUIC
@@ -391,9 +408,13 @@ impl H3Server {
         // `accepting` turns off on graceful shutdown (GOAWAY) or peer close.
         // Streams accepted before that are below the GOAWAY id, so the peer
         // expects them served: their headers are still read and they are
-        // still dispatched; the loop ends once none are pending.
+        // still dispatched. The driver stays alive until their authorization,
+        // request tasks and session tasks have all completed.
         let mut resolving = FuturesUnordered::new();
+        let mut authorizing = FuturesUnordered::new();
+        let mut sessions = SessionStreams::new(input_capacity);
         let mut accepting = true;
+        let mut transport_open = true;
         // The routing captured above — host, app, ingress policy — holds for
         // this connection's life. If its host moves to another vhost (or is
         // gone, or its captured config replaced), it retires like shutdown:
@@ -409,7 +430,11 @@ impl H3Server {
             info!(protocol = "HTTP/3", host = %binding.hostname(), canonical = %binding.canonical(), "🔀 host mapping or configuration changed: retiring this connection gracefully");
         }.boxed().shared();
         loop {
-            if !accepting && resolving.is_empty() {
+            if !accepting
+                && resolving.is_empty()
+                && authorizing.is_empty()
+                && streams.is_empty()
+            {
                 break;
             }
             tokio::select! {
@@ -424,14 +449,44 @@ impl H3Server {
                     accepting = false;
                 }
                 result = streams.join_next(), if !streams.is_empty() => {
-                    if let Some(Err(error)) = result { error!(%error, "H3 stream task failed"); }
+                    match result {
+                        Some(Ok(StreamCompletion::Session(id))) => sessions.remove(id),
+                        Some(Err(error)) => {
+                            sessions.prune_closed();
+                            error!(%error, "H3 stream task failed");
+                        }
+                        _ => {},
+                    }
+                }
+                Some(authorized) = authorizing.next(), if !authorizing.is_empty() => {
+                    let authorized: Option<crate::quic::wt::AuthorizedSession> = authorized;
+                    if let Some(authorized) = authorized {
+                        let id = authorized.id();
+                        // Register before sending 200: the peer may immediately
+                        // open a WT stream after receiving the response.
+                        let incoming = sessions.register(id);
+                        let serving = serve_web_transport(authorized, &mut h3_conn, incoming);
+                        streams.spawn(async move {
+                            serving.await;
+                            StreamCompletion::Session(id)
+                        });
+                    }
                 }
                 Some(resolved) = resolving.next(), if !resolving.is_empty() => {
                     let (h3_head, mut stream): (
                         http::Request<()>,
                         crate::quic::request::H3RequestStream<H3QuinnConnection>
                     ) = match resolved {
-                        Ok(request) => request,
+                        Ok(AcceptedBi::Request(request, stream)) => (request, stream),
+                        Ok(AcceptedBi::BidiStream(id, stream)) => {
+                            if let Err(stream) = sessions.route(id, stream) {
+                                // No receiver/capacity: refuse this stream, not
+                                // the connection and not another session's work.
+                                drop(stream);
+                                debug!(?id, "WebTransport bidi stream has no available session input");
+                            }
+                            continue;
+                        }
                         Err(err) => {
                             error!("❌ H3 resolve_request failed: {err:?}");
                             continue;
@@ -440,20 +495,29 @@ impl H3Server {
 
                     if is_web_transport_connect(&h3_head) {
                         if stream.is_0rtt() {
-                            send_status_response(&mut stream, StatusCode::TOO_EARLY).await;
+                            streams.spawn(async move {
+                                send_status_response(&mut stream, StatusCode::TOO_EARLY).await;
+                                StreamCompletion::Request
+                            });
                             continue;
                         }
 
                         let prepared = match host_service.prepare(h3_head, RequestArrival::Established) {
                             Ok(prepared) => prepared,
                             Err(reject) => {
-                                send_host_response(&mut stream, reject).await;
+                                streams.spawn(async move {
+                                    send_host_response(&mut stream, reject).await;
+                                    StreamCompletion::Request
+                                });
                                 continue;
                             }
                         };
 
                         if !web_transport_enabled {
-                            send_status_response(&mut stream, StatusCode::NOT_FOUND).await;
+                            streams.spawn(async move {
+                                send_status_response(&mut stream, StatusCode::NOT_FOUND).await;
+                                StreamCompletion::Request
+                            });
                             continue;
                         }
 
@@ -461,7 +525,10 @@ impl H3Server {
                             .web_transport
                             .resolve(&vctx.vhost_key.0, prepared.request().uri().path())
                         else {
-                            send_status_response(&mut stream, StatusCode::NOT_FOUND).await;
+                            streams.spawn(async move {
+                                send_status_response(&mut stream, StatusCode::NOT_FOUND).await;
+                                StreamCompletion::Request
+                            });
                             continue;
                         };
 
@@ -469,12 +536,10 @@ impl H3Server {
                         auth.admission = Some(permit.clone());
                         auth.graceful = Some(retired.clone());
                         let request = prepared.into_request();
-                        streams.spawn(async move {
-                            serve_web_transport(
-                                binding, state.clone(), auth, request, stream, h3_conn
-                            ).await
-                        });
-                        break;
+                        authorizing.push(authorize_web_transport(
+                            binding, state.clone(), auth, request, stream,
+                        ));
+                        continue;
                     }
 
                     let handler = request_handler.clone();
@@ -485,14 +550,31 @@ impl H3Server {
                     };
                     streams.spawn(async move {
                         handler.serve::<H3QuinnConnection>(h3_head, stream, mode).await;
+                        StreamCompletion::Request
                     });
                 }
-                res = h3_conn.accept(), if accepting => {
+                // Keep control processing alive while admitted sessions and
+                // response streams drain. Grace stops new HTTP admission, not
+                // the driver required by already accepted work.
+                res = h3_conn.accept(), if transport_open => {
                     match res {
-                        Ok(Some(resolver)) => resolving.push(resolver.resolve_request()),
+                        Ok(Some(IncomingStream::Bidirectional(resolver))) => {
+                            if accepting {
+                                resolving.push(resolver.resolve());
+                            }
+                            // After GOAWAY, do not retain newly opened streams
+                            // or await their headers. Earlier resolvers survive.
+                        }
+                        Ok(Some(IncomingStream::Unidirectional(_, stream))) => {
+                            // Current handlers consume a reliable bidi stream;
+                            // uni streams have no registered receiver.
+                            drop(stream);
+                        }
                         Ok(None) => {
                             debug!("🔹 H3 peer closed from={}", remote.ip());
                             accepting = false;
+                            transport_open = false;
+                            sessions.close();
                         }
                         Err(err) => {
                             if err.is_h3_no_error() {

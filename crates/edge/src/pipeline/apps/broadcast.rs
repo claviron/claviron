@@ -252,34 +252,11 @@ impl WebTransportHandler for BroadcastConnectHandler {
             tokio::select! { _ = ctx.wait_graceful_shutdown() => {}, _ = state.on_shutdown() => {} }
         };
         tokio::pin!(shutdown);
-        let open = async {
-            let Some(resolver) = transport
-                .accept_bi()
-                .await
-                .map_err(|error| Error::msg(error.to_string()))?
-            else {
-                return Ok(None);
-            };
-            match resolver
-                .resolve()
-                .await
-                .map_err(|error| Error::msg(error.to_string()))?
-            {
-                h3_webtransport::server::AcceptedBi::BidiStream(id, stream)
-                    if id == transport.session_id() =>
-                {
-                    Ok(Some(stream))
-                }
-                _ => Err(Error::msg(
-                    "broadcast requires its own WebTransport bidirectional stream",
-                )),
-            }
-        };
         let stream = tokio::select! {
             biased;
             _ = &mut shutdown => return Ok(()),
             _ = session.wait_shutdown() => return Ok(()),
-            stream = open => stream?,
+            stream = transport.accept_bi() => stream,
         };
         let Some(stream) = stream else { return Ok(()) };
         let mut stream =

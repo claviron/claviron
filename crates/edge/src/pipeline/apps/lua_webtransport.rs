@@ -155,34 +155,11 @@ impl WebTransportHandler for Handler {
         };
         tokio::pin!(shutdown);
         let stopping = application.execution_stopping();
-        let opening = async {
-            let Some(resolver) = session
-                .accept_bi()
-                .await
-                .map_err(|error| Error::msg(error.to_string()))?
-            else {
-                return Ok(None);
-            };
-            match resolver
-                .resolve()
-                .await
-                .map_err(|error| Error::msg(error.to_string()))?
-            {
-                h3_webtransport::server::AcceptedBi::BidiStream(id, stream)
-                    if id == session.session_id() =>
-                {
-                    Ok(Some(stream))
-                }
-                _ => Err(Error::msg(
-                    "Lua requires its own WebTransport bidirectional stream",
-                )),
-            }
-        };
         let stream = tokio::select! {
             biased;
             () = &mut shutdown => return Ok(()),
             () = stopping.cancelled() => return Ok(()),
-            stream = opening => stream?,
+            stream = session.accept_bi() => stream,
         };
         if let Some(stream) = stream {
             let headers = ctx

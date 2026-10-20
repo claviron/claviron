@@ -224,9 +224,9 @@ pub use pipeline::{
 };
 #[cfg(all(feature = "server", feature = "webtransport"))]
 pub use pipeline::{
-    H3WebTransportSession, WebTransportAccept, WebTransportBinding,
-    WebTransportHandler, WebTransportRegistry, WebTransportReject,
-    WebTransportResult,
+    H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,
+    WebTransportBinding, WebTransportHandler, WebTransportRegistry,
+    WebTransportReject, WebTransportResult,
 };
 #[cfg(all(feature = "server", feature = "axum"))]
 pub use pipeline::{Routable, RouteLayerContext};
