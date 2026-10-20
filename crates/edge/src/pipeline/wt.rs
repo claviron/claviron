@@ -27,6 +27,7 @@ pub type H3WebTransportBiStream =
 /// `Deref`; receiving a bidi stream never drives the HTTP/3 connection.
 pub struct H3WebTransportSession {
     native: NativeSession,
+    incoming_capacity: std::num::NonZeroUsize,
     incoming:
         tokio::sync::Mutex<tokio::sync::mpsc::Receiver<H3WebTransportBiStream>>,
 }
@@ -37,7 +38,20 @@ impl H3WebTransportSession {
         native: NativeSession,
         incoming: tokio::sync::mpsc::Receiver<H3WebTransportBiStream>,
     ) -> Self {
-        Self { native, incoming: tokio::sync::Mutex::new(incoming) }
+        let incoming_capacity =
+            std::num::NonZeroUsize::new(incoming.max_capacity())
+                .expect("bounded session receiver has positive capacity");
+        Self {
+            native,
+            incoming_capacity,
+            incoming: tokio::sync::Mutex::new(incoming),
+        }
+    }
+
+    /// The pending input bound captured from the listener's QUIC bidi limit.
+    /// Session consumers can reuse it to bound concurrently retained handlers.
+    pub fn incoming_capacity(&self) -> std::num::NonZeroUsize {
+        self.incoming_capacity
     }
 
     /// Receive this session's next bidi stream, or `None` after its driver ends.

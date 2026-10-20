@@ -37,7 +37,7 @@ axum = ["app", "dep:axum", "claviron-http/axum", "claviron-http/lua"]
 # HTTP/1.1 Upgrade or an HTTP/2 extended CONNECT.
 websocket = ["axum", "claviron-http/websocket", "dep:fastwebsockets", "dep:hyper", "dep:hyper-util"]
 # Reliable WebTransport streams reuse the fleet's bounded message codec.
-webtransport = ["app", "dep:claviron-orbit"]
+webtransport = ["app", "dep:claviron-orbit", "dep:futures-util"]
 # Shared SQL dependencies; adapters require `postgres`, `mysql` or `sqlite`.
 db = ["server", "dep:claviron-db", "claviron-db/server", "dep:futures-util", "dep:sqlx", "sqlx/json"]
 # `claviron.db.mysql`, on the MySQL pools.

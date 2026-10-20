@@ -1,14 +1,16 @@
-//! Lua callbacks over one reliable WebTransport bidirectional stream.
+//! Independent Lua callbacks over reliable WebTransport bidirectional streams.
 //!
 //! The native H3 driver owns acceptance and drain. Records use the existing
 //! Text/Binary/Close codec, not WebSocket frames or unreliable datagrams.
 use std::future::Future;
+use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use claviron_orbit::transport::{Message, MessageReader, write_message};
+use futures_util::{StreamExt, stream::FuturesUnordered};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, watch};
 
 use crate::app::LuaApplication;
 use crate::serve::LuaApplications;
@@ -42,19 +44,6 @@ pub async fn serve<S>(
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send,
 {
-    let config = application.socket_config(Transport::WebTransport);
-    let (outbound, queued) = mpsc::channel(config.send_queue.max(1));
-    let socket = LuaSocket {
-        id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
-        url,
-        headers,
-        outbound,
-        transport: Transport::WebTransport,
-        http_version: "HTTP/3.0",
-    };
-    // One pending event overlaps the callback; further reads wait for it.
-    let (events, happened) = mpsc::channel(1);
-    let handling = handle_events(Arc::clone(&application), socket, happened);
     let stopping = application.execution().stopping().clone();
     let shutdown = async {
         tokio::pin!(shutdown);
@@ -64,6 +53,145 @@ pub async fn serve<S>(
             () = &mut shutdown => Close(1001, "server stopping".to_owned(), false),
         }
     };
+    serve_stream(stream, url, headers, application, None, shutdown).await;
+}
+
+/// Why a native WebTransport session stops accepting new streams.
+pub enum SessionEnd {
+    /// The peer finished its CONNECT direction normally.
+    PeerClosed,
+    /// The CONNECT stream was reset or the native connection failed.
+    TransportLost,
+    /// The accepting listener, host binding or server is retiring.
+    ServerStopping,
+}
+
+impl SessionEnd {
+    fn close(self) -> Close {
+        match self {
+            Self::PeerClosed => Close(1000, "session ended".to_owned(), true),
+            Self::TransportLost => Close(1006, String::new(), false),
+            Self::ServerStopping => {
+                Close(1001, "server stopping".to_owned(), false)
+            }
+        }
+    }
+}
+
+/// Own all incoming bidi stream handlers for one accepted native session.
+///
+/// Each stream gets separate socket callbacks and bounded queues. `max_streams`
+/// is supplied by the native owner's configured admission bound, not inferred
+/// here. Ending a stream does not end the session. Session shutdown stops input
+/// admission, signals every stream and joins their callback and output drain.
+/// The incoming accept future must be cancel-safe; it is polled alongside
+/// stream completion and shutdown, without a detached accept task.
+pub async fn serve_session<S, A, N>(
+    incoming: A,
+    max_streams: NonZeroUsize,
+    url: String,
+    headers: Vec<(String, String)>,
+    application: Arc<LuaApplication>,
+    shutdown: impl Future<Output = SessionEnd>,
+) where
+    A: FnMut() -> N,
+    N: Future<Output = Option<S>>,
+    S: AsyncRead + AsyncWrite + Unpin + Send,
+{
+    let session_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    let stopping = application.execution().stopping().clone();
+    let shutdown = async {
+        tokio::pin!(shutdown);
+        tokio::select! {
+            biased;
+            () = stopping.cancelled() => Close(1001, "application stopping".to_owned(), false),
+            end = &mut shutdown => end.close(),
+        }
+    };
+    run_streams(incoming, max_streams, shutdown, |stream, ended| {
+        serve_stream(
+            stream,
+            url.clone(),
+            headers.clone(),
+            Arc::clone(&application),
+            Some(session_id),
+            wait_end(ended),
+        )
+    })
+    .await;
+}
+
+async fn run_streams<S, A, N, R, F>(
+    mut incoming: A,
+    max_streams: NonZeroUsize,
+    shutdown: impl Future<Output = Close>,
+    mut serve: R,
+) where
+    A: FnMut() -> N,
+    N: Future<Output = Option<S>>,
+    R: FnMut(S, watch::Receiver<Option<Close>>) -> F,
+    F: Future<Output = ()>,
+{
+    let (end, ended) = watch::channel(None);
+    let mut streams = FuturesUnordered::new();
+    tokio::pin!(shutdown);
+    let reason = loop {
+        tokio::select! {
+            biased;
+            close = &mut shutdown => break close,
+            Some(()) = streams.next(), if !streams.is_empty() => {},
+            // Defer even constructing an accept future until this branch is
+            // polled: select evaluates disabled branch expressions as well.
+            next = async { incoming().await }, if streams.len() < max_streams.get() => {
+                match next {
+                    Some(stream) => streams.push(serve(stream, ended.clone())),
+                    None => break SessionEnd::TransportLost.close(),
+                }
+            }
+        }
+    };
+    end.send_replace(Some(reason));
+    // GRACEFUL_OWNERSHIP: retain all admitted streams until their owned work
+    // drains. The native owner alone may enforce its explicit grace policy.
+    while streams.next().await.is_some() {}
+}
+
+async fn wait_end(mut ended: watch::Receiver<Option<Close>>) -> Close {
+    loop {
+        if let Some(close) = ended.borrow().clone() {
+            return close;
+        }
+        ended
+            .changed()
+            .await
+            .expect("session owns the end signal through drain");
+    }
+}
+
+async fn serve_stream<S>(
+    stream: S,
+    url: String,
+    headers: Vec<(String, String)>,
+    application: Arc<LuaApplication>,
+    session_id: Option<u64>,
+    shutdown: impl Future<Output = Close>,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send,
+{
+    let config = application.socket_config(Transport::WebTransport);
+    let (outbound, queued) = mpsc::channel(config.send_queue.max(1));
+    let socket = LuaSocket {
+        id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        session_id,
+        url,
+        headers,
+        outbound,
+        transport: Transport::WebTransport,
+        http_version: "HTTP/3.0",
+    };
+    // One pending event overlaps the callback; further reads wait for it.
+    let (events, happened) = mpsc::channel(1);
+    let handling = handle_events(Arc::clone(&application), socket, happened);
     let driving =
         drive(stream, queued, events, config.max_message_size, shutdown);
     tokio::join!(handling, driving);

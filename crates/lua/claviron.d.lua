@@ -447,6 +447,7 @@ function Router:route(method, path, handler) end
 ---One WebSocket or reliable WebTransport stream, held by the edge.
 ---@class claviron.Socket
 ---@field id integer  unique within this worker
+---@field session_id integer?  worker-local WT session identity, shared by its streams; nil for WebSockets
 ---@field url string
 ---@field headers table<string, string>
 ---@field transport 'websocket'|'webtransport'
@@ -470,7 +471,9 @@ function Socket:close(code, reason) end
 ---@return claviron.Router
 function Router:websocket(handlers) end
 
----Declare reliable WebTransport callbacks; serving requires the webtransport feature.
+---Declare reliable WebTransport callbacks, run in order per incoming bidi stream.
+---Each stream has its own socket; close ends that stream, not sibling streams.
+---Serving requires the webtransport feature; application concurrency still applies.
 ---@param handlers claviron.SocketHandlers
 ---@return claviron.Router
 function Router:webtransport(handlers) end

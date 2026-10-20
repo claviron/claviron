@@ -2,6 +2,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use claviron_lua::webtransport::SessionEnd;
 use claviron_lua::{app::LuaApplication, serve::LuaApplications};
 use claviron_runtime::{
     AppState,
@@ -149,38 +150,36 @@ impl WebTransportHandler for Handler {
             .take::<Arc<LuaApplication>>()?;
         let shutdown = async {
             tokio::select! {
-                () = ctx.wait_graceful_shutdown() => {},
-                () = state.on_shutdown() => {},
+                () = ctx.wait_graceful_shutdown() => SessionEnd::ServerStopping,
+                () = state.on_shutdown() => SessionEnd::ServerStopping,
+                closed = session.closed() => match closed {
+                    Ok(()) => SessionEnd::PeerClosed,
+                    Err(error) => {
+                        tracing::debug!(%error, "Lua WebTransport CONNECT ended");
+                        SessionEnd::TransportLost
+                    }
+                },
             }
         };
-        tokio::pin!(shutdown);
-        let stopping = application.execution_stopping();
-        let stream = tokio::select! {
-            biased;
-            () = &mut shutdown => return Ok(()),
-            () = stopping.cancelled() => return Ok(()),
-            stream = session.accept_bi() => stream,
-        };
-        if let Some(stream) = stream {
-            let headers = ctx
-                .headers
-                .iter()
-                .map(|(name, value)| {
-                    (
-                        name.to_string(),
-                        String::from_utf8_lossy(value.as_bytes()).into_owned(),
-                    )
-                })
-                .collect();
-            claviron_lua::webtransport::serve(
-                stream,
-                ctx.uri.to_string(),
-                headers,
-                application,
-                &mut shutdown,
-            )
-            .await;
-        }
+        let headers = ctx
+            .headers
+            .iter()
+            .map(|(name, value)| {
+                (
+                    name.to_string(),
+                    String::from_utf8_lossy(value.as_bytes()).into_owned(),
+                )
+            })
+            .collect();
+        claviron_lua::webtransport::serve_session(
+            || session.accept_bi(),
+            session.incoming_capacity(),
+            ctx.uri.to_string(),
+            headers,
+            application,
+            shutdown,
+        )
+        .await;
         drop(session);
         Ok(())
     }

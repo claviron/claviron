@@ -109,15 +109,23 @@ callbacks as `router:websocket(handlers)`. Both can share one handlers table.
 Edge binds the route's declared `websocket` endpoints for either selected
 transport; WebTransport additionally requires WebTransport callbacks. Each
 socket exposes `transport` and `http_version` from the accepting server path.
-WebTransport uses one client-opened reliable bidirectional stream carrying
+WebTransport accepts client-opened reliable bidirectional streams carrying
 Claviron Text/Binary/Close records (`u8 kind`, little-endian `u32 length`,
 payload); it does not carry WebSocket frames. Datagram handling is not included.
 The application's `webtransport` configuration uses the same `max_message_size`
 and `send_queue` settings as `websocket`. No new facade feature is needed.
-Reads and writes progress independently on that single stream. Shutdown closes
-outbound admission and delivers callback events without waiting for a slow
+Each stream has separate `open/message/close` callbacks, bounded queues and
+independent reads and writes. `socket.id` identifies a stream; `session_id`
+groups its siblings within this worker (it is not the wire CONNECT ID).
+Closing one socket leaves its siblings and the session available. Active stream
+handlers are bounded by the accepting listener's configured QUIC bidi limit;
+the native driver's pending input queue remains bounded too. Lua callbacks
+retain the application's `concurrency` limit, so a value of one serializes
+callbacks even though transport IO progresses independently.
+CONNECT closure, application stop and native retirement stop new admission.
+Shutdown closes outbound admission and delivers callback events without waiting for a slow
 writer; accepted output drains before the close record. The session owns and
-joins both directions, without adding a drain deadline.
+joins every admitted stream and both directions, without adding a drain deadline.
 
 Outbound fetch is closed unless `fetch.allow` permits a destination; redirects
 are checked too. Its pooled client and optional response-size bound come from

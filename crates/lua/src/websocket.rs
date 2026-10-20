@@ -170,6 +170,8 @@ pub async fn serve_websocket(
     let (outbound, mut queued) = mpsc::channel(config.send_queue.max(1));
     let socket = LuaSocket {
         id: NEXT_ID.fetch_add(1, Ordering::Relaxed),
+        #[cfg(feature = "webtransport")]
+        session_id: None,
         url,
         headers,
         outbound,

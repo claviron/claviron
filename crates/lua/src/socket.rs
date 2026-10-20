@@ -43,6 +43,8 @@ pub(crate) static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 /// One socket as a handler holds it.
 pub(crate) struct LuaSocket {
     pub(crate) id: u64,
+    #[cfg(feature = "webtransport")]
+    pub(crate) session_id: Option<u64>,
     pub(crate) url: String,
     pub(crate) headers: Vec<(String, String)>,
     pub(crate) outbound: mpsc::Sender<Outbound>,
@@ -75,6 +77,9 @@ impl UserData for LuaSocket {
             Ok(this.http_version)
         });
         fields.add_field_method_get("id", |_, this| Ok(this.id));
+        #[cfg(feature = "webtransport")]
+        fields
+            .add_field_method_get("session_id", |_, this| Ok(this.session_id));
         fields.add_field_method_get("url", |_, this| Ok(this.url.clone()));
         fields.add_field_method_get("headers", |lua, this| {
             let table = lua.create_table()?;
