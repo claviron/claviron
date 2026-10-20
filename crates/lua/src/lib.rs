@@ -27,6 +27,8 @@ pub mod log;
 #[cfg(feature = "orbit")]
 pub mod orbit;
 mod packages;
+#[cfg(feature = "server")]
+pub mod process;
 pub mod regex;
 pub mod router;
 #[cfg(feature = "axum")]

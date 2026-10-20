@@ -104,6 +104,13 @@ Orbit extensions provide cells, streams, events, and invocations over the host's
 registered resources. Shared state belongs there, not in another script's Lua
 globals. Bounded event and invocation history is not a durable exactly-once queue.
 
+Managed applications and tasks also receive `claviron.process` (or
+`require "claviron.process"`): `role` is `master`, `worker` or `standalone`, and
+`worker_id` is the owning process's one-based worker slot, or `nil` outside a
+worker. This host-supplied snapshot does not read environment variables and
+does not identify a user or a WebTransport session. Worker slots are local to
+one process family, not globally unique identities.
+
 `router:webtransport(handlers)` uses the same `open`, `message` and `close`
 callbacks as `router:websocket(handlers)`. Both can share one handlers table.
 Edge binds the route's declared `websocket` endpoints for either selected

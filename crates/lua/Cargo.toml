@@ -19,6 +19,13 @@ authors.workspace = true
 keywords = ["lua", "scripting", "interpreter", "embedding", "async"]
 categories = ["web-programming::http-server", "asynchronous"]
 
+[[test]]
+name = "process_api"
+path = "tests/runtime/process_api.rs"
+required-features = ["server"]
+# Initializes Lua explicitly; keep it outside the routine library test run.
+test = false
+
 [features]
 default = []
 # A host's configuration: `lua.yaml`'s search path, read at boot and reload.

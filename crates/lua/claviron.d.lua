@@ -14,12 +14,18 @@
 ---@field fetch claviron.fetch
 ---@field db claviron.db
 ---@field router claviron.router
+---@field process claviron.process
 claviron = {}
 
 ---Read this execution's environment. Does not expose the host process.
 ---@param key string
 ---@return string|nil
 function claviron.getenv(key) end
+
+---Host-supplied process identity; a worker slot is not a global user identity.
+---@class claviron.process
+---@field role 'master'|'worker'|'standalone'
+---@field worker_id integer?  one-based worker slot; nil in master/standalone
 
 -- Cells ----------------------------------------------------------------------
 

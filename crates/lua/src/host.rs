@@ -23,7 +23,10 @@ pub fn engine(
         .with_path(path)
         .with(Arc::new(crate::JsonExtension))
         .with(Arc::new(crate::RegexExtension))
-        .with(Arc::new(crate::RouterExtension));
+        .with(Arc::new(crate::RouterExtension))
+        .with(Arc::new(crate::process::ProcessExtension::new(
+            state.run_mode(),
+        )));
     #[cfg(feature = "orbit")]
     if let Some(cells) = state
         .registry_ref()
