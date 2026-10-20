@@ -85,6 +85,18 @@ Application dispatch follows admission; choosing an Axum-free handler does not
 skip those checks. Forwarded origin information is distinct from physical peer
 identity and follows the configured trust policy.
 
+## Lua browser socket admission
+
+Configured Lua socket endpoints share strict same-origin admission across H1
+WebSocket Upgrade, H2 WebSocket CONNECT and H3 WebTransport CONNECT. Before
+acceptance, one HTTP(S) `Origin` must match the requested host, effective port
+and accepted transport scheme. Missing, opaque (`null`), malformed or repeated
+origins receive 403. HTTP CORS settings, including permissive CORS, do not widen
+this socket boundary. Aliases compare against the requested alias, not its
+canonical vhost key. This blocks other websites' browser connections; it is
+not user authentication, and native clients can forge Origin. Other registered
+handlers retain their own admission contracts.
+
 ## Adding an application
 
 In a server registration callback, declare a host and attach a merged Axum

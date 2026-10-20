@@ -104,29 +104,15 @@ impl WebTransportHandler for Handler {
         if ctx.path != self.path {
             return Err(WebTransportReject::new(StatusCode::NOT_FOUND));
         }
-        let selected =
-            configured_route(&ctx.host_config, &ctx.path, &self.application)
-                .ok_or_else(|| {
-                    WebTransportReject::new(StatusCode::NOT_FOUND)
-                })?;
-        // Native CONNECT does not enter the ordinary CORS exchange.
-        if let Some(origin) = ctx.headers.get(http::header::ORIGIN) {
-            let allowed = origin.to_str().is_ok_and(|origin| {
-                if let Some(cors) = selected.cors.as_ref() {
-                    cors.enabled() && cors.allows_origin(origin)
-                } else {
-                    let Ok(origin) = origin.parse::<http::Uri>() else {
-                        return false;
-                    };
-                    origin.scheme_str() == Some("https")
-                        && origin.host() == ctx.uri.host()
-                        && origin.port_u16().unwrap_or(443)
-                            == ctx.uri.port_u16().unwrap_or(443)
-                }
-            });
-            if !allowed {
-                return Err(WebTransportReject::forbidden());
-            }
+        configured_route(&ctx.host_config, &ctx.path, &self.application)
+            .ok_or_else(|| WebTransportReject::new(StatusCode::NOT_FOUND))?;
+        // Native CONNECT and H1 upgrade share the same browser-origin boundary.
+        if !super::lua_socket::same_origin(
+            &ctx.headers,
+            &ctx.uri,
+            &ctx.conn.scheme(),
+        ) {
+            return Err(WebTransportReject::forbidden());
         }
         let app = claviron_lua::webtransport::prepare(
             &self.service,

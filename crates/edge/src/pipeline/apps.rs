@@ -3,6 +3,11 @@ use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "broadcast")]
 mod broadcast;
+#[cfg(all(
+    feature = "lua",
+    any(feature = "websocket", feature = "webtransport")
+))]
+mod lua_socket;
 #[cfg(all(feature = "lua", feature = "webtransport"))]
 mod lua_webtransport;
 
@@ -1430,12 +1435,12 @@ fn append_lua_websocket_routes(
                 application.path.as_ref(),
                 &websocket.path,
             );
-            let handler = Arc::new(
-                claviron_lua::websocket::LuaWebSocketUpgradeHandler::new(
+            let handler = Arc::new(lua_socket::WebSocketUpgrade {
+                inner: claviron_lua::websocket::LuaWebSocketUpgradeHandler::new(
                     service.clone(),
                     application.application.as_str(),
                 ),
-            );
+            });
             routes.push(H1UpgradeRoute::handler(path.clone(), handler)?);
             if let Some(registry) = h2_connect.as_ref() {
                 registry.bind_handler(
@@ -1473,6 +1478,10 @@ impl crate::H2ConnectHandler for LuaWebSocketConnectHandler {
         _state: &AppState,
         ctx: &crate::AuthContext,
     ) -> crate::H2ConnectResult {
+        if !lua_socket::same_origin(&ctx.headers, &ctx.uri, &ctx.conn.scheme())
+        {
+            return Err(crate::H2ConnectReject::forbidden());
+        }
         // RFC 8441 §5: 13 is the only version defined for this handshake.
         let version = ctx
             .headers
