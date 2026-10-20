@@ -217,11 +217,13 @@ fn params(
 /// A column value, decoded before it reaches Lua.
 enum Cell {
     Null,
+    #[cfg(any(feature = "postgres", feature = "mysql"))]
     Boolean(bool),
     Integer(i64),
     Float(f64),
     Text(String),
     Bytes(Vec<u8>),
+    #[cfg(any(feature = "postgres", feature = "mysql"))]
     Json(serde_json::Value),
 }
 
@@ -262,11 +264,13 @@ fn cell(
 ) -> mlua::Result<Value> {
     Ok(match cell {
         Cell::Null => lua.null(),
+        #[cfg(any(feature = "postgres", feature = "mysql"))]
         Cell::Boolean(value) => Value::Boolean(value),
         Cell::Integer(value) => Value::Integer(value),
         Cell::Float(value) => Value::Number(value),
         Cell::Text(value) => Value::String(lua.create_string(value)?),
         Cell::Bytes(value) => Value::String(lua.create_string(value)?),
+        #[cfg(any(feature = "postgres", feature = "mysql"))]
         Cell::Json(value) => lua.to_value(&value)?,
     })
 }
