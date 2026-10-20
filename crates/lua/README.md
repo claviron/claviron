@@ -134,6 +134,20 @@ Shutdown closes outbound admission and delivers callback events without waiting 
 writer; accepted output drains before the close record. The session owns and
 joins every admitted stream and both directions, without adding a drain deadline.
 
+With `orbit`, `socket:listen(claviron.events.listen("example.chat"))` attaches
+one subscription to that socket's existing callback loop. Its optional
+`event(socket, event)` handler receives the usual `{ id, topic, payload }`.
+Publish once through `claviron.events`; a separate local broadcast would
+duplicate delivery. This remains a bounded event bus, not a durable queue.
+Use a separate listener for each socket; do not also call `next()` on it.
+`socket:listen(nil)` detaches it. Waiting consumes no application permit;
+callbacks share the application's concurrency limit.
+
+The socket owner detaches the listener before its final `close` callback,
+including on application shutdown. No detached listener task is spawned.
+A retired application generation retains its accepted sockets and their
+subscriptions until they close; replacement does not silently terminate them.
+
 Outbound fetch is closed unless `fetch.allow` permits a destination; redirects
 are checked too. Its pooled client and optional response-size bound come from
 configuration. Host allow rules are not a complete network-isolation mechanism.

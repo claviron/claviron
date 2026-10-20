@@ -114,13 +114,7 @@ impl Extension for EventsExtension {
                 if topics.is_empty() || topics.iter().any(String::is_empty) {
                     return Err(failure("an event topic cannot be empty"));
                 }
-                Ok(Listener {
-                    topics,
-                    receiver: Arc::new(Mutex::new(
-                        bus.subscribe::<ApplicationEvent>(),
-                    )),
-                    execution: Arc::clone(&execution),
-                })
+                Ok(Listener::subscribe(&bus, topics, Arc::clone(&execution)))
             }
         };
         let listening = listen.clone();
@@ -151,17 +145,27 @@ fn application(target: &str) -> mlua::Result<ApplicationId> {
 }
 
 /// A subscription, open from `listen` until the listener is dropped.
-struct Listener {
+#[derive(Clone)]
+pub(crate) struct Listener {
     topics: Vec<String>,
     receiver: Arc<Mutex<broadcast::Receiver<ApplicationEvent>>>,
     execution: Arc<Execution>,
 }
 
 impl Listener {
-    async fn next(
-        &self,
-        lua: &Lua,
-    ) -> mlua::Result<Table> {
+    pub(crate) fn subscribe(
+        bus: &ProcessEventBus,
+        topics: Vec<String>,
+        execution: Arc<Execution>,
+    ) -> Self {
+        Self {
+            topics,
+            receiver: Arc::new(Mutex::new(bus.subscribe::<ApplicationEvent>())),
+            execution,
+        }
+    }
+
+    pub(crate) async fn receive(&self) -> mlua::Result<ApplicationEvent> {
         let mut receiver = self.receiver.lock().await;
         loop {
             let received = tokio::select! {
@@ -178,11 +182,7 @@ impl Listener {
                             .iter()
                             .any(|topic| topic == event.topic().as_str()) =>
                 {
-                    let table = lua.create_table()?;
-                    table.set("id", event.id().to_string())?;
-                    table.set("topic", event.topic().as_str())?;
-                    table.set("payload", from_event(lua, event.payload())?)?;
-                    return Ok(table);
+                    return Ok(event);
                 }
                 Ok(_) => continue,
                 // Said, not skipped: events were lost, and the script decides
@@ -198,6 +198,24 @@ impl Listener {
             }
         }
     }
+
+    async fn next(
+        &self,
+        lua: &Lua,
+    ) -> mlua::Result<Table> {
+        event_table(lua, self.receive().await?)
+    }
+}
+
+pub(crate) fn event_table(
+    lua: &Lua,
+    event: ApplicationEvent,
+) -> mlua::Result<Table> {
+    let table = lua.create_table()?;
+    table.set("id", event.id().to_string())?;
+    table.set("topic", event.topic().as_str())?;
+    table.set("payload", from_event(lua, event.payload())?)?;
+    Ok(table)
 }
 
 impl UserData for Listener {

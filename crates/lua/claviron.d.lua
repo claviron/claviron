@@ -448,6 +448,7 @@ function Router:route(method, path, handler) end
 ---@class claviron.SocketHandlers
 ---@field open? fun(socket: claviron.Socket)
 ---@field message? fun(socket: claviron.Socket, data: string, binary: boolean)
+---@field event? fun(socket: claviron.Socket, event: claviron.Event)
 ---@field close? fun(socket: claviron.Socket, code: integer, reason: string, clean: boolean)
 
 ---One WebSocket or reliable WebTransport stream, held by the edge.
@@ -463,6 +464,12 @@ local Socket = {}
 ---A text message; `text` must be UTF-8. Waits while the send queue is full.
 ---@param text string
 function Socket:send(text) end
+
+---Attach one events listener to this socket's managed callback loop (requires orbit).
+---Pass nil to detach. Do not also consume this listener with next().
+---@param listener? claviron.Listener
+---@return claviron.Socket
+function Socket:listen(listener) end
 
 ---A binary message. Waits while the send queue is full.
 ---@param bytes string

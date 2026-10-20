@@ -102,6 +102,22 @@ impl UserData for LuaSocket {
                 this.queue(Outbound::Text(text)).await
             }
         );
+        #[cfg(feature = "orbit")]
+        methods.add_function(
+            "listen",
+            |_,
+             (socket, listener): (
+                mlua::AnyUserData,
+                Option<mlua::AnyUserData>,
+            )| {
+                socket.borrow::<LuaSocket>()?;
+                if let Some(listener) = &listener {
+                    listener.borrow::<crate::events::Listener>()?;
+                }
+                socket.set_named_user_value("claviron.events", listener)?;
+                Ok(socket)
+            },
+        );
         methods.add_async_method(
             "send_binary",
             |_, this: mlua::UserDataRef<LuaSocket>, bytes: LuaString| async move {
@@ -138,31 +154,96 @@ pub(crate) async fn handle_events(
                 || failure("the application no longer serves this transport"),
             )?;
         let socket = lua.create_userdata(socket)?;
-        call(&application, &handlers, "open", (socket.clone(),)).await?;
-        while let Some(event) = happened.recv().await {
-            match event {
-                Event::Message(data, binary) => {
-                    let data = lua.create_string(data)?;
-                    call(
-                        &application,
-                        &handlers,
-                        "message",
-                        (socket.clone(), data, binary),
-                    )
-                    .await?;
-                }
-                Event::Close(code, reason, clean) => {
-                    call(
-                        &application,
-                        &handlers,
-                        "close",
-                        (socket.clone(), code, reason, clean),
-                    )
-                    .await?;
-                    break;
+        let ending = async {
+            call(&application, &handlers, "open", (socket.clone(),)).await?;
+            loop {
+                #[cfg(feature = "orbit")]
+                let listener = socket
+                    .named_user_value::<Option<mlua::AnyUserData>>(
+                        "claviron.events",
+                    )?
+                    .map(|listener| {
+                        listener
+                            .borrow::<crate::events::Listener>()
+                            .map(|listener| listener.clone())
+                    })
+                    .transpose()?;
+                #[cfg(feature = "orbit")]
+                let incoming =
+                    next_input(&mut happened, listener.as_ref()).await;
+                #[cfg(not(feature = "orbit"))]
+                let incoming = Input::Socket(happened.recv().await);
+                match incoming {
+                    Input::Socket(Some(Event::Message(data, binary))) => {
+                        let data = lua.create_string(data)?;
+                        call(
+                            &application,
+                            &handlers,
+                            "message",
+                            (socket.clone(), data, binary),
+                        )
+                        .await?;
+                    }
+                    Input::Socket(Some(Event::Close(code, reason, clean))) => {
+                        break Ok::<_, mlua::Error>((code, reason, clean));
+                    }
+                    Input::Socket(None) => {
+                        break Ok((1006, "transport ended".to_owned(), false));
+                    }
+                    #[cfg(feature = "orbit")]
+                    Input::Application(Ok(event)) => {
+                        let event = crate::events::event_table(lua, event)?;
+                        call(
+                            &application,
+                            &handlers,
+                            "event",
+                            (socket.clone(), event),
+                        )
+                        .await?;
+                    }
+                    #[cfg(feature = "orbit")]
+                    Input::Application(Err(error)) => {
+                        if application.execution().stopping().is_cancelled() {
+                            // The native owner still delivers its close event. Stop
+                            // event admission while that transport drains.
+                            socket.set_named_user_value(
+                                "claviron.events",
+                                Value::Nil,
+                            )?;
+                        } else {
+                            return Err(error);
+                        }
+                    }
                 }
             }
         }
+        .await;
+        #[cfg(feature = "orbit")]
+        socket.set_named_user_value("claviron.events", Value::Nil)?;
+        let (code, reason, clean) = match &ending {
+            Ok(close) => close.clone(),
+            Err(_) if application.execution().stopping().is_cancelled() => {
+                (1001, "application stopping".to_owned(), false)
+            }
+            Err(_) => (1011, "application error".to_owned(), false),
+        };
+        // Close is cleanup, including after execution cancellation. No event
+        // listener or request coroutine is spawned outside this socket owner.
+        let close = match handlers.get::<Option<Function>>("close")? {
+            Some(close) => {
+                let _permit = Arc::clone(application.semaphore())
+                    .acquire_owned()
+                    .await
+                    .map_err(|_| failure("the application stopped"))?;
+                close
+                    .call_async::<Value>((socket, code, reason, clean))
+                    .await
+                    .map(|_| ())
+            }
+            None => Ok(()),
+        };
+        ending?;
+        close?;
         Ok::<(), mlua::Error>(())
     };
     if let Err(error) = run.await {
@@ -170,6 +251,30 @@ pub(crate) async fn handle_events(
         let _ = outbound
             .send(Outbound::Close(1011, "application error".to_owned()))
             .await;
+    }
+}
+
+enum Input {
+    Socket(Option<Event>),
+    #[cfg(feature = "orbit")]
+    Application(mlua::Result<claviron_app::ApplicationEvent>),
+}
+
+#[cfg(all(test, feature = "orbit"))]
+#[path = "../tests/socket_events.rs"]
+mod tests;
+
+#[cfg(feature = "orbit")]
+async fn next_input(
+    happened: &mut mpsc::Receiver<Event>,
+    listener: Option<&crate::events::Listener>,
+) -> Input {
+    match listener {
+        Some(listener) => tokio::select! {
+            event = happened.recv() => Input::Socket(event),
+            event = listener.receive() => Input::Application(event),
+        },
+        None => Input::Socket(happened.recv().await),
     }
 }
 
