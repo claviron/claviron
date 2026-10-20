@@ -12,6 +12,10 @@ use crate::lifecycle::{
 
 /// Gracefully rotate a single worker without overlapping process
 /// incarnations for the same worker id.
+///
+/// [INCARNATION_MASKING]: replace the process, not the logical worker number.
+///
+/// [INCARNATION_MASKING]: https://github.com/claviron/claviron/blob/main/docs/design/INCARNATION_MASKING.md
 pub(crate) async fn rotate_worker(
     control: &WorkerControl,
     worker_id: WorkerId,

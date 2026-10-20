@@ -606,6 +606,10 @@ pub(crate) async fn ownership_accepted(
     }
 }
 
+/// [INCARNATION_MASKING]: retain the surviving process and slot; only the
+/// explicitly accepted master ownership changes.
+///
+/// [INCARNATION_MASKING]: https://github.com/claviron/claviron/blob/main/docs/design/INCARNATION_MASKING.md
 pub(crate) async fn install_adopted_worker(
     control: &WorkerControl,
     worker_id: WorkerId,

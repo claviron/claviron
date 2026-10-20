@@ -164,6 +164,11 @@ mod tests;
 /// apart, and the master identity says whose fleet the process was spawned
 /// into. A record that names a worker must name all four; one that differs in
 /// any of them is about some other process.
+///
+/// [INCARNATION_MASKING] keeps the logical worker slot stable without hiding
+/// these exact ownership qualifiers from supervision.
+///
+/// [INCARNATION_MASKING]: https://github.com/claviron/claviron/blob/main/docs/design/INCARNATION_MASKING.md
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct WorkerIdentity {
     worker_id: WorkerId,

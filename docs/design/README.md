@@ -24,6 +24,8 @@ contracts, not protocol standards or chronological decision records.
   maintain explicit warm capacity rather than repeating setup per operation.
 - [WORKER_ADOPTION](WORKER_ADOPTION.md): preserve surviving workers through an
   explicit identity-checked ownership transfer.
+- [INCARNATION_MASKING](INCARNATION_MASKING.md): keep logical roles stable while
+  the runtime distinguishes and replaces their exact process owners.
 
 ## Same-OS cooperation
 

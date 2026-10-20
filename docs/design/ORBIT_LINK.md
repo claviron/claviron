@@ -50,6 +50,8 @@ Stream cleanup is tied to the exited process and its incarnation. A request
 timeout, a missed pulse or a lane being withdrawn is not permission to reclaim
 another live owner's resources. Supervisor-confirmed exit can recover that
 exact owner's streams without closing a sibling's or a newer incarnation's.
+This is the transport side of [INCARNATION_MASKING](INCARNATION_MASKING.md):
+stable names do not make successive process owners interchangeable.
 
 Shared-memory mappings can survive processes. Reusing or retiring them must
 follow the resource owner's policy; unlinking a name while peers retain the

@@ -14,6 +14,8 @@ have node identities; worker and master identities additionally distinguish
 process generations and incarnations where their owners require them.
 The instance name, fleet name and hosted application name answer different
 questions and must not be substituted for one another.
+Under [INCARNATION_MASKING](INCARNATION_MASKING.md), applications use logical
+roles and names while the runtime tracks their exact process owners.
 
 The fleet provider joins the selected shared-memory domain during boot.
 Individual resource providers own the tables, rings or streams used there.

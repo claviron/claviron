@@ -354,6 +354,7 @@ standards. Their identifiers are stable search keys across code and documentatio
 - [GRACEFUL_OWNERSHIP](docs/design/GRACEFUL_OWNERSHIP.md) — accepted work owns its drain; no implicit termination deadline.
 - [HOT_CLIENT_POOL](docs/design/HOT_CLIENT_POOL.md) — retain usable clients with explicit warm-capacity and reuse policies.
 - [WORKER_ADOPTION](docs/design/WORKER_ADOPTION.md) — transfer surviving workers through verified identity and explicit acceptance.
+- [INCARNATION_MASKING](docs/design/INCARNATION_MASKING.md) — preserve worker slots and service roles without making applications track process incarnations.
 - [FLEETAWARE](docs/design/FLEETAWARE.md) — cooperate across sibling processes on one OS, not an implied cloud cluster.
 - [ORBIT_CELL](docs/design/ORBIT_CELL.md) — bind declared shared values to runtime-managed cell lifetimes.
 - [ORBIT_LINK](docs/design/ORBIT_LINK.md) — connect named applications through bounded inboxes and asynchronous SHM streams.

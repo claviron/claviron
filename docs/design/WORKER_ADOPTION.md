@@ -9,6 +9,8 @@ exists from permission to manage it.
 
 Adoption keeps a surviving worker in its logical slot through an explicit
 ownership transfer. It is not a scan for processes with familiar names.
+This is one application of [INCARNATION_MASKING](INCARNATION_MASKING.md): the
+role continues while the runtime verifies who owns it.
 
 ## Presence is evidence, not ownership
 

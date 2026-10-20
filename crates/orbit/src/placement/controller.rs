@@ -29,6 +29,11 @@ impl LockType for ServiceSlot {
 ///
 /// Services supply immutable policy snapshots for their managed generations.
 /// This adapter owns coordination, not a config reader or service policy map.
+///
+/// [INCARNATION_MASKING] separates stable service-slot keys from exact lease
+/// owners; a service declares dispatch intent rather than a worker identity.
+///
+/// [INCARNATION_MASKING]: https://github.com/claviron/claviron/blob/main/docs/design/INCARNATION_MASKING.md
 #[derive(Default)]
 pub struct OrbitDispatcher;
 

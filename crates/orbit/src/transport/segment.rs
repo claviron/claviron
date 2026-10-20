@@ -158,6 +158,10 @@ impl TransportSegment {
 
     /// End the streams of an exited process, never a sibling or a newer
     /// incarnation. This is local ownership recovery, not an application event.
+    /// [INCARNATION_MASKING] requires cleanup of that exact owner, not every
+    /// process that has used the same logical lane.
+    ///
+    /// [INCARNATION_MASKING]: https://github.com/claviron/claviron/blob/main/docs/design/INCARNATION_MASKING.md
     pub fn process_exited(
         &self,
         pid: u32,
