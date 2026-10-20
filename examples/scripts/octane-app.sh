@@ -120,6 +120,10 @@ if [[ -n "${MIMALLOC_PURGE_DELAY+x}" ]]; then
 fi
 
 export "${runtime_env[@]}"
+application_url="${APP_URL:-$(sed -n 's/^APP_URL=//p' .env)}"
+if [[ -n "$application_url" ]]; then
+  printf 'Application URL (through Edge): %s\n' "$application_url"
+fi
 if [[ "$use_sudo" == true ]]; then
   application_unlock
   exec "${launcher[@]}" env "${runtime_env[@]}" \
