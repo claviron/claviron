@@ -31,6 +31,8 @@ pub use pipeline::merged::extensions as extension;
 mod provider;
 #[cfg(feature = "server")]
 pub(crate) mod service;
+#[cfg(feature = "rate-limit")]
+pub use service::quota::HostQuotas;
 #[cfg(feature = "server")]
 pub mod transport;
 
@@ -56,6 +58,22 @@ pub use provider::{
 
 #[cfg(feature = "server")]
 use crate::pipeline::HostAppResolver;
+
+/// Code-owned alternative to a host's `rate_limit` configuration. The supplied
+/// limiter is already prepared and owns its KeyProvider and store lifetime.
+#[cfg(feature = "rate-limit")]
+pub fn register_quota<K: claviron_http::rate_limit::KeyProvider + 'static>(
+    state: &AppState,
+    host: Host,
+    prefix: claviron_http::ext::PathPrefix,
+    limiter: claviron_http::rate_limit::RateLimiter<K>,
+) -> RegistryResult<()> {
+    let hosts = state
+        .registry_ref()
+        .resolve::<HostAppRegistry>()
+        .ok_or_else(|| RegistryError::msg("HostAppRegistry not registered"))?;
+    hosts.register_quota(host, prefix, limiter)
+}
 
 #[cfg(feature = "server")]
 pub fn register(state: &AppState) -> RegistryResult<()> {

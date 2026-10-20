@@ -15,6 +15,7 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 
 [features]
 default = []
+rate-limit = ["server", "claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/quota"]
 acme = ["claviron-http/acme"]
 server = [
     "claviron-http/server",

@@ -15,6 +15,10 @@ categories = ["concurrency", "asynchronous"]
 # unit-test modules included from `src`. Declare real integration tests below.
 autotests = false
 
+[features]
+default = []
+quota = ["orbitive/quota"]
+
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-runtime.workspace = true
@@ -52,6 +56,7 @@ serde_yaml.workspace = true
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
 nix.workspace = true
+tempfile = "3"
 
 [[test]]
 name = "counter_shm"

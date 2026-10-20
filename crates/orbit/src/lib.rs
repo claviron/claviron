@@ -30,6 +30,8 @@ mod fleet;
 pub mod invoke;
 pub mod lock;
 pub mod placement;
+#[cfg(feature = "quota")]
+pub mod quota;
 mod registry;
 pub mod service;
 #[cfg(unix)]

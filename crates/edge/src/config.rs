@@ -22,7 +22,6 @@ use claviron_http::config::cors::CorsConfig;
 pub use claviron_http::config::host::{
     DEFAULT_SERVER_HEADER, HostHeadersConfig, HostUpstreamConfig,
 };
-pub use claviron_http::config::rate_limit::RateLimitConfig;
 #[cfg(feature = "lua")]
 pub use claviron_http::config::routes::JavaScriptWebSocketConfig;
 #[cfg(feature = "lua")]
@@ -57,6 +56,10 @@ use serde::Deserialize;
 
 mod routing;
 pub use routing::RouteConfig;
+#[cfg(feature = "rate-limit")]
+pub mod quota;
+#[cfg(feature = "rate-limit")]
+pub use quota::RateLimitConfig;
 
 /// Host identity/transport plus normalized application route declarations.
 pub struct HostConfig {
@@ -69,6 +72,8 @@ pub struct HostConfig {
     pub(crate) owns_handler: bool,
     pub(crate) selected_static: bool,
     pub(crate) route_acl: Option<acl::AccessLimiter>,
+    #[cfg(feature = "rate-limit")]
+    pub(crate) route_rate_limit: Option<quota::RateLimitConfig>,
 }
 
 impl Deref for HostConfig {
@@ -128,6 +133,9 @@ pub struct HostFields {
     /// Opt-in segment-prefix ACL. `/` is the default; longest match wins.
     /// Runtime compilation and live admission belong to claviron-edge.
     acl: Option<acl::AclConfig>,
+    /// Bounded IP admission before native sessions, routing and bypass dispatch.
+    #[cfg(feature = "rate-limit")]
+    pub rate_limit: Option<quota::RateLimitConfig>,
     /// TLS handshake policy, separate from HTTP transport/request policy.
     #[serde(default)]
     pub tls: HandshakePolicy,
@@ -224,6 +232,8 @@ impl HostConfig {
                 removed_tuning: (),
                 redirect: None,
                 acl: None,
+                #[cfg(feature = "rate-limit")]
+                rate_limit: None,
                 tls: HandshakePolicy::default(),
                 transport: TransportPolicy::default(),
                 requests: RequestPolicyOverride::default(),
@@ -239,6 +249,8 @@ impl HostConfig {
             owns_handler: false,
             selected_static: false,
             route_acl: None,
+            #[cfg(feature = "rate-limit")]
+            route_rate_limit: None,
         }
     }
 

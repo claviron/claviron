@@ -158,6 +158,16 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
             .map(serde_yaml::from_value::<super::acl::AccessLimiter>)
             .transpose()
             .map_err(|error| format!("route '{prefix}' ACL: {error}"))?;
+        #[cfg(feature = "rate-limit")]
+        let route_rate_limit = route
+            .remove(key("rate_limit"))
+            .map(serde_yaml::from_value::<super::quota::RateLimitConfig>)
+            .transpose()
+            .map_err(|error| format!("route '{prefix}' rate_limit: {error}"))?;
+        #[cfg(feature = "rate-limit")]
+        if let Some(definition) = &route_rate_limit {
+            definition.validate()?;
+        }
         if route_acl.is_some()
             && (prefix.contains(['%', '?', '#', '\\'])
                 || prefix.contains("//")
@@ -237,6 +247,10 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
             || (prefix.as_str() == "/" && has_application(&source));
         config.selected_static = selected_static;
         config.route_acl = route_acl;
+        #[cfg(feature = "rate-limit")]
+        {
+            config.route_rate_limit = route_rate_limit;
+        }
         entries.push((prefix.clone(), Arc::new(config)));
         entry_rules.push(prefix.clone());
     }
@@ -291,6 +305,7 @@ fn is_builtin_directive(name: &str) -> bool {
                 | "statics"
                 | "cors"
                 | "headers"
+                | "rate_limit"
         )
 }
 
@@ -298,9 +313,17 @@ fn leaf(
     source: Mapping,
     entry_rules: Vec<PathPrefix>,
 ) -> Result<HostConfig, String> {
+    #[cfg(not(feature = "rate-limit"))]
+    if source.contains_key(key("rate_limit")) {
+        return Err("rate_limit requires the rate-limit feature".into());
+    }
     let mut fields: HostFields = serde_yaml::from_value(Value::Mapping(source))
         .map_err(|error| error.to_string())?;
     let mut extensions = std::mem::take(&mut fields.directives);
+    #[cfg(feature = "rate-limit")]
+    if let Some(rate_limit) = &fields.rate_limit {
+        rate_limit.validate()?;
+    }
     // Nested flattened structs may leave their recognized keys visible to a
     // sibling flattened map. Only provider directives belong to that map.
     extensions.retain(|name, _| !is_builtin_directive(name));
@@ -313,6 +336,8 @@ fn leaf(
         owns_handler: false,
         selected_static: false,
         route_acl: None,
+        #[cfg(feature = "rate-limit")]
+        route_rate_limit: None,
     })
 }
 
@@ -335,6 +360,7 @@ fn validate(
             "orbit" => cfg!(feature = "orbit"),
             "upstream" => cfg!(feature = "upstream"),
             "broadcast" | "pusher" => cfg!(feature = "broadcast"),
+            "rate_limit" => cfg!(feature = "rate-limit"),
             _ => true,
         };
         if !supported {

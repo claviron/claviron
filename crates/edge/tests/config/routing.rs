@@ -30,3 +30,19 @@ fn flat_root_php_remains_a_builtin_owner() {
     assert_eq!(root.php.as_ref().unwrap().len(), 1);
     assert_eq!(root.index, ["index.php"]);
 }
+#[cfg(not(feature = "rate-limit"))]
+#[test]
+fn disabled_rate_limit_is_rejected_instead_of_silently_ignored() {
+    for source in [
+        "root: public\nrate_limit: {}\n",
+        "root: public\nroutes:\n  /api:\n    rate_limit: {}\n",
+    ] {
+        let error = serde_yaml::from_str::<crate::config::HostConfig>(source)
+            .err()
+            .unwrap();
+        assert!(
+            error.to_string().contains("rate-limit")
+                || error.to_string().contains("not enabled")
+        );
+    }
+}

@@ -15,6 +15,8 @@ pub mod listener;
 #[cfg(feature = "metrics")]
 pub mod metrics;
 pub mod policy;
+#[cfg(feature = "rate-limit")]
+pub mod rate_limit;
 pub mod resolvers;
 #[cfg(feature = "routing")]
 pub mod routing;

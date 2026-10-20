@@ -85,6 +85,68 @@ Application dispatch follows admission; choosing an Axum-free handler does not
 skip those checks. Forwarded origin information is distinct from physical peer
 identity and follows the configured trust policy.
 
+## Rate admission
+
+Select the facade's `rate-limit` feature alongside `edge`. A host's
+`rate_limit` is compiled into a prepared IP limiter, not an Axum extension:
+
+```yaml
+example.test:
+  root: public
+  rate_limit:
+    namespace: public
+    cost: 1
+    quota:
+      units: 20
+      period: 1s
+      burst: 40
+      table: {slots: 1024, shards: 16, key_bytes: 64, probes: 8}
+      cas_attempts: 64
+      store: {mode: local_guard}
+```
+
+These values are example declarations, not implicit defaults. `local_guard`
+has an independent budget per process. To share one host-wide budget, select
+`fleet_guard` or `fleet_quota` and declare the shared resource:
+
+```yaml
+store:
+  mode: fleet_guard
+  resource: {fleet: example, kind: 0}
+  owners: 32
+  recovery_attempts: 0
+```
+
+Each limit definition needs its own SHM resource in a dedicated quota namespace,
+not the runtime fleet. Peers must use identical policy/geometry; incompatible
+state is rejected, never cleared. Guards can discard cold key debt; FleetQuota
+retains live debt. Neither mode divides the budget by worker count.
+
+An explicit route may declare its own `rate_limit`. The longest matching
+declaration selects one store; otherwise the host declaration applies. Aliases
+share their canonical host's prepared limiter. No declaration means no quota
+processing. Limits run after trusted IP/ACL admission and host replies, before
+body adaptation, native session acceptance, static files and the Axum/bypass fork.
+This limits HTTP requests and socket handshakes, not messages inside an accepted
+WS/WT session or the earlier TLS/QUIC handshake.
+
+Code can instead attach its own prepared limiter at exactly that boundary:
+
+```rust,ignore
+edge::register_quota(state, host, PathPrefix::root(), limiter)?;
+```
+
+`limiter` is an HTTP `RateLimiter<K>` retaining its own store and `KeyProvider`.
+Register before the first host preparation. A duplicate host/prefix or a
+config/Rust collision is an error, not an override. Config currently uses
+`IpKey` only; auth-provider config and embed APIs are separate work.
+
+Unchanged host preparation reuses the budget. Changing a live limit requires a
+process restart; quota reload is not supported. Configuration checks validate
+structure without opening quota SHM. Runtime opening also verifies native
+atomics, clock and persisted state compatibility. No publication or runtime
+validation is implied by this source API.
+
 ## Lua browser socket admission
 
 Each `lua:` application route selects `origin: any` (the default, no Origin
@@ -179,7 +241,8 @@ registry lookup.
 `claviron::edge::extension` exposes the generic directive, condition and layer
 contracts with the ordinary Axum routing surface; no separate extension feature
 is required. Applications and frameworks own concrete directives such as AJAX
-admission, CSRF and rate limits, including their errors and response policy.
+admission and CSRF, including their errors and response policy. Built-in rate
+admission uses the separate host quota boundary described above.
 Register them through `Server::with_edge_extension`, `HostAppRegistry` or a
 matched `Routable` provider. Claviron installs no application policy implicitly.
 

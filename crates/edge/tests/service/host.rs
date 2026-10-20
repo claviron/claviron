@@ -93,6 +93,97 @@ fn request(path: &str) -> Request<()> {
         .unwrap()
 }
 
+#[cfg(feature = "rate-limit")]
+#[test]
+fn quota_admission_is_shared_by_native_protocols_and_precedes_body_dispatch() {
+    use crate::HostConfig;
+    use crate::service::quota::QuotaRegistrations;
+    use claviron_http::rate_limit::{IpKey, RateLimiter};
+    use claviron_orbit::quota::{Quota, QuotaBacking, QuotaConfig, QuotaTable};
+    use std::num::{NonZeroU64, NonZeroUsize};
+
+    let store = Quota::new(QuotaConfig {
+        units: NonZeroU64::new(1).unwrap(),
+        period: std::time::Duration::from_secs(3600),
+        burst: NonZeroU64::new(1).unwrap(),
+        table: QuotaTable {
+            slots: NonZeroUsize::new(8).unwrap(),
+            shards: NonZeroUsize::new(1).unwrap(),
+            key_bytes: NonZeroUsize::new(64).unwrap(),
+            probes: NonZeroUsize::new(8).unwrap(),
+        },
+        cas_attempts: NonZeroUsize::new(64).unwrap(),
+        store: QuotaBacking::LocalGuard {},
+    })
+    .unwrap();
+    let limiter = RateLimiter::new(
+        store,
+        IpKey,
+        b"test".as_slice(),
+        NonZeroU64::new(1).unwrap(),
+    )
+    .unwrap();
+    let host = HostConfig::new("public");
+    let mut registrations = QuotaRegistrations::default();
+    registrations
+        .register(
+            "app.test".parse().unwrap(),
+            claviron_http::ext::PathPrefix::root(),
+            limiter,
+        )
+        .unwrap();
+    let quotas = registrations
+        .prepare(false, &"app.test".parse().unwrap(), &host, None)
+        .unwrap();
+    let mut app: HostApp = AppKind::Bypass(BypassService::Noop).into();
+    app.quotas = quotas;
+    let protocols = [HttpProtocol::H1, HttpProtocol::H2];
+    for (index, protocol) in protocols.into_iter().enumerate() {
+        let service = service_with_limits(
+            protocol,
+            "",
+            app.clone(),
+            RequestPolicy::unlimited(),
+        );
+        let mut request = request("/");
+        // Native admission replaces an arbitrary preexisting extension using
+        // its accepted listener's trusted proxy policy.
+        request
+            .extensions_mut()
+            .insert(RealIpExt("192.0.2.99".parse().unwrap()));
+        request.headers_mut().insert("x-real-ip", "192.0.2.1".parse().unwrap());
+        let reply = service.prepare(request, RequestArrival::Established);
+        if index == 0 {
+            assert!(reply.is_ok());
+        } else {
+            assert_eq!(
+                reply.err().unwrap().into_response().status(),
+                StatusCode::TOO_MANY_REQUESTS
+            );
+        }
+    }
+    #[cfg(feature = "http3")]
+    {
+        let service = service_with_limits(
+            HttpProtocol::H3,
+            "",
+            app,
+            RequestPolicy::unlimited(),
+        );
+        let mut request = request("/");
+        request.headers_mut().insert("x-real-ip", "192.0.2.1".parse().unwrap());
+        assert_eq!(
+            service
+                .prepare(request, RequestArrival::Established)
+                .err()
+                .unwrap()
+                .into_response()
+                .status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
+}
+
 /// A host narrows the listener's body ceiling and can never widen it.
 ///
 /// Resolved once, where the host becomes known, so the four places that
@@ -649,6 +740,8 @@ async fn admission_holds_on_the_bypass_path() {
         admission: Admission::limited(Some(1)),
         exchange_policy: None,
         server_header: None,
+        #[cfg(feature = "rate-limit")]
+        quotas: None,
     };
     let listener = RequestPolicy {
         // Short, and real: the test waits them out.

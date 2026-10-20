@@ -28,6 +28,8 @@ application = ["runtime", "dep:claviron-app"]
 clients = ["orbitive/client-pool", "dep:serde", "dep:humantime-serde"]
 clients-fleet = ["clients", "orbitive/client-pool-fleet"]
 http = ["runtime", "dep:claviron-http"]
+# Bounded request-rate admission, independent of Axum and application engines.
+rate-limit = ["http", "dep:claviron-orbit", "claviron-orbit/quota", "claviron-http/rate-limit", "claviron-edge?/rate-limit"]
 axum = ["http", "claviron-http/axum", "dep:axum", "claviron-php-embed?/axum", "claviron-runner?/axum"]
 # Native benchmark handlers. Adapt existing compositions without selecting one.
 bench = ["axum", "dep:serde", "dep:async-trait"]
@@ -456,7 +458,7 @@ h3-webtransport = { package = "h3-webtransport-forked", version = "0.0.3" }
 
 # ── Published sibling libraries shared through workspace dependencies ──
 # Bounded state and shared-memory coordination across fleet processes.
-orbitive = { version = "0.5.5", default-features = false }
+orbitive = { version = "0.5.5", path = "../orbitive", default-features = false }
 # Typed service registry, lifecycle ordering and process-local events.
 continuo = { version = "0.9.0", default-features = false, features = ["registry", "support", "events", "config", "fleet"] }
 # Typed configuration loading, composition and reload notifications.

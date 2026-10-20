@@ -10,7 +10,12 @@ use super::RequestRejection;
 #[derive(Debug, Eq, PartialEq)]
 pub enum HostResponse {
     Rejected(RequestRejection),
-    Redirect { status: StatusCode, location: HeaderValue },
+    #[cfg(feature = "rate-limit")]
+    Quota(claviron_http::rate_limit::Rejection),
+    Redirect {
+        status: StatusCode,
+        location: HeaderValue,
+    },
 }
 
 impl From<RequestRejection> for HostResponse {
@@ -23,6 +28,8 @@ impl HostResponse {
     pub fn into_response(self) -> Response<()> {
         let mut response = Response::new(());
         *response.status_mut() = match self {
+            #[cfg(feature = "rate-limit")]
+            Self::Quota(reply) => return reply.into_response(),
             Self::Rejected(reason) => reason.status(),
             Self::Redirect { status, location } => {
                 response.headers_mut().insert(LOCATION, location);

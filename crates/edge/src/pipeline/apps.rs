@@ -160,6 +160,8 @@ pub struct HostApp {
     pub exchange_policy: Option<Arc<crate::service::ExchangePolicy>>,
     /// Baseline response identity, separate from optional CORS/header policy.
     pub server_header: Option<http::HeaderValue>,
+    #[cfg(feature = "rate-limit")]
+    pub quotas: Option<Arc<crate::HostQuotas>>,
 }
 
 /// An application with no admission limit — a host built outside a
@@ -171,6 +173,8 @@ impl From<AppKind> for HostApp {
             admission: Admission::default(),
             exchange_policy: None,
             server_header: None,
+            #[cfg(feature = "rate-limit")]
+            quotas: None,
         }
     }
 }
@@ -603,9 +607,29 @@ pub struct HostAppRegistry {
         Vec<Arc<dyn claviron_http::routing::RouteExtension<HostConfig>>>,
     >,
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
+    #[cfg(feature = "rate-limit")]
+    quotas: RwLock<crate::service::quota::QuotaRegistrations>,
 }
 
 impl HostAppRegistry {
+    /// Bind a prepared limiter to this canonical host/prefix. It runs at the
+    /// same head-admission point as config, before Axum, bypass or sessions.
+    /// Register before the first host preparation; duplicate config/Rust
+    /// definitions are errors. The limiter retains its own KeyProvider.
+    #[cfg(feature = "rate-limit")]
+    pub fn register_quota<
+        K: claviron_http::rate_limit::KeyProvider + 'static,
+    >(
+        &self,
+        host: Host,
+        prefix: claviron_http::ext::PathPrefix,
+        limiter: claviron_http::rate_limit::RateLimiter<K>,
+    ) -> Result<()> {
+        self.quotas
+            .write()
+            .expect("quota registration lock poisoned")
+            .register(host, prefix, limiter)
+    }
     /// Register a host-independent directive compiler before snapshot build.
     #[cfg(feature = "axum")]
     pub fn register_route_extension(
@@ -1197,6 +1221,13 @@ impl HostAppRegistry {
                 Error::msg(format!("invalid Server header: {error}"))
             })?;
         let mut snapshot = HostAppSnapshot::default();
+        #[cfg(feature = "rate-limit")]
+        let quotas = {
+            let mut quotas =
+                self.quotas.write().expect("quota registration lock poisoned");
+            quotas.seal(state.fleet_name(), table)?;
+            quotas.clone()
+        };
         let mut custom_bindings = HashMap::<Host, Binding>::new();
         let custom_bindings_snapshot =
             self.inner.read().expect("host app registry lock poisoned").clone();
@@ -1217,6 +1248,18 @@ impl HostAppRegistry {
         }
 
         for (canonical, record) in table.canonical_entries() {
+            #[cfg(feature = "rate-limit")]
+            let host_quotas = quotas.prepare(
+                state
+                    .registry_ref()
+                    .resolve::<claviron_runtime::ConfigCheck>()
+                    .is_some(),
+                canonical,
+                &record.config,
+                previous
+                    .and_then(|snapshot| snapshot.map.get(canonical))
+                    .map(|app| &app.quotas),
+            )?;
             if let Some(previous) = previous
                 && previous
                     .configs
@@ -1350,6 +1393,8 @@ impl HostAppRegistry {
                 admission: Admission::limited(max_concurrent_requests),
                 exchange_policy,
                 server_header,
+                #[cfg(feature = "rate-limit")]
+                quotas: host_quotas,
             };
             snapshot.configs.insert(canonical.clone(), record.config.clone());
             for host in table.host_keys_for_canonical(canonical) {
@@ -1657,3 +1702,7 @@ fn build_config_upstream_bypass(
 #[cfg(all(test, feature = "lua", feature = "websocket"))]
 #[path = "../../tests/pipeline/apps.rs"]
 mod websocket_tests;
+
+#[cfg(all(test, feature = "rate-limit"))]
+#[path = "../../tests/pipeline/quota.rs"]
+mod quota_tests;

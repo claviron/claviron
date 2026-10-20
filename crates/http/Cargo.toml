@@ -15,6 +15,7 @@ categories = ["web-programming::http-server", "web-programming::websocket", "asy
 
 [features]
 default = []
+rate-limit = ["dep:claviron-orbit", "claviron-orbit/quota"]
 # Route declarations only; these do not enable execution engines or drivers.
 js = []
 lua = []

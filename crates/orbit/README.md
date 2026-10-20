@@ -61,6 +61,25 @@ binding and managed allocation lifetime. [Fleet awareness](../../docs/design/FLE
 defines the same-OS scope; [Orbit Link](../../docs/design/ORBIT_LINK.md) describes
 how independently running applications communicate within it.
 
+## Quota stores
+
+The opt-in `quota` capability prepares a `quota::Quota` from an explicit
+`QuotaConfig`. It selects `LocalGuard`, `FleetGuard`, or `FleetQuota` from
+Orbitive without defining HTTP identity or authentication. Local constructors
+create independent budgets; clones share one budget. Matching SHM resource
+identities attach to preserved fleet debt.
+
+Every definition declares rate, burst, table geometry and CAS work budget.
+Fleet modes additionally declare a quota-owned namespace/kind, owner capacity
+and recovery budget. Keep that namespace separate from the runtime fleet and
+other resources. Opening/dropping a store never resets or unlinks committed
+debt. A store is an owned handle, not a runnable task or a background poller.
+
+Guards may replace cold keys under table pressure; strict FleetQuota retains
+live debt and may refuse new keys. Busy, capacity and clock failures never
+grant permission. HTTP key selection and status mapping live in
+[`claviron-http`](../http/README.md); host/config binding lives in Edge.
+
 ## Events and invocations
 
 The process-local event bus and fleet event transport are distinct. Cross-process

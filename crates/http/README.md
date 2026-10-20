@@ -70,6 +70,26 @@ proxies, strip hop-by-hop headers, and validate proxy framing boundaries. The
 authority parser checks request-head consistency without polling the body;
 matching that authority to an accepted TLS host remains Edge admission policy.
 
+## Rate admission
+
+The opt-in `rate-limit` capability exposes `rate_limit::RateLimiter<K>` without
+Axum, Edge or a language runner. Supply a prepared Orbit `Quota`, a namespace,
+an explicit positive request cost and one `KeyProvider` instance. There is no
+system-wide key provider. Custom implementations return bounded opaque bytes;
+they own any application identity policy and must not use raw secrets as keys.
+
+`IpKey` reads the trusted `RealIpExt`, not request forwarding headers, and
+formats binary keys without allocation. Custom providers also receive the
+parsed method, URI, headers and extensions; they neither receive nor poll a body.
+
+`check` returns the authoritative quota decision or a typed error. The optional
+`Rejection::from_result` adapter produces an empty protocol reply: exhausted
+allowance is 429 with rounded-up Retry-After, Busy/full is 503 without an
+invented retry duration, and infrastructure/setup failures are 500. No call
+waits or retries, and accepted cost is not refunded on downstream failure.
+The store reports no remaining-count snapshot, so no approximate
+`X-RateLimit-Remaining` header is fabricated.
+
 ## Named listeners and policy
 
 The configuration types describe named TCP and QUIC groups in `http.yaml`.

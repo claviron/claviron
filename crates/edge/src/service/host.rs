@@ -187,6 +187,10 @@ impl HostService {
             request.uri(),
             connection.real_ip.ok_or(RequestRejection::MissingIdentity)?,
         )?;
+        #[cfg(feature = "rate-limit")]
+        if let Some(quotas) = &self.app.quotas {
+            quotas.check(&request)?;
+        }
         // Resolved here because this is the one place a host is known and a
         // `PreparedRequest` is made, once per request on both transports; the
         // sites that enforce a limit then read one policy instead of choosing

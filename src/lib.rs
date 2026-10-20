@@ -42,7 +42,7 @@ pub use claviron_http::upgrade as websocket;
 pub use claviron_logging as logging;
 #[cfg(feature = "lua")]
 pub use claviron_lua as lua;
-#[cfg(feature = "orbit")]
+#[cfg(any(feature = "orbit", feature = "rate-limit"))]
 pub use claviron_orbit as orbit;
 #[cfg(feature = "php")]
 pub use claviron_php as php;
