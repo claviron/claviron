@@ -106,6 +106,7 @@ pub struct LuaApplication {
     permits: Arc<Semaphore>,
     concurrency: usize,
     waiting: Semaphore,
+    #[cfg(feature = "websocket")]
     socket: SocketConfig,
 }
 
@@ -175,6 +176,7 @@ impl LuaApplication {
             fetch,
             permits: Arc::new(Semaphore::new(config.concurrency)),
             concurrency: config.concurrency,
+            #[cfg(feature = "websocket")]
             socket: config.websocket,
             waiting: Semaphore::new(config.max_waiting),
         })
@@ -192,6 +194,7 @@ impl LuaApplication {
     /// The handlers its sockets are served by — `websocket` on the table the
     /// module returned, or what `router:websocket` was given — looked up
     /// when a socket opens, so a module may set them after it returns.
+    #[cfg(feature = "websocket")]
     pub(crate) fn websocket_handlers(&self) -> mlua::Result<Option<Table>> {
         match &self.served {
             Value::Table(table) => table.get("websocket"),
@@ -203,18 +206,22 @@ impl LuaApplication {
         }
     }
 
+    #[cfg(feature = "websocket")]
     pub(crate) fn socket_config(&self) -> SocketConfig {
         self.socket
     }
 
+    #[cfg(feature = "websocket")]
     pub(crate) fn lua(&self) -> &Lua {
         &self.lua
     }
 
+    #[cfg(feature = "websocket")]
     pub(crate) fn execution(&self) -> &Arc<Execution> {
         &self.execution
     }
 
+    #[cfg(feature = "websocket")]
     pub(crate) fn semaphore(&self) -> &Arc<Semaphore> {
         &self.permits
     }
