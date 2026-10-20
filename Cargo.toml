@@ -10,7 +10,7 @@ publish.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-include.workspace = true
+include = ["/src/**", "/build.rs", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
 
 
 [features]
