@@ -488,7 +488,7 @@ impl H3Server {
                             continue;
                         }
                         Err(err) => {
-                            error!("❌ H3 resolve_request failed: {err:?}");
+                            super::error::log_stream_error(&err, "resolve_request");
                             continue;
                         }
                     };
@@ -577,7 +577,7 @@ impl H3Server {
                             sessions.close();
                         }
                         Err(err) => {
-                            if err.is_h3_no_error() {
+                            if super::error::normal_connection_close(&err) {
                                 debug!("🔹 H3 connection closed from={}", remote.ip());
                             } else {
                                 warn!(

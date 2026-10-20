@@ -14,6 +14,7 @@
 //! or the axum-free bypass chain. There is no sidecar proxy between QUIC and
 //! the application pipeline.
 
+mod error;
 mod listener;
 mod tls;
 mod types;

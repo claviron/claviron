@@ -3,6 +3,7 @@
 
 use std::pin::Pin;
 
+use super::error::{log_stream_error, request_interrupted};
 use crate::transport::{
     HostResponse, HostService, RequestArrival, RequestRejection,
 };
@@ -24,6 +25,7 @@ pub(crate) type H3RequestStream<Q> =
 enum BodyErrorKind {
     Malformed,
     TooLarge,
+    Interrupted,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -43,6 +45,22 @@ impl RequestBodyError {
     const fn kind(self) -> BodyErrorKind {
         self.kind
     }
+
+    fn from_stream_error(error: &h3::error::StreamError) -> Self {
+        if request_interrupted(error) {
+            Self { kind: BodyErrorKind::Interrupted }
+        } else {
+            Self::malformed()
+        }
+    }
+
+    const fn response_status(self) -> Option<StatusCode> {
+        match self.kind {
+            BodyErrorKind::Malformed => Some(StatusCode::BAD_REQUEST),
+            BodyErrorKind::TooLarge => Some(StatusCode::PAYLOAD_TOO_LARGE),
+            BodyErrorKind::Interrupted => None,
+        }
+    }
 }
 
 impl std::fmt::Display for RequestBodyError {
@@ -56,6 +74,9 @@ impl std::fmt::Display for RequestBodyError {
             }
             BodyErrorKind::TooLarge => {
                 f.write_str("HTTP/3 request body exceeds configured limit")
+            }
+            BodyErrorKind::Interrupted => {
+                f.write_str("HTTP/3 request transport ended")
             }
         }
     }
@@ -140,7 +161,7 @@ async fn finish_response_stream<S>(
     S: h3::quic::SendStream<Bytes>,
 {
     if let Err(err) = stream.finish().await {
-        error!("❌ H3 stream finish failed while {context}: {err:?}");
+        log_stream_error(&err, context);
     }
 }
 
@@ -175,7 +196,7 @@ async fn send_head_response<S>(
 {
     let status = response.status();
     if let Err(err) = stream.send_response(response).await {
-        error!("❌ H3 send_response failed while sending {}: {err:?}", status);
+        log_stream_error(&err, &format!("send status response {status}"));
         return;
     }
 
@@ -216,15 +237,15 @@ where
             }
             Ok(None) => break,
             Err(err) => {
-                error!("❌ H3 recv_data failed: {err:?}");
-                return Err(RequestBodyError::malformed());
+                log_stream_error(&err, "recv_data");
+                return Err(RequestBodyError::from_stream_error(&err));
             }
         }
     }
 
     if let Err(err) = stream.recv_trailers().await {
-        error!("❌ H3 recv_trailers failed: {err:?}");
-        return Err(RequestBodyError::malformed());
+        log_stream_error(&err, "recv_trailers");
+        return Err(RequestBodyError::from_stream_error(&err));
     }
 
     Ok(body_bytes.freeze())
@@ -286,15 +307,16 @@ where
                     }
                     Ok(None) => Ok(None),
                     Err(err) => {
-                        error!(
-                            "❌ H3 recv_trailers failed after streaming body end: {err:?}"
+                        log_stream_error(
+                            &err,
+                            "recv_trailers after streaming body",
                         );
-                        Err(RequestBodyError::malformed())
+                        Err(RequestBodyError::from_stream_error(&err))
                     }
                 },
                 Err(err) => {
-                    error!("❌ H3 recv_data failed: {err:?}");
-                    Err(RequestBodyError::malformed())
+                    log_stream_error(&err, "recv_data");
+                    Err(RequestBodyError::from_stream_error(&err))
                 }
             }
         },
@@ -329,7 +351,7 @@ where
                             if let Err(err) =
                                 stream.send_data(data.clone()).await
                             {
-                                error!("❌ H3 send_data failed: {err:?}");
+                                log_stream_error(&err, "send_data");
                                 ok = false;
                                 break;
                             }
@@ -343,9 +365,7 @@ where
                                     if let Err(err) =
                                         stream.send_trailers(trailers).await
                                     {
-                                        error!(
-                                            "❌ H3 send_trailers failed: {err:?}"
-                                        );
+                                        log_stream_error(&err, "send_trailers");
                                         ok = false;
                                     }
                                     break;
@@ -373,7 +393,7 @@ where
             ok
         }
         Err(err) => {
-            error!("❌ H3 send_response failed: {err:?}");
+            log_stream_error(&err, "send_response");
             false
         }
     }
@@ -421,6 +441,14 @@ impl H3RequestHandler {
                 return;
             }
         };
+        // WebTransport has its native accept path in the listener. WebSocket
+        // CONNECT is not implemented over H3; it must not enter body buffering.
+        if unsupported_websocket_connect(prepared.request()) {
+            send_status_response(&mut stream, StatusCode::NOT_IMPLEMENTED)
+                .await;
+            stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+            return;
+        }
         // The listener's ceiling, already narrowed by this host. Resolved once
         // in `HostService::prepare_context`, so every enforcement point below
         // reads one number rather than choosing between two.
@@ -508,6 +536,12 @@ fn host_response(reply: HostResponse) -> Response<()> {
     response
 }
 
+fn unsupported_websocket_connect(request: &Request<()>) -> bool {
+    request.method() == http::Method::CONNECT
+        && request.extensions().get::<h3::ext::Protocol>()
+            == Some(&h3::ext::Protocol::WEBSOCKET)
+}
+
 async fn reject_body<S>(
     stream: &mut h3::server::RequestStream<S, Bytes>,
     error: RequestBodyError,
@@ -516,15 +550,15 @@ async fn reject_body<S>(
 ) where
     S: h3::quic::RecvStream + h3::quic::SendStream<Bytes>,
 {
-    let status = match error.kind() {
-        BodyErrorKind::TooLarge => {
-            warn!(method = %request.method(), uri = %request.uri(), max_body_size,
-                "H3 request body exceeds the accepted listener limit");
-            stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
-            StatusCode::PAYLOAD_TOO_LARGE
-        }
-        BodyErrorKind::Malformed => StatusCode::BAD_REQUEST,
+    let Some(status) = error.response_status() else {
+        // The transport is gone, not malformed. There is no peer to send 400 to.
+        return;
     };
+    if error.kind() == BodyErrorKind::TooLarge {
+        warn!(method = %request.method(), uri = %request.uri(), max_body_size,
+                "H3 request body exceeds the accepted listener limit");
+        stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+    }
     send_status_response(stream, status).await;
 }
 

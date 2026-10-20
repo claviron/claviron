@@ -1,6 +1,40 @@
 use super::*;
 
 #[test]
+fn interrupted_body_does_not_generate_a_bad_request_response() {
+    assert_eq!(
+        RequestBodyError { kind: BodyErrorKind::Interrupted }.response_status(),
+        None
+    );
+    assert_eq!(
+        RequestBodyError::malformed().response_status(),
+        Some(StatusCode::BAD_REQUEST)
+    );
+    assert_eq!(
+        RequestBodyError::too_large().response_status(),
+        Some(StatusCode::PAYLOAD_TOO_LARGE)
+    );
+}
+
+#[test]
+fn unsupported_websocket_connect_is_decided_from_the_head_only() {
+    let mut request = Request::builder()
+        .method(http::Method::CONNECT)
+        .uri("https://example.test/socket")
+        .body(())
+        .unwrap();
+    request.extensions_mut().insert(h3::ext::Protocol::WEBSOCKET);
+    assert!(unsupported_websocket_connect(&request));
+    request.extensions_mut().insert(h3::ext::Protocol::WEB_TRANSPORT);
+    assert!(!unsupported_websocket_connect(&request));
+    request.extensions_mut().remove::<h3::ext::Protocol>();
+    assert!(!unsupported_websocket_connect(&request));
+    *request.method_mut() = http::Method::GET;
+    request.extensions_mut().insert(h3::ext::Protocol::WEBSOCKET);
+    assert!(!unsupported_websocket_connect(&request));
+}
+
+#[test]
 fn declared_body_limits_reject_before_body_adaptation() {
     for (value, expected) in [
         ("16", Ok(Some(16))),
