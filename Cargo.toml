@@ -268,7 +268,7 @@ resolver = "3"
 
 [workspace.package]
 edition = "2024"
-version = "0.2.0-alpha.19"
+version = "0.2.0-alpha.20"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/claviron/claviron"
 homepage = "https://github.com/claviron"
@@ -287,35 +287,35 @@ publish = true
 # to our fork when needed — keep both in sync.
 
 # ── Internal workspace crates ────────────────────────────────────────
-claviron-app = { version = "0.2.0-alpha.19", path = "crates/app" }
-claviron-auth = { version = "0.2.0-alpha.19", path = "crates/auth" }
-claviron-broadcast = { version = "0.2.0-alpha.19", path = "crates/broadcast" }
-claviron-cache = { version = "0.2.0-alpha.19", path = "crates/cache" }
-claviron-db = { version = "0.2.0-alpha.19", path = "crates/db" }
-claviron-edge = { version = "0.2.0-alpha.19", path = "crates/edge" }
-claviron-ffi = { version = "0.2.0-alpha.19", path = "crates/ffi" }
-claviron-files = { version = "0.2.0-alpha.19", path = "crates/files" }
-claviron-geoip = { version = "0.2.0-alpha.19", path = "crates/geoip" }
-claviron-helpers = { version = "0.2.0-alpha.19", path = "crates/helpers" }
-claviron-hosting = { version = "0.2.0-alpha.19", path = "crates/hosting" }
-claviron-http = { version = "0.2.0-alpha.19", path = "crates/http" }
-claviron-logging = { version = "0.2.0-alpha.19", path = "crates/logging" }
-claviron-lua = { version = "0.2.0-alpha.19", path = "crates/lua" }
-claviron-macros = { version = "0.2.0-alpha.19", path = "crates/macros" }
-claviron-orbit = { version = "0.2.0-alpha.19", path = "crates/orbit" }
-claviron-php = { version = "0.2.0-alpha.19", path = "crates/php" }
-claviron-php-embed = { version = "0.2.0-alpha.19", path = "crates/php-embed" }
-claviron-php-fcgi = { version = "0.2.0-alpha.19", path = "crates/php-fcgi" }
-claviron-pusher = { version = "0.2.0-alpha.19", path = "crates/pusher" }
-claviron-resolver = { version = "0.2.0-alpha.19", path = "crates/resolver" }
-claviron-runner = { version = "0.2.0-alpha.19", path = "crates/runner" }
-claviron-runtime = { version = "0.2.0-alpha.19", path = "crates/runtime" }
-claviron-supervisor = { version = "0.2.0-alpha.19", path = "crates/supervisor" }
-claviron-sys = { version = "0.2.0-alpha.19", path = "crates/sys" }
-claviron-tasks = { version = "0.2.0-alpha.19", path = "crates/tasks" }
-claviron-tls = { version = "0.2.0-alpha.19", path = "crates/tls" }
-claviron-types = { version = "0.2.0-alpha.19", path = "crates/types" }
-claviron-upstream = { version = "0.2.0-alpha.19", path = "crates/upstream" }
+claviron-app = { version = "0.2.0-alpha.20", path = "crates/app" }
+claviron-auth = { version = "0.2.0-alpha.20", path = "crates/auth" }
+claviron-broadcast = { version = "0.2.0-alpha.20", path = "crates/broadcast" }
+claviron-cache = { version = "0.2.0-alpha.20", path = "crates/cache" }
+claviron-db = { version = "0.2.0-alpha.20", path = "crates/db" }
+claviron-edge = { version = "0.2.0-alpha.20", path = "crates/edge" }
+claviron-ffi = { version = "0.2.0-alpha.20", path = "crates/ffi" }
+claviron-files = { version = "0.2.0-alpha.20", path = "crates/files" }
+claviron-geoip = { version = "0.2.0-alpha.20", path = "crates/geoip" }
+claviron-helpers = { version = "0.2.0-alpha.20", path = "crates/helpers" }
+claviron-hosting = { version = "0.2.0-alpha.20", path = "crates/hosting" }
+claviron-http = { version = "0.2.0-alpha.20", path = "crates/http" }
+claviron-logging = { version = "0.2.0-alpha.20", path = "crates/logging" }
+claviron-lua = { version = "0.2.0-alpha.20", path = "crates/lua" }
+claviron-macros = { version = "0.2.0-alpha.20", path = "crates/macros" }
+claviron-orbit = { version = "0.2.0-alpha.20", path = "crates/orbit" }
+claviron-php = { version = "0.2.0-alpha.20", path = "crates/php" }
+claviron-php-embed = { version = "0.2.0-alpha.20", path = "crates/php-embed" }
+claviron-php-fcgi = { version = "0.2.0-alpha.20", path = "crates/php-fcgi" }
+claviron-pusher = { version = "0.2.0-alpha.20", path = "crates/pusher" }
+claviron-resolver = { version = "0.2.0-alpha.20", path = "crates/resolver" }
+claviron-runner = { version = "0.2.0-alpha.20", path = "crates/runner" }
+claviron-runtime = { version = "0.2.0-alpha.20", path = "crates/runtime" }
+claviron-supervisor = { version = "0.2.0-alpha.20", path = "crates/supervisor" }
+claviron-sys = { version = "0.2.0-alpha.20", path = "crates/sys" }
+claviron-tasks = { version = "0.2.0-alpha.20", path = "crates/tasks" }
+claviron-tls = { version = "0.2.0-alpha.20", path = "crates/tls" }
+claviron-types = { version = "0.2.0-alpha.20", path = "crates/types" }
+claviron-upstream = { version = "0.2.0-alpha.20", path = "crates/upstream" }
 
 # ── Async runtime & primitives ───────────────────────────────────────
 arc-swap = "1.9"
@@ -458,7 +458,7 @@ h3-webtransport = { package = "h3-webtransport-forked", version = "0.0.3" }
 
 # ── Published sibling libraries shared through workspace dependencies ──
 # Bounded state and shared-memory coordination across fleet processes.
-orbitive = { version = "0.5.5", path = "../orbitive", default-features = false }
+orbitive = { version = "0.5.6", default-features = false }
 # Typed service registry, lifecycle ordering and process-local events.
 continuo = { version = "0.9.0", default-features = false, features = ["registry", "support", "events", "config", "fleet"] }
 # Typed configuration loading, composition and reload notifications.
