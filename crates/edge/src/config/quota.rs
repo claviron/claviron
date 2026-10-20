@@ -12,6 +12,9 @@ pub struct RateLimitConfig {
     /// Key namespace inside this definition's independent store.
     pub namespace: String,
     pub cost: NonZeroU64,
+    /// Successful replies report this limiter's admission snapshot. Off by default.
+    #[serde(default)]
+    pub headers: bool,
     pub quota: QuotaConfig,
 }
 

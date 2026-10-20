@@ -188,9 +188,10 @@ impl HostService {
             connection.real_ip.ok_or(RequestRejection::MissingIdentity)?,
         )?;
         #[cfg(feature = "rate-limit")]
-        if let Some(quotas) = &self.app.quotas {
-            quotas.check(&request)?;
-        }
+        let quota_snapshot = match &self.app.quotas {
+            Some(quotas) => quotas.check(&request)?,
+            None => None,
+        };
         // Resolved here because this is the one place a host is known and a
         // `PreparedRequest` is made, once per request on both transports; the
         // sites that enforce a limit then read one policy instead of choosing
@@ -207,6 +208,8 @@ impl HostService {
             connection,
             access,
             policy,
+            #[cfg(feature = "rate-limit")]
+            quota_snapshot,
         })
     }
 }
@@ -248,9 +251,17 @@ pub struct PreparedRequest<B> {
     /// The listener's policy, both sides, already narrowed by this host.
     /// Computed once in [`HostService::prepare_context`].
     policy: HttpPolicy,
+    #[cfg(feature = "rate-limit")]
+    quota_snapshot: Option<claviron_http::rate_limit::Snapshot>,
 }
 
 impl<B> PreparedRequest<B> {
+    #[cfg(feature = "rate-limit")]
+    pub(crate) fn quota_snapshot(
+        &self
+    ) -> Option<claviron_http::rate_limit::Snapshot> {
+        self.quota_snapshot
+    }
     pub fn request(&self) -> &Request<B> {
         &self.request
     }
@@ -302,6 +313,8 @@ impl<B> PreparedRequest<B> {
             connection: self.connection,
             access: self.access,
             policy: self.policy,
+            #[cfg(feature = "rate-limit")]
+            quota_snapshot: self.quota_snapshot,
         }
     }
 
@@ -459,6 +472,15 @@ impl PreparedRequest<RouteBody> {
                 response.map(|body| access.wrap(status, body))
             }
             None => response,
+        };
+        #[cfg(feature = "rate-limit")]
+        let response = {
+            let mut response = response;
+            claviron_http::rate_limit::apply_headers(
+                self.quota_snapshot,
+                &mut response,
+            );
+            response
         };
         response
     }

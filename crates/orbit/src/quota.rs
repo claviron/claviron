@@ -6,7 +6,8 @@ use std::time::Duration;
 use orbitive::FleetName;
 use orbitive::quota::LocalGuard;
 pub use orbitive::quota::{
-    CasBudget, Decision, Error, Geometry, Key, Policy, QuotaStore,
+    Admission, CasBudget, Decision, Error, Geometry, Key, Policy, QuotaStore,
+    Snapshot,
 };
 #[cfg(unix)]
 use orbitive::quota::{FleetGuard, FleetQuota, ShmOptions, ShmResource};
@@ -192,6 +193,14 @@ impl QuotaStore for Quota {
         cost: NonZeroU64,
     ) -> Result<Decision, Error> {
         self.backend().try_consume(key, cost)
+    }
+
+    fn try_consume_with_snapshot(
+        &self,
+        key: Key<'_>,
+        cost: NonZeroU64,
+    ) -> Result<Admission, Error> {
+        self.backend().try_consume_with_snapshot(key, cost)
     }
 }
 

@@ -91,13 +91,24 @@ impl RequestService {
                 })
         {
             let auth = prepared.auth_context();
+            #[cfg(feature = "rate-limit")]
+            let quota_snapshot = prepared.quota_snapshot();
             let request = prepared.map_body(boxed_body).into_request();
-            return Box::pin(handle_h2_connect(
-                binding,
-                self.state.clone(),
-                auth,
-                request,
-            ));
+            let accepting =
+                handle_h2_connect(binding, self.state.clone(), auth, request);
+            return Box::pin(async move {
+                let response = accepting.await?;
+                #[cfg(feature = "rate-limit")]
+                let response = {
+                    let mut response = response;
+                    claviron_http::rate_limit::apply_headers(
+                        quota_snapshot,
+                        &mut response,
+                    );
+                    response
+                };
+                Ok(response)
+            });
         }
         // Not on a tunnel: after CONNECT or an upgrade the body is the tunnel
         // itself, and a size cap on it would end the connection it exists to

@@ -130,6 +130,25 @@ body adaptation, native session acceptance, static files and the Axum/bypass for
 This limits HTTP requests and socket handshakes, not messages inside an accepted
 WS/WT session or the earlier TLS/QUIC handshake.
 
+Reporting is off by default: only rate refusals carry `Retry-After`. Opt in per
+definition with `rate_limit.headers: true`, or per Rust limiter with
+`limiter.with_headers(true)`. Successful HTTP responses and H1/H2 WebSocket
+acceptance then carry `X-RateLimit-Limit` (burst capacity) and
+`X-RateLimit-Remaining` (whole quota units after this charge). At 20 units/s,
+burst 40 and cost 1, the first admission reports 40 and 39. Weighted costs are
+not request counts. 429 continues to carry only `Retry-After`.
+
+All three store choices report from the successful admission, with no extra
+store/clock read or CAS. Reports can be stale when delivered: LocalGuard is
+process-local, FleetGuard permits cold-key replacement, and concurrent fleet
+charges change the balance. Reported replies use `Cache-Control: private,
+no-store` so shared response caches cannot replay a caller's snapshot; internal
+resource caches are unchanged. The opt-in pair replaces application values
+with the selected Edge limiter's values. No fixed-window reset is advertised.
+Native H3 WebTransport acceptance currently has no custom-header API in the H3
+dependency; its handshake does not carry these optional headers. Ordinary H3
+HTTP responses do.
+
 Code can instead attach its own prepared limiter at exactly that boundary:
 
 ```rust,ignore

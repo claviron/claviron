@@ -6,10 +6,9 @@ use std::sync::Arc;
 
 use claviron_http::ext::PathPrefix;
 use claviron_http::rate_limit::{
-    Error as LimitError, IpKey, KeyProvider, RateLimiter, Rejection,
-    RequestHead,
+    IpKey, KeyProvider, RateLimiter, Rejection, RequestHead, Snapshot,
 };
-use claviron_orbit::quota::{Decision, Quota, QuotaConfig, QuotaResource};
+use claviron_orbit::quota::{Quota, QuotaConfig, QuotaResource};
 use claviron_runtime::registry::{Error, Result};
 use http::Request;
 
@@ -22,7 +21,7 @@ trait Admission: Send + Sync {
     fn check(
         &self,
         request: &RequestHead<'_>,
-    ) -> std::result::Result<Decision, LimitError>;
+    ) -> std::result::Result<Option<Snapshot>, Rejection>;
     fn config(&self) -> &QuotaConfig;
 }
 
@@ -30,8 +29,8 @@ impl<K: KeyProvider> Admission for RateLimiter<K> {
     fn check(
         &self,
         request: &RequestHead<'_>,
-    ) -> std::result::Result<Decision, LimitError> {
-        self.check(request)
+    ) -> std::result::Result<Option<Snapshot>, Rejection> {
+        self.admit(request)
     }
     fn config(&self) -> &QuotaConfig {
         self.store().config()
@@ -174,7 +173,8 @@ impl QuotaRegistrations {
                 definition.namespace.as_bytes(),
                 definition.cost,
             )
-            .map_err(|error| Error::msg(error.to_string()))?;
+            .map_err(|error| Error::msg(error.to_string()))?
+            .with_headers(definition.headers);
             rules.push((prefix.clone(), RegisteredQuota(Arc::new(limiter))));
         }
         rules.sort_unstable_by(|(a, _), (b, _)| {
@@ -225,7 +225,7 @@ impl HostQuotas {
     pub(crate) fn check<B>(
         &self,
         request: &Request<B>,
-    ) -> std::result::Result<(), HostResponse> {
+    ) -> std::result::Result<Option<Snapshot>, HostResponse> {
         // A uniform host policy needs no path normalization or prefix search.
         let selected =
             if self.rules.len() == 1 && self.rules[0].0.as_str() == "/" {
@@ -242,10 +242,12 @@ impl HostQuotas {
                 selected
             };
         if let Some((_, quota)) = selected {
-            Rejection::from_result(quota.0.check(&RequestHead::new(request)))
-                .map_err(HostResponse::Quota)?;
+            return quota
+                .0
+                .check(&RequestHead::new(request))
+                .map_err(HostResponse::Quota);
         }
-        Ok(())
+        Ok(None)
     }
 
     fn select(

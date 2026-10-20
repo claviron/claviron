@@ -8,6 +8,7 @@ fn definition() -> RateLimitConfig {
     RateLimitConfig {
         namespace: "test".into(),
         cost: NonZeroU64::new(1).unwrap(),
+        headers: false,
         quota: QuotaConfig {
             units: NonZeroU64::new(1).unwrap(),
             period: Duration::from_secs(3600),
@@ -43,9 +44,11 @@ fn request(
     request
 }
 
-fn status(result: std::result::Result<(), HostResponse>) -> http::StatusCode {
+fn status(
+    result: std::result::Result<Option<Snapshot>, HostResponse>
+) -> http::StatusCode {
     match result {
-        Ok(()) => http::StatusCode::OK,
+        Ok(_) => http::StatusCode::OK,
         Err(reply) => reply.into_response().status(),
     }
 }
@@ -203,5 +206,32 @@ fn unchanged_preparation_keeps_debt_and_changed_limits_require_restart() {
 fn route_normalization_keeps_builtin_limits_outside_extension_resolution() {
     let config: HostConfig = serde_yaml::from_str("root: public\nrate_limit:\n  namespace: test\n  cost: 1\n  quota:\n    units: 1\n    period: 1h\n    burst: 1\n    table: {slots: 8, shards: 1, key_bytes: 64, probes: 8}\n    cas_attempts: 64\n    store: {mode: local_guard}\nroutes:\n  /api:\n    rate_limit:\n      namespace: api\n      cost: 1\n      quota:\n        units: 1\n        period: 1h\n        burst: 1\n        table: {slots: 8, shards: 1, key_bytes: 64, probes: 8}\n        cas_attempts: 64\n        store: {mode: local_guard}\n").unwrap();
     assert!(config.directive("rate_limit").is_none());
+    assert!(!config.rate_limit.as_ref().unwrap().headers);
     assert_eq!(declarations(&config).len(), 2);
+}
+
+#[test]
+fn header_opt_in_belongs_to_the_selected_definition_and_defaults_off() {
+    let mut config = config();
+    let mut child = HostConfig::new("public");
+    let mut explicit = definition();
+    explicit.headers = true;
+    child.route_rate_limit = Some(explicit);
+    config.routes = claviron_http::config::routes::RouteTable::new([(
+        serde_yaml::from_str("/api").unwrap(),
+        Arc::new(child),
+    )]);
+    let quotas = QuotaRegistrations::default()
+        .prepare(false, &"example.test".parse().unwrap(), &config, None)
+        .unwrap()
+        .unwrap();
+    assert_eq!(quotas.check(&request("/", "192.0.2.1")).unwrap(), None);
+    assert_eq!(
+        quotas.check(&request("/api/x", "192.0.2.1")).unwrap(),
+        Some(Snapshot { limit: 1, remaining: 0 })
+    );
+    assert_eq!(
+        status(quotas.check(&request("/api/x", "192.0.2.1"))),
+        http::StatusCode::TOO_MANY_REQUESTS
+    );
 }

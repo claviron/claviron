@@ -87,8 +87,8 @@ parsed method, URI, headers and extensions; they neither receive nor poll a body
 allowance is 429 with rounded-up Retry-After, Busy/full is 503 without an
 invented retry duration, and infrastructure/setup failures are 500. No call
 waits or retries, and accepted cost is not refunded on downstream failure.
-The store reports no remaining-count snapshot, so no approximate
-`X-RateLimit-Remaining` header is fabricated.
+Decision-only admission reports no remaining-count snapshot. Optional response
+reporting uses a committed snapshot instead of a later read or approximation.
 
 ## Named listeners and policy
 
@@ -141,6 +141,17 @@ The `js`, `lua`, `orbit`, `acme`, and `http3` implementation features expose
 related declaration shapes, not execution engines or listening sockets. Facade
 features compose and forward these capabilities; their names and scope need
 not match the implementation features one for one.
+
+## Rate-limit reporting
+
+Rate-limit reporting is per limiter: `.with_headers(true)` opts into
+`RateLimiter::admit` returning the successful admission snapshot.
+`apply_headers` formats `X-RateLimit-Limit` (burst quota units) and
+`X-RateLimit-Remaining` (remaining whole units) on successful replies, including
+101. It makes those replies private and non-storable. The default returns no
+snapshot; rate refusal still produces only `Retry-After`. Snapshots are not
+fixed-window counters, request-count promises or reservations. They add no
+storage reads or CAS operations; `check` remains decision-only.
 
 ## Status and license
 

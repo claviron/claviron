@@ -32,6 +32,19 @@ fn local_constructors_are_independent_and_clones_share_debt() {
 }
 
 #[test]
+fn local_wrapper_forwards_the_committed_snapshot() {
+    let store = Quota::new(config()).unwrap();
+    let key = Key::new(b"test", b"subject").unwrap();
+    let cost = NonZeroU64::new(1).unwrap();
+    let admission = store.try_consume_with_snapshot(key, cost).unwrap();
+    assert_eq!(admission.decision, Decision::Allowed);
+    assert_eq!(admission.snapshot, Some(Snapshot { limit: 1, remaining: 0 }));
+    let limited = store.try_consume_with_snapshot(key, cost).unwrap();
+    assert!(matches!(limited.decision, Decision::Limited { .. }));
+    assert_eq!(limited.snapshot, None);
+}
+
+#[test]
 fn backing_selection_is_explicit_and_strictly_parsed() {
     let guard: QuotaBacking = serde_yaml::from_str("mode: fleet_guard\nresource: {fleet: example, kind: 0}\nowners: 4\nrecovery_attempts: 0\n").unwrap();
     let strict: QuotaBacking = serde_yaml::from_str("mode: fleet_quota\nresource: {fleet: example, kind: 0}\nowners: 4\nrecovery_attempts: 0\n").unwrap();
@@ -165,7 +178,12 @@ fn both_fleet_store_choices_share_debt_across_opens_and_preserve_it_on_reopen()
         let second = Quota::new(config.clone()).unwrap();
         let key = Key::new(b"test", b"subject").unwrap();
         let cost = NonZeroU64::new(1).unwrap();
-        assert_eq!(first.try_consume(key, cost).unwrap(), Decision::Allowed);
+        let accepted = first.try_consume_with_snapshot(key, cost).unwrap();
+        assert_eq!(accepted.decision, Decision::Allowed);
+        assert_eq!(
+            accepted.snapshot,
+            Some(Snapshot { limit: 1, remaining: 0 })
+        );
         assert!(matches!(
             second.try_consume(key, cost).unwrap(),
             Decision::Limited { .. }

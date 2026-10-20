@@ -519,6 +519,78 @@ impl BypassHandler for Echo {
     }
 }
 
+#[cfg(feature = "rate-limit")]
+#[tokio::test]
+async fn quota_response_headers_are_opt_in_and_survive_native_body_mapping() {
+    use crate::HostConfig;
+    use crate::service::quota::QuotaRegistrations;
+    let protocols = [
+        HttpProtocol::H1,
+        HttpProtocol::H2,
+        #[cfg(feature = "http3")]
+        HttpProtocol::H3,
+    ];
+    for protocol in protocols {
+        for headers in [false, true] {
+            let config: HostConfig = serde_yaml::from_str(&format!(
+                "root: public\nrate_limit:\n  namespace: test\n  cost: 1\n  headers: {headers}\n  quota:\n    units: 1\n    period: 1h\n    burst: 2\n    table: {{slots: 8, shards: 1, key_bytes: 64, probes: 8}}\n    cas_attempts: 64\n    store: {{mode: local_guard}}\n"
+            )).unwrap();
+            let mut app: HostApp =
+                AppKind::Bypass(BypassService::Handler(Arc::new(Echo))).into();
+            app.quotas = QuotaRegistrations::default()
+                .prepare(false, &"app.test".parse().unwrap(), &config, None)
+                .unwrap();
+            let service = service_with_limits(
+                protocol,
+                "",
+                app,
+                RequestPolicy::unlimited(),
+            );
+            let prepare = || {
+                service
+                    .prepare(request("/"), RequestArrival::Established)
+                    .unwrap_or_else(|_| panic!("quota should admit"))
+            };
+            let first = prepare()
+                .map_body(|()| claviron_http::empty_body())
+                .dispatch()
+                .await;
+            assert_eq!(first.status(), StatusCode::OK);
+            assert_eq!(
+                first.headers().contains_key("x-ratelimit-limit"),
+                headers
+            );
+            assert_eq!(
+                first.headers().contains_key("x-ratelimit-remaining"),
+                headers
+            );
+            if headers {
+                assert_eq!(first.headers()["x-ratelimit-limit"], "2");
+                assert_eq!(first.headers()["x-ratelimit-remaining"], "1");
+                assert_eq!(
+                    first.headers()[header::CACHE_CONTROL],
+                    "private, no-store"
+                );
+            }
+            let second = prepare()
+                .map_body(|()| claviron_http::empty_body())
+                .dispatch()
+                .await;
+            if headers {
+                assert_eq!(second.headers()["x-ratelimit-remaining"], "0");
+            }
+            let denied = service
+                .prepare(request("/"), RequestArrival::Established)
+                .err()
+                .expect("only two units fit")
+                .into_response();
+            assert_eq!(denied.status(), StatusCode::TOO_MANY_REQUESTS);
+            assert!(denied.headers().contains_key(header::RETRY_AFTER));
+            assert!(!denied.headers().contains_key("x-ratelimit-remaining"));
+        }
+    }
+}
+
 #[cfg(feature = "axum")]
 #[tokio::test]
 async fn both_apps_use_one_dispatch_and_keep_the_admitted_generation() {

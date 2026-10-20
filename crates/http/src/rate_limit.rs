@@ -3,6 +3,7 @@
 use std::net::IpAddr;
 use std::num::NonZeroU64;
 
+pub use claviron_orbit::quota::Snapshot;
 use claviron_orbit::quota::{Decision, Key, Quota, QuotaStore};
 use http::{Extensions, HeaderMap, Method, Request, Uri};
 
@@ -125,6 +126,7 @@ pub struct RateLimiter<K> {
     namespace: Box<[u8]>,
     key_bytes: usize,
     cost: NonZeroU64,
+    headers: bool,
 }
 
 impl<K: KeyProvider> RateLimiter<K> {
@@ -146,7 +148,17 @@ impl<K: KeyProvider> RateLimiter<K> {
         {
             return Err(Error::InvalidDefinition);
         }
-        Ok(Self { store, keys, namespace, key_bytes, cost })
+        Ok(Self { store, keys, namespace, key_bytes, cost, headers: false })
+    }
+
+    /// Opt in to admission snapshots for successful HTTP response headers.
+    /// Default admission only produces Retry-After on rate refusal.
+    pub fn with_headers(
+        mut self,
+        enabled: bool,
+    ) -> Self {
+        self.headers = enabled;
+        self
     }
 
     pub fn store(&self) -> &Quota {
@@ -164,6 +176,65 @@ impl<K: KeyProvider> RateLimiter<K> {
         }
         let key = Key::new(&self.namespace, subject).map_err(Error::Store)?;
         self.store.try_consume(key, self.cost).map_err(Error::Store)
+    }
+
+    /// Consume once. Off selects ordinary admission (no snapshot division).
+    /// On reports from this charge, never from another storage/clock read.
+    pub fn admit(
+        &self,
+        request: &RequestHead<'_>,
+    ) -> Result<Option<Snapshot>, Rejection> {
+        if !self.headers {
+            Rejection::from_result(self.check(request))?;
+            return Ok(None);
+        }
+        let result = (|| {
+            let subject = self.keys.key(request).map_err(Error::Key)?;
+            let subject = subject.as_ref();
+            if subject.is_empty() || subject.len() > self.key_bytes {
+                return Err(Error::Key(KeyError::Invalid));
+            }
+            let key =
+                Key::new(&self.namespace, subject).map_err(Error::Store)?;
+            self.store
+                .try_consume_with_snapshot(key, self.cost)
+                .map_err(Error::Store)
+        })();
+        match result {
+            Ok(admission) => {
+                Rejection::from_result(Ok(admission.decision))?;
+                Ok(admission.snapshot)
+            }
+            Err(error) => {
+                Rejection::from_result(Err(error))?;
+                unreachable!("store errors are always rejected")
+            }
+        }
+    }
+}
+
+/// Add an opt-in snapshot after application/header policy, never into a cached
+/// response template. Units are quota units, not necessarily request counts.
+/// Private, non-storable replies prevent cached per-key snapshots leaking or
+/// appearing current to a later caller. Internal resource caches are unchanged.
+pub fn apply_headers<B>(
+    snapshot: Option<Snapshot>,
+    response: &mut http::Response<B>,
+) {
+    if let Some(snapshot) = snapshot
+        && (response.status().is_success()
+            || response.status() == http::StatusCode::SWITCHING_PROTOCOLS)
+    {
+        response
+            .headers_mut()
+            .insert("x-ratelimit-limit", snapshot.limit.into());
+        response
+            .headers_mut()
+            .insert("x-ratelimit-remaining", snapshot.remaining.into());
+        response.headers_mut().insert(
+            http::header::CACHE_CONTROL,
+            http::HeaderValue::from_static("private, no-store"),
+        );
     }
 }
 

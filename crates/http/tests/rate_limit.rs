@@ -143,3 +143,88 @@ fn overload_is_not_quota_exhaustion_and_retry_after_rounds_up() {
         http::StatusCode::INTERNAL_SERVER_ERROR
     );
 }
+
+#[test]
+fn headers_are_opt_in_per_limiter_and_refusal_keeps_only_retry_after() {
+    let head_request = request("192.0.2.1");
+    let head = RequestHead::new(&head_request);
+    let cost = NonZeroU64::new(1).unwrap();
+    let plain =
+        RateLimiter::new(store(), IpKey, b"test".as_slice(), cost).unwrap();
+    let reported = RateLimiter::new(store(), IpKey, b"test".as_slice(), cost)
+        .unwrap()
+        .with_headers(true);
+    let mut response = http::Response::new(());
+    apply_headers(plain.admit(&head).unwrap(), &mut response);
+    assert!(!response.headers().contains_key("x-ratelimit-limit"));
+    assert!(!response.headers().contains_key(http::header::CACHE_CONTROL));
+    let snapshot = reported.admit(&head).unwrap();
+    apply_headers(snapshot, &mut response);
+    assert_eq!(response.headers()["x-ratelimit-limit"], "1");
+    assert_eq!(response.headers()["x-ratelimit-remaining"], "0");
+    assert_eq!(
+        response.headers()[http::header::CACHE_CONTROL],
+        "private, no-store"
+    );
+    // Header creation is not another admission attempt.
+    let mut later = http::Response::new(());
+    apply_headers(snapshot, &mut later);
+    assert_eq!(later.headers()["x-ratelimit-remaining"], "0");
+    let denied = reported.admit(&head).unwrap_err().into_response();
+    assert_eq!(denied.status(), http::StatusCode::TOO_MANY_REQUESTS);
+    assert!(denied.headers().contains_key(http::header::RETRY_AFTER));
+    assert!(!denied.headers().contains_key("x-ratelimit-limit"));
+    assert!(!denied.headers().contains_key("x-ratelimit-remaining"));
+}
+
+#[test]
+fn headers_describe_weighted_quota_and_only_admitted_successful_responses() {
+    let mut config = store().config().clone();
+    config.burst = NonZeroU64::new(40).unwrap();
+    config.units = NonZeroU64::new(20).unwrap();
+    config.period = Duration::from_secs(1);
+    let limiter = RateLimiter::new(
+        Quota::new(config).unwrap(),
+        IpKey,
+        b"test".as_slice(),
+        NonZeroU64::new(2).unwrap(),
+    )
+    .unwrap()
+    .with_headers(true);
+    let snapshot =
+        limiter.admit(&RequestHead::new(&request("192.0.2.1"))).unwrap();
+    assert_eq!(snapshot, Some(Snapshot { limit: 40, remaining: 38 }));
+    for status in [200, 204, 101, 400, 429, 503] {
+        let mut reply = http::Response::builder()
+            .status(status)
+            .header(http::header::CACHE_CONTROL, "public, max-age=3600")
+            .body(())
+            .unwrap();
+        apply_headers(snapshot, &mut reply);
+        let allowed = status < 300;
+        assert_eq!(
+            reply.headers().contains_key("x-ratelimit-remaining"),
+            allowed
+        );
+        if allowed {
+            assert_eq!(reply.headers()["x-ratelimit-remaining"], "38");
+            assert_eq!(
+                reply.headers()[http::header::CACHE_CONTROL],
+                "private, no-store"
+            );
+        } else {
+            assert_eq!(
+                reply.headers()[http::header::CACHE_CONTROL],
+                "public, max-age=3600"
+            );
+        }
+    }
+    // Changing reporting on a clone must not create/reset the store budget.
+    let plain_clone = limiter.clone().with_headers(false);
+    assert!(
+        plain_clone
+            .admit(&RequestHead::new(&request("192.0.2.1")))
+            .unwrap()
+            .is_none()
+    );
+}
