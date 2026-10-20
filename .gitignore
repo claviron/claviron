@@ -45,6 +45,8 @@ logs/
 /tmp/
 tmp/
 /tests/result*.txt
+/examples/database/demo.sqlite-shm
+/examples/database/demo.sqlite-wal
 __pycache__
 /.venv/
 
