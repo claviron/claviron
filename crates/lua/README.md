@@ -114,6 +114,10 @@ Claviron Text/Binary/Close records (`u8 kind`, little-endian `u32 length`,
 payload); it does not carry WebSocket frames. Datagram handling is not included.
 The application's `webtransport` configuration uses the same `max_message_size`
 and `send_queue` settings as `websocket`. No new facade feature is needed.
+Reads and writes progress independently on that single stream. Shutdown closes
+outbound admission and delivers callback events without waiting for a slow
+writer; accepted output drains before the close record. The session owns and
+joins both directions, without adding a drain deadline.
 
 Outbound fetch is closed unless `fetch.allow` permits a destination; redirects
 are checked too. Its pooled client and optional response-size bound come from
