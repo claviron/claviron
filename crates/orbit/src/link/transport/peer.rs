@@ -173,5 +173,5 @@ pub struct LinkJoined {
 impl Event for LinkJoined {}
 
 #[cfg(test)]
-#[path = "../../tests/transport/peer.rs"]
+#[path = "../../../tests/link/transport/peer.rs"]
 mod tests;

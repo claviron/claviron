@@ -97,5 +97,5 @@ impl TransportBodies {
 }
 
 #[cfg(test)]
-#[path = "../../tests/transport/body.rs"]
+#[path = "../../../tests/link/transport/body.rs"]
 mod tests;

@@ -352,5 +352,5 @@ pub fn check_application_name(application: &str) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/transport/segment.rs"]
+#[path = "../../../tests/link/transport/segment.rs"]
 mod tests;

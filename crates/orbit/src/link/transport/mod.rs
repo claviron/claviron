@@ -22,19 +22,17 @@
 use orbitive::link::{InboxGeometry, LinkSpec};
 use orbitive::stream::StreamSpec;
 
-pub mod application_link;
+pub mod app;
 pub mod body;
 pub mod client;
 pub mod frame;
-pub mod interest;
+pub use super::interest;
 pub mod message;
 pub mod peer;
 pub mod segment;
 pub mod service;
 
-pub use application_link::{
-    ApplicationLink, ApplicationLinkSetup, LinkEventRouting,
-};
+pub use app::{ApplicationLink, ApplicationLinkSetup, LinkEventRouting};
 pub use body::TransportBodies;
 pub use client::{EDGE_RUNTIME, Pending, ReplyWait, TransportClient};
 pub use frame::{
@@ -294,9 +292,9 @@ pub(crate) fn map_link_error(error: orbitive::link::Error) -> Error {
 }
 
 #[cfg(test)]
-#[path = "../tests/transport.rs"]
+#[path = "../../../tests/link/transport.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "../tests/transport/exchange.rs"]
+#[path = "../../../tests/link/transport/exchange.rs"]
 mod exchange_tests;

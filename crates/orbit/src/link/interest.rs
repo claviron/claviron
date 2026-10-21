@@ -95,3 +95,7 @@ impl Drop for InterestGuard {
         self.interest.release(&self.keys);
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/link/interest.rs"]
+mod tests;

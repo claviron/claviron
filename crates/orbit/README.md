@@ -92,10 +92,71 @@ an application executed it successfully, and supplies no automatic replay,
 acknowledgement, or exactly-once guarantee. Applications requiring durable
 completion must model that separately.
 
-Orbit Link adds named same-host application routing and request/body transport.
-Its peer advertisement describes reachability, not the lifecycle or health of
-the hosted application. External TLS/mTLS transport and cross-host topology are
-not supplied simply by enabling this crate.
+## Link connections without HTTP
+
+`claviron::orbit::link::Connection` owns one Link membership and its single
+inbox reader. A Rust service can use it without a route, an HTTP exchange or
+an application runner. The service supplies its Link namespace, layout, name,
+role and execution incarnation; these are not inferred from an Edge process.
+Opening a connection creates no HTTP body table and installs no background task.
+
+`Connection::events` binds a caller-owned `FleetEventBus` to the connection.
+The bus must support native SHM ring readiness; it may be the host's existing
+fleet bus or an explicitly prepared standalone service bus. A plain in-memory
+bus is rejected by the driver instead of introducing a polling fallback. Topics and bytes
+keep their protocol owner's wire format: `ApplicationEvent` is not required.
+Keep subscription guards alive for the keys the receiver understands. All
+subscriptions use the same connection; they do not register named services.
+
+```rust,no_run
+use std::sync::Arc;
+use claviron::{
+    orbit::{FleetEventBus, link::{Connection, Incoming, LinkSpec, Routing}},
+    runtime::RunContext,
+};
+
+async fn consume(
+    spec: LinkSpec,
+    incarnation: u64,
+    bus: Arc<FleetEventBus>,
+    context: RunContext,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let connection = Connection::open(
+        "example", spec, "example-service", "consumer", incarnation,
+    )?;
+    let events = connection.events(bus, |role| role == "source", Routing::Topic)?;
+    let _subscription = events.subscribe(["example.policy.v1"]);
+    // Other callbacks can publish through events.bus() while this reader runs.
+    events.run_until(context.cancelled(), |incoming| async move {
+        if let Incoming::Event { topic, payload } = incoming {
+            // Validate and decode this protocol's payload in the owning service.
+            let _ = (topic, payload);
+        }
+        Ok::<(), Box<dyn std::error::Error>>(())
+    }).await
+}
+```
+
+`run_until` uses native readiness, not a polling interval. Cancellation
+withdraws admission and awaits the accepted handler before releasing the lane.
+It does not reset/unlink shared resources or install a drain deadline. Frames
+still queued when admission stops are not promised execution; protocols own
+acknowledgement, revision and resynchronization. Publication commits to the
+local ring, not to the remote service's durable state. Inspect `Incoming::Frame`
+and `Incoming::Directory` when the protocol requires them. Interest is only a
+routing hint, never an authorization boundary.
+
+The existing application/HTTP protocol lives under `link::transport`; the
+`orbit::transport` path continues to expose the same API. Its `ApplicationEvent`
+codec, routing, kinds and geometry are unchanged. Application transport may
+carry both exchanges and events, while an event-only connection opens no body
+streams. Its peer advertisement describes reachability, not application health.
+
+Current Link connections remain same-UID. A shared OS group alone does not
+provide cross-user joining: resource names, ownership locks and wake addresses
+are UID-scoped. Deployment permissions do not change that addressing contract.
+External TLS/mTLS transport and cross-host topology are not supplied simply by
+enabling this crate.
 
 ## Service placement
 

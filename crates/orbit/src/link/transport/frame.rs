@@ -701,5 +701,5 @@ impl<'a> Cursor<'a> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/transport/frame.rs"]
+#[path = "../../../tests/link/transport/frame.rs"]
 mod tests;

@@ -918,7 +918,7 @@ impl ApplicationBatch {
 }
 
 #[cfg(test)]
-#[path = "../../tests/transport/client.rs"]
+#[path = "../../../tests/link/transport/client.rs"]
 mod tests;
 
 /// Hand one frame to whoever is waiting for it.

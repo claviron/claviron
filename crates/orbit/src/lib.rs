@@ -28,6 +28,7 @@ pub mod counter;
 pub mod event;
 mod fleet;
 pub mod invoke;
+pub mod link;
 pub mod lock;
 pub mod placement;
 #[cfg(feature = "quota")]
@@ -37,7 +38,9 @@ pub mod service;
 #[cfg(unix)]
 pub mod shm;
 pub mod stream;
-pub mod transport;
+// Preserve the existing application transport API while its implementation
+// lives below the protocol-neutral Link connection.
+pub use link::transport;
 
 pub use arena::{Arena, ArenaBootPolicy, ArenaProvider};
 pub use cell::orbital::{Error as CellError, Orbital};

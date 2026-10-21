@@ -180,5 +180,5 @@ fn decode(
 }
 
 #[cfg(test)]
-#[path = "../../tests/transport/message.rs"]
+#[path = "../../../tests/link/transport/message.rs"]
 mod tests;
