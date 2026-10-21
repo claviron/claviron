@@ -45,10 +45,10 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::oneshot;
 
 use super::{
-    ApplicationConnected, ApplicationDisconnected, ApplicationLinkSetup,
-    ApplicationStateNotice, ControlCommand, Error, Exchange, ExchangeReply,
-    FrameKind, LinkJoined, Peers, Result, TransportBodies, TransportSegment,
-    frame_kind,
+    Access, ApplicationConnected, ApplicationDisconnected,
+    ApplicationLinkSetup, ApplicationStateNotice, ControlCommand, Error,
+    Exchange, ExchangeReply, FrameKind, LinkJoined, Peers, Result,
+    TransportBodies, TransportSegment, frame_kind,
 };
 
 /// The runtime tag an edge worker's lane carries. It serves no name — its lane
@@ -481,11 +481,47 @@ impl TransportClient {
         events: Option<ProcessEventBus>,
         link: Option<ApplicationLinkSetup>,
     ) -> Result<Arc<Self>> {
-        let segment = Arc::new(TransportSegment::for_fleet(fleet_name)?);
+        Self::join_observed_with_access(
+            fleet_name,
+            name,
+            incarnation,
+            events,
+            link,
+            &Access::OwnerOnly,
+        )
+    }
+
+    pub fn join_with_access(
+        fleet_name: &str,
+        name: &str,
+        incarnation: u64,
+        access: &Access,
+    ) -> Result<Arc<Self>> {
+        Self::join_observed_with_access(
+            fleet_name,
+            name,
+            incarnation,
+            None,
+            None,
+            access,
+        )
+    }
+
+    pub fn join_observed_with_access(
+        fleet_name: &str,
+        name: &str,
+        incarnation: u64,
+        events: Option<ProcessEventBus>,
+        link: Option<ApplicationLinkSetup>,
+        access: &Access,
+    ) -> Result<Arc<Self>> {
+        let segment = Arc::new(TransportSegment::for_fleet_with_access(
+            fleet_name, access,
+        )?);
         let joined = segment.join(name, EDGE_RUNTIME, incarnation)?;
         let lane = joined.lane;
-        let bodies = Arc::new(TransportBodies::for_fleet(
-            fleet_name,
+        let bodies = Arc::new(TransportBodies::for_segment(
+            &segment,
             lane,
             incarnation,
         )?);

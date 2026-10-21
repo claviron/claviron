@@ -18,6 +18,19 @@ pub struct TransportBodies {
 }
 
 impl TransportBodies {
+    /// Inherit the inbox's access and geometry; never reopen a group Link in
+    /// the caller's private UID namespace by accident.
+    pub fn for_segment(
+        segment: &super::TransportSegment,
+        lane_index: usize,
+        incarnation: u64,
+    ) -> Result<Self> {
+        let link = segment
+            .link()
+            .bodies(lane_index, incarnation)
+            .map_err(map_link_error)?;
+        Ok(Self { link })
+    }
     pub fn open(
         fleet: Arc<Fleet>,
         incarnation: u64,

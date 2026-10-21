@@ -4,7 +4,8 @@ use orbitive::events::{EventLayout, FleetEventBus};
 use orbitive::link::{InboxReceiver, Joined};
 
 use super::{
-    Error, EventConnection, LinkSegment, LinkSpec, Received, Result, Routing,
+    Access, Error, EventConnection, LinkSegment, LinkSpec, Received, Result,
+    Routing,
 };
 
 /// One named Link membership and its exclusive inbox reader.
@@ -28,10 +29,29 @@ impl Connection {
         role: &str,
         incarnation: u64,
     ) -> Result<Self> {
+        Self::open_with_access(
+            fleet,
+            spec,
+            name,
+            role,
+            incarnation,
+            &Access::OwnerOnly,
+        )
+    }
+
+    /// Explicit per-Link access. Other fleet resources retain their own policy.
+    pub fn open_with_access(
+        fleet: &str,
+        spec: LinkSpec,
+        name: &str,
+        role: &str,
+        incarnation: u64,
+        access: &Access,
+    ) -> Result<Self> {
         tokio::runtime::Handle::try_current().map_err(|_| {
             Error::Malformed("a Link inbox reader requires a Tokio runtime")
         })?;
-        let segment = Arc::new(LinkSegment::open(fleet, spec)?);
+        let segment = Arc::new(access.open(fleet, spec)?);
         let joined = segment.join(name, role, incarnation)?;
         // Establish the owner before binding: a failed receiver bind must
         // release the lane before its kernel hold is dropped too.

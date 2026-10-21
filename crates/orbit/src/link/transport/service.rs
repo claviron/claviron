@@ -17,8 +17,8 @@ use claviron_runtime::{
 
 use super::client::TransportClient;
 use super::{
-    ApplicationLinkSetup, ControlCommand, ControlTarget, Error, Peer, Result,
-    TransportSegment,
+    Access, ApplicationLinkSetup, ControlCommand, ControlTarget, Error, Peer,
+    Result, TransportSegment,
 };
 
 /// One live or configured Link target. Link reachability says nothing about
@@ -50,9 +50,53 @@ pub struct TransportService {
     link: Mutex<Option<ApplicationLinkSetup>>,
     clients: Mutex<HashMap<FleetName, Arc<TransportClient>>>,
     targets: Mutex<BTreeSet<(FleetName, String)>>,
+    /// Explicit access only for selected destination Links, never the host fleet.
+    access: Mutex<BTreeMap<FleetName, Access>>,
 }
 
 impl TransportService {
+    /// Register immutable access before this destination's first client opens.
+    /// This maps no SHM and changes no credentials or resource permissions.
+    pub fn register_access(
+        &self,
+        fleet: FleetName,
+        access: Access,
+    ) -> Result<()> {
+        // Match client() lock order, so registering cannot race a default join.
+        let clients = self
+            .clients
+            .lock()
+            .map_err(|_| Error::Malformed("transport client lock"))?;
+        if clients.contains_key(&fleet) {
+            return Err(Error::Malformed(
+                "Link access must be registered before its client opens",
+            ));
+        }
+        let mut policies = self
+            .access
+            .lock()
+            .map_err(|_| Error::Malformed("transport access lock"))?;
+        if policies.get(&fleet).is_some_and(|existing| existing != &access) {
+            return Err(Error::Malformed(
+                "Link access is already registered differently",
+            ));
+        }
+        policies.insert(fleet, access);
+        Ok(())
+    }
+
+    fn access_for(
+        &self,
+        fleet: FleetName,
+    ) -> Result<Access> {
+        Ok(self
+            .access
+            .lock()
+            .map_err(|_| Error::Malformed("transport access lock"))?
+            .get(&fleet)
+            .cloned()
+            .unwrap_or_default())
+    }
     /// The supervisor calls this only after observing the exact process exit.
     /// Management maps existing destinations without joining a caller lane.
     pub fn process_exited(
@@ -77,12 +121,17 @@ impl TransportService {
                 .map(|fleet| fleet.as_str().to_owned()),
         );
         for fleet in fleets {
-            let result = TransportSegment::existing_for_fleet(&fleet).and_then(
-                |segment| match segment {
+            let result = self
+                .access_for(FleetName::new(&fleet))
+                .and_then(|access| {
+                    TransportSegment::existing_for_fleet_with_access(
+                        &fleet, &access,
+                    )
+                })
+                .and_then(|segment| match segment {
                     Some(segment) => segment.process_exited(pid, incarnation),
                     None => Ok(()),
-                },
-            );
+                });
             if let Err(error) = result {
                 tracing::error!(%fleet, pid, incarnation, %error, "could not release exited process Link streams");
             }
@@ -119,8 +168,11 @@ impl TransportService {
                 .map_err(|_| Error::Malformed("transport client lock"))?
                 .contains_key(&fleet);
             if !joined
-                && TransportSegment::existing_for_fleet(fleet.as_str())?
-                    .is_some()
+                && TransportSegment::existing_for_fleet_with_access(
+                    fleet.as_str(),
+                    &self.access_for(fleet)?,
+                )?
+                .is_some()
             {
                 self.client(fleet)?;
             }
@@ -239,12 +291,13 @@ impl TransportService {
             .lock()
             .map_err(|_| Error::Malformed("transport link"))?
             .clone();
-        let client = TransportClient::join_observed(
+        let client = TransportClient::join_observed_with_access(
             fleet_name.as_str(),
             &identity,
             self.incarnation.load(Ordering::Acquire),
             events,
             link,
+            &self.access_for(fleet_name)?,
         )?;
         drop(identity);
         tracing::debug!(
@@ -329,3 +382,7 @@ impl Finalizable<AppState> for TransportService {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/link/transport/service.rs"]
+mod tests;

@@ -152,9 +152,30 @@ codec, routing, kinds and geometry are unchanged. Application transport may
 carry both exchanges and events, while an event-only connection opens no body
 streams. Its peer advertisement describes reachability, not application health.
 
-Current Link connections remain same-UID. A shared OS group alone does not
-provide cross-user joining: resource names, ownership locks and wake addresses
-are UID-scoped. Deployment permissions do not change that addressing contract.
+`Connection::open` remains owner-only. For a dedicated cross-user Link, pass
+`Access::Group(GroupAccess::new(owner_uid, gid, ipc_directory)?)` to
+`Connection::open_with_access` with the same namespace and geometry on both
+ends. The owner provisions the Link first; other users attach existing
+resources. This selects Orbitive's group-aware inbox, stream, lock and wake
+scope, not a policy on the host Fleet. Group provisioning may initialize the
+bounded stream table, but no HTTP protocol or stream endpoint is required.
+Event rings, cache/auth tables and private application files retain their
+independent owner-only access. All group writers are trusted peers; this is
+not authenticated per-publisher isolation or a grant of kernel privileges.
+
+HTTP adapters use the same `Access` type through
+`TransportSegment::for_fleet_with_access` and open body handles through
+`TransportBodies::for_segment`, preserving the exact inbox scope and geometry.
+`TransportClient::join_with_access` supports a direct caller. A managed
+`TransportService` accepts `register_access(destination_fleet, access)` before
+that destination's first client opens; conflicting registrations and changes
+after opening are rejected. Register the same policy in every relevant host
+process, including management, so inspection and exact-incarnation recovery
+address the same resources. Unregistered destinations remain owner-only.
+This is an explicit Rust composition API, not a new global config or reload.
+
+The IPC parent path, owner account, group membership and creation mask remain
+operator responsibilities. Follow the [Orbitive group Link requirements](https://github.com/iadev09/orbitive/tree/main/link#dedicated-cross-user-links).
 External TLS/mTLS transport and cross-host topology are not supplied simply by
 enabling this crate.
 

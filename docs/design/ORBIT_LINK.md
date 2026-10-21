@@ -61,11 +61,28 @@ This is a [same-OS transport](FLEETAWARE.md), not an Internet protocol or a
 cross-host trust boundary. The edge still owns public TLS/HTTP admission; the
 application still owns its behavior and completion semantics.
 
+## Separate OS users without sharing the whole fleet
+
+Owner-only is the default. A dedicated Link can instead declare an explicit
+resource owner, OS group and IPC directory through `link::Access::Group`.
+Only its inbox, duplex streams and ownership/wake resources are shared; the
+processes keep their own private event rings, auth/cache state and files.
+Kernel privileges stay with the account that performs the privileged work.
+
+The owner provisions first. Other users attach existing resources, and every
+transport/body/recovery path retains that same scope. Group access is never a
+fallback for an owner-only failure. The managed caller registers access per
+destination before opening its first client; runtime policy replacement is
+not supported. Group writers are trusted with Link state: an advertised name
+or role is not authenticated source identity. Domain authorization remains
+with the consumer.
+
 ## Follow the implementation
 
-- [Transport layout and addressing](../../crates/orbit/src/transport.rs).
-- [Destination clients and lifecycle](../../crates/orbit/src/transport/service.rs).
-- [Inbox ownership and exact-process recovery](../../crates/orbit/src/transport/segment.rs).
-- [Duplex body streams](../../crates/orbit/src/transport/body.rs).
-- [Explicit application-event bridge](../../crates/orbit/src/transport/application_link.rs).
+- [Connection access policy](../../crates/orbit/src/link/access.rs).
+- [Transport layout and addressing](../../crates/orbit/src/link/transport/mod.rs).
+- [Destination clients and lifecycle](../../crates/orbit/src/link/transport/service.rs).
+- [Inbox ownership and exact-process recovery](../../crates/orbit/src/link/transport/segment.rs).
+- [Duplex body streams](../../crates/orbit/src/link/transport/body.rs).
+- [Explicit application-event bridge](../../crates/orbit/src/link/transport/app.rs).
 - [Orbit integration guide](../../crates/orbit/README.md).

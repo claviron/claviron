@@ -5,9 +5,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{
-    ApplicationStateNotice, ControlCommand, Error, Result, ShutdownNotice,
-    TRANSPORT_INBOX_KIND, TRANSPORT_LINK_SPEC, map_link_error,
-    transport_link_spec,
+    Access, ApplicationStateNotice, ControlCommand, Error, Result,
+    ShutdownNotice, TRANSPORT_LINK_SPEC, map_link_error, transport_link_spec,
 };
 #[cfg(test)]
 use orbitive::link::Reclaimed;
@@ -24,6 +23,7 @@ pub struct TransportSegment {
     link: Arc<LinkSegment>,
     fleet_name: String,
     spec: LinkSpec,
+    access: Access,
 }
 
 impl TransportSegment {
@@ -33,43 +33,66 @@ impl TransportSegment {
         fleet_name: &str,
         fleet_capacity: usize,
     ) -> Result<Self> {
+        Self::open_with_access(fleet_name, fleet_capacity, &Access::OwnerOnly)
+    }
+
+    pub fn open_with_access(
+        fleet_name: &str,
+        fleet_capacity: usize,
+        access: &Access,
+    ) -> Result<Self> {
         let capacity = u16::try_from(fleet_capacity).map_err(|_| {
             Error::Malformed("transport fleet capacity exceeds u16")
         })?;
         let spec = transport_link_spec(capacity);
-        let link = Arc::new(
-            LinkSegment::open(fleet_name, spec).map_err(map_link_error)?,
-        );
-        Ok(Self { link, fleet_name: fleet_name.to_owned(), spec })
+        let link =
+            Arc::new(access.open(fleet_name, spec).map_err(map_link_error)?);
+        Ok(Self {
+            link,
+            fleet_name: fleet_name.to_owned(),
+            spec,
+            access: access.clone(),
+        })
     }
 
     pub fn for_fleet(fleet_name: &str) -> Result<Self> {
+        Self::for_fleet_with_access(fleet_name, &Access::OwnerOnly)
+    }
+
+    pub fn for_fleet_with_access(
+        fleet_name: &str,
+        access: &Access,
+    ) -> Result<Self> {
         let link = Arc::new(
-            LinkSegment::open(fleet_name, TRANSPORT_LINK_SPEC)
+            access
+                .open(fleet_name, TRANSPORT_LINK_SPEC)
                 .map_err(map_link_error)?,
         );
         Ok(Self {
             link,
             fleet_name: fleet_name.to_owned(),
             spec: TRANSPORT_LINK_SPEC,
+            access: access.clone(),
         })
     }
 
     /// Attach only when the fleet's inbox already exists. Management must not
     /// create an empty Link fleet while reporting an edge shutdown.
     pub fn existing_for_fleet(fleet_name: &str) -> Result<Option<Self>> {
-        let name =
-            orbitive::shm::ring_segment_name(fleet_name, TRANSPORT_INBOX_KIND);
-        match orbitive::shm::ShmRegion::validate_existing(
-            &name,
-            TRANSPORT_LINK_SPEC.inbox_segment_bytes(),
-        )
-        .map_err(|_| Error::Malformed("could not inspect Link inbox"))?
+        Self::existing_for_fleet_with_access(fleet_name, &Access::OwnerOnly)
+    }
+
+    pub fn existing_for_fleet_with_access(
+        fleet_name: &str,
+        access: &Access,
+    ) -> Result<Option<Self>> {
+        if access
+            .exists(fleet_name, TRANSPORT_LINK_SPEC)
+            .map_err(map_link_error)?
         {
-            orbitive::shm::ShmValidation::Missing => Ok(None),
-            orbitive::shm::ShmValidation::Valid { .. } => {
-                Self::for_fleet(fleet_name).map(Some)
-            }
+            Self::for_fleet_with_access(fleet_name, access).map(Some)
+        } else {
+            Ok(None)
         }
     }
 
@@ -190,15 +213,9 @@ impl TransportSegment {
         &self,
         gone: &orbitive::link::Reclaimed,
     ) -> Result<()> {
-        orbitive::stream::Streams::node_dead_in_shm(
-            &self.fleet_name,
-            self.spec.fleet_capacity,
-            self.spec.streams,
-            orbitive::NodeId::new(gone.lane as u16),
-            orbitive::stream::Incarnation::new(gone.incarnation),
-        )
-        .map(|_| ())
-        .map_err(Error::Stream)
+        self.access
+            .recover(&self.fleet_name, self.spec, gone.lane, gone.incarnation)
+            .map_err(map_link_error)
     }
 
     /// Publish one complete application snapshot batch from this runner lane

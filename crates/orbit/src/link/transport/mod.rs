@@ -27,6 +27,7 @@ pub mod body;
 pub mod client;
 pub mod frame;
 pub use super::interest;
+pub use super::{Access, GroupAccess};
 pub mod message;
 pub mod peer;
 pub mod segment;
