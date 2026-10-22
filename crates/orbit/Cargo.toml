@@ -26,6 +26,7 @@ claviron-runtime.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
 async-trait.workspace = true
+futures-util.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 

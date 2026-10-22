@@ -1,9 +1,14 @@
-//! Claviron lifecycle binding for Orbit's invocation ring.
+//! Transport-independent calls and the existing invocation-ring lifecycle.
+//!
+//! [`Client`] dispatches a logical target through a host-registered [`Route`]
+//! and awaits a correlated result. [`crate::link::invoke`] implements a route
+//! over a dedicated, service-owned Link. It does not publish into the ring.
+//! Ring publication and completed calls are deliberately different contracts.
 //!
 //! The transport -- ring kind and geometry, `InvocationId`, the envelope, the
 //! codec trait, cursors, lag reporting and the async subscription -- lives in
-//! `orbit-invoke` and is re-exported here unchanged. This module adds only the
-//! lifecycle: a managed SHM companion validates/creates/reuses the ring after
+//! `orbit-invoke` and is re-exported here unchanged. For that ring this module
+//! adds lifecycle only: a managed SHM companion validates/creates/reuses it after
 //! the fleet, then `InvocationProvider` opens the bus without resetting it.
 //! Executors, placement and any claim or result protocol still belong to the
 //! runtime adapter above.
@@ -22,6 +27,11 @@ use crate::shm::{
     ManagedShmResources, OrbitRingResource,
 };
 use crate::{FleetProvider, shm};
+
+mod call;
+pub use call::{
+    Client, Error as CallError, Failure, Request, Result as CallResult, Route,
+};
 
 #[derive(Clone)]
 struct ManagedInvocationRecord(PhantomData<()>);

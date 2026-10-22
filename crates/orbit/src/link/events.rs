@@ -34,10 +34,10 @@ pub enum Incoming {
 /// subscription. Delivery is bounded, without durable replay or remote ACKs.
 pub struct EventConnection<L: EventLayout = DefaultEventLayout> {
     // Withdraw bridge interest before releasing the lane to a successor.
-    bridge: LinkEvents<L>,
-    connection: Connection,
-    bus: Arc<FleetEventBus<L>>,
-    interest: Arc<LinkInterest>,
+    pub(super) bridge: LinkEvents<L>,
+    pub(super) connection: Connection,
+    pub(super) bus: Arc<FleetEventBus<L>>,
+    pub(super) interest: Arc<LinkInterest>,
 }
 
 impl<L: EventLayout> EventConnection<L> {

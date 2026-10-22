@@ -358,6 +358,7 @@ standards. Their identifiers are stable search keys across code and documentatio
 - [FLEETAWARE](docs/design/FLEETAWARE.md) — cooperate across sibling processes on one OS, not an implied cloud cluster.
 - [ORBIT_CELL](docs/design/ORBIT_CELL.md) — bind declared shared values to runtime-managed cell lifetimes.
 - [ORBIT_LINK](docs/design/ORBIT_LINK.md) — connect named applications through bounded inboxes and asynchronous SHM streams.
+- [LINK_INVOKE](docs/design/LINK_INVOKE.md) — call independent services through logical targets and reserved, correlated result channels.
 - [PRODUCTION_ENVIRONMENT](docs/design/PRODUCTION_ENVIRONMENT.md) — choose the deployment environment explicitly and control what hosted execution inherits.
 
 ## Development status

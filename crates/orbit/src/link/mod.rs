@@ -5,6 +5,8 @@
 //! Orbitive owns the inbox, admission and death recovery. This module owns
 //! the connection lifetime and its single reader. [`transport`] adds the
 //! existing Claviron application/HTTP protocol over that substrate.
+//! [`invoke`] carries HTTP-independent commands with reserved result channels;
+//! callers enter through [`crate::invoke::Client`], not transport addressing.
 //!
 //! Opening is explicit: do it in the owning service's execution/preparation,
 //! not during registration. All geometry and identities come from the caller.
@@ -16,6 +18,7 @@ mod access;
 mod connection;
 mod events;
 pub mod interest;
+pub mod invoke;
 pub mod transport;
 
 pub use access::Access;
