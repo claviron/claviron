@@ -55,5 +55,8 @@ tracing.workspace = true
 orbitive = { workspace = true, features = ["rustls"] }
 
 [dev-dependencies]
+claviron-hosting = { workspace = true, features = ["sqlite"] }
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
+sqlx = { workspace = true, features = ["sqlite"] }
+tempfile = "3"

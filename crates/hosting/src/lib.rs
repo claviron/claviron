@@ -17,8 +17,8 @@ pub use event::HostingChanged;
 pub use store::HostingStore;
 pub use types::{
     Certificate, CertificateAlias, CertificateIssuer, HostedCertificate,
-    HostedVhost, IssuerKind, NewCertificate, Server, Vhost, VhostAlias,
-    VhostImport,
+    HostedVhost, IssuerKind, NewCertificate, PublicCertificate, Server, Vhost,
+    VhostAlias, VhostImport,
 };
 
 #[cfg(all(feature = "server", any(feature = "postgres", feature = "sqlite")))]

@@ -3,7 +3,7 @@ use std::any::TypeId;
 use claviron_runtime::AppState;
 use claviron_runtime::registry::Resolve;
 
-use super::HostingDeps;
+use super::*;
 
 /// This dependency is the whole fix for a boot failure that compiled
 /// perfectly: `merge_db_certs` reads `HostingService.server_id`,
@@ -14,10 +14,15 @@ use super::HostingDeps;
 #[test]
 fn cert_resolver_depends_on_hosting() {
     let mut dependencies = Vec::new();
-    <HostingDeps as Resolve<AppState>>::dependencies(&mut dependencies);
+    <<CertificateProvider as Component<AppState>>::Deps as Resolve<AppState>>::dependencies(&mut dependencies);
     assert!(
         dependencies
             .contains(&TypeId::of::<claviron_hosting::HostingService>()),
-        "CertResolverProvider must depend on HostingService"
+        "CertificateProvider must depend on HostingService"
     );
+    dependencies.clear();
+    <<CertResolverProvider as Component<AppState>>::Deps as Resolve<
+        AppState,
+    >>::dependencies(&mut dependencies);
+    assert!(dependencies.contains(&TypeId::of::<CertificateProvider>()));
 }

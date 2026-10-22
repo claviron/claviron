@@ -1,97 +1,37 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Arc, Once};
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use claviron_runtime::congif::{
-    self, ConfigFile, ConfigObserver, Configurable,
-};
 use claviron_runtime::registry::{Bootable, Component, Reloadable, priority};
 use claviron_runtime::{AppState, Register};
 use rustls::server::{ClientHello, ResolvesServerCert};
 use rustls::sign::CertifiedKey;
 use tracing::{debug, error, info, trace, warn};
 
-use crate::config::TlsConfigSource;
-use crate::{HostingDeps, build_certificates, reload_resolver_certs};
+use crate::{
+    CertificateProvider, HostingDeps, build_certificates, reload_resolver_certs,
+};
 
-/// The owner of `tls.yaml`, and the provider whose boot builds the shared
-/// [`CertResolver`] from it. Congif prepares the declaration before boot and
-/// in the reload batch; the certstore and certificates resolve in boot, once
-/// hosting and the database are up.
-pub struct CertResolverProvider {
-    state: AppState,
-    config_path: PathBuf,
-}
+/// Optional SNI consumption of the independently registered certificate source.
+pub struct CertResolverProvider;
 
 impl CertResolverProvider {
-    pub fn new(state: &AppState) -> Self {
-        Self {
-            state: state.clone(),
-            config_path: state.config_dir().join("tls.yaml"),
-        }
+    pub fn new(_state: &AppState) -> Self {
+        Self
     }
 }
 
 impl Register<AppState> for CertResolverProvider {
     fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
-        state.bind_config_environment::<Self>()?;
-        state.registry_ref().register(Arc::new(Self::new(state)))?;
+        <CertificateProvider as Register<AppState>>::register(state)?;
+        state.registry_ref().register(Arc::new(Self))?;
         Ok(())
     }
 }
 
-/// Register the resolver provider with the application's configuration reader.
 pub fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
     <CertResolverProvider as Register<AppState>>::register(state)
-}
-
-/// `tls.yaml` is required where TLS is built in; there is no absent form.
-#[async_trait]
-impl Configurable for CertResolverProvider {
-    type Config = TlsConfigSource;
-
-    fn source(&self) -> ConfigFile {
-        ConfigFile::yaml(&self.config_path)
-    }
-
-    async fn configure(
-        &self,
-        _config: &TlsConfigSource,
-    ) -> congif::Result<()> {
-        // Certificates resolve in boot: hosting and the database come first.
-        Ok(())
-    }
-
-    fn as_config_observer(
-        &self
-    ) -> Option<&dyn ConfigObserver<Config = Self::Config>> {
-        Some(self)
-    }
-}
-
-#[async_trait]
-impl ConfigObserver for CertResolverProvider {
-    async fn config_changed(
-        &self,
-        _config: &TlsConfigSource,
-    ) -> congif::Result<()> {
-        let Some(resolver) =
-            self.state.registry_ref().resolve::<CertResolver>()
-        else {
-            // Not booted yet: boot reads the prepared declaration itself.
-            return Ok(());
-        };
-        reload_resolver_certs(&resolver, &self.state)
-            .await
-            .map_err(congif::Error::msg)?;
-        info!(
-            "📜 Certificate resolver reconfigured (certs={})",
-            resolver.count()
-        );
-        Ok(())
-    }
 }
 
 /// Custom Certificate Resolver for Multi-Domain TLS (hot-reloadable)
@@ -330,10 +270,9 @@ impl Reloadable<AppState> for CertResolver {
 }
 
 impl Component<AppState> for CertResolverProvider {
-    /// `merge_db_certs` reads the server id `HostingService` resolves in its
-    /// boot, so hosting boots first when it is registered. Without it the
-    /// database steps are skipped, which is why the dependency is optional.
-    type Deps = HostingDeps;
+    /// The source boots after HostingService when present. SNI consumption
+    /// follows that source, preserving the database/server-identity ordering.
+    type Deps = (Arc<CertificateProvider>,);
 
     fn name(&self) -> &'static str {
         "CertResolverProvider"
@@ -341,14 +280,10 @@ impl Component<AppState> for CertResolverProvider {
 
     /// EARLY so we boot BEFORE any NORMAL provider (HttpsServer, …) that
     /// resolves `CertResolver` from the registry. Priority only orders this
-    /// against the components it has no edge to; `HostingService` comes first
-    /// through `Deps`.
+    /// against components with no dependency edge. The source and its optional
+    /// HostingService dependency come first through `Deps`.
     fn boot_priority(&self) -> Option<u8> {
         Some(priority::EARLY)
-    }
-
-    fn as_configurable(&self) -> Option<&dyn congif::ConfigRegistration> {
-        Some(self)
     }
 
     fn as_bootable(&self) -> Option<&dyn Bootable<AppState, Self::Deps>> {
@@ -357,10 +292,10 @@ impl Component<AppState> for CertResolverProvider {
 }
 
 #[async_trait]
-impl Bootable<AppState, HostingDeps> for CertResolverProvider {
+impl Bootable<AppState, (Arc<CertificateProvider>,)> for CertResolverProvider {
     async fn boot(
         &self,
-        hosting: HostingDeps,
+        _source: (Arc<CertificateProvider>,),
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
         install_aws_crypto_provider();
@@ -370,18 +305,12 @@ impl Bootable<AppState, HostingDeps> for CertResolverProvider {
             return Ok(());
         }
 
+        use claviron_runtime::registry::Resolve;
+        let hosting = HostingDeps::resolve(registry)?;
         let certificates = build_certificates(state, &hosting).await?;
         let count = certificates.resolver.count();
         trace!(resolver = %format_args!("{:p}", Arc::as_ptr(&certificates.resolver)), process_id = std::process::id(), cert_count = count, "Shared TLS resolver registered");
         registry.register(certificates.resolver)?;
-        if let Some(authority) = certificates.authority {
-            if state.is_worker() {
-                tracing::debug!(authority = ?authority, "📜 Certificate authority loaded");
-            } else {
-                info!(authority = ?authority, "📜 Certificate authority loaded");
-            }
-            registry.insert(authority)?;
-        }
         if state.is_worker() {
             tracing::debug!(
                 "📜 Certificate resolver initialized certs={count}"

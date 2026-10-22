@@ -73,7 +73,7 @@ pub fn db_cert_to_certified_key(
 /// Note: perform chain ordering/verification separately (leaf first, then intermediates),
 /// and validate key ↔ leaf before swapping configs.
 /// #CERT_CHAIN_SAVING, uses X509CertificateParser. DER is TLV (Tag-Length-Value) with definite lengths.
-fn parse_cert_chain_from_bytes(
+pub(crate) fn parse_cert_chain_from_bytes(
     cn: &str,
     data: &[u8],
 ) -> Result<Vec<CertificateDer<'static>>, Error> {

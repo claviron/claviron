@@ -9,6 +9,8 @@ pub mod policy;
 mod proto;
 pub mod provider;
 pub mod resolver;
+pub mod signer;
+pub mod source;
 pub use provider::*;
 mod snapshot;
 
@@ -26,3 +28,5 @@ pub use listener::CertificateListener;
 pub use manager::CertificateManager;
 pub use proto::*;
 pub use resolver::{CertResolver, CertResolverProvider};
+pub use signer::{CertSigner, IssuedCertificate};
+pub use source::{CertificateProvider, CertificateStore};

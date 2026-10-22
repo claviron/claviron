@@ -1,5 +1,9 @@
 #[cfg(any(
-    all(feature = "postgres", feature = "hosting"),
+    all(
+        feature = "postgres",
+        feature = "hosting",
+        any(feature = "edge", feature = "upstream")
+    ),
     feature = "tasks"
 ))]
 use std::sync::Arc;
@@ -250,11 +254,17 @@ pub async fn start_services(
 
 pub fn register(state: &AppState) -> Result<()> {
     #[cfg(any(
-        all(feature = "hosting", feature = "postgres"),
+        all(
+            feature = "hosting",
+            feature = "postgres",
+            any(feature = "edge", feature = "upstream")
+        ),
         feature = "tasks"
     ))]
     let registry = state.registry_ref();
     #[cfg(feature = "tls")]
+    claviron_tls::source::register(state)?;
+    #[cfg(all(feature = "tls", any(feature = "edge", feature = "upstream")))]
     claviron_tls::resolver::register(state)?;
 
     #[cfg(feature = "supervisor")]
@@ -308,7 +318,11 @@ pub fn register(state: &AppState) -> Result<()> {
     // changes destined for other servers are no-ops here.
     // With hosting data in SQLite there is no NOTIFY channel; the listener
     // sees the profile and stays idle.
-    #[cfg(all(feature = "postgres", feature = "hosting"))]
+    #[cfg(all(
+        feature = "postgres",
+        feature = "hosting",
+        any(feature = "edge", feature = "upstream")
+    ))]
     registry
         .register(Arc::new(claviron_tls::CertificateListener::default()))?;
 

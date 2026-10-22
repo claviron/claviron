@@ -230,7 +230,7 @@ async fn failed_reload_file_snapshot_keeps_serving_certificates() {
     let state = AppState::standalone("tls-reload-fixture", &directory.0);
     // The reload takes the declaration Congif prepared, as the runtime's
     // reload batch would have.
-    let owner = CertResolverProvider::new(&state);
+    let owner = CertificateProvider::new(&state);
     state.config_reader().prepare_owners(&[&owner]).await.unwrap();
     let error = reload_resolver_certs(&resolver, &state)
         .await

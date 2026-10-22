@@ -94,8 +94,9 @@ validated policy is retained; changing certificate configuration does not replac
 it. Restart to change negotiated version/cipher/key-exchange policy. Unknown
 suite/group names and an invalid version range are configuration errors.
 
-`CertAuthority` exposes configured trust and, where the hosting integration
-provides it, controlled issuance capability. Trust changes require their own
+`CertificateStore` resolves identities and public CA chains without an SNI map
+or virtual hosts. `CertAuthority` contains public trust only; local issuance
+explicitly obtains a separate `CertSigner`. Trust changes require their own
 restart boundary; certificate-map reload is not authority replacement.
 
 ## TLS resumption and hosting

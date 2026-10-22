@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use claviron_types::CertificateKind;
 use claviron_types::ssl::{generators, parsers};
+use rustls::pki_types::CertificateDer;
 use rustls::pki_types::UnixTime;
+use std::path::PathBuf;
 
 use super::*;
 
 #[test]
-fn database_material_issues_verifiable_identities_without_files() {
+fn signer_material_issues_verifiable_identities_without_files() {
     let key = generators::generate_ca_key().unwrap();
     let ca = generators::generate_ca_cert(
         "authority.test",
@@ -18,17 +20,13 @@ fn database_material_issues_verifiable_identities_without_files() {
     )
     .unwrap();
     let ca_der = parsers::concat_chain_bytes_from_pem(&ca).unwrap();
-    let authority = CertAuthority {
-        path: PathBuf::new(),
-        roots: vec![CertificateDer::from(ca_der)],
-        signer: Some(DatabaseSigner {
-            issuer_id: 1,
-            certificate_id: 1,
-            name: "ca.test".into(),
-            key_der: key.serialize_der(),
-        }),
+    let authority = CertSigner {
+        authority: CertAuthority::new(
+            PathBuf::new(),
+            vec![CertificateDer::from(ca_der)],
+        ),
+        key_der: key.serialize_der(),
     };
-    assert_eq!(authority.path(), None);
     let issued = authority
         .issue_certificate(
             CertificateKind::Client,
@@ -39,7 +37,7 @@ fn database_material_issues_verifiable_identities_without_files() {
         )
         .unwrap();
     let mut roots = rustls::RootCertStore::empty();
-    roots.add(authority.roots()[0].clone()).unwrap();
+    roots.add(authority.authority().roots()[0].clone()).unwrap();
     let verifier = rustls::server::WebPkiClientVerifier::builder_with_provider(
         Arc::new(roots),
         Arc::new(rustls::crypto::aws_lc_rs::default_provider()),
@@ -74,15 +72,12 @@ fn database_material_issues_verifiable_identities_without_files() {
             Some(0),
         )
         .unwrap();
-    let intermediate = CertAuthority {
-        path: PathBuf::new(),
-        roots: vec![CertificateDer::from(intermediate.certs_der)],
-        signer: Some(DatabaseSigner {
-            issuer_id: 2,
-            certificate_id: 2,
-            name: "intermediate.test".into(),
-            key_der: intermediate.key_der,
-        }),
+    let intermediate = CertSigner {
+        authority: CertAuthority::new(
+            PathBuf::new(),
+            vec![CertificateDer::from(intermediate.certs_der)],
+        ),
+        key_der: intermediate.key_der,
     };
     let leaf = intermediate
         .issue_certificate(CertificateKind::Client, "client.test", &[], 1, None)
@@ -93,7 +88,7 @@ fn database_material_issues_verifiable_identities_without_files() {
     verifier
         .verify_client_cert(
             &CertificateDer::from(leaf.certs_der[..len].to_vec()),
-            &[intermediate.roots()[0].clone()],
+            &[intermediate.authority().roots()[0].clone()],
             UnixTime::now(),
         )
         .unwrap();
@@ -109,14 +104,11 @@ fn database_material_issues_verifiable_identities_without_files() {
             .is_err()
     );
     assert!(
-        CertAuthority::new(PathBuf::new(), vec![])
-            .issue_certificate(
-                CertificateKind::Client,
-                "client.test",
-                &[],
-                1,
-                None
-            )
-            .is_err()
+        (CertSigner {
+            authority: CertAuthority::new(PathBuf::new(), vec![]),
+            key_der: vec![]
+        })
+        .issue_certificate(CertificateKind::Client, "client.test", &[], 1, None)
+        .is_err()
     );
 }

@@ -7,9 +7,9 @@ use rustls::server::ServerSessionMemoryCache;
 use super::error::Error;
 use super::proto::Proto;
 use super::resolver::CertResolver;
+use crate::CertificateProvider;
 use crate::authority::CertAuthority;
 use crate::config::TlsConfig;
-use crate::resolver::CertResolverProvider;
 use crate::snapshot::Snapshot;
 
 /// What certificate loading reads from hosting: the server id
@@ -30,7 +30,7 @@ pub(crate) async fn load_tls_config(
 ) -> Result<TlsConfig, Error> {
     let source = state
         .config_reader()
-        .snapshot::<CertResolverProvider>()
+        .snapshot::<CertificateProvider>()
         .map_err(|error| Error::Other(error.to_string()))?;
     let cfg = tokio::task::spawn_blocking(move || {
         TlsConfig::try_from((*source).clone())
@@ -76,47 +76,14 @@ async fn load_authority(
     _hosting: &HostingDeps,
     config: &TlsConfig,
 ) -> Result<Option<Arc<CertAuthority>>, Error> {
-    use claviron_types::ssl::certstore::CertificateSource;
-    let entry = config.certstore().authority_entry();
-    let named = match entry {
-        Some(CertificateSource::Cn(name)) => Some(name),
-        Some(CertificateSource::Name(name)) => {
-            let path = config.certstore().ca_cert_path(name.as_str());
-            if tokio::fs::try_exists(&path).await? { None } else { Some(name) }
-        }
-        _ => None,
-    };
-    if let Some(name) = named {
-        #[cfg(feature = "db")]
-        {
-            let (service,) = _hosting;
-            let service = service.as_ref().ok_or_else(|| {
-                Error::Other("named authority requires HostingService".into())
-            })?;
-            let store = service
-                .store()
-                .map_err(|error| Error::Other(error.to_string()))?;
-            return CertAuthority::from_issuer(&store, name.as_str())
-                .await
-                .map(|authority| Some(Arc::new(authority)));
-        }
-        #[cfg(not(feature = "db"))]
-        {
-            return Err(Error::Other(format!(
-                "authority CN '{}' requires database support; select authority.path for file trust",
-                name.as_str()
-            )));
-        }
-    }
-    let Some(path) = CertAuthority::path_of(config) else {
-        return Ok(None);
-    };
-    tokio::task::spawn_blocking(move || CertAuthority::load(path).map(Arc::new))
-        .await
-        .map_err(|error| {
-            Error::Other(format!("TLS authority blocking task failed: {error}"))
-        })?
-        .map(Some)
+    #[cfg(feature = "db")]
+    let source = crate::CertificateStore::with_dependencies(
+        config.certstore().clone(),
+        _hosting.clone(),
+    );
+    #[cfg(not(feature = "db"))]
+    let source = crate::CertificateStore::new(config.certstore().clone());
+    source.authority().await.map(|authority| authority.map(Arc::new))
 }
 
 /// A named fallback is resolved only after the file snapshot was loaded.
@@ -271,7 +238,10 @@ pub async fn build_certificates(
     hosting: &HostingDeps,
 ) -> Result<Certificates, Error> {
     let tls_cfg = load_tls_config(state).await?;
-    let authority = load_authority(hosting, &tls_cfg).await?;
+    let authority = match state.registry_ref().resolve::<CertAuthority>() {
+        Some(authority) => Some(authority),
+        None => load_authority(hosting, &tls_cfg).await?,
+    };
     let default_source = tls_cfg.default_cert_entry().clone();
 
     #[allow(unused_mut)]

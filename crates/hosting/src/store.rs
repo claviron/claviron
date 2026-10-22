@@ -9,7 +9,8 @@ use time::{OffsetDateTime, UtcOffset};
 use crate::{
     Certificate, CertificateAlias, CertificateIssuer, CertificateKind,
     HostedCertificate, HostedVhost, HostingChanged, HostingError, IssuerKind,
-    NewCertificate, Result, Server, Vhost, VhostAlias, VhostImport,
+    NewCertificate, PublicCertificate, Result, Server, Vhost, VhostAlias,
+    VhostImport,
 };
 
 /// Cloneable handle to Claviron's hosting data, in PostgreSQL (roma's
@@ -862,6 +863,38 @@ impl HostingStore {
                FROM hosting.certificates WHERE id = $1", [id], fetch_optional)?.map(Into::into))
     }
 
+    /// Public material only: the private-key column is not read or decoded.
+    pub async fn public_certificate_by_id(
+        &self,
+        id: i32,
+    ) -> Result<Option<PublicCertificate>> {
+        Ok(run!(self, query_as::<PublicCertificateRow>,
+            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled
+               FROM hosting.certificates WHERE id = $1", [id], fetch_optional)?.map(Into::into))
+    }
+
+    /// Public material selected by its exact stored common name.
+    pub async fn public_certificate_by_cn(
+        &self,
+        cn: &str,
+    ) -> Result<Option<PublicCertificate>> {
+        Ok(run!(self, query_as::<PublicCertificateRow>,
+            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled
+               FROM hosting.certificates WHERE cn = $1", [cn], fetch_optional)?.map(Into::into))
+    }
+
+    /// Exact usage selection before any private material is read.
+    pub async fn certificate_by_cn_and_kind(
+        &self,
+        cn: &str,
+        kind: CertificateKind,
+    ) -> Result<Option<Certificate>> {
+        Ok(run!(self, query_as::<CertificateRow>,
+            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at, issued_at, updated_at, enabled
+               FROM hosting.certificates WHERE cn = $1 AND kind::TEXT = $2 AND enabled = TRUE",
+            [cn, kind.as_str()], fetch_optional)?.map(Into::into))
+    }
+
     pub async fn acme_certificates(
         &self,
         active_only: bool,
@@ -1474,6 +1507,36 @@ struct CertificateWithAliasRow {
     alias_id: Option<i32>,
     alias_hostname: Option<String>,
     alias_created_at: Option<OffsetDateTime>,
+}
+
+#[derive(FromRow)]
+struct PublicCertificateRow {
+    id: i32,
+    #[sqlx(try_from = "String")]
+    kind: CertificateKind,
+    issuer_id: Option<i32>,
+    cn: String,
+    certs_der: Vec<u8>,
+    expires_at: OffsetDateTime,
+    issued_at: OffsetDateTime,
+    updated_at: Option<OffsetDateTime>,
+    enabled: bool,
+}
+
+impl From<PublicCertificateRow> for PublicCertificate {
+    fn from(row: PublicCertificateRow) -> Self {
+        Self {
+            id: row.id,
+            kind: row.kind,
+            issuer_id: row.issuer_id,
+            cn: row.cn,
+            certs_der: row.certs_der,
+            expires_at: row.expires_at,
+            issued_at: row.issued_at,
+            updated_at: row.updated_at,
+            enabled: row.enabled,
+        }
+    }
 }
 
 #[derive(FromRow)]
