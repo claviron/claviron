@@ -23,5 +23,8 @@ pub use types::{
 
 #[cfg(all(feature = "server", any(feature = "postgres", feature = "sqlite")))]
 mod service;
-#[cfg(all(feature = "server", any(feature = "postgres", feature = "sqlite")))]
+#[cfg(all(
+    feature = "server",
+    any(feature = "postgres", feature = "sqlite")
+))]
 pub use service::{HostingService, register};
