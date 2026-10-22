@@ -18,7 +18,7 @@ include = [
     "/php/fallback/*.php",
 ]
 keywords = ["php", "embedding", "sapi", "runtime", "ffi"]
-categories = ["web-programming::http-server", "api-bindings", "asynchronous"]
+categories = ["web-programming::http-server", "api-bindings", "development-tools::ffi", "asynchronous"]
 build = "build.rs"
 # tests/supervisor.rs is included as a private unit-test module.
 # Declare future integration tests explicitly with [[test]].

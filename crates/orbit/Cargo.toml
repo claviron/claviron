@@ -9,7 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["shared-memory", "ipc", "events", "concurrency", "async"]
+keywords = ["shared-memory", "ipc", "events", "rpc", "lifecycle"]
 categories = ["concurrency", "asynchronous"]
 # `tests/event.rs`, `tests/counter.rs`, and `tests/registry.rs` are private
 # unit-test modules included from `src`. Declare real integration tests below.
