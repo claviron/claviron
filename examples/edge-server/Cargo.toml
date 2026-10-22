@@ -5,13 +5,14 @@ publish = false
 edition = "2024"
 description = "Example Claviron edge for supervisor lifecycle scenarios."
 
-# This composition exercises the edge and supervisor without interpreters,
-# upstream applications, DNS resolution, or the task service.
+# The default benchmark composition includes upstream socket relays beside
+# Orbit Link. The application and its workload remain separate processes.
 
 [workspace]
 
 [features]
-bench = ["claviron/bench"]
+default = ["bench"]
+bench = ["claviron/bench", "claviron/upstream"]
 
 [dependencies]
 claviron = { path = "../..", features = ["edge", "log-pipeline","lua"] }

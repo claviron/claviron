@@ -1,6 +1,6 @@
 # Examples
 
-Five application examples built on Claviron.
+Application examples built on Claviron.
 
 | Example | What it demonstrates | Connection |
 | --- | --- | --- |
@@ -9,6 +9,7 @@ Five application examples built on Claviron.
 | [Octane](octane-app/README.md) | Laravel through Lumenize, with SQLite and native broadcasting | Separate process connected to Edge through Orbit Link |
 | [Orbit](orbit-app/README.md) | React/Vite and Hono on Deno, Node or Bun | Separate process connected to Edge through Orbit Link |
 | [Lua](lua-app/README.md) | Lua request handling and streaming | Embedded runtime |
+| [Bench](bench-app/README.md) | Native Rust transport benchmarks | Orbit Link, pooled UDS/h2c and TCP/h2c to the same runner |
 
 ## Run
 
@@ -33,7 +34,7 @@ are forwarded:
 examples/scripts/examples.sh start fastapi --no-build
 ```
 
-Open [examples.code-workspace](examples.code-workspace) for all five examples,
+Open [examples.code-workspace](examples.code-workspace) for the application examples,
 or open an application folder on its own.
 
 

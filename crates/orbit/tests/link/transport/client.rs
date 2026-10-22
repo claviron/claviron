@@ -1,5 +1,91 @@
 use super::*;
 
+fn reply_wait() -> (ReplyWait, Endpoint, ReadHalf, Arc<Waiting>) {
+    let streams = orbitive::stream::Streams::new(
+        Arc::new(orbitive::Fleet::join("reply-wait", 2).unwrap()),
+        orbitive::stream::Incarnation::new(1),
+    )
+    .unwrap();
+    let (origin, ticket) = streams.create().unwrap();
+    let remote = streams.open(ticket).unwrap();
+    let (read, _write) = origin.split();
+    let waiting = Arc::new(Waiting::default());
+    let (sender, receiver) = oneshot::channel();
+    waiting.insert(1, sender);
+    let reply = ReplyWait {
+        reply: receiver,
+        reset: read.reset_signal(),
+        waiting: Arc::clone(&waiting),
+        correlation: 1,
+        completed: false,
+    };
+    (reply, remote, read, waiting)
+}
+
+#[tokio::test]
+async fn a_reset_after_buffered_fin_ends_a_missing_reply_head() {
+    use tokio::io::AsyncWriteExt;
+    let (reply, mut remote, _read, waiting) = reply_wait();
+    remote.write_all(b"body").await.unwrap();
+    remote.finish().unwrap();
+    remote.reset();
+    assert!(matches!(
+        reply.head().await,
+        Err(Error::Stream(orbitive::stream::Error::Reset))
+    ));
+    assert!(waiting.senders.lock().unwrap().is_empty());
+}
+
+#[test]
+fn abandoning_a_reply_wait_removes_its_correlation() {
+    let (reply, _remote, _read, waiting) = reply_wait();
+    drop(reply);
+    assert!(waiting.senders.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn buffered_fin_does_not_complete_a_head_wait_or_consume_body_bytes() {
+    use tokio::io::AsyncWriteExt;
+    let (reply, mut remote, read, waiting) = reply_wait();
+    remote.write_all(b"body").await.unwrap();
+    remote.finish().unwrap();
+    let mut head = Box::pin(reply.head());
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(head.as_mut().poll(&mut cx).is_pending());
+    waiting
+        .take(1)
+        .unwrap()
+        .send(ExchangeReply {
+            correlation: 1,
+            status: 200,
+            headers: Vec::new(),
+            body: None,
+        })
+        .unwrap();
+    assert_eq!(head.await.unwrap().status, 200);
+    let mut bytes = [0; 4];
+    assert_eq!(read.try_read(&mut bytes).unwrap(), 4);
+    assert_eq!(&bytes, b"body");
+}
+
+#[tokio::test]
+async fn a_delivered_head_wins_over_a_later_body_reset() {
+    let (reply, mut remote, _read, waiting) = reply_wait();
+    waiting
+        .take(1)
+        .unwrap()
+        .send(ExchangeReply {
+            correlation: 1,
+            status: 200,
+            headers: Vec::new(),
+            body: None,
+        })
+        .unwrap();
+    remote.reset();
+    assert_eq!(reply.head().await.unwrap().status, 200);
+    assert!(waiting.senders.lock().unwrap().is_empty());
+}
+
 fn row(
     batch: u64,
     row_index: u16,

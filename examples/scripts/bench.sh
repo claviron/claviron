@@ -2,51 +2,95 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
-cd "$ROOT"
-
-
-if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
-  cat <<'HELP'
-Usage: examples/scripts/bench.sh [edge.sh options...]
-
-Launch the release benchmark server through edge.sh.
-Use --no-build for an existing release binary built with the bench feature.
-
-Environment:
-  OPEN_FILES           Soft file-descriptor limit; otherwise use the finite
-                       hard limit, or macOS kern.maxfilesperproc.
-  MIMALLOC_PURGE_DELAY  Unused-page purge delay in milliseconds (default: 0).
-
-Other environment variables and options are handled by edge.sh.
-This starts the server; it does not start a load generator.
-HELP
-  exit 0
+APP="$ROOT/examples/bench-app"
+EDGE="$ROOT/examples/edge-server"
+if [[ -n "${CARGO_TARGET_DIR:-}" && "${CARGO_TARGET_DIR:-}" != /* ]]; then
+  export CARGO_TARGET_DIR="$PWD/$CARGO_TARGET_DIR"
 fi
 
-open_files="${OPEN_FILES:-}"
-if [[ -z "$open_files" ]]; then
-  open_files="$(ulimit -H -n)"
-  if [[ "$open_files" == unlimited ]]; then
-    if [[ "$(uname -s)" == Darwin ]]; then
-      open_files="$(sysctl -n kern.maxfilesperproc)"
+usage() {
+  echo 'Usage: examples/scripts/bench.sh start|status|stop [--release] [--no-build]'
+  echo 'Validate both configs, then start the native Rust app and benchmark Edge.'
+}
+
+action="${1:-}"
+case "$action" in
+  start|status|stop) shift ;;
+  --help|-h) usage; exit 0 ;;
+  *) usage >&2; exit 2 ;;
+esac
+profile=debug
+build_args=()
+launch_args=(--no-build)
+skip_build=false
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --release) profile=release; build_args=(--release); launch_args+=(--release) ;;
+    --no-build) skip_build=true ;;
+    *) usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+export BENCH_UDS="$APP/logs/bench.sock"
+export CONFIG_DIR="$APP/edge"
+export WORKERS="${WORKERS:-0}"
+export RUST_LOG="${RUST_LOG:-info}"
+
+benchmark_edge_recorded() {
+  [[ -f "$EDGE/logs/edge-server.pid" ]] &&
+    [[ "$(sed -n '5p' "$EDGE/logs/edge-server.pid")" == "$CONFIG_DIR" ]]
+}
+
+case "$action" in
+  status)
+    result=0
+    "$ROOT/examples/scripts/bench-app.sh" status || result=$?
+    if benchmark_edge_recorded; then
+      "$ROOT/examples/scripts/edge.sh" status || result=$?
     else
-      open_files="$(ulimit -S -n)"
+      echo 'Benchmark Edge: not tracked (another Edge instance is left alone).'
+      result=3
     fi
-  fi
-fi
+    exit "$result" ;;
+  stop)
+    if benchmark_edge_recorded; then
+      "$ROOT/examples/scripts/edge.sh" stop
+    else
+      echo 'No benchmark Edge recorded; no Edge signal sent.'
+    fi
+    "$ROOT/examples/scripts/bench-app.sh" stop
+    exit 0 ;;
+esac
 
-if [[ "$open_files" != unlimited && ! "$open_files" =~ ^[1-9][0-9]*$ ]]; then
-  echo "OPEN_FILES must be a positive integer or unlimited." >&2
+if "$ROOT/examples/scripts/edge.sh" status >/dev/null 2>&1 ||
+   "$ROOT/examples/scripts/bench-app.sh" status >/dev/null 2>&1; then
+  echo 'An Edge or bench-app process is already tracked; inspect status before starting.' >&2
   exit 1
 fi
-if ! ulimit -S -n "$open_files"; then
-  echo "Cannot set open-file limit to $open_files; check the inherited hard limit." >&2
-  exit 1
+
+if [[ "$skip_build" == false ]]; then
+  cargo build --manifest-path "$APP/Cargo.toml" --workspace --all-features --all-targets "${build_args[@]}"
+  cargo build --manifest-path "$EDGE/Cargo.toml" --workspace --all-features --all-targets "${build_args[@]}"
 fi
 
-# Only benchmark launches opt into immediate purging. Ordinary runs are unchanged.
-export MIMALLOC_PURGE_DELAY="${MIMALLOC_PURGE_DELAY:-0}"
-printf 'Bench: open files=%s, mimalloc purge delay=%s ms\n' \
-  "$(ulimit -S -n)" "$MIMALLOC_PURGE_DELAY"
+# Validation is foreground-only and publishes no lifecycle PID file. Neither
+# application is started if either configuration is invalid.
+(
+  cd "$APP"
+  "${CARGO_TARGET_DIR:-$APP/target}/$profile/bench-app" --check-config
+)
+(
+  cd "$EDGE"
+  "${CARGO_TARGET_DIR:-$EDGE/target}/$profile/edge-server" \
+    --check-config --config "$CONFIG_DIR" --name edge-server \
+    --fleet edge --workers "$WORKERS" --environment "$(hostname -s)"
+)
+echo 'Configuration valid: bench-app and benchmark Edge.'
 
-exec "$ROOT/examples/scripts/edge.sh" --bench --release "$@"
+"$ROOT/examples/scripts/bench-app.sh" start "${launch_args[@]}"
+if ! "$ROOT/examples/scripts/edge.sh" start "${launch_args[@]}"; then
+  "$ROOT/examples/scripts/bench-app.sh" stop
+  exit 1
+fi
+echo 'Benchmark pair launched. Use bench.sh status to inspect asynchronous boot.'

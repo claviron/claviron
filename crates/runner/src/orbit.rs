@@ -710,9 +710,12 @@ async fn serve(
     let status = reply.status;
     match reply.encode() {
         Ok(frame) => {
-            if let Err(error) = segment.inbox().write(origin, &frame) {
-                // Nobody to tell: the caller's lane is full or its process is
-                // gone, and the answer has nowhere to go.
+            if let Err(error) = publish_reply_head(
+                segment.inbox(),
+                origin,
+                &frame,
+                reply_body.as_mut(),
+            ) {
                 tracing::debug!(
                     correlation,
                     "🛰 ✗ reply was not delivered: {error}"
@@ -721,6 +724,9 @@ async fn serve(
             }
         }
         Err(error) => {
+            if let Some(outgoing) = reply_body.as_mut() {
+                outgoing.reset();
+            }
             tracing::debug!(
                 correlation,
                 "🛰 ✗ reply does not fit a frame: {error}"
@@ -783,6 +789,22 @@ async fn serve(
         arrived.elapsed(),
         if whole { ", buffered" } else { "" }
     );
+}
+
+fn publish_reply_head(
+    inbox: &Inbox,
+    origin: usize,
+    frame: &[u8],
+    outgoing: Option<&mut claviron_orbit::stream::WriteHalf>,
+) -> Result<(), String> {
+    inbox.write(origin, frame).map(|_| ()).map_err(|error| {
+        // The response direction is already owned by this exchange. RESET
+        // wakes its caller even after a buffered response published FIN.
+        if let Some(outgoing) = outgoing {
+            outgoing.reset();
+        }
+        error.to_string()
+    })
 }
 
 /// Rebuild the request the edge took apart.

@@ -1,0 +1,23 @@
+upstreams:
+  bench_uds:
+    protocol: h2
+    connection: { connect_timeout: off }
+    authority: bench.test
+    origins:
+      - { name: uds, target: "unix://${BENCH_UDS}" }
+    capacity: { max_live: 16, max_idle: 16 }
+  bench_tcp:
+    protocol: h2
+    connection: { connect_timeout: off }
+    authority: bench.test
+    origins:
+      - { name: tcp, target: "tcp://127.0.0.1:8105" }
+    capacity: { max_live: 16, max_idle: 16 }
+
+apps:
+  bench_uds:
+    routes:
+      - { profile: bench_uds }
+  bench_tcp:
+    routes:
+      - { profile: bench_tcp }

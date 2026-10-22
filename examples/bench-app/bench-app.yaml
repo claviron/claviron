@@ -1,0 +1,8 @@
+name: bench-app
+fleet_name: benchapp
+orbit: true
+uds: logs/bench.sock
+tcp: 127.0.0.1:8105
+h1: true
+h2: true
+max_in_flight: 128

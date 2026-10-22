@@ -28,11 +28,12 @@
 //! acknowledgement to retry against, and a request that was written was
 //! delivered while one that was not is a 503 before anything ran.
 //!
-//! No timeout either, yet. A reply that never comes is a wait that never ends,
-//! and the answer to that is to read the worker's death rather than to invent
-//! a duration for it.
+//! No timeout: a reply head that cannot be published is signalled by RESET on
+//! the exchange's existing response stream. Confirmed worker death uses that
+//! stream's recovery too; elapsed time is not a substitute for either signal.
 
 use std::collections::{HashMap, VecDeque};
+use std::future::{Future, poll_fn};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -40,7 +41,7 @@ use std::task::{Context, Poll};
 
 use claviron_runtime::{FleetName, ProcessEventBus};
 use orbitive::link::Received;
-use orbitive::stream::{Endpoint, ReadHalf, Ticket, WriteHalf};
+use orbitive::stream::{Endpoint, ReadHalf, ResetSignal, Ticket, WriteHalf};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::oneshot;
 
@@ -70,7 +71,7 @@ pub struct Pending {
     pub request_body: LentWrite,
     /// Where the response body comes from.
     pub response_body: LentRead,
-    reply: oneshot::Receiver<ExchangeReply>,
+    reply: ReplyWait,
 }
 
 impl Pending {
@@ -81,27 +82,58 @@ impl Pending {
     /// finished. Holding them together would make that a borrow problem
     /// rather than the ordinary case it is.
     pub fn split(self) -> (LentWrite, LentRead, ReplyWait) {
-        (self.request_body, self.response_body, ReplyWait { reply: self.reply })
+        (self.request_body, self.response_body, self.reply)
     }
 }
 
 /// The head of a reply, once the application has one.
 pub struct ReplyWait {
     reply: oneshot::Receiver<ExchangeReply>,
+    reset: ResetSignal,
+    waiting: Arc<Waiting>,
+    correlation: u64,
+    completed: bool,
 }
 
 impl ReplyWait {
     /// Wait for the status and headers.
     ///
-    /// There is no deadline here. A reply that never comes means the worker
-    /// holding the request is gone, and reading that is the answer rather than
-    /// a number chosen to stand in for it.
-    pub async fn head(self) -> Result<ExchangeReply> {
-        self.reply.await.map_err(|_| {
-            Error::Malformed(
-                "the reply channel closed before an answer arrived",
-            )
+    /// No deadline: a failed publication resets the existing response stream,
+    /// waking this wait even when no reply head could enter the shared inbox.
+    pub async fn head(mut self) -> Result<ExchangeReply> {
+        let result = poll_fn(|cx| {
+            // A successfully delivered head wins over a later body reset.
+            if let Poll::Ready(reply) = Pin::new(&mut self.reply).poll(cx) {
+                return Poll::Ready(reply.map_err(|_| {
+                    Error::Malformed(
+                        "the reply channel closed before an answer arrived",
+                    )
+                }));
+            }
+            match self.reset.poll_reset(cx) {
+                Poll::Ready(Ok(())) => Poll::Ready(Err(Error::Stream(
+                    orbitive::stream::Error::Reset,
+                ))),
+                Poll::Ready(Err(error)) => {
+                    Poll::Ready(Err(Error::Stream(error)))
+                }
+                Poll::Pending => Poll::Pending,
+            }
         })
+        .await;
+        if result.is_err() {
+            self.waiting.take(self.correlation);
+        }
+        self.completed = true;
+        result
+    }
+}
+
+impl Drop for ReplyWait {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.waiting.take(self.correlation);
+        }
     }
 }
 
@@ -665,6 +697,7 @@ impl TransportClient {
         }
 
         let (read, write) = endpoint.split();
+        let reset = read.reset_signal();
         let loan = Arc::new(Loan {
             hot: Arc::clone(&self.hot),
             ticket,
@@ -677,7 +710,13 @@ impl TransportClient {
                 loan: Arc::clone(&loan),
             },
             response_body: LentRead { half: Some(read), loan },
-            reply: receiver,
+            reply: ReplyWait {
+                reply: receiver,
+                reset,
+                waiting: Arc::clone(&self.waiting),
+                correlation,
+                completed: false,
+            },
         })
     }
 

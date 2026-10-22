@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn refused_reply_publication_resets_even_a_finished_response_direction() {
+    use claviron_orbit::Fleet;
+    use claviron_orbit::stream::{Incarnation, Streams};
+
+    let fleet = Arc::new(Fleet::join("reply-reset", 2).unwrap());
+    let streams = Streams::new(fleet, Incarnation::new(1)).unwrap();
+    let (origin, ticket) = streams.create().unwrap();
+    let remote = streams.open(ticket).unwrap();
+    let (read, _write) = origin.split();
+    let (_incoming, mut outgoing) = remote.split();
+    outgoing.try_write(b"body before head").unwrap();
+    outgoing.finish().unwrap();
+
+    let name = format!("rr{:x}", std::process::id());
+    let segment = TransportSegment::open(&name, 2).unwrap();
+    struct Cleanup(TransportSegment);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = self.0.unlink();
+        }
+    }
+    let held = Cleanup(segment);
+    // A lane with no consumer deterministically refuses publication. This
+    // exercises the same terminal path as full-capacity/contended admission.
+    assert!(
+        publish_reply_head(held.0.inbox(), 0, b"head", Some(&mut outgoing))
+            .is_err()
+    );
+    assert!(read.try_read(&mut [0; 1]).is_err());
+}
+
+#[test]
 fn edge_shutdown_application_event_preserves_notice_identity() {
     let notice = EdgeShutdownInitiated {
         edge: "example-edge".to_owned(),

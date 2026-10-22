@@ -1,0 +1,12 @@
+defaults:
+  listener:
+    requests:
+      max_body_size: off
+      body_read_timeout: off
+
+listeners:
+  benchmark:
+    transport: tcp
+    tls: false
+    protocols: h1
+    listen: 127.0.0.1:8800

@@ -1,0 +1,15 @@
+default:
+  transport: { non_ssl: serve, protocols: [h1] }
+
+orbit.bench.test:
+  transport: { non_ssl: serve, protocols: [h1] }
+  orbit:
+    - { path: /, application: bench-app, fleet: benchapp }
+
+uds.bench.test:
+  transport: { non_ssl: serve, protocols: [h1] }
+  upstream: bench_uds
+
+tcp.bench.test:
+  transport: { non_ssl: serve, protocols: [h1] }
+  upstream: bench_tcp
