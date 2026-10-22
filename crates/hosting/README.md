@@ -46,6 +46,10 @@ changes and protect returned data. Certificate records include private key
 material; do not expose their generic serialization or debug representation
 through an untrusted response or diagnostic log.
 
+`public_certificates_by_issuer` returns an issuer's public certificate records
+without reading private keys or requiring a server assignment. Usage and enabled
+state remain visible; consumers choose their own trust and admission policy.
+
 ## Backends and runtime identity
 
 The implementation has no default features. `postgres` and `sqlite` compile

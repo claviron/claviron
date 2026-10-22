@@ -883,6 +883,20 @@ impl HostingStore {
                FROM hosting.certificates WHERE cn = $1", [cn], fetch_optional)?.map(Into::into))
     }
 
+    /// Public records belonging to one issuer, independently of server assignment.
+    /// Usage, enabled state and trust remain the consumer's policy. Private keys
+    /// are never selected, including for CA records.
+    pub async fn public_certificates_by_issuer(
+        &self,
+        issuer_id: i32,
+    ) -> Result<Vec<PublicCertificate>> {
+        let rows = run!(self, query_as::<PublicCertificateRow>,
+            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled
+               FROM hosting.certificates WHERE issuer_id = $1 ORDER BY id",
+            [issuer_id], fetch_all)?;
+        Ok(rows.into_iter().map(Into::into).collect())
+    }
+
     /// Exact usage selection before any private material is read.
     pub async fn certificate_by_cn_and_kind(
         &self,

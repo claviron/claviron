@@ -169,6 +169,11 @@ async fn issuer_relationships_round_trip_without_installing_client_identity() {
             .is_err()
     );
     assert!(store.certificates_for_server(1).await.unwrap().is_empty());
+    let public = store.public_certificates_by_issuer(issuer.id).await.unwrap();
+    assert_eq!(public.len(), 1);
+    assert_eq!(public[0].id, saved.certificate.id);
+    assert_eq!(public[0].kind, CertificateKind::Client);
+    assert_eq!(public[0].certs_der, saved.certificate.certs_der);
     assert_eq!(
         store.certificate_by_cn("client.test").await.unwrap().unwrap(),
         saved
@@ -201,6 +206,14 @@ async fn issuer_relationships_round_trip_without_installing_client_identity() {
     assert_eq!(server.aliases[0].hostname, "www.test");
     assert_eq!(server.certificate.issuer_id, Some(acme.id));
     assert_eq!(store.acme_certificates(true, None).await.unwrap(), [server]);
+    // Another issuer's server assignment does not affect this public view.
+    assert_eq!(
+        store.public_certificates_by_issuer(issuer.id).await.unwrap(),
+        public
+    );
+    assert!(
+        store.public_certificates_by_issuer(i32::MAX).await.unwrap().is_empty()
+    );
     assert!(
         store.attach_certificate_to_server(ca.certificate.id, 1).await.is_err()
     );
