@@ -1,0 +1,86 @@
+# Gufi transport comparison hosts, enabled by the bench feature.
+hosting:
+  # Three doors to one process, so a benchmark changes one thing at a time.
+  #
+  # The same gufi process answers all three: `bench` over Orbit shared memory,
+  # and the same application over TCP and a Unix socket through this edge's own
+  # upstream. Same request, same interpreter, same machine — only the transport
+  # between the edge and the application differs.
+  #
+  # Plain HTTP on purpose: TLS is not what is being measured.
+  #
+  #   gufi --name bench \
+  #        --tcp 127.0.0.1:8100 --uds /tmp/gufi-bench.sock --orbit
+  #
+  #   wrk -t4 -c64 -d10s -H 'Host: orbit.bench' http://127.0.0.1/hello/bench
+  #   wrk -t4 -c64 -d10s -H 'Host: tcp.bench'   http://127.0.0.1/hello/bench
+  #   wrk -t4 -c64 -d10s -H 'Host: uds.bench'   http://127.0.0.1/hello/bench
+  orbit.bench:
+    root: ../fastapi-app/public
+    transport:
+      non_ssl: serve
+      protocols: [ h1 ]
+      # WebSocket over Orbit: the host must permit the upgrade; the orbit route
+      # completes it once the application accepts.
+      h1:
+        upgrade: true
+    orbit:
+      - path: /
+        application: fastapi-app
+        fleet: fastapi
+
+  tcp.bench:
+    root: ../fastapi-app/public
+    transport:
+      non_ssl: serve
+      protocols: [ h1 ]
+    upstream: gufi_tcp
+
+  uds.bench:
+    root: ../fastapi-app/public
+    transport:
+      non_ssl: serve
+      protocols: [ h1 ]
+      # WebSocket through the upstream proxy, for the same comparison over Orbit.
+      h1:
+        upgrade: true
+    upstream: gufi_uds
+
+  # The same socket without a pool to keep: a connection per request.
+  udscold.bench:
+    root: ../fastapi-app/public
+    transport:
+      non_ssl: serve
+      protocols: [ h1 ]
+    upstream: gufi_uds_cold
+
+  # The same two transports with h2c to the application, so the socket is
+  # multiplexed too.
+  tcph2.bench:
+    root: ../fastapi-app/public
+    transport:
+      non_ssl: serve
+      protocols: [ h1 ]
+    upstream: gufi_tcp_h2
+
+  udsh2.bench:
+    root: ../fastapi-app/public
+    transport:
+      non_ssl: serve
+      protocols: [ h1 ]
+    upstream: gufi_uds_h2
+
+  # Eight origins behind each, the most a socket row can reach: `GUFI` in
+  # `scripts/bench.sh` launches any number of processes up to that, and the
+  # upstream passes over the origins nobody is serving. Orbit has no
+  # counterpart host — `orbit.bench` reaches however many processes serve the
+  # name, because the route never names one.
+  udsn.bench:
+    root: ../fastapi-app/public
+    transport: { non_ssl: serve, protocols: [ h1 ] }
+    upstream: gufi_udsn
+
+  tcpn.bench:
+    root: ../fastapi-app/public
+    transport: { non_ssl: serve, protocols: [ h1 ] }
+    upstream: gufi_tcpn

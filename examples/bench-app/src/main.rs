@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-#[cfg(feature = "bench")]
 use claviron::Register;
-use claviron::axum::{Router, http::StatusCode};
+use claviron::axum::Router;
 use claviron::runner::{self, Owner, RunnerOptions, launch};
 use claviron::{FleetName, Server, ServerOptions, registry};
 
@@ -42,13 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .register(move |state| -> registry::Result<()> {
         launch::register_routing(state, &runner, std::path::Path::new("."))?;
-        runner::register_owner(
-            state,
-            Owner::new(
-                Router::new().fallback(|| async { StatusCode::NOT_FOUND }),
-            ),
-        )?;
-        #[cfg(feature = "bench")]
+        runner::register_owner(state, Owner::new(Router::new()))?;
         claviron::bench::runner::BenchService::register(state)?;
         runner::ensure_application(state)?;
         launch::register_trust(state, &runner)?;

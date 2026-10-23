@@ -2,9 +2,9 @@
 
 One Rust runner serves the same native Claviron benchmark handlers through
 Orbit Link, persistent UDS/h2c and persistent TCP/h2c. No interpreter is involved.
-`bench` is enabled by default. This is an independent Cargo workspace, not a
-`cargo run --example` target. Both application and Edge use local Claviron path
-dependencies; Orbitive resolution belongs to Claviron's workspace, not this app.
+The benchmark service is always included. This is an independent Cargo workspace,
+not a `cargo run --example` target. Both application and Edge use local Claviron
+path dependencies; Orbitive resolution belongs to Claviron's workspace, not this app.
 
 From the repository root:
 
@@ -14,8 +14,9 @@ examples/scripts/bench.sh status
 examples/scripts/bench.sh stop
 ```
 
-Both configurations are validated before either process is launched. The Edge listens only on
-`127.0.0.1:8800`; it uses its own config and does not replace the other demos.
+Both configurations are validated before either process is launched. The Edge
+listens only on `127.0.0.1:8800`; its benchmark config lives in
+`../edge-server/config-bench` and does not replace the other demos.
 Do not run it beside another instance of the same Edge/application fleets.
 
 | Host header | Edge → application |

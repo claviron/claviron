@@ -5,19 +5,20 @@ publish = false
 edition = "2024"
 description = "Example Claviron edge for supervisor lifecycle scenarios."
 
-# The default benchmark composition includes upstream socket relays beside
-# Orbit Link. The application and its workload remain separate processes.
+# The benchmark composition declares Gufi transport hosts and upstream relays.
+# The application and its workload remain separate processes.
 
 [workspace]
 
 [features]
 default = ["bench"]
-bench = ["claviron/bench", "claviron/upstream"]
+bench = ["claviron/upstream", "dep:serde"]
 
 [dependencies]
 claviron = { path = "../..", features = ["edge", "log-pipeline","lua"] }
 clap = { version = "4.6", features = ["derive"] }
 mimalloc = "0.1"
+serde = { version = "1", features = ["derive"], optional = true }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1"
 

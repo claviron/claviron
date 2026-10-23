@@ -5,7 +5,7 @@
 # from beside the application; `--config <file>` names another, which is how
 # the same application is run two ways.
 
-# Match examples/edge-server/config/vhost.yaml: Host: orbit.bench routes
+# Match examples/edge-server/config/bench.yaml: Host: orbit.bench routes
 # application fastapi-app through the fastapi fleet over shared memory.
 # Start from the repository root with examples/scripts/fastapi-app.sh --sync.
 name: fastapi-app

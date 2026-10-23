@@ -1,5 +1,12 @@
 use claviron::{AppState, registry};
 
-pub fn bootstrap(_state: &AppState) -> registry::Result<()> {
+#[cfg(feature = "bench")]
+mod bench;
+
+pub fn bootstrap(state: &AppState) -> registry::Result<()> {
+    #[cfg(feature = "bench")]
+    bench::register(state)?;
+    #[cfg(not(feature = "bench"))]
+    let _ = state;
     Ok(())
 }

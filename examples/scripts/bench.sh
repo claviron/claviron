@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 export BENCH_UDS="$APP/logs/bench.sock"
-export CONFIG_DIR="$APP/edge"
+export CONFIG_DIR="$EDGE/config-bench"
 export WORKERS="${WORKERS:-0}"
 export RUST_LOG="${RUST_LOG:-info}"
 
