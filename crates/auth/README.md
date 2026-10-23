@@ -6,7 +6,7 @@ Applications supply their own user model and lookup policy. This crate gives
 native services a common identity interface, successful-auth lifecycle events,
 an optional CSRF primitive, and an optional adapter for Orbit's live sessions.
 It does not own an application's users table, login controller, password
-hashing, roles, permissions, or framework guard configuration.
+hashing, role/permission storage, or framework guard configuration.
 
 Applications normally use `claviron::auth` through the root crate's `auth`
 feature. That facade selection includes CSRF; composing it with `orbit` also
@@ -48,6 +48,40 @@ in Claviron's [runtime registry](../runtime/README.md). The ordinary binding is
 one provider per registry, not a separate provider for every guard. Applications
 needing distinct identity realms must model that distinction explicitly rather
 than repeatedly replacing the same binding.
+
+## User management contracts
+
+The opt-in `user-management` feature exposes `management::UserManager`;
+applications using the facade select `claviron`'s `user-management` feature.
+It is separate from `UserProvider` and does not install a management server.
+
+Applications implement user, role, and permission management against their
+existing data. Records have opaque public references, revision tokens, and
+application-defined JSON objects: no email, username, user type, administrator
+flag, database key format, or table layout is required. Managed records need
+not represent authenticated users.
+
+The implementation provides JSON Schema 2020-12, independent create/update
+forms, optional declarative UI metadata, supported operations, and safe field
+validation errors. Schemas may be prepared during build or boot. They describe
+the exposed management view, not database columns discovered by reflection.
+A transport can carry them to native or web clients without owning field
+semantics. This module supplies neither a renderer nor a schema validator.
+
+The host supplies the trusted caller identity. Every method must check current
+authorization and the implementation's management scope, even for direct record
+references and related role/permission changes. Capabilities and hidden UI
+controls do not enforce access. Optional writes fail with `Unsupported` unless
+implemented. Scoped user management does not grant authority to modify shared
+roles that affect users outside that scope.
+
+Updates carry record and schema revisions with sparse top-level replacements:
+omission leaves a field unchanged; explicit null is validated as a value;
+arrays and objects replace the whole field. The application validates and
+checks revisions at the mutation boundary, rejects noneditable or unknown
+fields, and never returns stored credentials. Direct assignment sets have
+independent revisions and can be atomically replaced; a provider must not
+silently drop hidden assignments from a supposedly complete set.
 
 ## Successful authentication events
 
