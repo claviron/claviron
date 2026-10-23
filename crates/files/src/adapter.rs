@@ -121,6 +121,18 @@ impl ResourceAdapter {
         &self,
         req: Request<RouteBody>,
     ) -> Result<RouteResponse, Infallible> {
+        self.handle_with_site(req, self.site.as_ref()).await
+    }
+
+    /// Use the file policy already selected by the caller's route dispatch.
+    /// The fallback handler and runtime stay shared; no adapter is allocated
+    /// and no second route selection is performed for this request.
+    pub async fn handle_with_site(
+        &self,
+        req: Request<RouteBody>,
+        site: &dyn FileSite,
+    ) -> Result<RouteResponse, Infallible> {
+        let site = site.route_for(req.uri().path()).unwrap_or(site);
         // File-first probe. Disk-served `statics:` / `try_files:` /
         // SPA hits return `Handled` and skip the
         // handler entirely; only `Unhandled` paths fall through.
@@ -128,7 +140,7 @@ impl ResourceAdapter {
         let ctx =
             RequestContext { uri: req.uri(), headers: req.headers(), real_ip };
 
-        match crate::try_handle_files(&self.state, &*self.site, ctx).await {
+        match crate::try_handle_files(&self.state, site, ctx).await {
             Ok(ServiceResult::Handled(resp)) => Ok(resp),
             Ok(ServiceResult::Unhandled(_)) => {
                 // File didn't claim the request; delegate to the user
@@ -140,7 +152,7 @@ impl ResourceAdapter {
                     headers: req.headers(),
                     real_ip,
                 };
-                match self.handler.handle(&self.state, &*self.site, ctx).await {
+                match self.handler.handle(&self.state, site, ctx).await {
                     Ok(resp) => Ok(resp),
                     Err(status) => Ok(err_status(status)),
                 }

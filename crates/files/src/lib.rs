@@ -19,5 +19,7 @@ pub use bindings::{
     axum_static_mount_handler,
 };
 pub use caching::reload::{FileCacheProvider, register};
-pub use service::{StaticMount, try_files_probe, try_handle_files};
+pub use service::{
+    StaticMount, try_files_for_site, try_files_probe, try_handle_files,
+};
 pub use site::FileSite;

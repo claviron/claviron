@@ -11,6 +11,9 @@ use std::path::PathBuf;
 #[derive(Clone, Debug, Deserialize)]
 pub struct FilesConfig {
     pub root: PathBuf,
+    /// Resolved by the route owner, never deserialized as another root.
+    #[serde(skip)]
+    pub mapping: Option<super::mapping::RouteMapping>,
     #[serde(default, deserialize_with = "claviron_helpers::de::one_or_many")]
     pub index: Vec<String>,
     #[serde(default)]

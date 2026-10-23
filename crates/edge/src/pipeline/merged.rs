@@ -50,7 +50,8 @@ pub fn create_router(
         }
         None => Vec::new(),
     };
-    let selected_policies = !host_layers.is_empty();
+    let selected_policies =
+        !host_layers.is_empty() || !host_cfg.routes.is_empty();
     let host_downstream = AxumPipeline::new(router.clone());
     let wrap_default = |router| {
         host_layers.iter().fold(router, |router, layer| layer.apply(router))
@@ -105,6 +106,13 @@ pub fn create_router(
         }
     };
     let default = wrap_default(merge(router.clone()));
+    let default = if selected_policies {
+        default.layer(axum::Extension(crate::config::SelectedRoute(
+            fallback.clone(),
+        )))
+    } else {
+        default
+    };
     let router = if host_cfg.entry_rules().is_empty() {
         default
     } else {
@@ -148,9 +156,14 @@ pub fn create_router(
                         config.clone(),
                     ),
                 };
-                layers.into_iter().fold(merge(downstream), |router, layer| {
-                    layer.apply(router)
-                })
+                layers
+                    .into_iter()
+                    .fold(merge(downstream), |router, layer| {
+                        layer.apply(router)
+                    })
+                    .layer(axum::Extension(crate::config::SelectedRoute(
+                        config.clone(),
+                    )))
             } else {
                 default.clone()
             };
@@ -178,8 +191,8 @@ pub fn create_router(
                 let dispatch = routing::RouteDispatch {
                     entries: Arc::new(routing::RouteTable::new(entries)),
                     fallback: AxumPipeline::new(default),
-                    rejected: AxumPipeline::new(wrap_default(
-                        match (&registry, selected_policies) {
+                    rejected: AxumPipeline::new(
+                        wrap_default(match (&registry, selected_policies) {
                             (Some(registry), true) => registry
                                 .layer_routable_routes(
                                     &state,
@@ -189,8 +202,11 @@ pub fn create_router(
                                     router,
                                 ),
                             _ => router,
-                        },
-                    )),
+                        })
+                        .layer(axum::Extension(
+                            crate::config::SelectedRoute(fallback.clone()),
+                        )),
+                    ),
                 };
                 Router::new()
                     .fallback(routing::dispatch::serve)
@@ -221,6 +237,11 @@ pub fn create_router(
             router,
         ),
         _ => router,
+    };
+    let router = if selected_policies {
+        router
+    } else {
+        router.layer(axum::Extension(crate::config::SelectedRoute(fallback)))
     };
 
     // Admission — how many of this host's requests run at once, and how long
@@ -261,3 +282,7 @@ pub fn create_default_router(
 #[cfg(all(test, feature = "php_embed"))]
 #[path = "../../tests/unit/merged.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/unit/file_routes.rs"]
+mod file_route_tests;

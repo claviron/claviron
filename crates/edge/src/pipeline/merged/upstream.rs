@@ -6,7 +6,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::response::Response;
 use axum::routing::any;
-use claviron_files::try_files_probe;
+use claviron_files::try_files_for_site;
 use claviron_http::{ServiceResult, boxed_body, into_axum_response};
 use claviron_runtime::AppState;
 use claviron_upstream::UpstreamProvider;
@@ -42,8 +42,12 @@ async fn upstream_axum_handler(
     }
 
     if prepared.files.try_files {
-        match try_files_probe(&prepared.files.root, &parts.uri, &parts.headers)
-            .await
+        match try_files_for_site(
+            prepared.files.as_ref(),
+            &parts.uri,
+            &parts.headers,
+        )
+        .await
         {
             ServiceResult::Handled(resp) => return into_axum_response(resp),
             ServiceResult::Unhandled(_) => {}

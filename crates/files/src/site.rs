@@ -6,12 +6,25 @@
 
 use std::path::PathBuf;
 
+use claviron_http::config::mapping::RouteMapping;
 use claviron_http::config::spa::SpaConfig;
 use claviron_http::config::statics::StaticConfig;
 
 pub trait FileSite: Send + Sync {
     /// Directory that request paths resolve under.
     fn root(&self) -> PathBuf;
+    /// Prepared disk directory and URL prefix for this selected route.
+    fn mapping(&self) -> Option<&RouteMapping> {
+        None
+    }
+    /// Host-wide consumers may select a prepared route without Axum. A caller
+    /// already holding a selected route returns no additional selection.
+    fn route_for(
+        &self,
+        _path: &str,
+    ) -> Option<&dyn FileSite> {
+        None
+    }
     /// Index file names tried for a directory request, in order.
     fn indexes(&self) -> &[String];
     /// Whether a request path is looked up on disk before falling through.
@@ -35,7 +48,13 @@ pub trait FileSite: Send + Sync {
 /// application-owned FileSite implementations remain valid.
 impl FileSite for claviron_http::config::files::FilesConfig {
     fn root(&self) -> PathBuf {
-        self.root.clone()
+        self.mapping.as_ref().map_or_else(
+            || self.root.clone(),
+            |mapping| mapping.directory().to_path_buf(),
+        )
+    }
+    fn mapping(&self) -> Option<&RouteMapping> {
+        self.mapping.as_ref()
     }
     fn indexes(&self) -> &[String] {
         &self.index

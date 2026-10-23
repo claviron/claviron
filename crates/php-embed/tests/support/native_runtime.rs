@@ -59,6 +59,7 @@ pub async fn run_fixture(
     // The first poll synchronously starts the pool, then parks on cancellation.
     assert!(futures_util::poll!(&mut generation).is_pending());
     let runtime = Arc::new(PhpRuntime {
+        mapping: None,
         path: None,
         entry_script: None,
         entry_query: None,

@@ -210,6 +210,7 @@ impl HostConfig {
                 routing: RouteConfig {
                     files: claviron_http::config::files::FilesConfig {
                         root: root.into(),
+                        mapping: None,
                         index: Vec::new(),
                         try_files: false,
                         spa: None,
@@ -302,7 +303,9 @@ impl HostConfig {
     /// runtime-optimized, immutable shape that the request hot path
     /// actually consumes (root + indexes resolved, env wrapped in Arc, etc).
     ///
-    /// - `root`: per-route override wins; otherwise inherit `host.root`.
+    /// - `dir`: prepared route mapping, unless PHP explicitly supplies `dir`.
+    ///   URI-derived disk paths have that mapping's URL prefix removed; a
+    ///   pinned `entry_script` is already document-directory relative.
     /// - `indexes`: route-level list wins; otherwise host's `index:`
     ///   filtered to `.php` candidates, or `["index.php"]` as last resort.
     ///
@@ -321,12 +324,24 @@ impl HostConfig {
             .unwrap_or(&[])
             .iter()
             .map(|template| {
-                PhpRuntime::from_config(
+                let mut runtime = PhpRuntime::from_config(
                     state,
                     template,
                     self.root(),
                     self.indexes(),
-                )
+                );
+                if let Some(mapping) = &self.files.mapping {
+                    if template.dir.is_none() {
+                        runtime.dir = mapping.directory().to_path_buf();
+                    }
+                    runtime.mapping = Some(
+                        claviron_http::config::mapping::RouteMapping::new(
+                            mapping.prefix().clone(),
+                            runtime.dir.clone(),
+                        ),
+                    );
+                }
+                runtime
             })
             .collect()
     }
@@ -344,6 +359,7 @@ impl HostConfig {
             && self.indexes().iter().any(|idx| !is_dynamic_file(idx))
     }
 
+    /// Mounts compiled from route declarations for direct file consumers.
     pub fn statics(&self) -> Option<&[StaticConfig]> {
         self.statics.as_deref()
     }
@@ -401,7 +417,13 @@ impl HostConfig {
     /// headers belong to the shared host exchange, not Axum. Application
     /// composition such as PHP or Pusher still requires its owning router.
     pub fn can_bypass_axum_for_upstream(&self) -> bool {
-        let ok = self.routes.is_empty() && self.upstream.is_some();
+        let ok = self.upstream.is_some()
+            && self.routes.iter().all(|(prefix, route)| {
+                route.extensions.is_empty()
+                    && (!route.owns_handler
+                        || route.selected_static
+                        || (prefix.as_str() == "/" && route.upstream.is_some()))
+            });
 
         #[cfg(feature = "php")]
         let ok = ok && self.php.as_ref().is_none_or(Vec::is_empty);
@@ -434,7 +456,21 @@ impl HostConfig {
 /// The file service reads a host through this view; it does not know hosts.
 impl claviron_files::FileSite for HostConfig {
     fn root(&self) -> PathBuf {
-        HostConfig::root(self)
+        self.files.mapping.as_ref().map_or_else(
+            || HostConfig::root(self),
+            |mapping| mapping.directory().to_path_buf(),
+        )
+    }
+    fn mapping(&self) -> Option<&claviron_http::config::mapping::RouteMapping> {
+        self.files.mapping.as_ref()
+    }
+    fn route_for(
+        &self,
+        path: &str,
+    ) -> Option<&dyn claviron_files::FileSite> {
+        self.routes
+            .find(path)
+            .map(|route| route.as_ref() as &dyn claviron_files::FileSite)
     }
     fn indexes(&self) -> &[String] {
         HostConfig::indexes(self)
@@ -460,6 +496,12 @@ impl claviron_files::FileSite for HostConfig {
 // Axum extractor — lives next to HostConfig so any consumer can extract the
 // host config from a request without pulling claviron-edge.
 // ---------------------------------------------------------------------------
+
+/// File/application view already selected by Edge's route table. Native Rust
+/// intercepts use this instead of reselecting a route or reusing the original
+/// host-wide file policy. Canonical host metadata remains a separate handle.
+#[derive(Clone)]
+pub struct SelectedRoute(pub Arc<HostConfig>);
 
 /// Per-request handle for the active `HostConfig`. The vhost connection layer
 /// is responsible for inserting `Arc<HostConfig>` into the request extensions

@@ -60,8 +60,13 @@ pub async fn try_fcgi_proxy(
     // the host's docroot when the per-route override was absent). We avoid
     // cloning the PathBuf here — `runtime` already owns it via Arc, and
     // `script_file` only needs a single owned `PathBuf`.
-    let script_file =
-        runtime.dir.join(resolution.script_name.trim_start_matches('/'));
+    let Some(relative) = runtime.script_relative_path(
+        &resolution.script_name,
+        resolution.from_entry_script,
+    ) else {
+        return Ok(ServiceResult::Unhandled(req));
+    };
+    let script_file = runtime.dir.join(relative);
 
     // INVARIANT `EXECUTION_IO: OPCACHE_OWNS_FRESHNESS` — canonical text in
     // `crates/claviron-php/ARCHITECTURE.md`. Same reasoning as the embed
@@ -195,6 +200,9 @@ async fn try_files_candidate_exists(
     runtime: &PhpRuntime,
     path: &str,
 ) -> bool {
+    let Some(path) = runtime.relative_path(path) else {
+        return false;
+    };
     let mut file = runtime.dir.clone();
     for segment in path.split('/').filter(|s| !s.is_empty()) {
         if segment == "." || segment == ".." {

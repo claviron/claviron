@@ -154,13 +154,15 @@ async fn exercise() {
         r#"
 root: {}
 try_files: true
-statics:
-  - path: /live/build
-    dir: assets
-    none_found: false
-  - path: /live/optional
-    dir: assets
-    none_found: true
+routes:
+  /live/build:
+    path: assets
+    static:
+      none_found: false
+  /live/optional:
+    path: assets
+    static:
+      none_found: true
 php:
   - path: /live/admin
     runner: application

@@ -56,10 +56,41 @@ Host policy distinguishes several boundaries:
 
 Prefix-keyed `routes` select response owners and route directives. Normalization
 resolves `/` before child entries, regardless of map order, and rejects conflicting
-flat/root declarations or multiple application owners on one entry. Filesystem
-`root` and `index` defaults can be inherited; a child does not implicitly inherit
-the root's PHP, Orbit, or other application owner. Matching and fallback are
+flat/root declarations or multiple application owners on one entry. The filesystem
+`root` belongs only to the host. Each route pairs its URL prefix with one disk
+directory: without `path`, URL components name directories below the host root;
+an explicit `path` selects another directory relative to that root, or an
+absolute directory. Children below a mapped prefix retain that mapping and append
+their remaining URL components. Static, `try_files` and PHP disk lookup use
+the same prepared directory/prefix pair without rewriting the HTTP URI.
+Host-level `statics`, route `root` overrides and `static.dir` are rejected.
+Within a route, `statics` lists relative directory names with their file policies.
+Each `dir` supplies both the directory below the route's disk mapping and the
+URL suffix below its prefix; entries cannot declare another `path` or `root`.
+PHP, Orbit and other application owners are not implicitly
+inherited. Matching and fallback are
 prepared routing behavior, not an arbitrary per-request configuration merge.
+
+```yaml
+example.test:
+  root: public
+  routes:
+    /frontend:
+      try_files: true
+      statics:
+        - dir: assets
+        - dir: icons
+```
+
+This serves `/frontend/assets/app.js` from `public/frontend/assets/app.js`.
+To place the frontend elsewhere, set `path` on `/frontend`; its directories
+and `try_files` lookup use that same mapping. Each directory's rules see file
+names below its own prefix, without the containing URL path. These directory
+policies do not create additional routes or quota stores.
+Native Rust intercepts receive a `config::SelectedRoute` extension, including
+its prepared file policy. Canonical host metadata remains separate. Axum-free
+file consumers receive a compiled
+mount view from the same route declarations; they need no separate YAML format.
 
 The outer host schema composes feature-dependent sections and route-extension
 directives; it is not uniformly a closed, strict record. Fixed nested policy

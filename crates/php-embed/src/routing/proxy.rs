@@ -88,7 +88,12 @@ async fn resolve_request(
     let ScriptResolution { script_name, path_info, from_entry_script } =
         resolution;
 
-    let script_file = safe_join(&runtime.dir, &script_name)?;
+    let Some(relative) =
+        runtime.script_relative_path(&script_name, from_entry_script)
+    else {
+        return Ok(None);
+    };
+    let script_file = safe_join(&runtime.dir, relative)?;
 
     // INVARIANT `EXECUTION_IO: OPCACHE_OWNS_FRESHNESS` — canonical text in
     // `crates/claviron-php/ARCHITECTURE.md`. This stat is the mixed-folder
@@ -301,7 +306,10 @@ async fn try_files_candidate_exists(
     runtime: &PhpRuntime,
     path: &str,
 ) -> Result<bool, SapiGatewayError> {
-    let file = match safe_join(&runtime.dir, path) {
+    let Some(relative) = runtime.relative_path(path) else {
+        return Ok(false);
+    };
+    let file = match safe_join(&runtime.dir, relative) {
         Ok(file) => file,
         Err(SapiGatewayError::BadRequest(_)) => return Ok(true),
         Err(err) => return Err(err),
@@ -320,3 +328,7 @@ fn error_response(err: &SapiGatewayError) -> RouteResponse {
     }
     builder.body(empty_body()).unwrap()
 }
+
+#[cfg(test)]
+#[path = "../../tests/mapping.rs"]
+mod mapping_tests;

@@ -9,6 +9,7 @@ pub mod caching;
 pub mod cors;
 pub mod files;
 pub mod host;
+pub mod mapping;
 pub mod rate_limit;
 #[cfg(feature = "server")]
 pub mod response;

@@ -13,7 +13,10 @@ use std::sync::Arc;
 pub struct RouteContext<'a, C = ()> {
     pub state: &'a AppState,
     pub host: &'a Host,
+    /// Canonical host/application declaration, before route selection.
     pub config: &'a C,
+    /// Prepared selected declaration. Edge consumers read its `files.mapping`
+    /// for disk paths; `prefix` and the HTTP request URI remain URL paths.
     pub route: &'a C,
     pub prefix: &'a PathPrefix,
 }

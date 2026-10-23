@@ -31,6 +31,7 @@ pub async fn try_handle_files(
     cfg: &dyn FileSite,
     req: RequestContext<'_>,
 ) -> Result<ServiceResult<RouteResponse>, StatusCode> {
+    let cfg = cfg.route_for(req.uri.path()).unwrap_or(cfg);
     let root = cfg.root();
 
     if req.uri.path().ends_with("/") && cfg.has_static_index() {
@@ -43,7 +44,7 @@ pub async fn try_handle_files(
 
     // General filesystem fallback is opt-in and stays behind dynamic runners.
     if cfg.try_files() {
-        match try_files_probe(&root, req.uri, req.headers).await {
+        match try_files_for_site(cfg, req.uri, req.headers).await {
             ServiceResult::Handled(resp) => {
                 return Ok(ServiceResult::Handled(resp));
             }
@@ -159,6 +160,7 @@ pub(crate) async fn try_handle_static_mounts(
     cfg: &dyn FileSite,
     req: RequestContext<'_>,
 ) -> Result<ServiceResult<RouteResponse>, StatusCode> {
+    let cfg = cfg.route_for(req.uri.path()).unwrap_or(cfg);
     Ok(match serve_static_mounts(cfg, &req).await {
         Some(response) => ServiceResult::Handled(response),
         None => ServiceResult::Unhandled(()),
@@ -170,8 +172,29 @@ pub async fn try_files_probe(
     uri: &Uri,
     headers: &HeaderMap,
 ) -> ServiceResult<RouteResponse> {
-    match try_files(root, uri, headers).await {
+    match try_files(root, uri.path(), headers).await {
         Some(resp) => ServiceResult::Handled(resp),
+        None => ServiceResult::Unhandled(()),
+    }
+}
+
+/// Probe the selected route's directory using the path below its URL prefix.
+/// Both merged and bypass callers use this without rewriting the request URI.
+pub async fn try_files_for_site(
+    site: &dyn FileSite,
+    uri: &Uri,
+    headers: &HeaderMap,
+) -> ServiceResult<RouteResponse> {
+    let site = site.route_for(uri.path()).unwrap_or(site);
+    let path = match site.mapping() {
+        Some(mapping) => match mapping.relative_path(uri.path()) {
+            Some(path) => path,
+            None => return ServiceResult::Unhandled(()),
+        },
+        None => uri.path(),
+    };
+    match try_files(&site.root(), path, headers).await {
+        Some(response) => ServiceResult::Handled(response),
         None => ServiceResult::Unhandled(()),
     }
 }
@@ -196,7 +219,13 @@ async fn serve_index(
     // it took `Uri::path()` to disk verbatim, so a plain (unencoded) `..` in a
     // directory request was resolved by the OS at open time and served any file
     // named by `indexes()` outside the root.
-    let Some(rel) = decode_relative_path(uri.path().trim_start_matches('/'))
+    let relative = match cfg.mapping() {
+        Some(mapping) => {
+            mapping.relative_path(uri.path()).ok_or(StatusCode::FORBIDDEN)?
+        }
+        None => uri.path(),
+    };
+    let Some(rel) = decode_relative_path(relative.trim_start_matches('/'))
     else {
         return Err(StatusCode::FORBIDDEN);
     };
@@ -238,15 +267,11 @@ async fn serve_static(
     config: &StaticConfig,
     headers: &HeaderMap,
 ) -> Option<RouteResponse> {
-    let mount = config.path.as_str().trim_end_matches('/');
-    // Mapping to a relative file path is still required for a selected mount.
-    // Use checked removal so direct callers cannot accidentally slice a shorter
-    // or unrelated URI; no mount-list selection occurs on the selected path.
-    let suffix = req_path.strip_prefix(mount)?;
-    if !suffix.is_empty() && !suffix.starts_with('/') {
-        return None;
-    }
-    let rel = suffix.trim_start_matches('/');
+    let mapping = claviron_http::config::mapping::RouteMapping::new(
+        config.path.clone(),
+        root.join(&config.dir),
+    );
+    let rel = mapping.relative_path(req_path)?;
 
     if rel.is_empty() {
         return None;
@@ -256,10 +281,7 @@ async fn serve_static(
         return Some(status_response(StatusCode::FORBIDDEN));
     };
 
-    let base = {
-        let d = config.dir.as_path();
-        if d.is_absolute() { d.to_path_buf() } else { root.join(d) }
-    };
+    let base = mapping.directory();
 
     let path = base.join(&rel);
     let policy = compose_static_policy(config, &rel);
@@ -281,16 +303,16 @@ async fn serve_static(
 
 async fn try_files(
     root: &Path,
-    uri: &Uri,
+    request_path: &str,
     headers: &HeaderMap,
 ) -> Option<RouteResponse> {
-    let rel = uri.path().trim_start_matches('/');
+    let rel = request_path.trim_start_matches('/');
     if rel.is_empty() {
         return None;
     }
 
     let Some(rel) = decode_relative_path(rel) else {
-        debug!("file service denied suspicious path (uri={})", uri);
+        debug!("file service denied suspicious path (path={})", request_path);
         return Some(status_response(StatusCode::FORBIDDEN));
     };
 

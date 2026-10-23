@@ -23,6 +23,8 @@ use crate::config::{PhpConfig, PhpRunner};
 /// so request handling only pays the cost of an `Extension::extract` (O(1) HashMap lookup).
 #[derive(Clone)]
 pub struct PhpRuntime {
+    /// Prepared disk mapping; request URI and script names remain HTTP paths.
+    pub mapping: Option<claviron_http::config::mapping::RouteMapping>,
     /// Optional URL prefix gate; requests outside this prefix bypass PHP.
     /// Server-side `chroot`-style scope — `PathPrefix` validates the
     /// leading `/`, normalizes the trailing `/`, and provides
@@ -108,6 +110,29 @@ pub struct PhpRuntime {
 }
 
 impl PhpRuntime {
+    pub fn relative_path<'a>(
+        &self,
+        path: &'a str,
+    ) -> Option<&'a str> {
+        match &self.mapping {
+            Some(mapping) => mapping.relative_path(path),
+            None => Some(path.trim_start_matches('/')),
+        }
+    }
+
+    /// A pinned entry is already relative to the document directory. Only
+    /// URI-derived script names have the route's URL prefix removed.
+    pub fn script_relative_path<'a>(
+        &self,
+        name: &'a str,
+        pinned: bool,
+    ) -> Option<&'a str> {
+        if pinned {
+            Some(name.trim_start_matches('/'))
+        } else {
+            self.relative_path(name)
+        }
+    }
     /// The policy this request runs under, both sides: the edge's (its
     /// listener's, narrowed by its host), carried in the request's
     /// extensions, narrowed once more by this route's `php:` block —
@@ -216,6 +241,7 @@ impl PhpRuntime {
         };
 
         Self {
+            mapping: None,
             path: template.path.clone(),
             try_files: template.try_files,
             entry_extensions: Arc::from(

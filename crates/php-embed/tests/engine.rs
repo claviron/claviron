@@ -18,6 +18,7 @@ fn temp_root() -> std::path::PathBuf {
 
 pub(super) fn runtime(root: std::path::PathBuf) -> Arc<PhpRuntime> {
     Arc::new(PhpRuntime {
+        mapping: None,
         path: None,
         entry_script: None,
         entry_query: None,

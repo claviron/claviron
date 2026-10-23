@@ -4,7 +4,6 @@
 //! `claviron-upstream`, which knows nothing of hosts.
 
 use claviron_files::{FileSite, try_handle_files};
-use claviron_http::config::files::FilesConfig;
 use claviron_http::ext::RealIpExt;
 use claviron_http::{
     RequestContext, RouteBody, RouteResponse, ServiceResult, err_status,
@@ -22,7 +21,7 @@ use std::sync::Arc;
 pub struct UpstreamBypass {
     app: UpstreamApp,
     state: AppState,
-    files: Arc<FilesConfig>,
+    files: Arc<dyn FileSite>,
     policy: UpstreamRequestPolicy,
 }
 
@@ -30,7 +29,7 @@ impl UpstreamBypass {
     pub fn new(
         app: UpstreamApp,
         state: AppState,
-        files: Arc<FilesConfig>,
+        files: Arc<dyn FileSite>,
         policy: UpstreamRequestPolicy,
     ) -> Self {
         Self { app, state, files, policy }
@@ -62,12 +61,13 @@ impl UpstreamBypass {
         let ctx =
             RequestContext { uri: req.uri(), headers: req.headers(), real_ip };
 
-        if self.files.try_files
-            || self.files.spa.is_some()
-            || self.files.statics.as_ref().is_some_and(|s| !s.is_empty())
-            || (path.ends_with('/') && self.files.has_static_index())
+        let site = self.files.route_for(path).unwrap_or(self.files.as_ref());
+        if site.try_files()
+            || site.spa().is_some()
+            || site.statics().is_some_and(|s| !s.is_empty())
+            || (path.ends_with('/') && site.has_static_index())
         {
-            match try_handle_files(&self.state, &*self.files, ctx).await {
+            match try_handle_files(&self.state, site, ctx).await {
                 Ok(ServiceResult::Handled(resp)) => return resp,
                 Ok(ServiceResult::Unhandled(_)) => {}
                 Err(status) => return err_status(status),
