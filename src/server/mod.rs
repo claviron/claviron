@@ -74,6 +74,7 @@ pub struct ServerOptions {
     name: Option<ServerName>,
     fleet_name: FleetName,
     environment: EnvironmentChoice,
+    #[cfg(feature = "supervisor")]
     worker_count: u8,
     launch: LaunchBlob,
     signals: claviron_sys::signal::ServerSignals,
@@ -87,6 +88,7 @@ impl Default for ServerOptions {
             name: None,
             fleet_name: FleetName::from(DEFAULT_FLEET_NAME),
             environment: EnvironmentChoice::Local,
+            #[cfg(feature = "supervisor")]
             worker_count: 0,
             launch: LaunchBlob::default(),
             signals: claviron_sys::signal::ServerSignals::default(),
@@ -193,6 +195,7 @@ impl ServerOptions {
     /// Configure the initial desired number of worker children. Zero means
     /// standalone. The fleet capacity is not an option: the build pins it
     /// (`CLAVIRON_FLEET_CAPACITY`) beside the ring geometry it must match.
+    #[cfg(feature = "supervisor")]
     pub fn workers(
         mut self,
         worker_count: u8,
@@ -364,6 +367,8 @@ where
         self
     }
 
+    /// See [`ServerOptions::workers`].
+    #[cfg(feature = "supervisor")]
     pub fn workers(
         mut self,
         worker_count: u8,
@@ -554,11 +559,6 @@ where
             environment,
         ) = {
             self.options.validate_primary()?;
-            if self.options.worker_count != 0 {
-                return Err(registry::Error::msg(
-                    "server worker count requires the 'supervisor' feature",
-                ));
-            }
             (
                 RunMode::Standalone,
                 FleetNodeId::ZERO,
