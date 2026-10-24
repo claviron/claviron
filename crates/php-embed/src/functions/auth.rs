@@ -102,7 +102,7 @@ fn resolve(
     Ok(session.filter(|session| session.session.check(now).is_ok()))
 }
 
-fn current() -> Result<Option<Arc<AuthenticatedSession>>, String> {
+pub(crate) fn current() -> Result<Option<Arc<AuthenticatedSession>>, String> {
     let globals = SapiGlobals::get();
     if globals.server_context.is_null() {
         return Ok(None);
