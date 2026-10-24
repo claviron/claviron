@@ -859,7 +859,7 @@ impl HostingStore {
         id: i32,
     ) -> Result<Option<Certificate>> {
         Ok(run!(self, query_as::<CertificateRow>,
-            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at, issued_at, updated_at, enabled
+            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at, issued_at, updated_at, enabled, revoked_at
                FROM hosting.certificates WHERE id = $1", [id], fetch_optional)?.map(Into::into))
     }
 
@@ -869,7 +869,7 @@ impl HostingStore {
         id: i32,
     ) -> Result<Option<PublicCertificate>> {
         Ok(run!(self, query_as::<PublicCertificateRow>,
-            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled
+            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled, revoked_at
                FROM hosting.certificates WHERE id = $1", [id], fetch_optional)?.map(Into::into))
     }
 
@@ -879,7 +879,7 @@ impl HostingStore {
         cn: &str,
     ) -> Result<Option<PublicCertificate>> {
         Ok(run!(self, query_as::<PublicCertificateRow>,
-            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled
+            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled, revoked_at
                FROM hosting.certificates WHERE cn = $1", [cn], fetch_optional)?.map(Into::into))
     }
 
@@ -891,7 +891,7 @@ impl HostingStore {
         issuer_id: i32,
     ) -> Result<Vec<PublicCertificate>> {
         let rows = run!(self, query_as::<PublicCertificateRow>,
-            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled
+            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled, revoked_at
                FROM hosting.certificates WHERE issuer_id = $1 ORDER BY id",
             [issuer_id], fetch_all)?;
         Ok(rows.into_iter().map(Into::into).collect())
@@ -904,7 +904,7 @@ impl HostingStore {
         kind: CertificateKind,
     ) -> Result<Option<Certificate>> {
         Ok(run!(self, query_as::<CertificateRow>,
-            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at, issued_at, updated_at, enabled
+            "SELECT id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at, issued_at, updated_at, enabled, revoked_at
                FROM hosting.certificates WHERE cn = $1 AND kind::TEXT = $2 AND enabled = TRUE",
             [cn, kind.as_str()], fetch_optional)?.map(Into::into))
     }
@@ -916,7 +916,7 @@ impl HostingStore {
     ) -> Result<Vec<HostedCertificate>> {
         let rows = run!(self, query_as::<CertificateWithAliasRow>,
             "SELECT c.id, c.kind::TEXT AS kind, c.issuer_id, c.cn, c.certs_der, c.key_der,
-                    c.expires_at, c.issued_at, c.updated_at, c.enabled,
+                    c.expires_at, c.issued_at, c.updated_at, c.enabled, c.revoked_at,
                     a.id AS alias_id, a.hostname AS alias_hostname, a.created_at AS alias_created_at
                FROM hosting.certificates c
                JOIN hosting.certificate_issuers i ON i.id = c.issuer_id
@@ -937,7 +937,7 @@ impl HostingStore {
             self,
             query_as::<CertificateWithAliasRow>,
             "SELECT c.id, c.kind::TEXT AS kind, c.issuer_id, c.cn, c.certs_der, c.key_der,
-                    c.expires_at, c.issued_at, c.updated_at, c.enabled,
+                    c.expires_at, c.issued_at, c.updated_at, c.enabled, c.revoked_at,
                     a.id AS alias_id, a.hostname AS alias_hostname,
                     a.created_at AS alias_created_at
                FROM hosting.certificate_server AS cs
@@ -960,7 +960,7 @@ impl HostingStore {
             self,
             query_as::<CertificateWithAliasRow>,
             "SELECT c.id, c.kind::TEXT AS kind, c.issuer_id, c.cn, c.certs_der, c.key_der,
-                    c.expires_at, c.issued_at, c.updated_at, c.enabled,
+                    c.expires_at, c.issued_at, c.updated_at, c.enabled, c.revoked_at,
                     a.id AS alias_id, a.hostname AS alias_hostname,
                     a.created_at AS alias_created_at
                FROM hosting.certificates AS c
@@ -981,7 +981,7 @@ impl HostingStore {
             self,
             query_as::<CertificateWithAliasRow>,
             "SELECT c.id, c.kind::TEXT AS kind, c.issuer_id, c.cn, c.certs_der, c.key_der,
-                    c.expires_at, c.issued_at, c.updated_at, c.enabled,
+                    c.expires_at, c.issued_at, c.updated_at, c.enabled, c.revoked_at,
                     a.id AS alias_id, a.hostname AS alias_hostname,
                     a.created_at AS alias_created_at
                FROM hosting.certificates AS c
@@ -1049,7 +1049,7 @@ impl HostingStore {
             self,
             query_as::<CertificateWithAliasRow>,
             "SELECT c.id, c.kind::TEXT AS kind, c.issuer_id, c.cn, c.certs_der, c.key_der,
-                    c.expires_at, c.issued_at, c.updated_at, c.enabled,
+                    c.expires_at, c.issued_at, c.updated_at, c.enabled, c.revoked_at,
                     a.id AS alias_id, a.hostname AS alias_hostname,
                     a.created_at AS alias_created_at
                FROM hosting.certificates AS c
@@ -1071,7 +1071,7 @@ impl HostingStore {
             self,
             query_as::<CertificateWithAliasRow>,
             "SELECT c.id, c.kind::TEXT AS kind, c.issuer_id, c.cn, c.certs_der, c.key_der,
-                    c.expires_at, c.issued_at, c.updated_at, c.enabled,
+                    c.expires_at, c.issued_at, c.updated_at, c.enabled, c.revoked_at,
                     a.id AS alias_id, a.hostname AS alias_hostname,
                     a.created_at AS alias_created_at
                FROM hosting.certificate_server AS cs
@@ -1128,7 +1128,7 @@ impl HostingStore {
                 (issuer_id, cn, certs_der, key_der, expires_at, issued_at, updated_at, enabled, kind)
              VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8::TEXT::hosting.certificate_kind)
              RETURNING id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at,
-                       issued_at, updated_at, enabled",
+                       issued_at, updated_at, enabled, revoked_at",
             [
                 new.issuer_id,
                 new.cn,
@@ -1215,7 +1215,7 @@ impl HostingStore {
                 AND (issuer_id = $7 OR (issuer_id IS NULL AND $7 IS NULL))
                 AND cn = $8 AND kind::TEXT = $9
           RETURNING id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at,
-                    issued_at, updated_at, enabled",
+                    issued_at, updated_at, enabled, revoked_at",
             [original.id, certs_der, stored(issued_at), stored(expires_at), &original.certs_der, &original.key_der, original.issuer_id, &original.cn, original.kind.as_str()],
             fetch_optional
         )?
@@ -1240,7 +1240,7 @@ impl HostingStore {
                 SET certs_der = $2, key_der = $3, expires_at = $4, updated_at = NOW()
               WHERE id = $1 AND revoked_at IS NULL
           RETURNING id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at,
-                    issued_at, updated_at, enabled",
+                    issued_at, updated_at, enabled, revoked_at",
             [certificate_id, certs_der, key_der, stored(expires_at)],
             fetch_optional
         )?
@@ -1570,6 +1570,7 @@ struct CertificateWithAliasRow {
     expires_at: OffsetDateTime,
     issued_at: OffsetDateTime,
     updated_at: Option<OffsetDateTime>,
+    revoked_at: Option<OffsetDateTime>,
     enabled: bool,
     alias_id: Option<i32>,
     alias_hostname: Option<String>,
@@ -1587,6 +1588,7 @@ struct PublicCertificateRow {
     expires_at: OffsetDateTime,
     issued_at: OffsetDateTime,
     updated_at: Option<OffsetDateTime>,
+    revoked_at: Option<OffsetDateTime>,
     enabled: bool,
 }
 
@@ -1601,6 +1603,7 @@ impl From<PublicCertificateRow> for PublicCertificate {
             expires_at: row.expires_at,
             issued_at: row.issued_at,
             updated_at: row.updated_at,
+            revoked_at: row.revoked_at,
             enabled: row.enabled,
         }
     }
@@ -1618,6 +1621,7 @@ struct CertificateRow {
     expires_at: OffsetDateTime,
     issued_at: OffsetDateTime,
     updated_at: Option<OffsetDateTime>,
+    revoked_at: Option<OffsetDateTime>,
     enabled: bool,
 }
 
@@ -1633,6 +1637,7 @@ impl From<CertificateRow> for Certificate {
             expires_at: row.expires_at,
             issued_at: row.issued_at,
             updated_at: row.updated_at,
+            revoked_at: row.revoked_at,
             enabled: row.enabled,
         }
     }
@@ -1690,6 +1695,7 @@ fn group_certificates(
                     expires_at: row.expires_at,
                     issued_at: row.issued_at,
                     updated_at: row.updated_at,
+                    revoked_at: row.revoked_at,
                     enabled: row.enabled,
                 },
                 aliases: Vec::new(),

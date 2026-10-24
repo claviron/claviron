@@ -28,7 +28,7 @@ pub fn certificate_chain_to_pem(chain: &[u8]) -> Result<String, Error> {
     Ok(output)
 }
 
-fn write_pem_block(
+pub(crate) fn write_pem_block(
     output: &mut String,
     label: &str,
     der: &[u8],

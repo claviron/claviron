@@ -5,6 +5,7 @@ fn certificate_rows_are_grouped_without_losing_aliases() {
     let now = OffsetDateTime::UNIX_EPOCH;
     let row = |alias_id: Option<i32>, hostname: Option<&str>| {
         CertificateWithAliasRow {
+            revoked_at: None,
             id: 7,
             kind: CertificateKind::Server,
             issuer_id: Some(3),

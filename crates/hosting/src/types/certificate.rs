@@ -14,6 +14,8 @@ pub struct Certificate {
     pub expires_at: OffsetDateTime,
     pub issued_at: OffsetDateTime,
     pub updated_at: Option<OffsetDateTime>,
+    /// Irreversible revocation, independent of the operational enabled flag.
+    pub revoked_at: Option<OffsetDateTime>,
     pub enabled: bool,
 }
 
@@ -56,5 +58,6 @@ pub struct PublicCertificate {
     pub expires_at: OffsetDateTime,
     pub issued_at: OffsetDateTime,
     pub updated_at: Option<OffsetDateTime>,
+    pub revoked_at: Option<OffsetDateTime>,
     pub enabled: bool,
 }

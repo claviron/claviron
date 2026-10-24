@@ -1,6 +1,7 @@
 mod algorithm;
 pub mod certstore;
 mod common_name;
+pub mod crl;
 mod error;
 pub mod formatters;
 pub mod generators;
