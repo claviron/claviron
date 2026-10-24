@@ -9,6 +9,7 @@ mod organization;
 pub mod parsers;
 pub mod peer;
 pub mod renewal;
+mod revocation;
 mod subject;
 pub mod transfer;
 
@@ -17,6 +18,7 @@ pub use common_name::CommonName;
 pub use error::{Error, Error as SSLError};
 pub use issuer::Issuer;
 pub use organization::Organization;
+pub use revocation::RevocationId;
 pub use subject::SubjectUri;
 
 // Keep the SSL facade self-contained for operator tools while the canonical

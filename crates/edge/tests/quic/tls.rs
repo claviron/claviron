@@ -38,6 +38,7 @@ async fn alias_publication_reaches_quic_and_captures_one_selector_view() {
         table: live.snapshot(),
         by_host: Arc::new(HashMap::from([("app.test".parse().unwrap(), base)])),
         config: QuicConfig::default(),
+        revocations: Arc::new(Revocations::default()),
     });
     let acceptor = H3TlsAccept {
         listener: None,

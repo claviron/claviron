@@ -31,6 +31,17 @@ pub struct CertificateStore {
 }
 
 impl CertificateStore {
+    pub async fn revocations(
+        &self
+    ) -> Result<crate::revocation::Snapshot, Error> {
+        let declaration = self.files.load_full();
+        #[cfg(feature = "db")]
+        let hosting = &self.hosting;
+        #[cfg(not(feature = "db"))]
+        let hosting = &();
+        crate::revocation::load(self, &declaration, hosting).await
+    }
+
     pub fn new(files: CertStore) -> Self {
         Self {
             files: ArcSwap::from_pointee(files),
@@ -361,6 +372,12 @@ impl ConfigObserver for CertificateProvider {
         let config = crate::provider::load_tls_config(&self.state)
             .await
             .map_err(congif::Error::msg)?;
+        // Prepare policy independently of SNI material. A source change must
+        // reach every existing verifier through the same shared handle.
+        store.files.store(Arc::new(config.certstore().clone()));
+        crate::revocation::refresh(&self.state)
+            .await
+            .map_err(congif::Error::msg)?;
         if let Some(resolver) =
             self.state.registry_ref().resolve::<crate::CertResolver>()
         {
@@ -368,7 +385,6 @@ impl ConfigObserver for CertificateProvider {
                 .await
                 .map_err(congif::Error::msg)?;
         }
-        store.files.store(Arc::new(config.certstore().clone()));
         // The registry authority stays boot-pinned, as before.
         Ok(())
     }
@@ -403,6 +419,9 @@ impl Bootable<AppState, HostingDeps> for CertificateProvider {
             config.certstore().clone(),
             hosting,
         ));
+        let revocations = Arc::new(crate::revocation::Revocations::new(
+            store.revocations().await?,
+        ));
         if let Some(authority) = store.authority().await? {
             if state.is_worker() {
                 tracing::debug!(?authority, "📜 Certificate authority loaded");
@@ -411,6 +430,7 @@ impl Bootable<AppState, HostingDeps> for CertificateProvider {
             }
             state.registry_ref().insert(Arc::new(authority))?;
         }
+        state.registry_ref().insert(revocations)?;
         state.registry_ref().insert(store)?;
         Ok(())
     }

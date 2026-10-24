@@ -7,7 +7,8 @@ CREATE TABLE hosting_certificates (
     expires_at TEXT NOT NULL,
     issued_at TEXT NOT NULL,
     updated_at TEXT,
-    enabled INTEGER NOT NULL
+    enabled INTEGER NOT NULL,
+    revoked_at TEXT
 );
 CREATE TABLE hosting_certificate_issuers (
     id INTEGER PRIMARY KEY,

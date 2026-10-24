@@ -51,6 +51,9 @@ x509-parser.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+# ── Time / identifiers ──────────────────────────────────────────────────
+time.workspace = true
+
 # ── Published sibling libraries shared through workspace dependencies ───
 orbitive = { workspace = true, features = ["rustls"] }
 

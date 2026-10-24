@@ -1004,6 +1004,42 @@ impl HostingStore {
         Ok(first)
     }
 
+    /// Public chains of revoked certificates still valid at snapshot creation.
+    /// Enabled state and inbound server assignment do not affect revocation.
+    pub async fn revoked_certificate_chains(
+        &self,
+        as_of: OffsetDateTime,
+    ) -> Result<Vec<Vec<u8>>> {
+        Ok(run!(
+            self,
+            query_scalar::<Vec<u8>>,
+            "SELECT certs_der FROM hosting.certificates
+              WHERE revoked_at IS NOT NULL AND expires_at > $1",
+            [stored(as_of)],
+            fetch_all
+        )?)
+    }
+
+    /// Record the first revocation time; enabling a certificate never clears it.
+    pub async fn revoke_certificate(
+        &self,
+        id: i32,
+        revoked_at: OffsetDateTime,
+    ) -> Result<bool> {
+        let changed = run!(
+            self,
+            query,
+            "UPDATE hosting.certificates SET revoked_at = $2
+              WHERE id = $1 AND revoked_at IS NULL",
+            [id, stored(revoked_at)],
+            execute
+        )? > 0;
+        if changed {
+            self.changed(HostingChanged::Certificates);
+        }
+        Ok(changed)
+    }
+
     pub async fn certificates(
         &self,
         active_only: bool,
@@ -1175,6 +1211,7 @@ impl HostingStore {
             "UPDATE hosting.certificates
                 SET certs_der = $2, issued_at = $3, expires_at = $4, updated_at = NOW()
               WHERE id = $1 AND certs_der = $5 AND key_der = $6 AND enabled = TRUE
+                AND revoked_at IS NULL
                 AND (issuer_id = $7 OR (issuer_id IS NULL AND $7 IS NULL))
                 AND cn = $8 AND kind::TEXT = $9
           RETURNING id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at,
@@ -1182,7 +1219,7 @@ impl HostingStore {
             [original.id, certs_der, stored(issued_at), stored(expires_at), &original.certs_der, &original.key_der, original.issuer_id, &original.cn, original.kind.as_str()],
             fetch_optional
         )?
-        .ok_or_else(|| HostingError::Conflict("certificate changed or disabled during renewal".into()))?;
+        .ok_or_else(|| HostingError::Conflict("certificate changed, disabled or revoked during renewal".into()))?;
         self.changed(HostingChanged::Certificates);
         self.certificate_by_cn(&updated.cn).await?.ok_or_else(|| {
             HostingError::NotFound(format!("certificate '{}'", updated.cn))
@@ -1201,7 +1238,7 @@ impl HostingStore {
             query_as::<CertificateRow>,
             "UPDATE hosting.certificates
                 SET certs_der = $2, key_der = $3, expires_at = $4, updated_at = NOW()
-              WHERE id = $1
+              WHERE id = $1 AND revoked_at IS NULL
           RETURNING id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at,
                     issued_at, updated_at, enabled",
             [certificate_id, certs_der, key_der, stored(expires_at)],
@@ -1243,12 +1280,28 @@ impl HostingStore {
         let result = run!(
             self,
             query,
-            "DELETE FROM hosting.certificates WHERE cn = $1",
-            [cn],
+            "DELETE FROM hosting.certificates WHERE cn = $1
+                AND (revoked_at IS NULL OR expires_at <= $2)",
+            [cn, stored(OffsetDateTime::now_utc())],
             execute
         )?;
         if result > 0 {
             self.changed(HostingChanged::Certificates);
+        } else {
+            let retained = run!(
+                self,
+                query_scalar::<bool>,
+                "SELECT EXISTS (SELECT 1 FROM hosting.certificates
+                  WHERE cn = $1 AND revoked_at IS NOT NULL AND expires_at > $2)",
+                [cn, stored(OffsetDateTime::now_utc())],
+                fetch_one
+            )?;
+            if retained {
+                return Err(HostingError::Conflict(
+                    "unexpired revoked certificates must retain their identity"
+                        .into(),
+                ));
+            }
         }
         Ok(result > 0)
     }

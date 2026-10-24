@@ -10,6 +10,7 @@ use crate::auth::verifier::{PolicyConfig, PolicyVerifier};
 use crate::error::{Error, Error as TlsError};
 use crate::pem::load_der_certs;
 use crate::resolver::CertResolver;
+use crate::revocation::Revocations;
 
 mod client;
 mod policy;
@@ -84,6 +85,31 @@ pub fn create_tcp_auth_config(
         cfg,
         crate::policy::provider(),
     )
+}
+
+/// Client-auth TLS with a shared, prepared revocation snapshot. Resumption is
+/// disabled so every new connection reaches the current certificate verifier.
+pub fn create_auth_config_with_revocations(
+    ca_path: impl AsRef<Path>,
+    resolver: Arc<CertResolver>,
+    alpns: Vec<Vec<u8>>,
+    cfg: Option<&PolicyConfig>,
+    revocations: Arc<Revocations>,
+) -> Result<ServerConfig, TlsError> {
+    let provider = crate::policy::provider();
+    let verifier =
+        create_client_cert_verifier_with_provider(ca_path, cfg, &provider)?;
+    let verifier = crate::revocation::verifier(verifier, revocations);
+    let mut config = ServerConfig::builder_with_provider(Arc::new(provider))
+        .with_protocol_versions(&crate::policy::versions())?
+        .with_client_cert_verifier(verifier)
+        .with_cert_resolver(resolver);
+    config.alpn_protocols = alpns;
+    config.session_storage =
+        Arc::new(rustls::server::NoServerSessionStorage {});
+    config.send_tls13_tickets = 0;
+    config.max_early_data_size = 0;
+    Ok(config)
 }
 
 fn create_auth_config_with_provider(

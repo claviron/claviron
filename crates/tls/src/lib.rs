@@ -9,6 +9,7 @@ pub mod policy;
 mod proto;
 pub mod provider;
 pub mod resolver;
+pub mod revocation;
 pub mod signer;
 pub mod source;
 pub use provider::*;

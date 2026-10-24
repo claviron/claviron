@@ -8,6 +8,8 @@ use super::{CommonName, Organization};
 use crate::{Host, KeyString};
 
 pub const SERVER_CERTS_DIRNAME: &str = "servers";
+/// Conventional CRL file at the certificate store root.
+pub const CRL_FILENAME: &str = "revocations.crl";
 /// Client identities occupy a separate subtree from signing authorities.
 pub const CLIENT_CERTS_DIRNAME: &str = "clients";
 /// Existing client stores and the certificate generator use this leaf filename.
@@ -148,9 +150,16 @@ pub struct CertStore {
     authority: Option<AuthorityEntry>,
     #[serde(default)]
     organization: Organization,
+    /// Explicit CRL path, cwd-relative. Omission selects dir/CRL_FILENAME.
+    #[serde(default)]
+    crl_path: Option<PathBuf>,
 }
 
 impl CertStore {
+    pub fn crl_path(&self) -> PathBuf {
+        self.crl_path.clone().unwrap_or_else(|| self.dir.join(CRL_FILENAME))
+    }
+
     pub fn organization(&self) -> &Organization {
         &self.organization
     }

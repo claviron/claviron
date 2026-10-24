@@ -23,6 +23,8 @@
 //! **its** `server_id`. The check is one indexed `EXISTS` query per
 //! event — cheap, race-free, idempotent for DELETE because
 //! `CertResolver::remove_*` are no-ops when the host isn't installed.
+//! Revocation refresh precedes this filter: client certificates need no
+//! server assignment, and a revoked leaf must be rejected by every consumer.
 //!
 //! Embedding `server_ids` in the trigger payload was rejected because
 //! on `certificates` INSERT the `certificate_server` pivot rows may
@@ -143,6 +145,12 @@ impl CertificateListener {
                     }
                     let mut events =
                         state.events().subscribe::<HostingChanged>();
+                    // Subscribe before rereading: a change between boot and
+                    // listener startup must not leave the blocklist stale.
+                    if let Err(error) = crate::revocation::refresh(&state).await
+                    {
+                        warn!("certificate revocation refresh failed: {error}");
+                    }
                     loop {
                         let received = tokio::select! {
                             _ = context.cancelled() => return Ok(()),
@@ -154,8 +162,12 @@ impl CertificateListener {
                             // A missed event may have been a certificate's.
                             Ok(HostingChanged::Certificates)
                             | Err(RecvError::Lagged(_)) => {
-                                match reload_resolver_certs(&resolver, &state)
-                                    .await
+                                match async {
+                                    crate::revocation::refresh(&state).await?;
+                                    reload_resolver_certs(&resolver, &state)
+                                        .await
+                                }
+                                .await
                                 {
                                     Ok(()) => {
                                         info!(
@@ -215,7 +227,21 @@ impl CertificateListener {
                     };
                     let applied = match notice {
                         Notice::Changed(notifications) => {
-                            let mut applied = true;
+                            // Client leaves are not assigned to an SNI server.
+                            // Refresh before applying the server-assignment filter.
+                            let mut applied = match crate::revocation::refresh(
+                                &state,
+                            )
+                            .await
+                            {
+                                Ok(()) => true,
+                                Err(error) => {
+                                    error!(
+                                        "certificate revocation refresh failed: {error}"
+                                    );
+                                    false
+                                }
+                            };
                             for notification in notifications {
                                 if let Err(e) = handle_cert_notification(
                                     &resolver,
@@ -234,7 +260,11 @@ impl CertificateListener {
                         // Events may have been lost while the connection was
                         // down: read every certificate again.
                         Notice::Resync => {
-                            match reload_resolver_certs(&resolver, &state).await
+                            match async {
+                                crate::revocation::refresh(&state).await?;
+                                reload_resolver_certs(&resolver, &state).await
+                            }
+                            .await
                             {
                                 Ok(()) => {
                                     info!(

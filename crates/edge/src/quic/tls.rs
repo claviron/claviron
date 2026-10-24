@@ -9,11 +9,12 @@ use claviron_http::ListenerId;
 use claviron_http::config::QuicConfig;
 use claviron_runtime::registry::{Error, Result};
 use claviron_tls::Proto::H3;
-use claviron_tls::auth::create_auth_config;
+use claviron_tls::auth::create_auth_config_with_revocations;
 use claviron_tls::auth::verifier::PolicyConfig;
 use claviron_tls::create_tls_config;
 use claviron_tls::orbit::{FleetServerSessions, SessionDomain};
 use claviron_tls::resolver::CertResolver;
+use claviron_tls::revocation::Revocations;
 use claviron_types::Host;
 use quinn::{Connection, Incoming, ServerConfig};
 use quinn_deferred_config::{ClientHelloView, DeferredServerConfig};
@@ -43,6 +44,7 @@ pub(crate) struct H3TlsPolicy {
     by_host: Arc<HashMap<Host, Arc<RustlsServerConfig>>>,
     table: Arc<VhostTable>,
     config: QuicConfig,
+    revocations: Arc<Revocations>,
 }
 
 struct H3Handshake {
@@ -68,6 +70,7 @@ const QUIC_INITIAL_SUITE_MISSING: &str = concat!(
 impl H3TlsAccept {
     pub(crate) fn build(
         cert_resolver: Arc<CertResolver>,
+        revocations: Arc<Revocations>,
         vhost_resolver: Arc<VhostResolver>,
         cfg: &QuicConfig,
         sessions: &FleetServerSessions,
@@ -100,6 +103,7 @@ impl H3TlsAccept {
                     auth.unit.as_deref(),
                     cert_resolver.clone(),
                     cfg,
+                    revocations.clone(),
                 )?
             } else {
                 base_tls.clone()
@@ -120,6 +124,7 @@ impl H3TlsAccept {
             by_host: Arc::new(by_host),
             table: Arc::new(table.declarations_only()),
             config: cfg.clone(),
+            revocations,
         });
         let current = Arc::new(ArcSwap::from_pointee(policy.handshake(table)?));
         Ok(Self {
@@ -165,6 +170,7 @@ impl H3TlsAccept {
                     auth.unit.as_deref(),
                     certificates.clone(),
                     &template.config,
+                    template.revocations.clone(),
                 )?
             } else {
                 template.base.clone()
@@ -177,6 +183,7 @@ impl H3TlsAccept {
             by_host: Arc::new(by_host),
             table: Arc::new(table.declarations_only()),
             config: template.config.clone(),
+            revocations: template.revocations.clone(),
         };
         // Validate the deferred selector before the table becomes visible.
         policy.handshake(Arc::new(table.declarations_only()))?;
@@ -275,6 +282,7 @@ fn build_auth_config_for_host(
     unit: Option<&str>,
     cert_resolver: Arc<CertResolver>,
     _cfg: &QuicConfig,
+    revocations: Arc<Revocations>,
 ) -> Result<Arc<RustlsServerConfig>> {
     let ca_bundle = ca_bundle.ok_or_else(|| {
         Error::msg(format!(
@@ -285,11 +293,12 @@ fn build_auth_config_for_host(
 
     // Client-auth handshakes must not accept replayable early data, and
     // must not share resumption state with public unauthenticated hosts.
-    let tls_cfg = create_auth_config(
+    let tls_cfg = create_auth_config_with_revocations(
         ca_bundle,
         cert_resolver,
         h3_alpns(),
         policy.as_ref(),
+        revocations,
     )
     .map_err(|e| Error::msg(format!("H3 TLS auth config for {host}: {e}")))?;
     Ok(prepare_rustls_server_config(tls_cfg, EarlyDataTransport::Disabled))

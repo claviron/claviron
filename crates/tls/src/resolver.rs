@@ -263,6 +263,8 @@ impl Reloadable<AppState> for CertResolver {
         &self,
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
+        // The selected file may change while tls.yaml stays identical.
+        crate::revocation::refresh(state).await?;
         reload_resolver_certs(self, state).await?;
         info!("📜 Certificate resolver reloaded (certs={})", self.count());
         Ok(())

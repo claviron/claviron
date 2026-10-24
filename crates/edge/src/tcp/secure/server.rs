@@ -20,6 +20,7 @@ use claviron_runtime::registry::{
 use claviron_runtime::{AppState, Register, RunContext};
 use claviron_tls::orbit::{FleetServerSessions, FleetServerSessionsProvider};
 use claviron_tls::resolver::CertResolver;
+use claviron_tls::revocation::Revocations;
 use tracing::info;
 
 use super::tls::{TlsAccept, VhostTlsPolicies};
@@ -55,23 +56,34 @@ pub struct HttpsServer {
     pub(crate) current: ListenerSnapshots<ServerSnapshot>,
 }
 /// What the listeners serve with, each a hard requirement.
-pub(crate) type ServerDeps =
-    (Arc<CertResolver>, Arc<VhostResolver>, Arc<FleetServerSessionsProvider>);
+pub(crate) type ServerDeps = (
+    Arc<CertResolver>,
+    Arc<VhostResolver>,
+    Arc<FleetServerSessionsProvider>,
+    Arc<Revocations>,
+);
 
+#[derive(Clone)]
 pub(crate) struct Deps {
     pub(crate) cert_resolver: Arc<CertResolver>,
     pub(crate) vhost_resolver: Arc<VhostResolver>,
     pub(crate) tls_sessions: Arc<FleetServerSessions>,
+    pub(crate) revocations: Arc<Revocations>,
 }
 
 impl Deps {
     fn bind(
-        (cert_resolver, vhost_resolver, sessions): ServerDeps
+        (cert_resolver, vhost_resolver, sessions, revocations): ServerDeps
     ) -> Result<Arc<Self>, Error> {
         let tls_sessions = sessions.handle().ok_or_else(|| {
             Error::msg("HttpsServer: fleet TLS sessions unavailable")
         })?;
-        Ok(Arc::new(Self { cert_resolver, vhost_resolver, tls_sessions }))
+        Ok(Arc::new(Self {
+            cert_resolver,
+            vhost_resolver,
+            tls_sessions,
+            revocations,
+        }))
     }
 }
 impl HttpsServer {
@@ -127,13 +139,7 @@ pub(crate) fn build_snapshots(
         if !matches!(config.security, TcpSecurity::Tls { .. }) {
             continue;
         }
-        let tls_accept = TlsAccept::build(
-            deps.cert_resolver.clone(),
-            deps.vhost_resolver.clone(),
-            deps.tls_sessions.as_ref(),
-            listener,
-            config,
-        )?;
+        let tls_accept = TlsAccept::build(deps, listener, config)?;
         groups.insert(
             id.clone(),
             Arc::new(ServerSnapshot {
@@ -153,8 +159,7 @@ fn prepare_vhosts(
     groups: &BTreeMap<ListenerId, Arc<ServerSnapshot>>,
 ) -> Result<(), Error> {
     let listeners = http.listeners.clone();
-    let certificates = deps.cert_resolver.clone();
-    let sessions = deps.tls_sessions.clone();
+    let serving = deps.clone();
     let initial: BTreeMap<_, _> = groups
         .iter()
         .map(|(id, group)| (id.clone(), group.tls_accept.prepared_policy()))
@@ -179,12 +184,7 @@ fn prepare_vhosts(
                         id.clone(),
                         Arc::new(
                             TlsAccept::prepare_policy(
-                                certificates.clone(),
-                                &sessions,
-                                listener,
-                                config,
-                                table,
-                                old,
+                                &serving, listener, config, table, old,
                             )
                             .map_err(crate::Error::other)?,
                         ),

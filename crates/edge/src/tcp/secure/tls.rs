@@ -8,11 +8,10 @@ use claviron_http::ListenerId;
 use claviron_http::config::{ListenerConfig, TcpListenerConfig};
 use claviron_runtime::registry::Error;
 use claviron_tls::Proto::{H1, H2};
-use claviron_tls::auth::create_tcp_auth_config;
+use claviron_tls::auth::create_auth_config_with_revocations;
 use claviron_tls::auth::verifier::PolicyConfig;
 use claviron_tls::create_tls_config;
-use claviron_tls::orbit::{FleetServerSessions, SessionDomain};
-use claviron_tls::resolver::CertResolver;
+use claviron_tls::orbit::SessionDomain;
 use claviron_types::Host;
 use tokio::net::TcpStream;
 use tokio_rustls::LazyConfigAcceptor;
@@ -45,32 +44,22 @@ impl TlsAccept {
         })
     }
     pub(crate) fn build(
-        cert_resolver: Arc<CertResolver>,
-        vhost_resolver: Arc<VhostResolver>,
-        sessions: &FleetServerSessions,
+        deps: &super::server::Deps,
         listener: &ListenerConfig,
         tcp: &TcpListenerConfig,
     ) -> Result<Self, Error> {
-        let table = vhost_resolver.snapshot();
-        let policy = Self::prepare_policy(
-            cert_resolver,
-            sessions,
-            listener,
-            tcp,
-            &table,
-            None,
-        )?;
+        let table = deps.vhost_resolver.snapshot();
+        let policy = Self::prepare_policy(deps, listener, tcp, &table, None)?;
         Ok(Self(Arc::new(TlsConfigResolver {
             table: policy.table,
             by_host: policy.by_host,
-            live: vhost_resolver,
+            live: deps.vhost_resolver.clone(),
             listener: Some(listener.id.clone()),
         })))
     }
 
     pub(super) fn prepare_policy(
-        cert_resolver: Arc<CertResolver>,
-        sessions: &FleetServerSessions,
+        deps: &super::server::Deps,
         listener: &ListenerConfig,
         tcp: &TcpListenerConfig,
         table: &VhostTable,
@@ -117,10 +106,10 @@ impl TlsAccept {
                     .flat_map(|protocol| protocol.alpn_versions().iter().map(|alpn| alpn.to_vec()))
                     .collect();
                 // mTLS never shares public resumption storage.
-                create_tcp_auth_config(ca, cert_resolver.clone(), alpns, policy.as_ref())
+                create_auth_config_with_revocations(ca, deps.cert_resolver.clone(), alpns, policy.as_ref(), deps.revocations.clone())
             } else {
-                create_tls_config(&protocols, cert_resolver.clone()).map(|mut config| {
-                    config.session_storage = sessions.storage(domain.clone());
+                create_tls_config(&protocols, deps.cert_resolver.clone()).map(|mut config| {
+                    config.session_storage = deps.tls_sessions.storage(domain.clone());
                     config
                 })
             }

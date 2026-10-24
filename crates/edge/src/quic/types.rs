@@ -23,6 +23,7 @@ use claviron_runtime::registry::{
 use claviron_runtime::{AppState, Register, RunContext};
 use claviron_tls::orbit::{FleetServerSessions, FleetServerSessionsProvider};
 use claviron_tls::resolver::CertResolver;
+use claviron_tls::revocation::Revocations;
 use tracing::info;
 
 use crate::quic::tls::{H3TlsAccept, VhostTlsPolicies};
@@ -58,6 +59,7 @@ pub(crate) type ServerDeps = (
     Arc<VhostResolver>,
     Arc<WebTransportRegistry>,
     Arc<FleetServerSessionsProvider>,
+    Arc<Revocations>,
 );
 
 pub(crate) struct Deps {
@@ -67,11 +69,19 @@ pub(crate) struct Deps {
     pub(crate) web_transport: Arc<WebTransportRegistry>,
 
     pub(crate) tls_sessions: Arc<FleetServerSessions>,
+    pub(crate) revocations: Arc<Revocations>,
 }
 
 impl Deps {
     fn bind(
-        (cert_resolver, app_resolver, vhost_resolver, web_transport, sessions): ServerDeps
+        (
+            cert_resolver,
+            app_resolver,
+            vhost_resolver,
+            web_transport,
+            sessions,
+            revocations,
+        ): ServerDeps
     ) -> Result<Arc<Self>, Error> {
         let tls_sessions = sessions.handle().ok_or_else(|| {
             Error::msg("H3Server: fleet TLS sessions not available")
@@ -82,6 +92,7 @@ impl Deps {
             vhost_resolver,
             web_transport,
             tls_sessions,
+            revocations,
         }))
     }
 }
@@ -121,6 +132,7 @@ pub(crate) fn build_snapshots(
         };
         let tls_accept = H3TlsAccept::build(
             deps.cert_resolver.clone(),
+            deps.revocations.clone(),
             deps.vhost_resolver.clone(),
             &config.quic,
             deps.tls_sessions.as_ref(),

@@ -97,7 +97,7 @@ async fn public_authority_never_queries_private_key_column() {
     )
     .unwrap();
     let der = parsers::concat_chain_bytes_from_pem(&ca).unwrap();
-    sqlx::query("INSERT INTO hosting_certificates VALUES (1, 'ca', NULL, 'Fixture CA', ?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL, 1)")
+    sqlx::query("INSERT INTO hosting_certificates (id, kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled) VALUES (1, 'ca', NULL, 'Fixture CA', ?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL, 1)")
         .bind(&der).execute(&pool).await.unwrap();
     let store = claviron_hosting::HostingStore::sqlite(pool.clone());
     let authority =
