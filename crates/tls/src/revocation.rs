@@ -270,7 +270,24 @@ impl ClientCertVerifier for RevocationVerifier {
     ) -> Result<ClientCertVerified, rustls::Error> {
         let verified =
             self.inner.verify_client_cert(leaf, intermediates, now)?;
-        self.snapshot.verify_leaf(leaf.as_ref(), now)?;
+        if let Err(error) = self.snapshot.verify_leaf(leaf.as_ref(), now) {
+            let client_cn =
+                claviron_types::ssl::parsers::take_first_cert_from_der(
+                    leaf.as_ref(),
+                )
+                .ok()
+                .and_then(|certificate| {
+                    let mut names = certificate.subject().iter_common_name();
+                    let name = names.next()?.as_str().ok()?.to_owned();
+                    names.next().is_none().then_some(name)
+                });
+            tracing::warn!(
+                client_cn = client_cn.as_deref(),
+                %error,
+                "mTLS client certificate rejected by revocation policy"
+            );
+            return Err(error);
+        }
         Ok(verified)
     }
     fn verify_tls12_signature(
