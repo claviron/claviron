@@ -13,6 +13,9 @@ feature. That facade selection includes CSRF; composing it with `orbit` also
 enables the Orbit adapter. The implementation crate itself has no default
 features.
 
+Application, host and session ownership follow
+[APPLICATION_FIRST](../../docs/design/APPLICATION_FIRST.md).
+
 ## Identity, not a second user model
 
 `Authenticated` describes an application's authenticated identity:

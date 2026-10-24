@@ -5,6 +5,8 @@ contracts, not protocol standards or chronological decision records.
 
 ## Application and transport
 
+- [APPLICATION_FIRST](APPLICATION_FIRST.md): applications define their work and
+  shared state; host bindings select how their parts are presented and admitted.
 - [BYPASS_PIPELINE](BYPASS_PIPELINE.md): shape routing around the application;
   compose native Rust with existing request owners without bypassing admission.
 - [HOST_BINDING](HOST_BINDING.md): a TLS connection belongs to its accepted

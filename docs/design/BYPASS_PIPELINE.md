@@ -2,6 +2,9 @@
 
 Design identifier: `BYPASS_PIPELINE`.
 
+This is the serving-pipeline application of
+[APPLICATION_FIRST](APPLICATION_FIRST.md).
+
 If your repository has both `app/*.php` and `src/main.rs`, routing should help
 those parts work together. It should not force you to put another server between
 them, or rewrite the application before Rust can handle its first request.
