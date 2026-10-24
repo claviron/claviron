@@ -467,10 +467,7 @@ impl PreparedRequest<RouteBody> {
         // Outermost, so what it counts is what the client is sent.
         #[cfg(feature = "access-log")]
         let response = match access {
-            Some(access) => {
-                let status = response.status();
-                response.map(|body| access.wrap(status, body))
-            }
+            Some(access) => access.wrap(response),
             None => response,
         };
         #[cfg(feature = "rate-limit")]

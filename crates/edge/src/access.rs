@@ -9,6 +9,8 @@
 //! and a client that left mid-body are recorded with their real duration and
 //! size. Replies the edge gives itself (503 at admission, 504 at the head)
 //! are recorded too: the guard is dropped with them.
+//! gRPC status is recorded separately from HTTP status, from the response
+//! headers or final trailers. An absent status is never inferred as success.
 //!
 //! Writing is a copy into this process's lane of the log ring; nothing here
 //! waits or does I/O.
@@ -21,13 +23,13 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use claviron_http::{RouteBody, RouteBodyError};
+use claviron_http::{RouteBody, RouteBodyError, RouteResponse};
 use claviron_logging::pipeline::{
     ChannelId, Level, LogChannels, Record, Value,
 };
 use claviron_runtime::registry::{self, Bootable};
 use claviron_runtime::{AppState, Component};
-use http::{Method, StatusCode, Version};
+use http::{HeaderMap, Method, StatusCode, Version};
 use http_body::{Body, Frame, SizeHint};
 use http_body_util::BodyExt;
 
@@ -90,6 +92,7 @@ pub(crate) struct AccessGuard {
     version: Version,
     client: IpAddr,
     status: StatusCode,
+    grpc_status: Option<u32>,
     bytes: u64,
     complete: bool,
 }
@@ -125,6 +128,7 @@ impl AccessGuard {
             version,
             client,
             status: StatusCode::INTERNAL_SERVER_ERROR,
+            grpc_status: None,
             bytes: 0,
             complete: false,
         })
@@ -147,14 +151,16 @@ impl AccessGuard {
     /// The application's reply head; the record is written when `body` ends.
     pub(crate) fn wrap(
         mut self,
-        status: StatusCode,
-        body: RouteBody,
-    ) -> RouteBody {
-        self.status = status;
+        response: RouteResponse,
+    ) -> RouteResponse {
+        self.status = response.status();
+        self.grpc_status = grpc_status(response.headers());
         self.head = Some(Instant::now());
-        // An empty body is never polled.
-        self.complete = body.is_end_stream();
-        AccessBody { inner: body, guard: self }.boxed_unsync()
+        response.map(|body| {
+            // An empty body is never polled.
+            self.complete = body.is_end_stream();
+            AccessBody { inner: body, guard: self }.boxed_unsync()
+        })
     }
 }
 
@@ -176,6 +182,9 @@ impl Drop for AccessGuard {
             ("total_us", Value::U64(total)),
             ("complete", Value::Bool(self.complete)),
         ];
+        if let Some(status) = self.grpc_status {
+            fields.push(("grpc_status", Value::U64(u64::from(status))));
+        }
         if let Some(queue) = micros(self.admitted) {
             fields.push(("queue_us", Value::U64(queue)));
         }
@@ -192,6 +201,14 @@ impl Drop for AccessGuard {
             tracing::debug!(%error, "access record not written");
         }
     }
+}
+
+fn grpc_status(headers: &HeaderMap) -> Option<u32> {
+    let value = headers.get("grpc-status")?.to_str().ok()?;
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    value.parse().ok()
 }
 
 fn protocol(version: Version) -> &'static str {
@@ -225,6 +242,12 @@ impl Body for AccessBody {
             Poll::Ready(Some(Ok(frame))) => {
                 if let Some(data) = frame.data_ref() {
                     this.guard.bytes += data.len() as u64;
+                }
+                if let Some(trailers) = frame.trailers_ref()
+                    && trailers.contains_key("grpc-status")
+                {
+                    // The final RPC outcome supersedes a header status.
+                    this.guard.grpc_status = grpc_status(trailers);
                 }
                 // A body that knows its end is not polled again for `None`.
                 if this.inner.is_end_stream() {
