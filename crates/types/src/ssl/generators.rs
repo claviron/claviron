@@ -142,8 +142,19 @@ pub fn generate_leaf_cert(
         }
     }
 
-    // Params with SANs (rcgen auto-detects DNS/IP/URI/email by content)
-    let mut params = CertificateParams::new(sans)?;
+    // rcgen detects DNS/IP only. URI identities must use the URI GeneralName.
+    let (uris, names): (Vec<_>, Vec<_>) = sans.into_iter().partition(|value| {
+        value.contains(':') && value.parse::<std::net::IpAddr>().is_err()
+    });
+    let mut params = CertificateParams::new(names)?;
+    for uri in uris {
+        let uri = uri.parse::<super::SubjectUri>()?;
+        params.subject_alt_names.push(rcgen::SanType::URI(
+            uri.as_str().try_into().map_err(|_| {
+                Error::Other("subject URI must be ASCII".into())
+            })?,
+        ));
+    }
 
     // Subject DN (CN)
     let mut dn = DistinguishedName::new();

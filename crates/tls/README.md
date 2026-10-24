@@ -82,6 +82,10 @@ transport selects the appropriate verifier before completing the handshake.
 TLS certificate authentication is distinct from application login, session
 cookies, and route authorization.
 
+`CertSigner::issue_client_certificate` can sign an optional `ssl::SubjectUri`
+into the client certificate. The CN remains a label. Applications interpret the
+URI namespace and authorize the resulting subject; issuance assigns no rights.
+
 ## Reload boundaries
 
 The shared certificate map can be replaced without replacing the resolver's

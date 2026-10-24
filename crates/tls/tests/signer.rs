@@ -51,6 +51,22 @@ fn signer_material_issues_verifiable_identities_without_files() {
             UnixTime::now(),
         )
         .unwrap();
+    let subject =
+        "urn:uuid:00000000-0000-4000-8000-000000000007".parse().unwrap();
+    let identified = authority
+        .issue_client_certificate("display-name.test", &[], Some(&subject), 1)
+        .unwrap();
+    let peer = claviron_types::ssl::peer::peer_identity(&identified.certs_der)
+        .unwrap();
+    assert_eq!(peer.common_names, ["display-name.test"]);
+    assert_eq!(peer.subject_uris, [subject.to_string()]);
+    verifier
+        .verify_client_cert(
+            &CertificateDer::from(identified.certs_der),
+            &[],
+            UnixTime::now(),
+        )
+        .unwrap();
     let server = authority
         .issue_certificate(CertificateKind::Server, "server.test", &[], 1, None)
         .unwrap();

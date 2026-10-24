@@ -74,6 +74,28 @@ impl CertSigner {
         self.authority.issuer_id()
     }
 
+    /// Issue client authentication material with an optional application URI identity.
+    /// The CN remains a label; this method assigns no application permissions.
+    pub fn issue_client_certificate(
+        &self,
+        common_name: &str,
+        aliases: &[String],
+        subject: Option<&claviron_types::ssl::SubjectUri>,
+        validity_days: u32,
+    ) -> Result<IssuedCertificate, Error> {
+        let mut sans = aliases.to_vec();
+        if let Some(subject) = subject {
+            sans.push(subject.to_string());
+        }
+        self.issue_certificate(
+            claviron_types::CertificateKind::Client,
+            common_name,
+            &sans,
+            validity_days,
+            None,
+        )
+    }
+
     /// Mint material without persistence or resolver mutation. Run on a blocking thread.
     pub fn issue_certificate(
         &self,

@@ -98,3 +98,27 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
         .is_err()
     );
 }
+
+#[test]
+fn subject_uris_require_an_absolute_ascii_identity_without_invalid_escapes() {
+    use crate::ssl::SubjectUri;
+    for value in [
+        "urn:uuid:00000000-0000-4000-8000-000000000007",
+        "spiffe://example.test/user/7",
+    ] {
+        assert_eq!(value.parse::<SubjectUri>().unwrap().as_str(), value);
+    }
+    for value in [
+        "",
+        "operator",
+        "urn:",
+        ":user",
+        "1urn:user",
+        "urn:user name",
+        "urn:üser",
+        "urn:user%ZZ",
+        "urn:<user>",
+    ] {
+        assert!(value.parse::<SubjectUri>().is_err(), "{value}");
+    }
+}

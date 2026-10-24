@@ -60,6 +60,8 @@ and certificate-management tools:
 
 - `Algorithm`, `CommonName`, `Organization`, and `Issuer` describe certificate
   identities and signing choices. A CA common name is not a routing hostname.
+- `SubjectUri` carries a separate application identity in a URI SAN; it is not
+  a routing alias or a CN-based authorization policy.
 - Parsers inspect PEM, DER, certificates, and certificate requests.
 - Generators create keys, certificate requests, CAs, intermediate CAs, and
   server/client certificates.
