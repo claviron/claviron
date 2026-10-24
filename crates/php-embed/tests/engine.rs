@@ -245,6 +245,7 @@ fn request_scheme_isolated_process() {
                         .unwrap();
                     if let Some(tls) = tls {
                         req.extensions_mut().insert(Arc::new(ConnCtx {
+                            state: Default::default(),
                             listener: "test".parse().unwrap(),
                             proto: None,
                             remote: "127.0.0.1:1234".parse().unwrap(),

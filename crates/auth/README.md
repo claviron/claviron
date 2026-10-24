@@ -59,9 +59,10 @@ policy, database lookup or role model is installed.
 
 The policy returns `Ok(None)` for peer-only access, `Ok(Some(actor))` for access
 with an application subject, or a safe `AccessError`. Consumers requiring a user
-reject peer-only grants. Evaluate each operation independently; a successful
-connection is not permission for every operation on it. User-management scope
-and record-level authorization remain the manager's responsibility.
+reject peer-only grants. A connection adapter may admit `connect` once and keep
+the actor for that connection. This service admission does not authorize every
+operation: user-management scope and current record-level authorization remain
+the manager's responsibility.
 
 CNs and URI SANs are identity candidates, not permissions or automatic bindings.
 The host owns trust-domain restrictions and any mapping to a user. The issuer DN

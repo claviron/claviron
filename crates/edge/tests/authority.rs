@@ -41,6 +41,7 @@ fn service(
     HostService::new(
         app,
         Arc::new(ConnCtx {
+            state: Default::default(),
             listener: "public".parse().unwrap(),
             proto: Some(protocol),
             remote: "127.0.0.1:1234".parse().unwrap(),

@@ -32,6 +32,7 @@ fn reports_trusted_origin_without_inventing_a_local_connection() {
 fn reports_available_connection_country_and_listener() {
     let mut request = Request::new(Body::empty());
     request.extensions_mut().insert(Arc::new(ConnCtx {
+        state: Default::default(),
         listener: "example-listener".parse().unwrap(),
         proto: None,
         remote: "192.0.2.10:12345".parse().unwrap(),

@@ -492,6 +492,7 @@ fn connection(
 ) -> Option<Arc<ConnCtx>> {
     let (Some(remote), Some(local)) = (peer, local) else { return None };
     Some(Arc::new(ConnCtx {
+        state: Default::default(),
         listener: "runner".parse().expect("a valid listener name"),
         proto: None,
         remote,

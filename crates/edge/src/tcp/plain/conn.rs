@@ -41,6 +41,7 @@ impl HttpServer {
             }
         };
         let ctx = Arc::new(ConnCtx {
+            state: Default::default(),
             listener: snapshot.listener.id.clone(),
             proto: Some(HttpProtocol::H1),
             remote: peer,

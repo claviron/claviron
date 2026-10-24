@@ -26,6 +26,7 @@ fn listener_identity_survives_per_request_proxy_resolution() {
             .unwrap();
     let vctx = resolve_sni_from_table(&table, Some("app.test")).unwrap();
     let ctx = Arc::new(ConnCtx {
+        state: Default::default(),
         listener: "internal".parse().unwrap(),
         proto: Some(claviron_tls::Proto::H2),
         remote: "10.0.0.1:1234".parse().unwrap(),
@@ -103,6 +104,7 @@ fn a_direct_connection_shares_its_context_instead_of_copying_it() {
         serde_yaml::from_str("app.test: {root: public}").unwrap();
     let vctx = resolve_sni_from_table(&table, Some("app.test")).unwrap();
     let ctx = Arc::new(ConnCtx {
+        state: Default::default(),
         listener: "public".parse().unwrap(),
         proto: Some(claviron_tls::Proto::H2),
         remote: "198.51.100.7:4321".parse().unwrap(),

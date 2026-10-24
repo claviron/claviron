@@ -331,6 +331,7 @@ impl H3Server {
         };
 
         let conn_ctx = Arc::new(ConnCtx {
+            state: Default::default(),
             listener: snapshot.listener.id.clone(),
             proto: Some(H3),
             local_ip,

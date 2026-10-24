@@ -99,6 +99,7 @@ async fn h2_connect_keeps_native_body_and_runs_shared_guards_before_auth() {
         let access = Arc::new(crate::transport::VhostResolver::default());
         access.upsert_host(host.vhost_key.0.as_ref().clone(), host.vhost_config.clone());
         let connection = Arc::new(ConnCtx {
+            state: Default::default(),
             listener: "test".parse().unwrap(),
             proto: Some(HttpProtocol::H2),
             remote: "10.0.0.1:1234".parse().unwrap(),

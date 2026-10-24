@@ -35,7 +35,8 @@ pub enum AccessError {
 /// `Ok(None)` grants service access to the verified peer without binding a user.
 /// `Ok(Some(actor))` also supplies the host's authenticated application subject.
 /// Operations requiring a subject must reject a peer-only grant. A grant applies
-/// only to the supplied target; adapters must not cache it across operations.
+/// only to the supplied target. A connection adapter may retain a `connect`
+/// grant and its actor for that session; it is not a grant for every RPC.
 /// Managers still check current resource authority and scope on every call.
 #[async_trait]
 pub trait AccessPolicy: Send + Sync + 'static {

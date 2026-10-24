@@ -1,4 +1,5 @@
 use std::net::{IpAddr, SocketAddr};
+use std::sync::{Arc, Mutex};
 
 use claviron_tls::Proto;
 use rustls::{CipherSuite, ProtocolVersion};
@@ -59,10 +60,34 @@ fn format_cipher_suite(suite: CipherSuite) -> String {
         .unwrap_or(name)
 }
 
-/// Connection context - pure connection information only
+/// Typed state owned by one accepted connection and shared by its requests.
+/// Cloning retains that connection's state; a new connection starts empty.
+#[derive(Clone, Default)]
+pub struct ConnectionState(Arc<Mutex<http::Extensions>>);
+
+impl ConnectionState {
+    /// Construct one value per type, without holding the lock across async work.
+    /// Keys are Rust types, never client-supplied names or identifiers.
+    pub fn get_or_insert_with<T: Send + Sync + 'static>(
+        &self,
+        create: impl FnOnce() -> T,
+    ) -> Arc<T> {
+        let mut values = self.0.lock().expect("connection state poisoned");
+        if let Some(value) = values.get::<Arc<T>>() {
+            return Arc::clone(value);
+        }
+        let value = Arc::new(create());
+        values.insert(Arc::clone(&value));
+        value
+    }
+}
+
+/// Connection facts and connection-owned state.
 /// Vhost/SNI resolution is handled separately and passed via VhostCtx
 #[derive(Clone)]
 pub struct ConnCtx {
+    /// Shared even when a request clones the facts to resolve forwarding.
+    pub state: ConnectionState,
     /// Named listener that accepted this connection; never inferred from an IP.
     pub listener: crate::ListenerId,
     /// Application protocol selected for this connection.

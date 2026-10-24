@@ -60,6 +60,7 @@ impl TlsHostConnection {
         let local_port = local_addr.port();
 
         let conn_ctx = Arc::new(ConnCtx {
+            state: Default::default(),
             listener: listener.id.clone(),
             proto: None,
             remote: socket_addr,

@@ -11,6 +11,7 @@ fn cgi_scheme_follows_connection_and_rejects_client_overrides() {
         PhpRuntime::from_config(&state, &template, PathBuf::from("."), &[]);
     for tls in [false, true] {
         let conn = ConnCtx {
+            state: Default::default(),
             listener: "test".parse().unwrap(),
             proto: None,
             remote: "127.0.0.1:1234".parse().unwrap(),
@@ -126,6 +127,7 @@ async fn file_routes_fcgi_preserves_public_names_and_pinned_entry_mapping() {
             .extensions
             .insert(HostName(Arc::new("app.example.test".parse().unwrap())));
         parts.extensions.insert(Arc::new(ConnCtx {
+            state: Default::default(),
             listener: "test".parse().unwrap(),
             proto: None,
             remote,

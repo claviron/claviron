@@ -176,6 +176,7 @@ fn origin_prefers_a_trusted_hop_and_falls_back_to_the_connection() {
     use crate::ext::ConnCtx;
 
     let connection = Arc::new(ConnCtx {
+        state: Default::default(),
         listener: "tcp".parse().unwrap(),
         proto: None,
         remote: "10.0.0.2:51000".parse().unwrap(),

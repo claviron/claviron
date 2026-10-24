@@ -99,6 +99,7 @@ fn router(
 
 fn context() -> Arc<ConnCtx> {
     Arc::new(ConnCtx {
+        state: Default::default(),
         listener: "test".parse().unwrap(),
         proto: Some(claviron_http::listener::HttpProtocol::H1),
         remote: "127.0.0.1:12345".parse().unwrap(),

@@ -43,6 +43,7 @@ fn service_with_limits(
         host.vhost_config.clone(),
     );
     let connection = Arc::new(ConnCtx {
+        state: Default::default(),
         listener: "public".parse().unwrap(),
         proto: Some(protocol),
         remote: "10.0.0.1:1234".parse().unwrap(),
