@@ -20,6 +20,7 @@ users = []
 authorization = []
 
 [dependencies]
+claviron-types.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
 

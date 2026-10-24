@@ -7,6 +7,8 @@ use rustls::{CipherSuite, ProtocolVersion};
 pub struct TlsClientCertInfo {
     pub subject_dn: String,
     pub issuer_dn: String,
+    /// Parsed public leaf facts. Trust still comes from `TlsInfo::client_auth`.
+    pub identity: Option<std::sync::Arc<claviron_types::PeerIdentity>>,
 }
 
 #[derive(Clone, Copy)]

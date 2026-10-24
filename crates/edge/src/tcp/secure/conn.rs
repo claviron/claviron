@@ -14,7 +14,9 @@ use claviron_http::ext::{
 use claviron_http::session::SessionSpawner;
 use claviron_runtime::AppState;
 use claviron_tls::Proto;
-use claviron_types::ssl::parsers::take_first_cert_from_der;
+use claviron_types::ssl::{
+    parsers::take_first_cert_from_der, peer::peer_identity,
+};
 use tokio::net::TcpStream;
 use tokio_rustls::server::TlsStream;
 
@@ -147,10 +149,13 @@ fn tls_info(tls_stream: &TlsStream<TcpStream>) -> Option<TlsInfo> {
     let client_cert = conn
         .peer_certificates()
         .and_then(|certs| certs.first())
-        .and_then(|cert| take_first_cert_from_der(cert.as_ref()).ok())
-        .map(|cert| TlsClientCertInfo {
-            subject_dn: cert.subject().to_string(),
-            issuer_dn: cert.issuer().to_string(),
+        .and_then(|cert| {
+            let parsed = take_first_cert_from_der(cert.as_ref()).ok()?;
+            Some(TlsClientCertInfo {
+                subject_dn: parsed.subject().to_string(),
+                issuer_dn: parsed.issuer().to_string(),
+                identity: peer_identity(cert.as_ref()).ok().map(Arc::new),
+            })
         });
     let client_auth = if client_cert.is_some() {
         ClientAuthStatus::Verified

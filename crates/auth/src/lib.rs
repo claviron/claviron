@@ -2,6 +2,7 @@
 //! Optional user management describes application-owned administrative views,
 //! independently of authentication, database models, and network transports.
 
+pub mod access;
 #[cfg(feature = "csrf")]
 pub mod csrf;
 pub mod events;

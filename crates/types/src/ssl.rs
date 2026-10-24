@@ -7,6 +7,7 @@ pub mod generators;
 mod issuer;
 mod organization;
 pub mod parsers;
+pub mod peer;
 pub mod renewal;
 pub mod transfer;
 

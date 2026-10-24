@@ -49,6 +49,26 @@ one provider per registry, not a separate provider for every guard. Applications
 needing distinct identity realms must model that distinction explicitly rather
 than repeatedly replacing the same binding.
 
+## Service admission
+
+`access::{PeerIdentity, AccessTarget, AccessPolicy}` is available independently
+of the `users` and `authorization` features. An adapter supplies peer certificate
+facts only after transport validation and names the actual service and operation.
+The host implements policy and binds it in the application registry; no default
+policy, database lookup or role model is installed.
+
+The policy returns `Ok(None)` for peer-only access, `Ok(Some(actor))` for access
+with an application subject, or a safe `AccessError`. Consumers requiring a user
+reject peer-only grants. Evaluate each operation independently; a successful
+connection is not permission for every operation on it. User-management scope
+and record-level authorization remain the manager's responsibility.
+
+CNs and URI SANs are identity candidates, not permissions or automatic bindings.
+The host owns trust-domain restrictions and any mapping to a user. The issuer DN
+is a display name, not proof of a particular trust anchor. Credential DER is
+public certificate material, provided for host-owned pinning; private keys are
+never carried by this contract. Parsing peer facts alone does not authenticate.
+
 ## User management contracts
 
 The opt-in capabilities are independent, including through the Claviron facade:

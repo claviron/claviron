@@ -20,7 +20,9 @@ use claviron_runtime::registry::{Error, Result};
 use claviron_runtime::{RunContext, RunMode};
 use claviron_sys::net::{PortSharing, create_udp_socket};
 use claviron_tls::Proto::H3;
-use claviron_types::ssl::parsers::take_first_cert_from_der;
+use claviron_types::ssl::{
+    parsers::take_first_cert_from_der, peer::peer_identity,
+};
 use futures_util::FutureExt;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use h3_quinn::Connection as H3QuinnConnection;
@@ -609,11 +611,11 @@ fn h3_tls_info(
         })
         .and_then(|certs| certs.first().cloned())
         .and_then(|cert| {
-            take_first_cert_from_der(cert.as_ref()).ok().map(|parsed| {
-                TlsClientCertInfo {
-                    subject_dn: parsed.subject().to_string(),
-                    issuer_dn: parsed.issuer().to_string(),
-                }
+            let parsed = take_first_cert_from_der(cert.as_ref()).ok()?;
+            Some(TlsClientCertInfo {
+                subject_dn: parsed.subject().to_string(),
+                issuer_dn: parsed.issuer().to_string(),
+                identity: peer_identity(cert.as_ref()).ok().map(Arc::new),
             })
         });
     let client_auth = if client_cert.is_some() {
