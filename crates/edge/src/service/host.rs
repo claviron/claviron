@@ -346,9 +346,7 @@ impl PreparedRequest<RouteBody> {
             self.request.method(),
             self.request.uri().path(),
             self.request.version(),
-            self.connection
-                .real_ip
-                .unwrap_or_else(|| self.connection.remote.ip()),
+            &self.connection,
         );
         // The application receives the policy the edge narrowed for it
         // (listener, then host) and narrows it once more with its own

@@ -15,7 +15,6 @@
 //! Writing is a copy into this process's lane of the log ring; nothing here
 //! waits or does I/O.
 
-use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
@@ -23,6 +22,7 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use bytes::Bytes;
+use claviron_http::ext::{ClientAuthStatus, ConnCtx};
 use claviron_http::{RouteBody, RouteBodyError, RouteResponse};
 use claviron_logging::pipeline::{
     ChannelId, Level, LogChannels, Record, Value,
@@ -90,7 +90,7 @@ pub(crate) struct AccessGuard {
     method: Method,
     path: String,
     version: Version,
-    client: IpAddr,
+    connection: Arc<ConnCtx>,
     status: StatusCode,
     grpc_status: Option<u32>,
     bytes: u64,
@@ -107,7 +107,7 @@ impl AccessGuard {
         method: &Method,
         path: &str,
         version: Version,
-        client: IpAddr,
+        connection: &Arc<ConnCtx>,
     ) -> Option<Self> {
         let log = ACCESS_LOG.get()?;
         let channel = match channel {
@@ -126,7 +126,7 @@ impl AccessGuard {
             method: method.clone(),
             path: path.to_owned(),
             version,
-            client,
+            connection: Arc::clone(connection),
             status: StatusCode::INTERNAL_SERVER_ERROR,
             grpc_status: None,
             bytes: 0,
@@ -170,7 +170,11 @@ impl Drop for AccessGuard {
             at.map(|at| at.duration_since(self.started).as_micros() as u64)
         };
         let total = self.started.elapsed().as_micros() as u64;
-        let client = self.client.to_string();
+        let client = self
+            .connection
+            .real_ip
+            .unwrap_or_else(|| self.connection.remote.ip())
+            .to_string();
         let mut fields = vec![
             ("host", Value::Str(&self.host)),
             ("method", Value::Str(self.method.as_str())),
@@ -182,6 +186,20 @@ impl Drop for AccessGuard {
             ("total_us", Value::U64(total)),
             ("complete", Value::Bool(self.complete)),
         ];
+        let client_cn = self
+            .connection
+            .tls
+            .as_ref()
+            .filter(|tls| matches!(tls.client_auth, ClientAuthStatus::Verified))
+            .and_then(|tls| tls.client_cert.as_ref())
+            .and_then(|cert| cert.identity.as_ref())
+            .and_then(|identity| match identity.common_names.as_slice() {
+                [name] => Some(name.as_str()),
+                _ => None,
+            });
+        if let Some(client_cn) = client_cn {
+            fields.push(("client_cn", Value::Str(client_cn)));
+        }
         if let Some(status) = self.grpc_status {
             fields.push(("grpc_status", Value::U64(u64::from(status))));
         }
