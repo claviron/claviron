@@ -24,7 +24,7 @@ default = []
 
 # ── Core ─────────────────────────────────────────────────────────────
 auth = ["dep:claviron-auth", "claviron-auth/csrf", "claviron-php-embed?/auth"]
-user-management = ["auth", "claviron-auth/user-management"]
+users = ["auth", "claviron-auth/users"]
 application = ["runtime", "dep:claviron-app"]
 clients = ["orbitive/client-pool", "dep:serde", "dep:humantime-serde"]
 clients-fleet = ["clients", "orbitive/client-pool-fleet"]

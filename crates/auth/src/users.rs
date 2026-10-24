@@ -1,6 +1,6 @@
 //! Application-owned user, role, and permission management contracts.
 //!
-//! Enable `user-management` to use this module. A host supplies a shared
+//! Enable `users` to use this module. A host supplies a shared
 //! [`UserManager`] with its own persistence, editable schemas, validation,
 //! authorization, and management scope. This module registers nothing and
 //! does not require HTTP, a server runtime, or a database.
@@ -34,5 +34,5 @@ pub use request::{Create, Delete, List, ReplaceAssignments, Update};
 pub use schema::{Form, Operation, Schema};
 
 #[cfg(test)]
-#[path = "../tests/management.rs"]
+#[path = "../tests/users.rs"]
 mod tests;

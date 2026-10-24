@@ -8,8 +8,8 @@ pub mod events;
 mod identity;
 mod provider;
 
-#[cfg(feature = "user-management")]
-pub mod management;
+#[cfg(feature = "users")]
+pub mod users;
 
 pub use identity::Authenticated;
 pub use provider::{AnyAuthenticated, UserProvider, UserProviderError};

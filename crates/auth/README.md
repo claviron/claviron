@@ -51,8 +51,8 @@ than repeatedly replacing the same binding.
 
 ## User management contracts
 
-The opt-in `user-management` feature exposes `management::UserManager`;
-applications using the facade select `claviron`'s `user-management` feature.
+The opt-in `users` feature exposes `users::UserManager`;
+applications using the facade select `claviron`'s `users` feature.
 It is separate from `UserProvider` and does not install a management server.
 
 Applications implement user, role, and permission management against their
