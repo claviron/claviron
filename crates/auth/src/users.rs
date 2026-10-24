@@ -1,5 +1,9 @@
 //! Application-owned user CRUD contracts.
 //!
+//! This module owns [`UserManager`], not role/permission catalogs or pivots.
+//! Shared record, request and form types come from the internal `model` module;
+//! their public paths here do not create a second copy or another user model.
+//!
 //! Enable `users` to use this module. A host supplies a shared
 //! [`UserManager`] with its own persistence, editable schemas, validation,
 //! authorization, and management scope. This module registers nothing and

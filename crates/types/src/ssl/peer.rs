@@ -2,7 +2,7 @@
 use x509_parser::extensions::GeneralName;
 
 use super::{Error, parsers::take_first_cert_from_der};
-use crate::PeerIdentity;
+pub use crate::PeerIdentity;
 
 pub fn peer_identity(der: &[u8]) -> Result<PeerIdentity, Error> {
     let cert = take_first_cert_from_der(der)?;

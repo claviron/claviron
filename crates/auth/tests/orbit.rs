@@ -5,11 +5,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use claviron_auth::orbit::auth::{
+use claviron_auth::session::AuthError;
+use claviron_auth::session::auth::{
     Audience, Authority, Blake3State, Claims, Error, FleetAuth, Keyring,
     Purpose, SecretKey, Validation,
 };
-use claviron_auth::orbit::{AuthError, OrbitAuth, TokenAuthenticator};
+use claviron_auth::session::token::{OrbitAuth, TokenAuthenticator};
 use claviron_auth::{
     AnyAuthenticated, Authenticated, UserProvider, UserProviderError,
 };

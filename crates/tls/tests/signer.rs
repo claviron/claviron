@@ -67,6 +67,64 @@ fn signer_material_issues_verifiable_identities_without_files() {
             UnixTime::now(),
         )
         .unwrap();
+    let mut catalog = claviron_types::permission::PermissionCatalog::new();
+    catalog.register_name("service.read").unwrap();
+    let scoped = authority
+        .issue_client_certificate_with_permissions(
+            "scoped.test",
+            &[],
+            Some(&subject),
+            1,
+            &catalog,
+            &["service.read".into()],
+        )
+        .unwrap();
+    let peer =
+        claviron_types::ssl::peer::peer_identity(&scoped.certs_der).unwrap();
+    let permissions = claviron_types::ssl::permission::from_uris(
+        peer.subject_uris.iter().map(String::as_str),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        permissions.iter().map(|name| name.as_str()).collect::<Vec<_>>(),
+        ["service.read"]
+    );
+    verifier
+        .verify_client_cert(
+            &CertificateDer::from(scoped.certs_der),
+            &[],
+            UnixTime::now(),
+        )
+        .unwrap();
+    assert!(
+        authority
+            .issue_client_certificate_with_permissions(
+                "scoped.test",
+                &[],
+                None,
+                1,
+                &catalog,
+                &["unknown".into()]
+            )
+            .is_err()
+    );
+    assert!(
+        authority
+            .issue_client_certificate(
+                "scoped.test",
+                &["urn:claviron:permissions:v1:service.read".into()],
+                None,
+                1
+            )
+            .is_err()
+    );
+    let reserved = "urn:claviron:permissions:v1:service.read".parse().unwrap();
+    assert!(
+        authority
+            .issue_client_certificate("scoped.test", &[], Some(&reserved), 1)
+            .is_err()
+    );
     let server = authority
         .issue_certificate(CertificateKind::Server, "server.test", &[], 1, None)
         .unwrap();

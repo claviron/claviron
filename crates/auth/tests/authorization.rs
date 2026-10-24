@@ -16,7 +16,7 @@ impl crate::Authenticated for Actor {
 }
 struct Directory;
 #[async_trait]
-impl AuthorizationManager for Directory {
+impl RolePermissionManager for Directory {
     async fn schema(
         &self,
         _: &dyn crate::Authenticated,
@@ -48,7 +48,7 @@ impl AuthorizationManager for Directory {
 }
 #[tokio::test]
 async fn authorization_management_needs_no_user_manager_or_database() {
-    let manager: Arc<dyn AuthorizationManager> = Arc::new(Directory);
+    let manager: Arc<dyn RolePermissionManager> = Arc::new(Directory);
     for resource in [Resource::Role, Resource::Permission] {
         assert!(manager.schema(&Actor, resource).await.is_ok());
         let page = manager

@@ -2,10 +2,10 @@
 //! Optional user management describes application-owned administrative views,
 //! independently of authentication, database models, and network transports.
 
-pub mod access;
 #[cfg(feature = "csrf")]
 pub mod csrf;
 pub mod events;
+pub use claviron_types::{permission, role};
 mod identity;
 mod provider;
 
@@ -20,4 +20,4 @@ pub use identity::Authenticated;
 pub use provider::{AnyAuthenticated, UserProvider, UserProviderError};
 
 #[cfg(feature = "orbit")]
-pub mod orbit;
+pub mod session;

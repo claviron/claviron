@@ -1,4 +1,4 @@
-//! Issuer/serial revocation snapshots, independent of SNI and user admission.
+//! TLS client-auth issuer/serial revocation snapshots, separate from SNI and users.
 use std::{collections::HashSet, fmt, path::Path, sync::Arc};
 
 use arc_swap::ArcSwapOption;
@@ -43,6 +43,8 @@ impl Snapshot {
 
 /// Verifiers retain this handle across refreshes. No file/DB I/O occurs during
 /// admission; refreshes serialize outside the handshake path.
+/// DB entries are limited to client certificates. CRLs do not encode usage kind;
+/// their IDs are consulted only when verifying a presented client leaf.
 pub struct Revocations {
     current: ArcSwapOption<Snapshot>,
     refreshing: tokio::sync::Mutex<()>,
@@ -160,7 +162,10 @@ pub(crate) async fn load(
         let chains = service
             .store()
             .map_err(|error| TlsError::Other(error.to_string()))?
-            .revoked_certificate_chains(as_of)
+            .revoked_certificate_chains(
+                as_of,
+                claviron_types::CertificateKind::Client,
+            )
             .await
             .map_err(|error| TlsError::Other(error.to_string()))?;
         let ids = tokio::task::spawn_blocking(move || {
@@ -221,7 +226,26 @@ pub(crate) async fn refresh(
     };
     match store.revocations().await {
         Ok(next) => {
+            let revocations = next.ids.len();
+            let previous = snapshot.current.load_full();
+            let added = previous
+                .as_ref()
+                .map(|old| next.ids.difference(&old.ids).count());
+            let removed = previous
+                .as_ref()
+                .map(|old| old.ids.difference(&next.ids).count());
+            let crl_validity_changed = previous
+                .as_ref()
+                .map(|old| old.next_update != next.next_update);
             snapshot.replace(next);
+            tracing::info!(
+                revocations,
+                added,
+                removed,
+                crl_validity_changed,
+                recovered = previous.is_none(),
+                "TLS revocation snapshot refreshed"
+            );
             Ok(())
         }
         Err(error) => {

@@ -83,17 +83,40 @@ impl CertSigner {
         subject: Option<&claviron_types::ssl::SubjectUri>,
         validity_days: u32,
     ) -> Result<IssuedCertificate, Error> {
-        let mut sans = aliases.to_vec();
-        if let Some(subject) = subject {
-            sans.push(subject.to_string());
-        }
-        self.issue_certificate(
-            claviron_types::CertificateKind::Client,
+        self.issue(SigningRequest {
+            kind: claviron_types::CertificateKind::Client,
             common_name,
-            &sans,
+            aliases,
+            subject,
             validity_days,
-            None,
-        )
+            ca_path_len: None,
+            permissions: None,
+        })
+    }
+
+    /// Validate all requested names before signing. The caller still authorizes
+    /// delegation; membership in the catalog is not permission to issue a grant.
+    pub fn issue_client_certificate_with_permissions(
+        &self,
+        common_name: &str,
+        aliases: &[String],
+        subject: Option<&claviron_types::ssl::SubjectUri>,
+        validity_days: u32,
+        catalog: &claviron_types::permission::PermissionCatalog,
+        names: &[String],
+    ) -> Result<IssuedCertificate, Error> {
+        let permissions = catalog
+            .validate(names)
+            .map_err(|error| Error::Other(error.to_string()))?;
+        self.issue(SigningRequest {
+            kind: claviron_types::CertificateKind::Client,
+            common_name,
+            aliases,
+            subject,
+            validity_days,
+            ca_path_len: None,
+            permissions: Some(permissions),
+        })
     }
 
     /// Mint material without persistence or resolver mutation. Run on a blocking thread.
@@ -105,7 +128,47 @@ impl CertSigner {
         validity_days: u32,
         ca_path_len: Option<u8>,
     ) -> Result<IssuedCertificate, Error> {
-        use claviron_types::ssl::{formatters, generators, parsers};
+        self.issue(SigningRequest {
+            kind,
+            common_name,
+            aliases,
+            subject: None,
+            validity_days,
+            ca_path_len,
+            permissions: None,
+        })
+    }
+
+    fn issue(
+        &self,
+        request: SigningRequest<'_>,
+    ) -> Result<IssuedCertificate, Error> {
+        use claviron_types::ssl::{
+            formatters, generators, parsers, permission,
+        };
+        let SigningRequest {
+            kind,
+            common_name,
+            aliases,
+            subject,
+            validity_days,
+            ca_path_len,
+            permissions,
+        } = request;
+        if aliases.iter().any(|name| permission::is_permission_uri(name))
+            || subject
+                .is_some_and(|uri| permission::is_permission_uri(uri.as_str()))
+        {
+            return Err(Error::Other("certificate permissions require catalog validation, not SAN aliases".into()));
+        }
+        let mut names = aliases.to_vec();
+        if let Some(subject) = subject {
+            names.push(subject.to_string());
+        }
+        if let Some(permissions) = permissions {
+            names.push(permission::to_uri(&permissions));
+        }
+        let aliases = names.as_slice();
         let ca_key = generators::read_private_key_from_der(&self.key_der)?
             .serialize_pem();
         let ca_der = self
@@ -153,6 +216,16 @@ impl CertSigner {
         }
         Ok(IssuedCertificate { certs_der, key_der: key.serialize_der() })
     }
+}
+
+struct SigningRequest<'a> {
+    kind: claviron_types::CertificateKind,
+    common_name: &'a str,
+    aliases: &'a [String],
+    subject: Option<&'a claviron_types::ssl::SubjectUri>,
+    validity_days: u32,
+    ca_path_len: Option<u8>,
+    permissions: Option<claviron_types::permission::Permissions>,
 }
 
 /// Private material destined for persistence; deliberately has no Debug output.

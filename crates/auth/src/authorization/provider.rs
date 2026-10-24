@@ -24,7 +24,7 @@ use crate::Authenticated;
 /// validation and persistence. No default database, role model, actor mapping,
 /// authentication fallback, registration, or background work is installed.
 #[async_trait]
-pub trait AuthorizationManager: Send + Sync + 'static {
+pub trait RolePermissionManager: Send + Sync + 'static {
     async fn schema(
         &self,
         actor: &dyn Authenticated,

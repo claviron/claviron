@@ -40,6 +40,11 @@ impl<'a> CertificateManager<'a> {
         if !cert.kind.is_server() {
             return Err(Error::Other("client and CA certificates cannot be installed in the server resolver".into()));
         }
+        if !cert.enabled {
+            let removed = self.resolver.remove_cert(&cert.cn);
+            debug!(cn = %cert.cn, entries = removed, "disabled certificate removed from resolver");
+            return Ok((cert, Vec::new()));
+        }
         let certified_key = crate::pem::db_cert_to_certified_key(&cert)?;
         let cert_arc = std::sync::Arc::new(certified_key);
 

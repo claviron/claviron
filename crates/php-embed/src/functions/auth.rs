@@ -4,7 +4,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use arc_swap::ArcSwapOption;
-use claviron_auth::orbit::{AuthenticatedSession, AuthenticationResolved};
+use claviron_auth::session::{AuthenticatedSession, AuthenticationResolved};
 use claviron_runtime::AppState;
 use ext_php_rs::boxed::ZBox;
 use ext_php_rs::builders::FunctionBuilder;

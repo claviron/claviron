@@ -1004,23 +1004,27 @@ impl HostingStore {
         Ok(first)
     }
 
-    /// Public chains of revoked certificates still valid at snapshot creation.
+    /// Public chains of revoked certificates of one usage kind, still valid at
+    /// snapshot creation. Consumers select the kind their verifier accepts.
     /// Enabled state and inbound server assignment do not affect revocation.
     pub async fn revoked_certificate_chains(
         &self,
         as_of: OffsetDateTime,
+        kind: CertificateKind,
     ) -> Result<Vec<Vec<u8>>> {
         Ok(run!(
             self,
             query_scalar::<Vec<u8>>,
             "SELECT certs_der FROM hosting.certificates
-              WHERE revoked_at IS NOT NULL AND expires_at > $1",
-            [stored(as_of)],
+              WHERE revoked_at IS NOT NULL AND expires_at > $1
+                AND kind::TEXT = $2",
+            [stored(as_of), kind.as_str()],
             fetch_all
         )?)
     }
 
-    /// Record the first revocation time; enabling a certificate never clears it.
+    /// Record the first revocation time and disable the certificate atomically.
+    /// Enabling a certificate never clears its revocation time.
     pub async fn revoke_certificate(
         &self,
         id: i32,
@@ -1029,8 +1033,9 @@ impl HostingStore {
         let changed = run!(
             self,
             query,
-            "UPDATE hosting.certificates SET revoked_at = $2
-              WHERE id = $1 AND revoked_at IS NULL",
+            "UPDATE hosting.certificates
+                SET revoked_at = COALESCE(revoked_at, $2), enabled = FALSE, updated_at = NOW()
+              WHERE id = $1 AND (revoked_at IS NULL OR enabled = TRUE)",
             [id, stored(revoked_at)],
             execute
         )? > 0;

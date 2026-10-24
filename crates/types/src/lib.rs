@@ -3,6 +3,8 @@ mod certificate;
 mod host;
 mod key;
 mod peer;
+pub mod permission;
+pub mod role;
 mod sni;
 
 pub use aliases::Aliases;

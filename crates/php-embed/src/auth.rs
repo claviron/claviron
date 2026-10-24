@@ -7,7 +7,7 @@
 
 use async_trait::async_trait;
 use claviron_auth::Authenticated;
-use claviron_auth::orbit::AuthenticatedSession;
+use claviron_auth::session::AuthenticatedSession;
 use http::HeaderMap;
 use serde_json::{Map, Value};
 use std::sync::Arc;

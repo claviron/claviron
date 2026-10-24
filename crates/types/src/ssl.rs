@@ -9,6 +9,7 @@ mod issuer;
 mod organization;
 pub mod parsers;
 pub mod peer;
+pub mod permission;
 pub mod renewal;
 mod revocation;
 mod subject;

@@ -14,7 +14,7 @@ description = "Laravel application hosted by Lumenize behind a separate Claviron
 legacy-linux = ["lumenize/legacy-linux"]
 
 [dependencies]
-lumenize = { version = "=0.2.0-alpha.18", default-features = false, features = ["runner", "cli", "broadcast", "log", "files", "postgres"] }
+lumenize = { path = "../../../lumenize" , default-features = false, features = ["runner", "cli", "broadcast", "log", "files", "postgres"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 serde = { version = "1", features = ["derive"] }
 mimalloc = "0.1"

@@ -1,179 +1,147 @@
-# claviron-auth
+# claviron::auth
 
-Schema-independent identity and authentication contracts for Claviron.
+`claviron::auth` defines shared identity and management contracts for Claviron
+integrations. Your application implements them using its own user model,
+storage and policy. Consumers work through those contracts rather than depend
+on your application's concrete types.
 
-Applications supply their own user model and lookup policy. This crate gives
-native services a common identity interface, successful-auth lifecycle events,
-an optional CSRF primitive, and an optional adapter for Orbit's live sessions.
-It does not own an application's users table, login controller, password
-hashing, role/permission storage, or framework guard configuration.
-
-Applications normally use `claviron::auth` through the root crate's `auth`
-feature. That facade selection includes CSRF; composing it with `orbit` also
-enables the Orbit adapter. The implementation crate itself has no default
-features.
+The crate also supplies ready-made fleet-session authentication and CSRF
+mechanisms. You can use these alongside your own providers.
 
 Application, host and session ownership follow
 [APPLICATION_FIRST](../../docs/design/APPLICATION_FIRST.md).
 
-## Identity, not a second user model
+## Features
 
-`Authenticated` describes an application's authenticated identity:
+Select capabilities through the `claviron` facade:
 
-- `auth_subject`: its stable, externally usable subject.
-- `auth_identifier`: its username or other application identifier.
-- `auth_display_name`: a presentation label, defaulting to the identifier.
-- `auth_local_id`: an optional numeric database identity.
-- `extra_claims`: application-supplied structured claims.
-- `as_any`: typed downcasting when an integration needs the concrete model.
+| Feature | What it provides |
+| --- | --- |
+| `auth` | User identity, user lookup, authentication events and CSRF tokens. |
+| `users` | `auth::users::UserManager` for managing user records. Enables `auth`. |
+| `authorization` | `auth::authorization::RolePermissionManager` for managing roles, permissions and assignments. Enables `auth`. |
+| `auth` + `orbit` | `auth::session` for authenticating tokens against an existing fleet session table. |
 
-`AnyAuthenticated` is `Arc<dyn Authenticated>`. Adapting an existing model to
-this interface does not authenticate it again or create another session. A
-local database ID is not a substitute for the public subject.
+`users` and `authorization` can be selected independently.
 
-`UserProvider` resolves these identities. `find_by_subject` is required;
-identifier and local-ID lookups are optional and return no match by default.
-Consumers can use the provider without depending on the host's model:
+## Common contracts
 
-```rust
-use claviron::auth::{AnyAuthenticated, UserProvider, UserProviderError};
+`auth::role::{Role, RoleDefinition}` and
+`auth::permission::{Permission, PermissionDefinition}` provide shared name
+values. Define marker types in the application module that uses them and
+convert their values with `Into`. Parsed names and typed definitions compare
+by the same exact name, without a central enum. Membership and access decisions
+remain the application's policy.
 
-async fn find_user(
-    users: &dyn UserProvider,
-    subject: &str,
-) -> Result<Option<AnyAuthenticated>, UserProviderError> {
-    users.find_by_subject(subject).await
-}
-```
+| Contract | What consumers receive | What your application implements or supplies |
+| --- | --- | --- |
+| `Authenticated` | An accepted identity with a stable subject and login/display identifiers. | The identity's representation and its mapping to application data. |
+| `UserProvider` | Asynchronous identity lookup through `AnyAuthenticated`. | Subject lookup and any supported identifier/local-ID lookups. |
+| `users::UserManager` | User records, schemas and management operations. | Record scope, caller authorization, validation and persistence. |
+| `authorization::RolePermissionManager` | Roles, permissions and direct assignments. | Management of that data within the caller's allowed scope. |
+| `session::token::TokenAuthenticator` | Token validation and optional user resolution. | The supplied `OrbitAuth` adapter for fleet sessions. |
 
-The host registers its shared concrete provider and binds `dyn UserProvider`
-in Claviron's [runtime registry](../runtime/README.md). The ordinary binding is
-one provider per registry, not a separate provider for every guard. Applications
-needing distinct identity realms must model that distinction explicitly rather
-than repeatedly replacing the same binding.
+The shared record, form, revision and error types describe the values exchanged
+through these interfaces. They let integrations use an application provider
+without prescribing its database schema. The managers can also be called
+directly, independently of gRPC or a GUI.
 
-## Service admission
+### Identity and lookup
 
-`access::{PeerIdentity, AccessTarget, AccessPolicy}` is available independently
-of the `users` and `authorization` features. An adapter supplies peer certificate
-facts only after transport validation and names the actual service and operation.
-The host implements policy and binds it in the application registry; no default
-policy, database lookup or role model is installed.
+Implement `Authenticated` for the user identity your application exposes to
+Claviron. `auth_subject()` supplies its stable public identifier;
+`auth_identifier()` supplies its login or display identifier. Optional methods
+provide a display name, a local numeric ID and application claims.
+`AnyAuthenticated` is an `Arc<dyn Authenticated>` shared with consumers.
 
-The policy returns `Ok(None)` for peer-only access, `Ok(Some(actor))` for access
-with an application subject, or a safe `AccessError`. Consumers requiring a user
-reject peer-only grants. A connection adapter may admit `connect` once and keep
-the actor for that connection. This service admission does not authorize every
-operation: user-management scope and current record-level authorization remain
-the manager's responsibility.
+Implement `UserProvider` to find that identity. `find_by_subject()` is required;
+lookup by login identifier or local numeric ID is optional. The provider owns
+its database queries and caching. This lookup contract lets a consumer resolve
+a user without depending on the application's user model.
 
-CNs and URI SANs are identity candidates, not permissions or automatic bindings.
-The host owns trust-domain restrictions and any mapping to a user. The issuer DN
-is a display name, not proof of a particular trust anchor. Credential DER is
-public certificate material, provided for host-owned pinning; private keys are
-never carried by this contract. Parsing peer facts alone does not authenticate.
+With Claviron's runtime registry, register the application's shared provider and
+bind it as `dyn UserProvider`. The traits can also be called directly.
 
-## User management contracts
+### Management records and forms
 
-The opt-in capabilities are independent, including through the Claviron facade:
+Both managers describe, list and read records, with optional create, update and
+delete operations. `RolePermissionManager` also reads and replaces user-role,
+user-permission and role-permission assignments. Each call receives the trusted
+authenticated caller.
 
-- `users` exposes `users::UserManager` for user CRUD, without role/permission
-  or assignment methods.
-- `authorization` exposes `authorization::AuthorizationManager` for role and
-  permission CRUD and direct assignment management. Subject references are
-  opaque; no user CRUD provider is required.
+The current contracts exchange `Record` values with a public reference, a
+revision and JSON fields. The provider describes those fields through JSON
+Schema and supplies separate create/update forms with optional JSON Forms UI
+metadata. It validates submitted values when applying a change. Optional write
+methods return `Unsupported` until implemented.
 
-Select either feature or both. Neither implies the other, and neither installs
-a management server. `UserProvider` remains the separate identity lookup contract.
+Updates carry the record and schema revisions. Only submitted fields change;
+explicit null remains a submitted value. Assignment replacement supplies the
+complete editable set, with an empty set clearing it.
 
-Applications implement the selected management capabilities against their
-existing data. Records have opaque public references, revision tokens, and
-application-defined JSON objects: no email, username, user type, administrator
-flag, database key format, or table layout is required. Managed records need
-not represent authenticated users.
+These managers administer authorization data. Runtime checks such as
+`has_role` and `has_permission` belong to the application's guard or policy.
 
-The implementation provides JSON Schema 2020-12, independent create/update
-forms, optional declarative UI metadata, supported operations, and safe field
-validation errors. Schemas may be prepared during build or boot. They describe
-the exposed management view, not database columns discovered by reflection.
-A transport can carry them to native or web clients without owning field
-semantics. This module supplies neither a renderer nor a schema validator.
+## Downstream responsibilities
 
-The host supplies the trusted caller identity. Every method must check current
-authorization and the implementation's management scope, even for direct record
-references and related role/permission changes. Capabilities and hidden UI
-controls do not enforce access. Optional writes fail with `Unsupported` unless
-implemented. Scoped user management does not grant authority to modify shared
-roles that affect users outside that scope.
+Your application supplies the user identity and provider, then implements the
+management capabilities it exposes. It owns login and credential verification,
+user storage and caching, runtime role/permission checks, and the authority to
+create or change records. Manager implementations enforce validation and revision
+checks when committing a mutation; a schema describes the input but does not
+authorize it.
 
-Updates carry record and schema revisions with sparse top-level replacements:
-omission leaves a field unchanged; explicit null is validated as a value;
-arrays and objects replace the whole field. The application validates and
-checks revisions at the mutation boundary, rejects noneditable or unknown
-fields, and never returns stored credentials. Direct assignment sets have
-independent revisions and can be atomically replaced; a provider must not
-silently drop hidden assignments from a supposedly complete set.
+The integration selects its authentication policy, extracts credentials and
+passes the accepted identity to consumers. Providers can be supplied directly
+or bound in the runtime registry. Selecting a feature makes its contracts
+available; the application still supplies and connects their implementations.
 
-## Successful authentication events
+## Provided adapters and mechanisms
 
-`AuthEvent` carries `Login`, `Logout`, and `Registered` facts. The host emits
-them only after the corresponding state transition succeeds. Login/logout
-events identify the guard and subject; optional context records already-known
-username, display name, timestamp, peer IP, and browser/device identity.
+### Fleet-session authentication
 
-These are snapshots, not a live authorization decision. Credentials, raw
-cookies, and ORM models do not cross this event boundary. A consumer owns its
-mail, audit, queue, or framework-event behavior. Implementing `Authenticated`
-does not emit events automatically.
+`session::token::OrbitAuth` implements `TokenAuthenticator` using Orbitive's
+existing authority and fleet-session state together with your `UserProvider`.
 
-## CSRF primitive
+The session lives in the fleet's session table. Its token carries a session
+binding, including the session ID, together with the user's subject, audience,
+purpose and validity times. An application passes the token received from its
+client to this adapter. Authentication checks both the credential and the
+current state of the referenced session.
 
-The `csrf` feature exposes `Csrf`: HMAC-signed double-submit tokens bound to a
-caller-supplied scope. The caller provides a dedicated, domain-separated
-32-byte key. `issue(scope)` creates a token; `verify(token, scope)` checks its
-signature for that exact scope. `None` represents the guest scope without
-requiring a persistent guest session.
+`auth::session` connects that check to Claviron's identity contracts. The
+application supplies its `Authority`, validation policy,
+`FleetAuth`, `UserProvider` and validation-cache duration to `auth::session::token::OrbitAuth::new()`.
 
-The conventional names are `Csrf::COOKIE` (`XSRF-TOKEN`) and `Csrf::HEADER`
-(`x-xsrf-token`). This primitive does not write cookies, choose their attributes,
-compare the request's cookie and submitted value, or decide which routes need
-CSRF protection. Those are ingress/session responsibilities. Scope changes at
-login or logout must be reflected by that owner.
+- `validate(token, now)` returns a `VerifiedSession` after checking the token and
+  its live session state.
+- `authenticate(token, now)` additionally finds the user and returns an
+  `AuthenticatedSession` containing the user and verified session.
+- `VerifiedSession::check(now)` checks expiry and current fleet session state
+  again, without another user lookup or token decode.
 
-## Orbit-backed live sessions
+Use the check at later admission boundaries, such as accepting another message
+on a long-lived connection. Supply trusted current Unix time. Login, token
+issuance, session renewal and revocation use the application's Orbitive handles;
+this adapter connects their result to Claviron consumers.
 
-The `orbit` feature adapts [Orbitive](https://crates.io/crates/orbitive) auth
-primitives through `OrbitAuth<P>` and `TokenAuthenticator`. The host supplies
-the authority, validation policy, prepared `FleetAuth` state, shared
-`UserProvider`, and validation-cache duration. This crate neither joins a fleet
-nor invents a session storage policy on the application's behalf.
+### CSRF tokens
 
-`validate` verifies a token and resolves its live state into `VerifiedSession`.
-`authenticate` also resolves the application user and checks that its subject
-matches the validated principal. Refresh-purpose tokens are not accepted as
-ordinary authenticated sessions.
+`auth::csrf::Csrf` issues and verifies signed double-submit tokens. Supply a
+dedicated 32-byte key and the session scope used by your application. Use the
+same scope when issuing and verifying a token. `None` represents a guest scope.
+The request handler owns reading the cookie/header and handling a failed check.
 
-`VerifiedSession::check(now)` rechecks live state and expiry using a trusted
-Unix timestamp. A validation-cache hit does not bypass these checks. After an
-asynchronous user lookup, admission owners must recheck before admitting work;
-long-lived sockets should retain the verified session and recheck at their
-own admission/delivery boundaries. This is not a promise of idle push
-revocation without an integration that observes it.
+## Authentication events
 
-Multiple validators may share the same users and fleet state while enforcing
-different audience, purpose, or capability policies. Sharing storage does not
-make one validator's decision valid under another policy.
+`events::AuthEvent` represents successful login, logout and registration. Emit
+it after the application completes that operation. Listeners can use the guard,
+subject and optional login context for audit or application notifications.
 
-## Related crates
+## Further reading
 
-- [Runtime](../runtime/README.md): typed service bindings and local events.
-- [Orbit](../orbit/README.md): Claviron's same-host fleet integration.
-- [Laravel](https://github.com/claviron/lumenize): opt-in framework auth/session integration.
-- [HTTP](../http/README.md): request context; application ingress owns admission.
+[ARCHITECTURE.md](ARCHITECTURE.md) maps these contracts to their implementation
+and describes the rules for changing this crate.
 
-## Status and license
-
-Part of Claviron's alpha development series; APIs and configuration may change.
-
-Licensed under either [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT)
-or [Apache-2.0](https://github.com/claviron/claviron/blob/main/LICENSE-APACHE), at your option.
+Licensed under [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT)
+or [Apache-2.0](https://github.com/claviron/claviron/blob/main/LICENSE-APACHE).

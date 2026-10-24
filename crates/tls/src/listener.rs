@@ -355,8 +355,9 @@ async fn handle_certificate_event(
 
             let manager = CertificateManager::new(store, resolver);
             match manager.upsert_cn(&new.cn).await {
-                Ok((_, aliases)) => {
+                Ok((certificate, aliases)) => {
                     info!(
+                        enabled = certificate.enabled,
                         "✅ cert applied op={} cn={} aliases={}",
                         event.operation,
                         new.cn,
@@ -435,8 +436,9 @@ async fn handle_alias_event(
             // updated one. Idempotent — same Arc<CertifiedKey> chain.
             let manager = CertificateManager::new(store, resolver);
             match manager.upsert_cn(&cn).await {
-                Ok((_, aliases)) => {
+                Ok((certificate, aliases)) => {
                     info!(
+                        enabled = certificate.enabled,
                         "✅ alias applied op={} hostname={} cn={} re-stamped={} aliases",
                         event.operation,
                         new.hostname,
