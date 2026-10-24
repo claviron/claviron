@@ -8,6 +8,10 @@ pub mod events;
 mod identity;
 mod provider;
 
+#[cfg(feature = "authorization")]
+pub mod authorization;
+#[cfg(any(feature = "users", feature = "authorization"))]
+mod model;
 #[cfg(feature = "users")]
 pub mod users;
 

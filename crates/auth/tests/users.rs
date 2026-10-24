@@ -156,28 +156,6 @@ async fn user_management_optional_writes_fail_closed() {
             .await,
         Err(ManagementError::Unsupported)
     );
-
-    let key = AssignmentKey {
-        relation: Relation::UserRoles,
-        reference: "public-user".into(),
-    };
-    assert_eq!(
-        manager.assignments(&Actor, key.clone()).await,
-        Err(ManagementError::Unsupported)
-    );
-    assert_eq!(
-        manager
-            .replace_assignments(
-                &Actor,
-                ReplaceAssignments {
-                    key,
-                    revision: "assignments-v1".into(),
-                    members: vec![],
-                }
-            )
-            .await,
-        Err(ManagementError::Unsupported)
-    );
 }
 
 #[test]
@@ -190,16 +168,6 @@ fn user_management_changes_preserve_absent_null_and_exact_integer_values() {
     assert_eq!(changes["birth_date"], Value::Null);
     assert_eq!(changes["enabled"], false);
     assert_eq!(changes["counter"].as_u64(), Some(u64::MAX));
-}
-
-#[test]
-fn user_management_relations_have_explicit_resource_boundaries() {
-    assert_eq!(Relation::UserRoles.owner(), Resource::User);
-    assert_eq!(Relation::UserRoles.member(), Resource::Role);
-    assert_eq!(Relation::RolePermissions.owner(), Resource::Role);
-    assert_eq!(Relation::RolePermissions.member(), Resource::Permission);
-    assert_eq!(Relation::UserPermissions.owner(), Resource::User);
-    assert_eq!(Relation::UserPermissions.member(), Resource::Permission);
 }
 
 #[test]

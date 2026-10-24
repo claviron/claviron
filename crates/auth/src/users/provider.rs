@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
 use super::{
-    AssignmentKey, Assignments, Create, Delete, List, ManagementError, Page,
-    Record, RecordKey, ReplaceAssignments, Resource, Result, Schema, Update,
+    Create, Delete, List, ManagementError, Page, Record, RecordKey, Resource,
+    Result, Schema, Update,
 };
 use crate::Authenticated;
 
@@ -13,7 +13,7 @@ use crate::Authenticated;
 /// The host authenticates the actor before calling. Every method independently
 /// enforces that actor's current authority and this instance's scope; neither
 /// possession of a record reference nor a prior schema/list result is a grant.
-/// Management scope must cover related role/permission writes too. Implementors
+/// This contract manages users only. Implementors
 /// provide safe projections, prevent mass assignment, and reject invalid input
 /// or stale revisions without partial mutations. Schema revisions and record
 /// revisions are compared at the same boundary as the write.
@@ -63,22 +63,6 @@ pub trait UserManager: Send + Sync + 'static {
         _actor: &dyn Authenticated,
         _request: Delete,
     ) -> Result<()> {
-        Err(ManagementError::Unsupported)
-    }
-
-    async fn assignments(
-        &self,
-        _actor: &dyn Authenticated,
-        _key: AssignmentKey,
-    ) -> Result<Assignments> {
-        Err(ManagementError::Unsupported)
-    }
-
-    async fn replace_assignments(
-        &self,
-        _actor: &dyn Authenticated,
-        _request: ReplaceAssignments,
-    ) -> Result<Assignments> {
         Err(ManagementError::Unsupported)
     }
 }

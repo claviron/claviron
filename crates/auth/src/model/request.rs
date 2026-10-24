@@ -1,6 +1,6 @@
 use std::num::NonZeroU32;
 
-use super::{AssignmentKey, Document, RecordKey, Resource};
+use super::{Document, RecordKey, Resource};
 
 /// The host bounds page size before invoking its provider. There is no
 /// unbounded/default page size and no client-supplied management scope or SQL.
@@ -45,16 +45,4 @@ pub struct Update {
 pub struct Delete {
     pub key: RecordKey,
     pub revision: String,
-}
-
-/// Atomically replace a complete assignment set; an empty set clears it.
-/// Every reference must be nonempty and unique. Do not silently omit hidden
-/// assignments from a replaceable set: expose the complete editable set or
-/// reject replacement. The provider checks every target and prevents privilege
-/// escalation or changes to shared roles outside its management authority.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ReplaceAssignments {
-    pub key: AssignmentKey,
-    pub revision: String,
-    pub members: Vec<String>,
 }

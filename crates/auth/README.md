@@ -51,11 +51,18 @@ than repeatedly replacing the same binding.
 
 ## User management contracts
 
-The opt-in `users` feature exposes `users::UserManager`;
-applications using the facade select `claviron`'s `users` feature.
-It is separate from `UserProvider` and does not install a management server.
+The opt-in capabilities are independent, including through the Claviron facade:
 
-Applications implement user, role, and permission management against their
+- `users` exposes `users::UserManager` for user CRUD, without role/permission
+  or assignment methods.
+- `authorization` exposes `authorization::AuthorizationManager` for role and
+  permission CRUD and direct assignment management. Subject references are
+  opaque; no user CRUD provider is required.
+
+Select either feature or both. Neither implies the other, and neither installs
+a management server. `UserProvider` remains the separate identity lookup contract.
+
+Applications implement the selected management capabilities against their
 existing data. Records have opaque public references, revision tokens, and
 application-defined JSON objects: no email, username, user type, administrator
 flag, database key format, or table layout is required. Managed records need

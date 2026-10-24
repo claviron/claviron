@@ -8,7 +8,9 @@ pub enum Operation {
     Create,
     Update,
     Delete,
+    #[cfg(feature = "authorization")]
     ReadAssignments,
+    #[cfg(feature = "authorization")]
     ReplaceAssignments,
 }
 

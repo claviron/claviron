@@ -7,8 +7,11 @@ pub type Document = Map<String, Value>;
 /// Management resources, not database tables or authenticated principal types.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Resource {
+    #[cfg(feature = "users")]
     User,
+    #[cfg(feature = "authorization")]
     Role,
+    #[cfg(feature = "authorization")]
     Permission,
 }
 
@@ -36,47 +39,4 @@ pub struct Record {
 pub struct Page {
     pub records: Vec<Record>,
     pub next_cursor: Option<String>,
-}
-
-/// Explicit access relationships, separate from editable profile fields.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Relation {
-    UserRoles,
-    UserPermissions,
-    RolePermissions,
-}
-
-impl Relation {
-    pub const fn owner(self) -> Resource {
-        match self {
-            Self::UserRoles | Self::UserPermissions => Resource::User,
-            Self::RolePermissions => Resource::Role,
-        }
-    }
-
-    pub const fn member(self) -> Resource {
-        match self {
-            Self::UserRoles => Resource::Role,
-            Self::UserPermissions | Self::RolePermissions => {
-                Resource::Permission
-            }
-        }
-    }
-}
-
-/// Nonempty public reference in the relationship's owner resource.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AssignmentKey {
-    pub relation: Relation,
-    pub reference: String,
-}
-
-/// The complete, explicitly exposed set of assignments, with an independent
-/// nonempty revision. References belong to `key.relation.member()`.
-/// This is not a flattened list of effective/inherited permissions.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Assignments {
-    pub key: AssignmentKey,
-    pub revision: String,
-    pub members: Vec<String>,
 }

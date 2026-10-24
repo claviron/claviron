@@ -17,6 +17,7 @@ categories = ["authentication", "asynchronous"]
 csrf = ["dep:hmac", "dep:sha2", "dep:hex"]
 orbit = ["dep:orbitive", "orbitive/auth"]
 users = []
+authorization = []
 
 [dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
