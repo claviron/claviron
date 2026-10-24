@@ -12,20 +12,19 @@
         "claviron/laravel": "0.1.2",
         "claviron/sapi": "0.1.1",
         "php": "^8.3",
-        "laravel/framework": "^13.35",
-        "laravel/octane": "^2.21",
+        "laravel/framework": "^13.38",
+        "laravel/octane": "^2.22",
         "laravel/tinker": "^3.0.2"
     },
     "require-dev": {
+        "claviron/bench": "0.1.0",
         "fakerphp/faker": "^1.24.1",
-        "laravel/boost": "^2.10.3",
         "laravel/pail": "^1.2.7",
         "laravel/pao": "^1.1.5",
         "laravel/pint": "^1.32.1",
-        "claviron/bench": "0.1.0",
         "mockery/mockery": "^1.6.15",
         "nunomaduro/collision": "^8.9.5",
-        "pestphp/pest": "^5.3.1",
+        "pestphp/pest": "^5.3.3",
         "pestphp/pest-plugin-laravel": "^5.0.1"
     },
     "autoload": {
@@ -62,8 +61,7 @@
             "@php artisan package:discover --ansi"
         ],
         "post-update-cmd": [
-            "@php artisan vendor:publish --tag=laravel-assets --ansi --force",
-            "@php artisan boost:update --ansi"
+            "@php artisan vendor:publish --tag=laravel-assets --ansi --force"
         ],
         "post-root-package-install": [
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\""
