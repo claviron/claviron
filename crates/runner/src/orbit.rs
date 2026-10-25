@@ -49,6 +49,7 @@ use http::{Request, Uri};
 use http_body_util::BodyExt;
 use tokio::io::AsyncWriteExt;
 use tokio::task::JoinSet;
+use tokio_util::sync::CancellationToken;
 
 use crate::routing::{AppRequest, Application, Owner, RequestBody};
 
@@ -64,6 +65,19 @@ pub type OrbitSession = Arc<
         + Send
         + Sync,
 >;
+
+/// Read-only retirement signal for this ingress generation's message owners.
+/// Waiting permits a cooperative protocol close, not forced guest termination.
+#[derive(Clone)]
+pub struct SessionShutdown {
+    token: CancellationToken,
+}
+
+impl SessionShutdown {
+    pub async fn cancelled(&self) {
+        self.token.cancelled().await;
+    }
+}
 
 /// Link's session acknowledgment: `101` with the owner's accepted headers, or
 /// an error status. Edge translates acceptance to the native H1/H2/H3 response.
@@ -335,6 +349,7 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for OrbitIngress {
         };
 
         let mut exchanges = JoinSet::new();
+        let shutdown = SessionShutdown { token: context.cancellation_token() };
         let mut frame = Vec::new();
         loop {
             tokio::select! {
@@ -360,7 +375,8 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for OrbitIngress {
                                 Arc::clone(&application),
                                 sessions.clone(),
                                 Arc::clone(&segment),
-                                Arc::clone(&bodies)
+                                Arc::clone(&bodies),
+                                shutdown.clone()
                             ));
                         }
                         Ok(FrameKind::Control) => match ControlCommand::decode(&frame) {
@@ -530,6 +546,7 @@ async fn serve(
     sessions: Option<OrbitSession>,
     segment: Arc<TransportSegment>,
     bodies: Arc<TransportBodies>,
+    shutdown: SessionShutdown,
 ) {
     match frame_kind(&frame) {
         Ok(FrameKind::Request) => {}
@@ -610,7 +627,7 @@ async fn serve(
             correlation,
             body: exchange.body,
         };
-        let request = build_request(&exchange, RequestBody::empty());
+        let request = session_request(&exchange, shutdown);
         // A Pusher client's WebSocket is a broadcast session, served here
         // and not by the owner. The session is held before it is
         // acknowledged, so a 101 never announces one that could not start.
@@ -833,6 +850,15 @@ async fn serve(
         arrived.elapsed(),
         if whole { ", buffered" } else { "" }
     );
+}
+
+fn session_request(
+    exchange: &Exchange,
+    shutdown: SessionShutdown,
+) -> Result<AppRequest, String> {
+    let mut request = build_request(exchange, RequestBody::empty())?;
+    request.extensions_mut().insert(shutdown);
+    Ok(request)
 }
 
 fn publish_reply_head(

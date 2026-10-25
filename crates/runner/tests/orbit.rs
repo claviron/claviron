@@ -1,5 +1,35 @@
 use super::*;
 
+#[tokio::test]
+async fn message_owner_receives_its_ingress_retirement_signal() {
+    use std::future::poll_fn;
+    use std::task::Poll;
+
+    let token = CancellationToken::new();
+    let exchange = Exchange {
+        method: "CONNECT".into(),
+        scheme: "https".into(),
+        path: "/messages".into(),
+        raw_path: b"/messages".to_vec(),
+        version: claviron_orbit::transport::HttpVersion::Http3,
+        ..Default::default()
+    };
+    let request =
+        session_request(&exchange, SessionShutdown { token: token.clone() })
+            .unwrap();
+    let signal = request.extensions().get::<SessionShutdown>().unwrap().clone();
+    let mut waiting = std::pin::pin!(signal.cancelled());
+    poll_fn(|cx| {
+        assert!(waiting.as_mut().poll(cx).is_pending());
+        Poll::Ready(())
+    })
+    .await;
+    token.cancel();
+    waiting.await;
+    assert_eq!(request.version(), http::Version::HTTP_3);
+    assert_eq!(request.method(), http::Method::CONNECT);
+}
+
 #[test]
 fn refused_reply_publication_resets_even_a_finished_response_direction() {
     use claviron_orbit::Fleet;

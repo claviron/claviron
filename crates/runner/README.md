@@ -129,6 +129,11 @@ the edge alone does not terminate the application. The default edge shutdown
 policy continues running; stopping in response to an edge shutdown is an
 explicit opt-in. No implicit drain deadline is added by the runner.
 
+Link message requests carry `orbit::SessionShutdown` in their extensions. Owners
+observe this read-only ingress retirement signal to begin a cooperative protocol
+close while accepted work drains. The signal does not authorize forced task
+termination or cancellation of another owner's work.
+
 ## Status and license
 
 Part of Claviron's alpha development series; APIs and configuration may change.
