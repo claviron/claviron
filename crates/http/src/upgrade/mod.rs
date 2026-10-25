@@ -403,8 +403,8 @@ pub async fn h1_upgrade_middleware(
     response
 }
 
-pub fn is_h1_header_upgrade(
-    req: &Request<Body>,
+pub fn is_h1_header_upgrade<B>(
+    req: &Request<B>,
     upgrade: &str,
 ) -> bool {
     if req.version() != http::Version::HTTP_11 {

@@ -52,8 +52,9 @@ use tokio::task::JoinSet;
 
 use crate::routing::{AppRequest, Application, Owner, RequestBody};
 
-/// A WebSocket the edge speaks for the owner: the request that asked for it,
-/// the slot its messages cross, and the handshake answer, written once.
+/// A message session the edge carries for the owner: an H1/H2 WebSocket or
+/// one reliable WebTransport bidi stream. The original request, the message
+/// slot and its one acceptance answer reach the same owner callback.
 pub type OrbitSession = Arc<
     dyn Fn(
             AppRequest,
@@ -64,8 +65,8 @@ pub type OrbitSession = Arc<
         + Sync,
 >;
 
-/// The handshake's answer for a WebSocket over Orbit: `101` with the headers
-/// the owner accepted it with, or the status it was refused with.
+/// Link's session acknowledgment: `101` with the owner's accepted headers, or
+/// an error status. Edge translates acceptance to the native H1/H2/H3 response.
 pub struct Handshake {
     segment: Arc<TransportSegment>,
     origin: usize,
@@ -79,6 +80,14 @@ impl Handshake {
         status: u16,
         headers: Vec<(Vec<u8>, Vec<u8>)>,
     ) {
+        self.try_answer(status, headers);
+    }
+
+    fn try_answer(
+        self,
+        status: u16,
+        headers: Vec<(Vec<u8>, Vec<u8>)>,
+    ) -> bool {
         let correlation = self.correlation;
         let reply =
             ExchangeReply { correlation, status, headers, body: self.body };
@@ -91,11 +100,26 @@ impl Handshake {
                         correlation,
                         "🛰 ✗ WebSocket answer was not delivered: {error}"
                     );
+                    return false;
                 }
+                true
             }
             Err(error) => {
-                tracing::debug!(correlation, "🛰 ✗ WebSocket answer: {error}")
+                tracing::debug!(correlation, "🛰 ✗ WebSocket answer: {error}");
+                false
             }
+        }
+    }
+
+    fn refuse(
+        self,
+        status: u16,
+        endpoint: Option<Endpoint>,
+    ) {
+        if !self.try_answer(status, Vec::new())
+            && let Some(mut endpoint) = endpoint
+        {
+            endpoint.reset();
         }
     }
 }
@@ -590,20 +614,31 @@ async fn serve(
         #[cfg(feature = "broadcast")]
         if let (Ok(request), Some(broadcast)) =
             (&request, application.broadcast())
-            && let Some(outcome) = broadcast.accept_orbit(request)
+            && let Some(accepting) = broadcast.accept_orbit(request)
         {
+            let host = request
+                .headers()
+                .get(http::header::HOST)
+                .and_then(|host| host.to_str().ok())
+                .unwrap_or_default()
+                .to_owned();
+            let webtransport = crate::broadcast::is_webtransport(request);
+            let outcome = accepting.await;
             match (outcome, body) {
-                (Ok(session), Some(endpoint)) => {
-                    handshake.answer(101, Vec::new());
+                (Ok(session), Some(mut endpoint)) => {
+                    if !handshake.try_answer(101, Vec::new()) {
+                        endpoint.reset();
+                        return;
+                    }
                     let _activity =
                         claviron_runtime::activity::ACTIVITY.open_session();
-                    if let Err(error) = session
-                        .run(
-                            claviron_broadcast::stream::OrbitMessageStream::new(
-                                endpoint,
-                            ),
-                        )
-                        .await
+                    if let Err(error) = crate::broadcast::serve_orbit(
+                        session,
+                        host,
+                        webtransport,
+                        endpoint,
+                    )
+                    .await
                     {
                         tracing::debug!(
                             correlation,
@@ -611,9 +646,11 @@ async fn serve(
                         );
                     }
                 }
-                (Ok(_), None) => handshake.answer(400, Vec::new()),
-                (Err(status), _) => {
-                    handshake.answer(status.as_u16(), Vec::new())
+                (Ok(_), None) => {
+                    handshake.refuse(400, None);
+                }
+                (Err(status), endpoint) => {
+                    handshake.refuse(status.as_u16(), endpoint);
                 }
             }
             return;
@@ -625,8 +662,12 @@ async fn serve(
                 sessions(request, endpoint, handshake).await;
             }
             // Nothing here speaks WebSocket, or the edge sent no slot for one.
-            (None, _, _) => handshake.answer(501, Vec::new()),
-            _ => handshake.answer(400, Vec::new()),
+            (None, endpoint, _) => {
+                handshake.refuse(501, endpoint);
+            }
+            (_, endpoint, _) => {
+                handshake.refuse(400, endpoint);
+            }
         }
         return;
     }

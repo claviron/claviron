@@ -1297,6 +1297,8 @@ impl HostAppRegistry {
             )?;
             #[cfg(all(feature = "lua", feature = "webtransport"))]
             lua_webtransport::append_routes(state, canonical, &record.config)?;
+            #[cfg(all(feature = "orbit", feature = "webtransport"))]
+            super::orbit::webtransport::bind(state, canonical, &record.config)?;
             #[cfg(feature = "broadcast")]
             broadcast::append_routes(
                 state,

@@ -174,9 +174,12 @@ struct WebTransportRouteKey {
 /// Host config can enable or deny WebTransport for the vhost, but it cannot
 /// name Rust code. Providers register concrete handlers here during boot, keyed
 /// by canonical host and exact path (`/wt/orbit`, `/wt/nwd1`, ...).
+/// Orbit composition may additionally bind a host fallback which selects the
+/// application from the admitted host snapshot after exact native handlers.
 #[derive(Default)]
 pub struct WebTransportRegistry {
     routes: RwLock<HashMap<WebTransportRouteKey, WebTransportBinding>>,
+    fallbacks: RwLock<HashMap<Host, WebTransportBinding>>,
 }
 
 impl WebTransportRegistry {
@@ -219,11 +222,34 @@ impl WebTransportRegistry {
     ) -> Option<WebTransportBinding> {
         let path = normalize_connect_path(Arc::<str>::from(path)).ok()?;
         let key = WebTransportRouteKey { host: host.clone(), path };
-        self.routes
+        let exact = self
+            .routes
             .read()
             .expect("web transport registry lock poisoned")
             .get(&key)
-            .cloned()
+            .cloned();
+        exact.or_else(|| {
+            self.fallbacks
+                .read()
+                .expect("web transport fallback registry lock poisoned")
+                .get(host)
+                .cloned()
+        })
+    }
+
+    /// A host's application dispatch after exact native session bindings.
+    /// The handler must select and authorize its route from the accepted host
+    /// snapshot; retaining this entry cannot revive a removed application.
+    #[cfg(feature = "orbit")]
+    pub(crate) fn bind_fallback(
+        &self,
+        host: Host,
+        handler: Arc<dyn WebTransportHandler>,
+    ) {
+        self.fallbacks
+            .write()
+            .expect("web transport fallback registry lock poisoned")
+            .insert(host, WebTransportBinding::Handler(handler));
     }
 
     /// Rebind a host/path during vhost snapshot preparation, as with H2
@@ -254,5 +280,14 @@ impl WebTransportRegistry {
             .expect("web transport registry lock poisoned")
             .keys()
             .any(|key| &key.host == host)
+            || self
+                .fallbacks
+                .read()
+                .expect("web transport fallback registry lock poisoned")
+                .contains_key(host)
     }
 }
+
+#[cfg(all(test, feature = "orbit"))]
+#[path = "../../tests/pipeline/wt.rs"]
+mod tests;

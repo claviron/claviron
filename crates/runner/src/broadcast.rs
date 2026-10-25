@@ -77,21 +77,70 @@ impl Broadcast {
             && self.paths.contains(request.uri().path())
     }
 
-    /// A WebSocket over Orbit for one of the applications: `None` when the
+    /// A message stream over Orbit for one of the applications: `None` when the
     /// path is not one of theirs — the owner's own WebSocket — and the
     /// refusal's status when it is theirs and cannot be served. The edge
-    /// answered the client's handshake itself; what arrives is its request.
+    /// owns the client's handshake and waits for this admission before accepting.
     pub(crate) fn accept_orbit(
         &self,
         request: &AppRequest,
-    ) -> Option<Result<BroadcastSession, StatusCode>> {
+    ) -> Option<
+        impl std::future::Future<Output = Result<BroadcastSession, StatusCode>>
+        + Send
+        + use<>,
+    > {
         let key = request.uri().path().strip_prefix("/app/")?;
         let catalog = self.service.applications();
         let (application, _) = catalog.application_by_key(key)?;
-        Some(
-            self.service
-                .accept_session(Arc::from(application))
-                .map_err(|refusal| refusal.status()),
-        )
+        let session = self
+            .service
+            .accept_session(Arc::from(application))
+            .map_err(|refusal| refusal.status());
+        let webtransport = is_webtransport(request);
+        let host = request
+            .headers()
+            .get(http::header::HOST)
+            .and_then(|host| host.to_str().ok())
+            .unwrap_or_default()
+            .to_owned();
+        let headers = request.headers().clone();
+        Some(async move {
+            let mut session = session?;
+            if !webtransport {
+                session.authenticate_headers(&host, &headers).await?;
+            }
+            Ok(session)
+        })
     }
+}
+
+pub(crate) fn is_webtransport(request: &AppRequest) -> bool {
+    request.version() == Version::HTTP_3 && request.method() == Method::CONNECT
+}
+
+/// A WebTransport stream uses the same message records over Link as it does
+/// on a native H3 listener, including its optional first authentication record.
+pub(crate) async fn serve_orbit(
+    mut session: BroadcastSession,
+    host: String,
+    webtransport: bool,
+    endpoint: claviron_orbit::transport::Endpoint,
+) -> claviron_runtime::registry::Result<()> {
+    let mut stream =
+        claviron_broadcast::stream::OrbitMessageStream::new(endpoint);
+    if webtransport
+        && !session
+            .authenticate_stream(&host, &mut stream, std::future::pending())
+            .await
+            .map_err(|error| {
+                claviron_runtime::registry::Error::recoverable(
+                    error.to_string(),
+                )
+            })?
+    {
+        return Ok(());
+    }
+    session.run(stream).await.map_err(|error| {
+        claviron_runtime::registry::Error::recoverable(error.to_string())
+    })
 }

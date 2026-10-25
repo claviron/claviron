@@ -20,7 +20,6 @@
 //! answer a large upload with 413 without reading it, and the second is what
 //! makes SSE and chunked output arrive as they are produced.
 
-use std::future::Future;
 use std::sync::Arc;
 
 use axum::extract::{Request, State};
@@ -31,15 +30,17 @@ use claviron_http::ext::{ConnCtx, PathPrefix};
 use claviron_http::policy::{
     BodyNeed, HttpPolicy, RequestPolicy, RequestPolicyOverride,
 };
-use claviron_orbit::transport::client::{LentRead, LentWrite};
 use claviron_orbit::transport::{
-    Exchange, ExchangeReply, HttpVersion, Message, MessageReader,
-    TRANSPORT_BUFFER_BYTES, TransportService, write_message,
+    Exchange, HttpVersion, TRANSPORT_BUFFER_BYTES, TransportService,
 };
 use claviron_runtime::{AppState, FleetName};
 use http::StatusCode;
 use http_body_util::BodyExt;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
+
+mod websocket;
+#[cfg(feature = "webtransport")]
+pub(super) mod webtransport;
 
 #[derive(Clone)]
 struct OrbitRoute {
@@ -81,8 +82,11 @@ async fn dispatch(
         }
     };
 
-    let websocket =
-        claviron_http::upgrade::is_h1_header_upgrade(&request, "websocket");
+    let handshake = match websocket::Handshake::from_request(&request) {
+        Ok(handshake) => handshake,
+        Err(status) => return status.into_response(),
+    };
+    let websocket = handshake.is_some();
     let (mut parts, body) = request.into_parts();
     // The edge's policy for this host, narrowed by this application's block.
     let policy = parts
@@ -97,17 +101,13 @@ async fn dispatch(
     // What completing an upgrade needs, taken before the parts are spent:
     // Hyper's handle on the connection, the owner of the session that
     // outlives this request, and the key the handshake answers.
-    let upgrade = websocket.then(|| Upgrade {
+    let upgrade = handshake.map(|handshake| websocket::Upgrade {
         on_upgrade: parts.extensions.remove::<hyper::upgrade::OnUpgrade>(),
         sessions: parts
             .extensions
             .get::<claviron_http::session::SessionSpawner>()
             .cloned(),
-        key: parts
-            .headers
-            .get(http::header::SEC_WEBSOCKET_KEY)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned),
+        handshake,
     });
     let exchange = Exchange {
         // The caller fills these three; they are its own address book.
@@ -163,7 +163,7 @@ async fn dispatch(
     let (mut request_body, response_body, reply) = pending.split();
     let mut to_application = None;
     if websocket {
-        to_application = Some(request_body);
+        to_application = Some(websocket::Input::new(request_body));
     } else if body_follows {
         // The application takes pieces as they come; the policy may still
         // say to take the body whole first — the direction then carries it in
@@ -229,7 +229,7 @@ async fn dispatch(
         && head.status == StatusCode::SWITCHING_PROTOCOLS.as_u16()
         && let Some(to_application) = to_application
     {
-        return accept_websocket(
+        return websocket::accept_websocket(
             correlation,
             &head,
             upgrade,
@@ -286,195 +286,6 @@ async fn dispatch(
                 .into_response()
         }
     }
-}
-
-/// What an accepted WebSocket needs from the request it arrived as.
-struct Upgrade {
-    on_upgrade: Option<hyper::upgrade::OnUpgrade>,
-    sessions: Option<claviron_http::session::SessionSpawner>,
-    key: Option<String>,
-}
-
-/// The application said 101: finish the handshake and hand the connection to
-/// a session that outlives this request.
-///
-/// The session is spawned before the 101 goes back, on the owner that joins it
-/// at shutdown, as the upgrade crate does for its own routes.
-fn accept_websocket(
-    correlation: u64,
-    head: &ExchangeReply,
-    upgrade: Upgrade,
-    to_application: LentWrite,
-    from_application: LentRead,
-) -> Response {
-    let (Some(on_upgrade), Some(sessions), Some(key)) =
-        (upgrade.on_upgrade, upgrade.sessions, upgrade.key)
-    else {
-        tracing::debug!(
-            correlation,
-            "accepted a WebSocket this connection cannot upgrade"
-        );
-        return StatusCode::BAD_REQUEST.into_response();
-    };
-    let mut response = Response::builder()
-        .status(StatusCode::SWITCHING_PROTOCOLS)
-        .header(http::header::UPGRADE, "websocket")
-        .header(http::header::CONNECTION, "Upgrade")
-        .header(
-            http::header::SEC_WEBSOCKET_ACCEPT,
-            claviron_http::upgrade::websocket_accept_key(&key),
-        );
-    // What the application added — a chosen subprotocol, a cookie.
-    for (name, value) in &head.headers {
-        let (Ok(name), Ok(value)) = (
-            http::HeaderName::from_bytes(name),
-            http::HeaderValue::from_bytes(value),
-        ) else {
-            continue;
-        };
-        response = response.header(name, value);
-    }
-    let shutdown = sessions.clone();
-    let session = async move {
-        tokio::select! {
-            biased;
-            _ = shutdown.wait_graceful_shutdown() => {
-                let mut to_application = to_application;
-                let _ = to_application.shutdown().await;
-            }
-            upgraded = on_upgrade => match upgraded {
-                Ok(upgraded) => {
-                    serve_websocket(
-                        correlation,
-                        hyper_util::rt::TokioIo::new(upgraded),
-                        to_application,
-                        from_application,
-                        shutdown.wait_graceful_shutdown(),
-                    )
-                    .await;
-                }
-                Err(error) => tracing::debug!(
-                    correlation,
-                    "WebSocket upgrade failed: {error}"
-                ),
-            },
-        }
-    };
-    if let Err(error) = sessions.spawn(session) {
-        tracing::debug!(
-            correlation,
-            "WebSocket session was not started: {error}"
-        );
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
-    }
-    response.body(axum::body::Body::empty()).unwrap_or_else(|error| {
-        tracing::debug!(correlation, "101 could not be built: {error}");
-        StatusCode::INTERNAL_SERVER_ERROR.into_response()
-    })
-}
-
-/// Speak the WebSocket protocol with the client, and pass whole messages to
-/// and from the application as records on the slot.
-///
-/// Fragments are joined, pings answered and closes echoed here; the
-/// application sees text, binary and the close that ends them. Records from
-/// the application are read with a [`MessageReader`], which keeps its place
-/// when `select!` drops a read halfway, so both directions are served from
-/// this one task.
-/// Listener shutdown stops reads, completes a message already being forwarded,
-/// and sends a going-away close without awaiting either peer's close reply.
-/// It ends this exchange, not the destination application process.
-async fn serve_websocket<S, W, R>(
-    correlation: u64,
-    stream: S,
-    mut to_application: W,
-    mut from_application: R,
-    shutdown: impl Future<Output = ()>,
-) where
-    S: AsyncRead + AsyncWrite + Unpin,
-    W: AsyncWrite + Unpin,
-    R: AsyncRead + Unpin,
-{
-    use fastwebsockets::{
-        FragmentCollector, Frame, OpCode, Payload, Role, WebSocket,
-    };
-
-    let mut socket = WebSocket::after_handshake(stream, Role::Server);
-    socket.set_auto_pong(true);
-    socket.set_auto_close(true);
-    let mut socket = FragmentCollector::new(socket);
-
-    let mut records = MessageReader::new();
-    tokio::pin!(shutdown);
-
-    loop {
-        tokio::select! {
-            biased;
-            _ = &mut shutdown => {
-                tracing::debug!(correlation, "Orbit WebSocket listener shutting down");
-                let _ = socket.write_frame(Frame::close(1001, b"")).await;
-                break;
-            }
-            frame = socket.read_frame() => {
-                let inbound = match frame {
-                    Ok(frame) => match frame.opcode {
-                        OpCode::Text => match String::from_utf8(frame.payload.to_vec()) {
-                            Ok(text) => Message::Text(text),
-                            Err(_) => Message::Close { code: 1007, reason: String::new() }
-                        },
-                        OpCode::Binary => Message::Binary(frame.payload.to_vec()),
-                        OpCode::Close => {
-                            let (code, reason) = close_details(&frame.payload);
-                            Message::Close { code, reason }
-                        }
-                        _ => continue
-                    },
-                    // The client is gone without a close: 1006 is the code
-                    // that says so, and it is never sent on the wire.
-                    Err(_) => Message::Close { code: 1006, reason: String::new() }
-                };
-                let closing = matches!(inbound, Message::Close { .. });
-                if write_message(&mut to_application, &inbound).await.is_err() || closing {
-                    break;
-                }
-            }
-            message = records.read(&mut from_application) => {
-                // A malformed record ends the session as the application's
-                // end would.
-                let sent = match message.ok().flatten() {
-                    Some(Message::Text(text)) => {
-                        socket.write_frame(Frame::text(Payload::Owned(text.into_bytes()))).await
-                    }
-                    Some(Message::Binary(bytes)) => {
-                        socket.write_frame(Frame::binary(Payload::Owned(bytes))).await
-                    }
-                    Some(Message::Close { code, reason }) => {
-                        let _ = socket.write_frame(Frame::close(code, reason.as_bytes())).await;
-                        break;
-                    }
-                    // The application ended without a close.
-                    None => {
-                        let _ = socket.write_frame(Frame::close(1011, b"")).await;
-                        break;
-                    }
-                };
-                if sent.is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    let _ = to_application.shutdown().await;
-    tracing::debug!(correlation, "WebSocket session ended");
-}
-
-/// A close frame's code and reason; 1005 when it carries none.
-fn close_details(payload: &[u8]) -> (u16, String) {
-    if payload.len() < 2 {
-        return (1005, String::new());
-    }
-    let code = u16::from_be_bytes([payload[0], payload[1]]);
-    (code, String::from_utf8_lossy(&payload[2..]).into_owned())
 }
 
 /// The body length a reply declares, if it declares one.

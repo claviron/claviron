@@ -401,9 +401,11 @@ pub struct Exchange {
     /// Where the body is, if there is one. Absent means no body at all, not
     /// an empty one that still needs reading.
     pub body: Option<Ticket>,
-    /// A WebSocket upgrade. The application answers 101 to accept or any
-    /// other status to refuse; once accepted, both directions of the slot
-    /// carry [`super::message`] records instead of bytes of a body.
+    /// A message-session request: H1/H2 WebSocket or one reliable H3
+    /// WebTransport bidi stream. The application answers 101 to accept or an
+    /// error status to refuse. Edge translates that acknowledgment to the
+    /// native HTTP handshake; 101 is never sent on an H2/H3 connection.
+    /// Accepted directions carry [`super::message`] records, not HTTP bodies.
     pub upgrade: bool,
 }
 
@@ -419,7 +421,7 @@ pub struct ExchangeReply {
 const FLAG_BODY: u8 = 1 << 0;
 const FLAG_CLIENT: u8 = 1 << 1;
 const FLAG_SERVER: u8 = 1 << 2;
-/// A request asking to become a WebSocket.
+/// A request asking to become an application message session.
 const FLAG_UPGRADE: u8 = 1 << 3;
 
 impl Exchange {
