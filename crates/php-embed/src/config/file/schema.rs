@@ -186,6 +186,7 @@ impl ResolvedConfig {
         if let Some(path) = self.engine.ini_scan_dir {
             builder = builder.ini_scan_dir(path);
         }
+        builder = builder.warmup(self.engine.warmup);
         if let Some(pool) = self.sapi {
             builder = builder.request_pool(pool);
         }
@@ -211,6 +212,7 @@ impl ResolvedConfig {
 struct EngineConfig {
     ini_path: Option<PathBuf>,
     ini_scan_dir: Option<PathBuf>,
+    warmup: Vec<PathBuf>,
 }
 
 /// Shared default for the three independent service drains, not an engine kill

@@ -79,6 +79,38 @@ request-pool policy, named `applications`, `management`, `events`, `launch`, and
 optional `metrics`. `sapi: null` disables the script request pool, not the shared
 engine capabilities or named applications.
 
+### OPcache warmup
+
+Use `engine.warmup` to recursively compile PHP files in selected folders:
+
+```yaml
+engine:
+  warmup: [app, vendor/example/package]
+```
+
+Paths are relative to the process working directory. An empty list disables
+warmup. Each worker or standalone process runs it once in the background after
+provider boot; it does not delay listener startup. The existing PHP engine runs
+the embedded script on an owned OS/ZTS thread. OPcache must be available and
+enabled; otherwise warmup logs that it was skipped.
+
+Only regular `.php` files are compiled, without executing their contents.
+Overlapping folders are deduplicated. Directories named `test` or `tests`
+(case-insensitive) and nested symbolic links are skipped; an explicitly selected
+root may itself be a symbolic link. A file that fails compilation or is refused
+by OPcache is logged and skipped while the remaining files continue. Missing
+root folders fail only the background occurrence, leaving serving processes running.
+
+When TaskService is present and the `tasks` feature is enabled, the same operation
+is also registered as the manual `php-warmup` task for management clients. Its
+task policy can be overridden under `tasks.php-warmup` in `tasks.yaml`. TaskService
+is optional for startup warmup. Concurrent warmups in one process are rejected.
+
+Warmup does not watch files, reset OPcache, or reload persistent applications.
+`opcache.validate_timestamps` and other OPcache settings remain native PHP INI
+policy. With timestamp validation disabled, updating source still requires
+explicit invalidation and an appropriate application or process restart.
+
 Request and application pools support fixed or elastic capacity, idle retention,
 and optional idle-instance rotation. Capacity is local to each serving process.
 HTTP route policy controls body limits, queue wait, and response handling;

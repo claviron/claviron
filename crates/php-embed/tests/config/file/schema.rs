@@ -1,6 +1,23 @@
 use super::*;
 
 #[test]
+fn warmup_folders_use_the_common_engine_schema() {
+    let config = parse(
+        "engine: {warmup: [app, vendor/example/package]}\nsapi: null\n",
+        |_| None,
+    )
+    .unwrap()
+    .resolve()
+    .unwrap();
+    assert_eq!(
+        config.engine.warmup,
+        vec![PathBuf::from("app"), PathBuf::from("vendor/example/package"),]
+    );
+    assert!(parse("engine: {warmup: app}\nsapi: null\n", |_| None).is_err());
+    assert!(parse("engine: {validate_timestamps: false}\n", |_| None).is_err());
+}
+
+#[test]
 fn event_backlog_is_configurable_and_invalid_bounds_are_rejected() {
     let config = parse("sapi: null\nevents: {capacity: 128}\n", |_| None)
         .unwrap()

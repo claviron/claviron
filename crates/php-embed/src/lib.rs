@@ -24,6 +24,7 @@ mod sapi;
 mod service;
 #[cfg(feature = "tasks")]
 pub(crate) mod tasks;
+mod warmup;
 
 pub use config::{
     ApplicationPool, PhpApplication, PhpEventConfig, PhpLaunchConfig,

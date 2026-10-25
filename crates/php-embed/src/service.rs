@@ -67,6 +67,7 @@ pub struct PhpEmbedRuntimeBuilder {
     applications: Vec<PhpApplication>,
     ini_path: Option<PathBuf>,
     ini_scan_dir: Option<PathBuf>,
+    warmup: Vec<PathBuf>,
     graceful_timeout: Option<Duration>,
     execution_timeout: Option<Duration>,
     interruptible_sleep: bool,
@@ -134,6 +135,19 @@ impl PhpEmbedRuntimeBuilder {
         path: impl Into<PathBuf>,
     ) -> Self {
         self.ini_scan_dir = Some(path.into());
+        self
+    }
+
+    /// Recursively compile PHP files in these folders into this process's OPcache.
+    /// An empty list disables warmup. Each serving process runs the embedded
+    /// script in the background after provider boot; listeners do not wait.
+    /// TaskService, when present, also exposes it as the manual php-warmup task.
+    /// INI settings, including validate_timestamps, remain PHP-owned.
+    pub fn warmup(
+        mut self,
+        folders: impl IntoIterator<Item = impl Into<PathBuf>>,
+    ) -> Self {
+        self.warmup = folders.into_iter().map(Into::into).collect();
         self
     }
 
@@ -251,6 +265,7 @@ impl PhpEmbedRuntimeBuilder {
             booted: Arc::new(OnceLock::new()),
             environments: Arc::new(OnceLock::new()),
             definitions: Arc::new(StdMutex::new(definitions)),
+            warmup_run: Arc::new(tokio::sync::Mutex::new(())),
         }
     }
 }
@@ -283,6 +298,7 @@ pub struct PhpEmbedRuntime {
     booted: Arc<OnceLock<()>>,
     environments: Arc<OnceLock<EnvironmentContext>>,
     definitions: Arc<StdMutex<ProgramDefinitions>>,
+    warmup_run: Arc<tokio::sync::Mutex<()>>,
 }
 
 struct ProgramDefinitions {
@@ -305,6 +321,30 @@ impl PhpEmbedStateExt for AppState {
 }
 
 impl PhpEmbedRuntime {
+    /// Run the configured OPcache warmup without executing the discovered files.
+    /// Concurrent warmups are rejected rather than queued. This does not reset
+    /// OPcache, reload live applications, or change native PHP INI settings.
+    pub async fn warmup(
+        &self,
+        cancellation: tokio_util::sync::CancellationToken,
+    ) -> Result<usize, String> {
+        self.ensure_booted().map_err(|error| error.to_string())?;
+        let guard = Arc::clone(&self.warmup_run)
+            .try_lock_owned()
+            .map_err(|_| "PHP OPcache warmup is already running".to_owned())?;
+        let folders = self.options.warmup.clone();
+        let cancellation = cancellation.child_token();
+        let _cancel_on_drop = cancellation.clone().drop_guard();
+        tokio::task::spawn_blocking(move || {
+            // Retain admission until PHP has actually ended, even if the async
+            // caller is cancelled while the current file is still compiling.
+            let _guard = guard;
+            crate::warmup::run(&folders, cancellation)
+        })
+        .await
+        .map_err(|error| format!("PHP OPcache warmup failed: {error}"))?
+    }
+
     #[cfg(any(feature = "apcu-intercept", feature = "opcache-intercept"))]
     pub(crate) fn cache_invalidation_enabled(&self) -> bool {
         self.options
@@ -404,6 +444,8 @@ impl PhpEmbedRuntime {
                 )));
             }
         }
+        crate::warmup::validate(&self.options.warmup)
+            .map_err(registry::Error::msg)?;
         #[cfg(feature = "metrics")]
         self.options.metrics.validate().map_err(registry::Error::msg)?;
         self.options.management.validate().map_err(registry::Error::msg)?;
@@ -473,6 +515,10 @@ impl PhpEmbedRuntime {
         #[cfg(feature = "tasks")]
         crate::tasks::register_bridge(state, Arc::clone(&runtime))
             .map_err(registry::Error::msg)?;
+
+        if !runtime.options.warmup.is_empty() {
+            crate::warmup::register(state, Arc::clone(&runtime))?;
+        }
 
         if !state.is_master() {
             crate::event::register(state)?;
