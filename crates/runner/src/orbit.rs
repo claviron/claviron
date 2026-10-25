@@ -83,7 +83,10 @@ impl Handshake {
         self.try_answer(status, headers);
     }
 
-    fn try_answer(
+    /// Publish the Link acknowledgment and report whether it was delivered.
+    /// An owner must reset its endpoint when this fails, so the edge's pending
+    /// admission wakes even when its inbox could not take the reply.
+    pub fn try_answer(
         self,
         status: u16,
         headers: Vec<(Vec<u8>, Vec<u8>)>,
