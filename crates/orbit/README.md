@@ -152,6 +152,16 @@ codec, routing, kinds and geometry are unchanged. Application transport may
 carry both exchanges and events, while an event-only connection opens no body
 streams. Its peer advertisement describes reachability, not application health.
 
+For repeated HTTP dispatch, prepare a `TransportTarget` with
+`TransportClient::target(application)` and retain it with the route. Clones share
+the client and lane snapshot. Sends use the prepared destination without a
+fleet-client or application-directory map lookup. A directory generation change
+refreshes lane membership; admission and queue depth are checked on every send.
+An application can join after target preparation. Edge prepares these handles
+when building routes, and WebTransport retains the selected handle across its
+bidi streams. If a destination cannot be opened during route preparation, the
+route remains unavailable until it is rebuilt.
+
 `Connection::open` remains owner-only. For a dedicated cross-user Link, pass
 `Access::Group(GroupAccess::new(owner_uid, gid, ipc_directory)?)` to
 `Connection::open_with_access` with the same namespace and geometry on both

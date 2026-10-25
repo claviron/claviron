@@ -7,7 +7,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use claviron_http::config::routes::OrbitRouteConfig;
 use claviron_orbit::transport::client::{LentRead, LentWrite};
-use claviron_orbit::transport::{Exchange, HttpVersion, TransportService};
+use claviron_orbit::transport::{
+    Exchange, HttpVersion, TransportService, TransportTarget,
+};
 use claviron_runtime::{AppState, registry};
 use claviron_types::Host;
 use http::StatusCode;
@@ -36,11 +38,23 @@ pub(in crate::pipeline) fn bind(
         state.registry_ref().resolve::<WebTransportRegistry>().ok_or_else(
             || registry::Error::msg("Orbit requires the WebTransport registry"),
         )?;
-    let transport =
-        state.registry_ref().resolve::<TransportService>().ok_or_else(
-            || registry::Error::msg("Orbit transport is not registered"),
-        )?;
-    registry.bind_fallback(host.clone(), Arc::new(Handler { transport }));
+    if state.registry_ref().resolve::<TransportService>().is_none() {
+        return Err(registry::Error::msg("Orbit transport is not registered"));
+    }
+    let routes = config
+        .orbit()
+        .iter()
+        .chain(config.routes.iter().flat_map(|(_, route)| route.orbit()))
+        .map(|route| PreparedRoute {
+            route: route.clone(),
+            target: super::prepare_target(
+                state,
+                route.fleet_name,
+                route.application.clone().into(),
+            ),
+        })
+        .collect();
+    registry.bind_fallback(host.clone(), Arc::new(Handler { routes }));
     Ok(())
 }
 
@@ -64,7 +78,12 @@ fn route<'a>(
 }
 
 struct Handler {
-    transport: Arc<TransportService>,
+    routes: Vec<PreparedRoute>,
+}
+
+struct PreparedRoute {
+    route: OrbitRouteConfig,
+    target: Option<TransportTarget>,
 }
 
 /// Dropping a pending or interrupted session resets only this exchange's
@@ -84,24 +103,19 @@ impl Drop for Channel {
 }
 
 struct Accepted {
-    route: OrbitRouteConfig,
+    target: TransportTarget,
     exchange: Exchange,
     first: Channel,
 }
 
 impl Handler {
     async fn open(
-        &self,
-        route: &OrbitRouteConfig,
+        target: &TransportTarget,
         exchange: Exchange,
         cancellation: impl std::future::Future<Output = ()>,
     ) -> Result<Channel, StatusCode> {
-        let client = self
-            .transport
-            .client(route.fleet_name)
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let pending = client
-            .send(&route.application, exchange, true)
+        let pending = target
+            .send(exchange, true)
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
         let (outgoing, incoming, reply) = pending.split();
         let channel = Channel { outgoing, incoming, finished: false };
@@ -141,8 +155,18 @@ impl WebTransportHandler for Handler {
             ));
         }
         let route = route(&ctx.host_config, &ctx.path)
-            .ok_or_else(|| WebTransportReject::new(StatusCode::NOT_FOUND))?
-            .clone();
+            .ok_or_else(|| WebTransportReject::new(StatusCode::NOT_FOUND))?;
+        let target = self
+            .routes
+            .iter()
+            .find(|prepared| {
+                prepared.route.fleet_name == route.fleet_name
+                    && prepared.route.application == route.application
+            })
+            .and_then(|prepared| prepared.target.clone())
+            .ok_or_else(|| {
+                WebTransportReject::new(StatusCode::SERVICE_UNAVAILABLE)
+            })?;
         let exchange = Exchange {
             method: http::Method::CONNECT.to_string(),
             scheme: ctx.conn.scheme().to_string(),
@@ -162,12 +186,12 @@ impl WebTransportHandler for Handler {
         // Reserve the first application session before H3's 200 is sent.
         // Missing applications and refusals remain HTTP statuses, not a
         // successful transport that can never reach its application.
-        let first = self
-            .open(&route, exchange.clone(), ctx.wait_graceful_shutdown())
-            .await
-            .map_err(WebTransportReject::new)?;
+        let first =
+            Self::open(&target, exchange.clone(), ctx.wait_graceful_shutdown())
+                .await
+                .map_err(WebTransportReject::new)?;
         Ok(WebTransportAccept::authenticated(Accepted {
-            route,
+            target,
             exchange,
             first,
         }))
@@ -180,7 +204,7 @@ impl WebTransportHandler for Handler {
         accepted: Option<AnyAuthenticated>,
         session: H3WebTransportSession,
     ) -> registry::Result<()> {
-        let Accepted { route, exchange, first } = accepted
+        let Accepted { target, exchange, first } = accepted
             .ok_or_else(|| {
                 registry::Error::msg("Orbit WebTransport acceptance missing")
             })?
@@ -208,13 +232,12 @@ impl WebTransportHandler for Handler {
                     let Some(stream) = stream else { break };
                     let first = first.take();
                     let cancellation = cancellation.clone();
-                    let route = route.clone();
+                    let target = target.clone();
                     let exchange = exchange.clone();
-                    let transport = self.transport.clone();
                     streams.spawn(async move {
                         let channel = match first {
                             Some(channel) => Ok(channel),
-                            None => Handler { transport }.open(&route, exchange, cancellation.cancelled()).await,
+                            None => Handler::open(&target, exchange, cancellation.cancelled()).await,
                         };
                         match channel {
                             Ok(channel) => relay(stream, channel, &cancellation).await,

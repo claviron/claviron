@@ -32,6 +32,7 @@ pub mod message;
 pub mod peer;
 pub mod segment;
 pub mod service;
+mod target;
 
 pub use app::{ApplicationLink, ApplicationLinkSetup, LinkEventRouting};
 pub use body::TransportBodies;
@@ -55,6 +56,7 @@ pub use peer::{
 };
 pub use segment::{INBOX_GEOMETRY, TransportSegment};
 pub use service::{LinkedApplication, TransportService};
+pub use target::TransportTarget;
 
 /// Lanes one transport fleet holds.
 ///

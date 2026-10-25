@@ -440,6 +440,18 @@ impl Waiting {
 }
 
 impl TransportClient {
+    /// Bind an application name once, before requests begin to use it.
+    pub fn target(
+        self: &Arc<Self>,
+        application: impl Into<Arc<str>>,
+    ) -> super::TransportTarget {
+        super::TransportTarget::new(Arc::clone(self), application.into())
+    }
+
+    pub(super) fn inbox(&self) -> &super::Inbox {
+        self.segment.inbox()
+    }
+
     /// Current application lanes in this joined fleet, read from Link.
     pub fn applications(&self) -> Vec<super::Peer> {
         let mut peers = Peers::new(self.fleet, |role| role != EDGE_RUNTIME);
@@ -629,15 +641,22 @@ impl TransportClient {
     pub fn send(
         &self,
         application: &str,
+        request: Exchange,
+        body_follows: bool,
+    ) -> Result<Pending> {
+        let lanes =
+            Directory::resolve(&self.directory, self.inbox(), application);
+        self.send_to(application, &lanes, request, body_follows)
+    }
+
+    pub(super) fn send_to(
+        &self,
+        application: &str,
+        lanes: &[usize],
         mut request: Exchange,
         body_follows: bool,
     ) -> Result<Pending> {
-        let inbox = self.segment.inbox();
-        let targets = inbox.ready(&Directory::resolve(
-            &self.directory,
-            inbox,
-            application,
-        ));
+        let targets = self.inbox().ready(lanes);
         let Some((_, idlest)) = targets.first().copied() else {
             return Err(Error::NoConsumer(application.to_owned()));
         };

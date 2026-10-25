@@ -32,6 +32,7 @@ use claviron_http::policy::{
 };
 use claviron_orbit::transport::{
     Exchange, HttpVersion, TRANSPORT_BUFFER_BYTES, TransportService,
+    TransportTarget,
 };
 use claviron_runtime::{AppState, FleetName};
 use http::StatusCode;
@@ -45,9 +46,7 @@ pub(super) mod webtransport;
 #[derive(Clone)]
 struct OrbitRoute {
     path: Option<PathPrefix>,
-    fleet_name: FleetName,
-    application: Arc<str>,
-    transport: Option<Arc<TransportService>>,
+    target: Option<TransportTarget>,
     requests: RequestPolicyOverride,
     /// This worker's shutdown, at which an event stream ends its own side
     /// ([`claviron_http::body::EndsAtShutdown`]).
@@ -67,19 +66,8 @@ async fn dispatch(
         return next.run(request).await;
     }
 
-    let Some(transport) = route.transport.as_ref() else {
-        return unavailable(
-            "the Orbit transport is not registered in this process",
-        );
-    };
-    let client = match transport.client(route.fleet_name) {
-        Ok(client) => client,
-        Err(error) => {
-            return unavailable(&format!(
-                "destination fleet '{}' is unreachable: {error}",
-                route.fleet_name
-            ));
-        }
+    let Some(target) = route.target.as_ref() else {
+        return unavailable("the Orbit route has no prepared destination");
     };
 
     let handshake = match websocket::Handshake::from_request(&request) {
@@ -142,16 +130,15 @@ async fn dispatch(
     // nothing to pump, and the direction can end before the application looks.
     // A WebSocket keeps it open: once accepted, its messages travel on it.
     let body_follows = !http_body::Body::is_end_stream(&body);
-    let pending = match client.send(
-        &route.application,
-        exchange,
-        body_follows || websocket,
-    ) {
+    let pending = match target.send(exchange, body_follows || websocket) {
         Ok(pending) => pending,
         // Capacity or absence, never time: nothing has run, so this is a 503
         // and the client may try again.
         Err(error) => {
-            tracing::debug!(application = %route.application, "exchange refused: {error}");
+            tracing::debug!(
+                application = target.application(),
+                "exchange refused: {error}"
+            );
             return unavailable(&error.to_string());
         }
     };
@@ -342,14 +329,28 @@ pub fn build_application_router(
     application: impl Into<Arc<str>>,
     requests: RequestPolicyOverride,
 ) -> Router {
-    let application = application.into();
+    let target = prepare_target(state, fleet_name, application.into());
+    base.layer(middleware::from_fn_with_state(
+        OrbitRoute { path, target, requests, shutdown: state.shutdown_token() },
+        dispatch,
+    ))
+}
+
+fn prepare_target(
+    state: &AppState,
+    fleet_name: FleetName,
+    application: Arc<str>,
+) -> Option<TransportTarget> {
     let transport = state.registry_ref().resolve::<TransportService>();
     match transport.as_ref() {
-        None => tracing::error!(
-            fleet_name = %fleet_name,
-            application = %application,
-            "an Orbit route is configured but the transport is not registered in this build"
-        ),
+        None => {
+            tracing::error!(
+                fleet_name = %fleet_name,
+                application = %application,
+                "an Orbit route is configured but the transport is not registered in this build"
+            );
+            None
+        }
         // Join here rather than at the first request. Clients join an
         // destination fleet lazily so that a server routing to no
         // application never creates segments — but this *is* a route to one,
@@ -359,24 +360,17 @@ pub fn build_application_router(
         // moment.
         Some(transport) => {
             transport.track_target(fleet_name, &application);
-            if let Err(error) = transport.client(fleet_name) {
-                tracing::error!(
-                    fleet_name = %fleet_name,
-                    application = %application,
-                    "an Orbit route is configured but its fleet cannot be joined: {error}"
-                );
+            match transport.client(fleet_name) {
+                Ok(client) => Some(client.target(application)),
+                Err(error) => {
+                    tracing::error!(
+                        fleet_name = %fleet_name,
+                        application = %application,
+                        "an Orbit route is configured but its fleet cannot be joined: {error}"
+                    );
+                    None
+                }
             }
         }
     }
-    base.layer(middleware::from_fn_with_state(
-        OrbitRoute {
-            path,
-            fleet_name,
-            application,
-            transport,
-            requests,
-            shutdown: state.shutdown_token(),
-        },
-        dispatch,
-    ))
 }
