@@ -145,7 +145,7 @@ cache = ["dep:claviron-cache", "claviron-cache/axum", "claviron-http?/cache", "c
 db = ["dep:claviron-db", "dep:sqlx", "claviron-tls?/db"]
 postgres = ["db", "claviron-db/postgres", "sqlx/postgres", "claviron-php-embed?/postgres", "claviron-hosting?/postgres", "claviron-tls?/postgres", "claviron-edge?/postgres", "claviron-lua?/postgres"]
 mysql = ["db", "claviron-db/mysql", "sqlx/mysql", "claviron-php-embed?/mysql", "claviron-lua?/mysql"]
-sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite", "claviron-php-embed?/sqlite", "claviron-hosting?/sqlite", "claviron-lua?/sqlite"]
+sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite", "claviron-php-embed?/sqlite", "claviron-hosting?/sqlite", "claviron-tls?/sqlite", "claviron-lua?/sqlite"]
 redis = ["claviron-cache?/redis", "dep:redis"]
 
 # ── Apps / services ──────────────────────────────────────────────────

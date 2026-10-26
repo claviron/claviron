@@ -17,6 +17,7 @@ categories = ["cryptography", "network-programming"]
 
 default = []
 postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
+sqlite = ["db", "claviron-db/sqlite", "claviron-hosting/sqlite"]
 db = [
     "dep:claviron-hosting",
     "claviron-hosting/server",
