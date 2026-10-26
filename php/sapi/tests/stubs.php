@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-// Run with ordinary PHP: php -n crates/php-embed/tests/stubs.php
-$stub = dirname(__DIR__) . '/php/fallback/functions.php';
-require dirname(__DIR__) . '/php/fallback/types.php';
-require dirname(__DIR__) . '/php/fallback/types.php';
+// Run from the repository root: php -n php/sapi/tests/stubs.php
+$stub = dirname(__DIR__) . '/fallback/functions.php';
+require dirname(__DIR__) . '/fallback/types.php';
+require dirname(__DIR__) . '/fallback/types.php';
 require $stub;
 require $stub; // Includes must be idempotent, not only require_once.
 
@@ -30,9 +30,10 @@ if (claviron_application_name() !== null) {
 }
 
 $names = [];
+$native = dirname(__DIR__, 3) . '/crates/php-embed/src';
 $sources = [
-    new SplFileInfo(dirname(__DIR__) . '/src/functions.rs'),
-    ...iterator_to_array(new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__) . '/src/functions'))),
+    new SplFileInfo($native . '/functions.rs'),
+    ...iterator_to_array(new RecursiveIteratorIterator(new RecursiveDirectoryIterator($native . '/functions'))),
 ];
 foreach ($sources as $source) {
     if ($source->getExtension() !== 'rs') {

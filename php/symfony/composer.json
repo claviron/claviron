@@ -1,0 +1,35 @@
+{
+  "name": "claviron/symfony",
+  "description": "Symfony HttpKernel adapter for Claviron's persistent PHP application runtime",
+  "type": "library",
+  "license": "MIT",
+  "require": {
+    "claviron/sapi": "^0.1",
+    "symfony/http-foundation": "^7.0 || ^8.0",
+    "symfony/http-kernel": "^7.0 || ^8.0",
+    "monolog/monolog": "^3.0",
+    "psr/log": "^3.0",
+    "symfony/event-dispatcher": "^7.0 || ^8.0",
+    "php": "^8.2"
+  },
+  "autoload": {
+    "psr-4": {
+      "Claviron\\Symfony\\": "src/"
+    }
+  },
+  "homepage": "https://github.com/claviron/symfony",
+  "support": {
+    "issues": "https://github.com/claviron/symfony/issues",
+    "source": "https://github.com/claviron/claviron/tree/main/php/symfony"
+  },
+  "archive": {
+    "exclude": [
+      "/tests",
+      "/AGENTS.local.md"
+    ]
+  },
+  "require-dev": {
+    "symfony/config": "^7.0 || ^8.0",
+    "symfony/dependency-injection": "^7.0 || ^8.0"
+  }
+}

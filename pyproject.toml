@@ -36,6 +36,13 @@ state-directory = "target/composer"
 [[tool.claviron.composer.packages]]
 name = "claviron/sapi"
 remote = "git@github.com:claviron/sapi.git"
-directory = "crates/php-embed/php"
+directory = "php/sapi"
 license = "LICENSE-MIT"
 include = ["composer.json", "README.md", "src", "fallback"]
+
+[[tool.claviron.composer.packages]]
+name = "claviron/symfony"
+remote = "git@github.com:claviron/symfony.git"
+directory = "php/symfony"
+license = "LICENSE-MIT"
+include = ["composer.json", "README.md", "src", "stubs"]

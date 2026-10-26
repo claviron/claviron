@@ -7,7 +7,7 @@
   "homepage": "https://github.com/claviron/claviron",
   "support": {
     "issues": "https://github.com/claviron/claviron/issues",
-    "source": "https://github.com/claviron/claviron/tree/main/crates/php-embed/php"
+    "source": "https://github.com/claviron/claviron/tree/main/php/sapi"
   },
   "require": {
     "php": ">=8.2",

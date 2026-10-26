@@ -13,9 +13,6 @@ include = [
     "/tests/**",
     "/README.md",
     "/build.rs",
-    "/php/composer.json",
-    "/php/src/**/*.php",
-    "/php/fallback/*.php",
     "/php/embeded/*.php",
 ]
 keywords = ["php", "embedding", "sapi", "runtime", "ffi"]
