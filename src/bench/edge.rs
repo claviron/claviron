@@ -21,6 +21,22 @@ pub struct Config {
     hosting: VhostDocument,
 }
 
+impl Config {
+    fn declarations(
+        &self
+    ) -> claviron_edge::Result<Vec<(Host, Arc<HostConfig>)>> {
+        let hosts = self.hosting.declarations()?;
+        for (host, config) in &hosts {
+            if config.access_log() != Some("off") {
+                return Err(claviron_edge::Error::Invalid(format!(
+                    "benchmark host '{host}' requires access_log: off"
+                )));
+            }
+        }
+        Ok(hosts)
+    }
+}
+
 pub struct BenchService {
     config_path: PathBuf,
     // Only boot/reload route selection uses these keys. Handlers read no config
@@ -48,7 +64,7 @@ impl BenchService {
                 .snapshot::<Self>()
                 .map_err(claviron_edge::Error::other)?;
             match config.as_ref() {
-                Some(config) => config.hosting.declarations(),
+                Some(config) => config.declarations(),
                 None => Ok(Vec::new()),
             }
         })
@@ -60,7 +76,6 @@ impl BenchService {
     ) -> congif::Result<()> {
         let hosts = match config {
             Some(config) => config
-                .hosting
                 .declarations()
                 .map_err(|error| congif::Error::msg(error.to_string()))?
                 .into_iter()
@@ -145,3 +160,7 @@ impl Register<AppState> for BenchService {
         Self::register_with_path(state, state.config_dir().join(CONFIG_FILE))
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/bench/edge.rs"]
+mod tests;

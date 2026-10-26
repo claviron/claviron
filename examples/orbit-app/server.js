@@ -15,7 +15,6 @@ import { join } from "@claviron/orbit";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { Kysely, SqliteDialect, sql } from "kysely";
-import { openDemoDatabase } from "./database.js";
 
 const fleet = process.env.ORBIT_FLEET ?? "orj";
 const name = process.env.ORBIT_APP ?? "orbit-app";
@@ -26,8 +25,9 @@ const started = new Date();
 // A public demo topic, independent of any application's business events.
 const TOPICS = ["example.message.v1", "demo.shared.v1"];
 
-const database = new Kysely({
-  dialect: new SqliteDialect({ database: openDemoDatabase() }),
+const benchmark = process.env.EXAMPLES_BENCH === "1";
+const database = benchmark ? null : new Kysely({
+  dialect: new SqliteDialect({ database: (await import("./database.js")).openDemoDatabase() }),
 });
 
 const link = await join({ fleet, name, icon: "orbit" });
@@ -49,6 +49,21 @@ for (const topic of TOPICS) {
 
 const app = new Hono();
 
+if (benchmark) {
+  app.get("/bench/javascript/plain", (c) => {
+    c.header("x-orbit-process-id", String(process.pid));
+    c.header("x-orbit-lane", String(link.lane));
+    c.header("x-orbit-runtime", runtime);
+    return c.text("ok\n");
+  });
+  app.get("/bench/javascript/json", (c) => {
+    c.header("x-orbit-process-id", String(process.pid));
+    c.header("x-orbit-lane", String(link.lane));
+    c.header("x-orbit-runtime", runtime);
+    return c.json({ message: "ok" });
+  });
+}
+
 app.get("/api/status", (c) =>
   c.json({
     application: name,
@@ -68,6 +83,7 @@ app.post("/api/echo", async (c) => {
 });
 
 app.get("/api/db", async (c) => {
+  if (!database) return c.json({ error: "database disabled for benchmarks" }, 503);
   const result = await sql`select sqlite_version() as version, current_timestamp as now,
     (select count(*) from users) as users,
     (select count(*) from todos) as todos,

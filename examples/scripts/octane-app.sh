@@ -17,7 +17,7 @@ Usage: examples/scripts/$SCRIPT_NAME [start|run|status|stop] [--bench] [--releas
 
 Build examples/octane-app, then run it in the foreground as the current user.
 --release builds and runs the release binary instead.
---bench enables the shared Laravel workload routes at application boot.
+--bench enables shared native baselines and Laravel workload routes.
 --sudo elevates only the server launch; the build still runs as your user.
 --no-build skips the build. Use -- to pass remaining options unchanged.
 Ctrl-C stops the server through its normal shutdown handling.
@@ -84,6 +84,7 @@ done
 
 if [[ "$enable_bench" == true ]]; then
   export EXAMPLES_BENCH=1
+  build_args+=(--features lumenize/bench)
 fi
 
 if [[ "$enable_deno" == true ]]; then

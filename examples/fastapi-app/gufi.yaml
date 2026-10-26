@@ -15,7 +15,7 @@ orbit: true
 
 # One interpreter runs one thread of bytecode at a time, so Python scales by
 # process. The master serves no traffic: it holds no lane and binds no socket.
-workers: 4
+workers: 8
 
 # How that fleet is supervised. Every field has a built-in value, so this
 # section carries only what this application disagrees with — here, one

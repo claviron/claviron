@@ -1,15 +1,19 @@
 default:
+  access_log: "off"
   transport: { non_ssl: serve, protocols: [h1] }
 
 orbit.bench.test:
+  access_log: "off"
   transport: { non_ssl: serve, protocols: [h1] }
   orbit:
     - { path: /, application: bench-app, fleet: benchapp }
 
 uds.bench.test:
+  access_log: "off"
   transport: { non_ssl: serve, protocols: [h1] }
   upstream: bench_uds
 
 tcp.bench.test:
+  access_log: "off"
   transport: { non_ssl: serve, protocols: [h1] }
   upstream: bench_tcp

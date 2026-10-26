@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FastAPI · Gufi</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/app.css">
+  <script type="module" src="/static/demo.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="/">FastAPI <span>on Gufi</span></a>
+    <nav aria-label="Main"><a href="#examples">Examples</a><a href="#messages">Messages</a><a href="/docs">API docs ↗</a></nav>
+  </header>
+  <main class="landing">
+    <div class="intro">
+      <p class="eyebrow">Python + Rust · one application</p>
+      <h1>A small app.<br>Several ways to try it.</h1>
+      <p class="lede">Explore JSON endpoints, a shared counter, server-rendered HTML, streaming responses and bidirectional messages. FastAPI handles Python routes; native Rust handlers intercept the paths they own.</p>
+      <div class="tags"><span>FastAPI / ASGI</span><span>Gufi</span><span>Orbit Link</span></div>
+    </div>
+
+    <section id="examples" aria-labelledby="examples-title">
+      <div class="section-heading"><h2 id="examples-title">Try the endpoints</h2><p>Requests run when you press a button.</p></div>
+      <div class="cards">
+        <article><span class="kind">Rust</span><h3>Health check</h3><p>A native handler answers before the request reaches Python.</p><code>GET /health</code><button data-request="/health">Check health</button><pre hidden></pre></article>
+        <article><span class="kind">Rust + Python</span><h3>One shared counter</h3><p>Both handlers increment the same fleet counter. The Python value is unavailable under an ordinary ASGI server.</p><div class="actions"><button data-request="/hits">Rust +1</button><button data-request="/python/hits">Python +1</button></div><pre hidden></pre></article>
+        <article><span class="kind">Routing</span><h3>Who says hello?</h3><p>Both languages declare this path. Gufi's Rust interceptor takes precedence; FastAPI answers it when run independently.</p><code>GET /hello/World</code><button data-request="/hello/World">Say hello</button><pre hidden></pre></article>
+        <article><span class="kind">Python · SQLite</span><h3>Shared demo database</h3><p>Read row counts from the prepared SQLite file. This request does not create or migrate a database.</p><code>GET /api/db</code><button data-request="/api/db">Read summary</button><pre hidden></pre></article>
+        <article><span class="kind">Python · Jinja</span><h3>Server-rendered catalog</h3><p>A template renders the catalog into a complete HTML page. The same rows are also available as JSON.</p><div class="actions"><a class="button" href="/ssr?rows=12">Open catalog ↗</a><button data-request="/api/catalog?rows=3">Get JSON</button></div><pre hidden></pre></article>
+        <article><span class="kind">Python · SSE</span><h3>A response in pieces</h3><p>A finite event stream. The event count and spacing are explicit request parameters.</p><form id="events-form"><div class="actions"><label>Events <input id="event-count" type="number" min="1" max="100" value="3" required></label><label>Seconds apart <input id="event-spacing" type="number" min="0" step="0.1" value="0" required></label></div><div class="actions"><button id="events-start">Start stream</button><button type="button" id="events-stop" disabled>Stop</button></div></form><pre id="events-log" hidden></pre></article>
+      </div>
+    </section>
+
+    <section id="messages" class="messages" aria-labelledby="messages-title">
+      <div class="section-heading"><h2 id="messages-title">Bidirectional messages</h2><p>Send a message; FastAPI echoes it back.</p></div>
+      <p class="lede">Try WebSocket or WebTransport on <code>/ws</code>. Gufi carries reliable WT streams into the ASGI message handler. The server reports the actual protocol and Python PID. This is an echo demo, not a shared chat room.</p>
+      <div class="actions">
+        <label class="transport-label">Transport <select id="transport"><option value="auto">Auto · WebTransport first</option><option value="webtransport">WebTransport</option><option value="websocket">WebSocket</option></select></label>
+        <button id="connect">Connect</button><button id="disconnect" disabled>Disconnect</button>
+        <span id="connection-state" role="status">Disconnected</span>
+      </div>
+      <p id="connection-details" class="lede">Connect to see transport details.</p>
+      <pre id="socket-log" class="socket-log" aria-label="Message log">Ready.</pre>
+      <form id="message-form" class="actions"><input id="message" aria-label="Message" placeholder="Write a message" maxlength="4096" autocomplete="off" disabled required><button id="send" disabled>Send</button></form>
+      <div class="actions"><button id="stream-test" disabled>Test concurrent WT streams</button><button id="clear-log">Clear log</button></div>
+      <p class="note">The WT test holds stream A at an incomplete message, checks that B can reply, then releases A. The browser must select H3 for this test.</p>
+    </section>
+
+    <footer><a href="/docs">Swagger UI</a><a href="/redoc">ReDoc</a><a href="/openapi.json">OpenAPI JSON</a><span>FastAPI example · Gufi / Claviron</span></footer>
+  </main>
+</body>
+</html>

@@ -1,0 +1,32 @@
+default:
+  access_log: "off"
+  transport: {non_ssl: serve, protocols: [h1]}
+
+rust.bench.test:
+  access_log: "off"
+  transport: {non_ssl: serve, protocols: [h1]}
+  orbit: [{fleet: benchapp, application: bench-app}]
+fastapi.bench.test:
+  access_log: "off"
+  transport: {non_ssl: serve, protocols: [h1]}
+  orbit: [{fleet: fastapi, application: fastapi-app}]
+octane.bench.test:
+  access_log: "off"
+  transport: {non_ssl: serve, protocols: [h1]}
+  orbit: [{fleet: octane, application: octane-app}]
+symfony.bench.test:
+  access_log: "off"
+  transport: {non_ssl: serve, protocols: [h1]}
+  orbit: [{fleet: symfony, application: symfony-app}]
+node.bench.test:
+  access_log: "off"
+  transport: {non_ssl: serve, protocols: [h1]}
+  orbit: [{fleet: jsnode, application: orbit-node}]
+bun.bench.test:
+  access_log: "off"
+  transport: {non_ssl: serve, protocols: [h1]}
+  orbit: [{fleet: jsbun, application: orbit-bun}]
+deno.bench.test:
+  access_log: "off"
+  transport: {non_ssl: serve, protocols: [h1]}
+  orbit: [{fleet: jsdeno, application: orbit-deno}]

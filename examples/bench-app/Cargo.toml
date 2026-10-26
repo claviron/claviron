@@ -8,7 +8,7 @@ description = "Native Rust workloads over Claviron Orbit Link and HTTP sockets"
 [workspace]
 
 [dependencies]
-claviron = { path = "../..", default-features = false, features = ["runner", "runner-cli", "axum", "bench"] }
+claviron = { path = "../..", default-features = false, features = ["runner", "runner-cli", "supervisor", "axum", "bench"] }
 clap = { version = "4", features = ["derive"] }
 serde_yaml = "0.9"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }

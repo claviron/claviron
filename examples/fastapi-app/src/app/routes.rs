@@ -24,7 +24,6 @@ pub fn rust_interceptor(state: AppState) -> Router {
         .route("/health", get(health))
         .route("/hits", get(hits))
         .route("/hello/{name}", get(hello))
-        .route("/orders/{id}", get(show_order))
         .with_state(state)
 }
 
@@ -57,14 +56,5 @@ async fn hello(
 ) -> impl IntoResponse {
     axum::Json(
         json!({ "message": format!("Hello {name}"), "from": "rust", "app":  state.name() }),
-    )
-}
-
-async fn show_order(
-    state: State<AppState>,
-    Path(id): Path<u32>,
-) -> impl IntoResponse {
-    axum::Json(
-        json!({ "id": id, "name": format!("order-{id}"), "from": "rust", "app":  state.name() }),
     )
 }

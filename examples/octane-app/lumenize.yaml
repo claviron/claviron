@@ -39,6 +39,7 @@ php:
   engine:
     ini_path: ${PHP_DIR}/etc/php.ini
     ini_scan_dir: ${PHP_DIR}/etc/conf.d/embed
+    warmup: [app, bootstrap, config, routes, storage/framework/views, vendor/laravel/framework/src, vendor/symfony]
   lifecycle:
     graceful_timeout: null
     execution_timeout: 30s
@@ -47,6 +48,8 @@ php:
     script_path: application.php
     env_file: .env
     env:
+      APP_ENV: production
+      APP_DEBUG: "false"
       OCTANE_SERVER: claviron
       CACHE_STORE: array
       SESSION_DRIVER: file

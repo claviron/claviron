@@ -1,0 +1,59 @@
+:root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; font-size: 15px; line-height: 1.55; --background: #f7f8fa; --panel: #fff; --text: #17232e; --muted: #667482; --line: #dfe5ea; --accent: #087e78; --code: #f0f4f6; }
+@media (prefers-color-scheme: dark) { :root { --background: #10171e; --panel: #17212b; --text: #e5edf3; --muted: #a0afbc; --line: #2b3c49; --accent: #64d5c8; --code: #101b24; } }
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; color: var(--text); background: var(--background); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+.site-header { max-width: 1160px; margin: auto; padding: 1.3rem 1.5rem; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 1rem; border-bottom: 1px solid var(--line); }
+.brand { color: var(--text); font-size: 1.15rem; font-weight: 750; }
+.brand span { color: var(--muted); font-weight: 400; margin-left: .45rem; }
+nav, .actions, .tags { display: flex; flex-wrap: wrap; align-items: center; gap: .7rem; }
+nav { gap: 1.4rem; }
+main { max-width: 1160px; margin: auto; padding: 1rem 1.5rem 2.5rem; }
+.intro { max-width: 790px; padding: 3rem 0 2.8rem; }
+.eyebrow, .kind { color: var(--accent); font-size: .78rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
+h1 { font-size: clamp(2.4rem, 6vw, 4.2rem); line-height: 1.08; letter-spacing: -.055em; margin: .8rem 0 1.3rem; }
+h2 { margin: 0; font-size: 1.5rem; letter-spacing: -.025em; }
+h3 { margin: .5rem 0; font-size: 1.17rem; }
+p { margin: .7rem 0 1rem; }
+.lede, .section-heading p, article p, .note { color: var(--muted); }
+.intro .lede { font-size: 1.12rem; max-width: 700px; }
+.tags span { padding: .25rem .6rem; border: 1px solid var(--line); border-radius: 2rem; font-size: .8rem; color: var(--muted); }
+.section-heading { margin-bottom: 1.2rem; }
+.section-heading p { margin: .3rem 0; }
+.cards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+article, .messages { padding: 1.4rem; background: var(--panel); border: 1px solid var(--line); border-radius: .9rem; }
+article { display: flex; flex-direction: column; align-items: flex-start; }
+article p { flex: 1; font-size: .92rem; }
+article > code { margin-bottom: 1rem; }
+code { font-family: ui-monospace, monospace; font-size: .85em; }
+pre { width: 100%; background: var(--code); border: 1px solid var(--line); padding: .9rem; border-radius: .55rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: .8rem; }
+button, input, select, .button { font: inherit; font-size: .88rem; padding: .5rem .7rem; border: 1px solid var(--line); border-radius: .4rem; background: var(--panel); color: var(--text); }
+button, .button { cursor: pointer; font-weight: 600; }
+button:hover:not(:disabled), .button:hover { border-color: var(--accent); color: var(--accent); text-decoration: none; }
+button:disabled { opacity: .4; cursor: default; }
+button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+label { font-size: .8rem; color: var(--muted); display: grid; gap: .3rem; }
+#events-form { width: 100%; }
+#events-form .actions { margin-top: .65rem; }
+#events-form input { width: 6rem; }
+.messages { margin-top: 2rem; }
+.messages .lede { max-width: 840px; }
+.transport-label { display: flex; align-items: center; gap: .6rem; }
+#connection-state { font-size: .85rem; color: var(--muted); }
+#connection-details { font-size: .85rem; }
+.socket-log { min-height: 14rem; max-height: 23rem; }
+#message { flex: 1; min-width: 10rem; }
+#message-form { margin-bottom: 1rem; }
+.note { font-size: .85rem; margin-bottom: 0; }
+footer { display: flex; flex-wrap: wrap; gap: 1.2rem; border-top: 1px solid var(--line); margin-top: 2rem; padding-top: 1.2rem; color: var(--muted); font-size: .85rem; }
+footer span { margin-left: auto; }
+.catalog { width: 100%; border-collapse: collapse; margin-top: 1.5rem; }
+.catalog th, .catalog td { text-align: left; border-bottom: 1px solid var(--line); padding: .7rem; }
+.catalog .price { text-align: right; white-space: nowrap; }
+.catalog small, .summary { color: var(--muted); }
+.catalog .sold-out { opacity: .6; }
+@media (max-width: 900px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 580px) { .cards { grid-template-columns: 1fr; } .intro { padding-top: 2rem; } .site-header, main { padding-left: 1rem; padding-right: 1rem; } footer span { margin-left: 0; } }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }

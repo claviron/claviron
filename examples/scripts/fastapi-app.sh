@@ -19,11 +19,11 @@ Build examples/fastapi-app and run it from its application root.
 The example edge-server routes Host: orbit.bench to this application's
 fastapi fleet over Orbit shared memory; no TCP/UDS listener is needed.
 --release builds and runs the release binary instead.
---bench enables the shared FastAPI workload routes at application boot.
+--bench enables shared native baselines and FastAPI workload routes.
 --sync installs the locked Python dependencies into the selected environment first.
 --no-build skips the Rust build. Use -- to forward remaining server options.
-The default environment is .venv-freebsd on FreeBSD, .venv-linux on Linux,
-and .venv on macOS. --venv selects application dependencies at runtime.
+The default environment is UV_PROJECT_ENVIRONMENT or .venv. A shared VM checkout
+uses its OS-specific environment; --venv selects application dependencies explicitly.
 The build interpreter comes from the shared Cargo PYO3_PYTHON setting.
 UV_PYTHON selects the base interpreter when creating an environment with --sync.
 start runs in the background; run (the default) stays in the foreground.
@@ -53,16 +53,13 @@ Examples:
 HELP
 }
 
-host_os="$(uname -s)"
-case "$host_os" in
-FreeBSD) venv="$ROOT/.venv-freebsd" ;;
-Linux) venv="$ROOT/.venv-linux" ;;
-Darwin) venv="$ROOT/.venv" ;;
-*)
-  printf 'Unsupported operating system: %s\n' "$host_os" >&2
-  exit 2
-  ;;
-esac
+venv="${UV_PROJECT_ENVIRONMENT:-$ROOT/.venv}"
+if [[ -z "${UV_PROJECT_ENVIRONMENT:-}" && "$(uname -s)" == Linux ]] && command -v findmnt >/dev/null 2>&1; then
+  case "$(findmnt -n -o FSTYPE -T "$ROOT")" in
+    9p|virtiofs) venv="$ROOT/.venv-linux" ;;
+  esac
+fi
+
 skip_build=false
 sync=false
 enable_bench=false
@@ -102,6 +99,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 if [[ "$enable_bench" == true ]]; then
   export EXAMPLES_BENCH=1
+  build_args+=(--features gufi/bench)
 fi
 [[ -n "$venv" ]] || {
   echo '--venv needs a path' >&2

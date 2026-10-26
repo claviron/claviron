@@ -16,6 +16,7 @@ hosting:
   #   wrk -t4 -c64 -d10s -H 'Host: tcp.bench'   http://127.0.0.1/hello/bench
   #   wrk -t4 -c64 -d10s -H 'Host: uds.bench'   http://127.0.0.1/hello/bench
   orbit.bench:
+    access_log: "off"
     root: ../fastapi-app/public
     transport:
       non_ssl: serve
@@ -30,6 +31,7 @@ hosting:
         fleet: fastapi
 
   tcp.bench:
+    access_log: "off"
     root: ../fastapi-app/public
     transport:
       non_ssl: serve
@@ -37,6 +39,7 @@ hosting:
     upstream: gufi_tcp
 
   uds.bench:
+    access_log: "off"
     root: ../fastapi-app/public
     transport:
       non_ssl: serve
@@ -48,6 +51,7 @@ hosting:
 
   # The same socket without a pool to keep: a connection per request.
   udscold.bench:
+    access_log: "off"
     root: ../fastapi-app/public
     transport:
       non_ssl: serve
@@ -57,6 +61,7 @@ hosting:
   # The same two transports with h2c to the application, so the socket is
   # multiplexed too.
   tcph2.bench:
+    access_log: "off"
     root: ../fastapi-app/public
     transport:
       non_ssl: serve
@@ -64,6 +69,7 @@ hosting:
     upstream: gufi_tcp_h2
 
   udsh2.bench:
+    access_log: "off"
     root: ../fastapi-app/public
     transport:
       non_ssl: serve
@@ -76,11 +82,13 @@ hosting:
   # counterpart host — `orbit.bench` reaches however many processes serve the
   # name, because the route never names one.
   udsn.bench:
+    access_log: "off"
     root: ../fastapi-app/public
     transport: { non_ssl: serve, protocols: [ h1 ] }
     upstream: gufi_udsn
 
   tcpn.bench:
+    access_log: "off"
     root: ../fastapi-app/public
     transport: { non_ssl: serve, protocols: [ h1 ] }
     upstream: gufi_tcpn

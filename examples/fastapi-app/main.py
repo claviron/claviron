@@ -2,9 +2,11 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from uuid import uuid4
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from database import database_summary
 
@@ -29,21 +31,28 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+ROOT = Path(__file__).resolve().parent
+app.mount("/static", StaticFiles(directory=ROOT / "public" / "static"), name="static")
 
 if os.environ.get("EXAMPLES_BENCH") == "1":
     from claviron_bench.fastapi import router as bench_router
 
     app.include_router(bench_router)
 
+    bench_headers = {"x-gufi-mode": "asgi", "x-gufi-process-id": str(os.getpid())}
 
-@app.get("/")
+    @app.get("/bench/python/plain")
+    async def python_bench_plain():
+        return Response("ok\n", media_type="text/plain", headers=bench_headers)
+
+    @app.get("/bench/python/json")
+    async def python_bench_json():
+        return JSONResponse({"message": "ok"}, headers=bench_headers)
+
+
+@app.get("/", response_class=FileResponse)
 async def root():
-    return {"message": "Hello World"}
-
-
-@app.get("/orders")
-async def orders():
-    return {"message": "no orders found"}
+    return FileResponse(ROOT / "public" / "index.html")
 
 
 @app.get("/api/db")
@@ -136,12 +145,34 @@ async def events(count: int = 3, every: float = 0.0):
 
 @app.websocket("/ws")
 async def echo(websocket: WebSocket):
-    """A WebSocket in FastAPI's own terms: accept, then echo until the client
-    leaves. Nothing here knows which server or transport carries it."""
+    """ASGI text/binary echo, also used by Gufi's reliable WT message adapter."""
     await websocket.accept()
+    source = websocket.scope.get("extensions", {}).get("gufi.transport", {})
+    identity = {
+        "socket_id": uuid4().hex,
+        "pid": os.getpid(),
+        "transport": source.get("name", "websocket"),
+        "http_version": source.get("http_version", websocket.scope.get("http_version", "1.1")),
+    }
     try:
+        await websocket.send_json({"event": "connected", **identity})
         while True:
-            text = await websocket.receive_text()
-            await websocket.send_text(f"echo: {text}")
+            message = await websocket.receive()
+            if message["type"] == "websocket.disconnect":
+                break
+            if message.get("bytes") is not None:
+                await websocket.send_bytes(message["bytes"])
+                continue
+            text = message.get("text", "")
+            if text == "/hello":
+                continue  # Activates a browser-created WT stream without a chat message.
+            if identity["transport"] == "webtransport" and text in (
+                "/concurrent-stream-test A", "/concurrent-stream-test B"
+            ):
+                await websocket.send_json({
+                    "event": "concurrent_stream_test", "stream": text[-1], **identity,
+                })
+            else:
+                await websocket.send_text(f"echo: {text}")
     except WebSocketDisconnect:
         pass

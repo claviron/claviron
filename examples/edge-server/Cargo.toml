@@ -12,7 +12,7 @@ description = "Example Claviron edge for supervisor lifecycle scenarios."
 
 [features]
 default = ["bench"]
-bench = ["claviron/upstream", "dep:serde"]
+bench = ["claviron/upstream", "claviron/bench", "dep:serde"]
 
 [dependencies]
 claviron = { path = "../..", features = ["edge", "log-pipeline","lua"] }

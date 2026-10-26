@@ -460,7 +460,7 @@ h3-webtransport = { package = "h3-webtransport-forked", version = "0.0.3" }
 
 # ── Published sibling libraries shared through workspace dependencies ──
 # Bounded state and shared-memory coordination across fleet processes.
-orbitive = { version = "0.5.8", default-features = false }
+orbitive = { path = "../orbitive", default-features = false }
 # Typed service registry, lifecycle ordering and process-local events.
 continuo = { version = "0.9.0", default-features = false, features = ["registry", "support", "events", "config", "fleet"] }
 # Typed configuration loading, composition and reload notifications.

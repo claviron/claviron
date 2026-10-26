@@ -6,6 +6,12 @@ The benchmark service is always included. This is an independent Cargo workspace
 not a `cargo run --example` target. Both application and Edge use local Claviron
 path dependencies; Orbitive resolution belongs to Claviron's workspace, not this app.
 
+`--workers N` selects supervised application processes; zero keeps one standalone
+process. The optional `supervisor` section selects supervision policies. Workers
+inherit the resolved launch, including custom configuration and door selection.
+For multiple workers, omit `uds` from the runner file and select Orbit or TCP;
+the shared Unix listener requires standalone mode.
+
 From the repository root:
 
 ```sh
@@ -15,7 +21,7 @@ examples/scripts/bench.sh stop
 ```
 
 Both configurations are validated before either process is launched. The Edge
-listens only on `127.0.0.1:8800`; its benchmark config lives in
+listens only on `127.0.0.1:8080`; its benchmark config lives in
 `../edge-server/config-bench` and does not replace the other demos.
 Do not run it beside another instance of the same Edge/application fleets.
 
@@ -28,9 +34,9 @@ Do not run it beside another instance of the same Edge/application fleets.
 Run the same `wrk` workload against each transport:
 
 ```sh
-wrk -H 'Host: orbit.bench.test' http://127.0.0.1:8800/bench/plain
-wrk -H 'Host: uds.bench.test' http://127.0.0.1:8800/bench/plain
-wrk -H 'Host: tcp.bench.test' http://127.0.0.1:8800/bench/plain
+wrk -H 'Host: orbit.bench.test' http://127.0.0.1:8080/bench/plain
+wrk -H 'Host: uds.bench.test' http://127.0.0.1:8080/bench/plain
+wrk -H 'Host: tcp.bench.test' http://127.0.0.1:8080/bench/plain
 ```
 
 Use the same load-generator settings and path for each host. `/bench/plain`,

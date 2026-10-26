@@ -1,0 +1,24 @@
+defaults:
+  request:
+    max_concurrent_requests: 5000
+  listener:
+    requests:
+      max_body_size: 64 MiB
+      body_read_timeout: 30s
+      head_timeout: 60s
+    responses:
+      body_idle_timeout: 60s
+listeners:
+  benchmark-http:
+    transport: tcp
+    tls: false
+    protocols: h1
+    listen: 127.0.0.1:8080
+    max_connections: 2048
+    graceful_timeout: 5s
+    h1:
+      header_read_timeout: 2s
+      max_headers: 100
+      keep_alive: true
+      half_close: true
+      pipeline_flush: true

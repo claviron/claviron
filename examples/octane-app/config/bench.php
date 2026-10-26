@@ -1,5 +1,5 @@
 <?php
 
 return [
-    'enabled' => env('EXAMPLES_BENCH', false),
+    'enabled' => env('LUMENIZE_BENCH', env('EXAMPLES_BENCH', false)),
 ];

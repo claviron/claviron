@@ -5,7 +5,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use Claviron\Bench\Workload;
+use Lumenize\Http\Controllers\BenchController;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withEvents(discover: false)
@@ -17,11 +17,12 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
         then: function (): void {
             if (config('bench.enabled')) {
-                if (! class_exists(Workload::class)) {
-                    throw new RuntimeException('Install the claviron/bench development package before enabling benchmarks.');
-                }
-
-                Route::middleware('api')->group(base_path('vendor/claviron/bench/routes/laravel.php'));
+                Route::prefix('bench/laravel')->middleware('api')->group(function (): void {
+                    Route::get('plain', [BenchController::class, 'plain']);
+                    Route::get('json', [BenchController::class, 'json']);
+                    Route::post('echo', [BenchController::class, 'echo']);
+                    Route::get('state', [BenchController::class, 'state']);
+                });
             }
         },
     )
