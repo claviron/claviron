@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
 done
 application_guard
 if [[ "$sync" == true ]]; then npm ci; fi
-if [[ "$skip_build" == false ]]; then example_build "$enable_native" "$ORBIT_ROOT/scripts/build.sh" release; fi
+if [[ "$skip_build" == false ]]; then example_build "$enable_native" "$ORBIT_ROOT/scripts/build-native.sh" release; fi
 export RUST_LOG="${RUST_LOG:-warn}"
 APP_CONFIG_INFO="$ROOT/.env (benchmark mode uses the supplied environment)"
 APP_FLEET_INFO="${ORBIT_FLEET:-orj}"
