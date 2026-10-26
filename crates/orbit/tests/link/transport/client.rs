@@ -1,5 +1,42 @@
 use super::*;
 
+#[tokio::test]
+async fn dropping_a_lent_reader_cancels_before_the_upload_returns() {
+    let streams = orbitive::stream::Streams::new(
+        Arc::new(orbitive::Fleet::join("loan-cancel", 2).unwrap()),
+        orbitive::stream::Incarnation::new(1),
+    )
+    .unwrap();
+    let (origin, ticket) = streams.create().unwrap();
+    let remote = streams.open(ticket).unwrap();
+    let (read, write) = origin.split();
+    let hot = Arc::new(Mutex::new(Hot::default()));
+    let loan = Arc::new(Loan {
+        hot: Arc::clone(&hot),
+        ticket,
+        halves: Mutex::new((None, None)),
+    });
+    let reader = LentRead { half: Some(read), loan: Arc::clone(&loan) };
+    let writer = LentWrite { half: Some(write), loan };
+    let (_incoming, mut outgoing) = remote.split();
+    drop(reader);
+    outgoing.peer_closed().await.unwrap();
+    assert!(hot.lock().unwrap().slots.is_empty());
+    drop(writer);
+    drop((_incoming, outgoing));
+    let (mut endpoint, _) = hot.lock().unwrap().slots.pop_front().unwrap();
+    endpoint.rearm(&streams).unwrap();
+    let replacement = streams.open(ticket).unwrap();
+    let (_read, mut write) = replacement.split();
+    let mut waiting = std::pin::pin!(write.peer_closed());
+    assert!(
+        waiting
+            .as_mut()
+            .poll(&mut Context::from_waker(std::task::Waker::noop()))
+            .is_pending()
+    );
+}
+
 fn reply_wait() -> (ReplyWait, Endpoint, ReadHalf, Arc<Waiting>) {
     let streams = orbitive::stream::Streams::new(
         Arc::new(orbitive::Fleet::join("reply-wait", 2).unwrap()),

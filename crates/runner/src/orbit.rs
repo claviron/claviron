@@ -715,7 +715,13 @@ async fn serve(
         }
     };
 
-    let (parts, response_body) = application.call(request).await.into_parts();
+    let Some(response) =
+        before_head(reply_body.as_mut(), application.call(request)).await
+    else {
+        tracing::debug!(correlation, "🛰 reply reader left before the head");
+        return;
+    };
+    let (parts, response_body) = response.into_parts();
     // A reply that is whole says its exact size. Taken here, it is in hand
     // before the head goes; anything else streams after the head.
     let whole = http_body::Body::size_hint(&response_body)
@@ -723,7 +729,13 @@ async fn serve(
         .is_some_and(|size| size <= TRANSPORT_BUFFER_BYTES as u64);
     let mut streaming = None;
     let bytes = if whole {
-        match response_body.collect().await {
+        let Some(collected) =
+            before_head(reply_body.as_mut(), response_body.collect()).await
+        else {
+            tracing::debug!(correlation, "🛰 reply reader left while buffering");
+            return;
+        };
+        match collected {
             Ok(body) => body.to_bytes(),
             Err(error) => {
                 tracing::debug!(correlation, "🛰 ✗ reply body failed: {error}");
@@ -850,6 +862,22 @@ async fn serve(
         arrived.elapsed(),
         if whole { ", buffered" } else { "" }
     );
+}
+
+/// Before publishing a head, no response read can otherwise observe caller
+/// cancellation. Drop only this exchange's future when its reader goes away.
+async fn before_head<T>(
+    outgoing: Option<&mut claviron_orbit::stream::WriteHalf>,
+    work: impl Future<Output = T>,
+) -> Option<T> {
+    match outgoing {
+        Some(outgoing) => tokio::select! {
+            biased;
+            _ = outgoing.peer_closed() => None,
+            result = work => Some(result),
+        },
+        None => Some(work.await),
+    }
 }
 
 fn session_request(

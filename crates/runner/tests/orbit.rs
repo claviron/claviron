@@ -1,5 +1,128 @@
 use super::*;
 
+fn cancellation_stream()
+-> (claviron_orbit::stream::ReadHalf, claviron_orbit::stream::WriteHalf) {
+    use claviron_orbit::Fleet;
+    use claviron_orbit::stream::{Incarnation, Streams};
+
+    let streams = Streams::new(
+        Arc::new(Fleet::join("head-cancel", 2).unwrap()),
+        Incarnation::new(1),
+    )
+    .unwrap();
+    let (caller, ticket) = streams.create().unwrap();
+    let runner = streams.open(ticket).unwrap();
+    let (reader, mut upload) = caller.split();
+    // An empty/completed request upload must not cancel a pending reply.
+    upload.finish().unwrap();
+    let (_incoming, outgoing) = runner.split();
+    (reader, outgoing)
+}
+
+#[tokio::test]
+async fn cancelled_head_releases_in_flight_and_admission_capacity() {
+    use claviron_http::admission::Admission;
+
+    let admission = Admission::limited(Some(1));
+    let (reader, mut outgoing) = cancellation_stream();
+    let (entered, ready) = tokio::sync::oneshot::channel();
+    let accepting = admission.clone();
+    let mut exchanges = JoinSet::new();
+    exchanges.spawn(async move {
+        before_head(Some(&mut outgoing), async {
+            let _place = accepting.enter(None).await.unwrap();
+            entered.send(()).unwrap();
+            std::future::pending::<()>().await;
+        })
+        .await
+    });
+    ready.await.unwrap();
+    assert_eq!(exchanges.len(), 1);
+    reader.stop_reading();
+    assert!(exchanges.join_next().await.unwrap().unwrap().is_none());
+    assert!(exchanges.is_empty());
+    std::future::poll_fn(|cx| {
+        let mut entering = std::pin::pin!(admission.enter(None));
+        assert!(entering.as_mut().poll(cx).is_ready());
+        std::task::Poll::Ready(())
+    })
+    .await;
+
+    // Cancellation while still queued for admission also drops its waiter.
+    let _held = admission.enter(None).await.unwrap();
+    let (reader, mut outgoing) = cancellation_stream();
+    let mut queued =
+        std::pin::pin!(before_head(Some(&mut outgoing), admission.enter(None)));
+    std::future::poll_fn(|cx| {
+        assert!(queued.as_mut().poll(cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    reader.stop_reading();
+    assert!(queued.await.is_none());
+}
+
+#[tokio::test]
+async fn cancelled_buffered_body_is_dropped_before_the_head() {
+    struct Buffered {
+        polled: Option<tokio::sync::oneshot::Sender<()>>,
+        dropped: Option<tokio::sync::oneshot::Sender<()>>,
+    }
+    impl http_body::Body for Buffered {
+        type Data = Bytes;
+        type Error = std::io::Error;
+
+        fn size_hint(&self) -> http_body::SizeHint {
+            http_body::SizeHint::with_exact(1)
+        }
+
+        fn poll_frame(
+            mut self: Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Result<http_body::Frame<Bytes>, Self::Error>>>
+        {
+            if let Some(polled) = self.polled.take() {
+                polled.send(()).unwrap();
+            }
+            std::task::Poll::Pending
+        }
+    }
+    impl Drop for Buffered {
+        fn drop(&mut self) {
+            let _ = self.dropped.take().unwrap().send(());
+        }
+    }
+    let (reader, mut outgoing) = cancellation_stream();
+    let (polled, ready) = tokio::sync::oneshot::channel();
+    let (dropped, released) = tokio::sync::oneshot::channel();
+    let body = Buffered { polled: Some(polled), dropped: Some(dropped) };
+    let waiter = tokio::spawn(async move {
+        before_head(Some(&mut outgoing), body.collect()).await
+    });
+    ready.await.unwrap();
+    reader.stop_reading();
+    assert!(waiter.await.unwrap().is_none());
+    released.await.unwrap();
+}
+
+#[tokio::test]
+async fn pre_head_cancellation_wins_before_work_starts_but_fin_does_not() {
+    let (reader, mut outgoing) = cancellation_stream();
+    assert_eq!(
+        before_head(Some(&mut outgoing), async { 200 }).await,
+        Some(200)
+    );
+    reader.stop_reading();
+    assert!(
+        before_head(Some(&mut outgoing), async {
+            panic!("an already cancelled exchange must not enter its handler")
+        })
+        .await
+        .is_none()
+    );
+    assert_eq!(before_head(None, async { 204 }).await, Some(204));
+}
+
 #[tokio::test]
 async fn message_owner_receives_its_ingress_retirement_signal() {
     use std::future::poll_fn;

@@ -207,15 +207,7 @@ impl Loan {
             let mut halves =
                 self.halves.lock().expect("the loan mutex is never poisoned");
             match (halves.0.take(), halves.1.take()) {
-                // The exchange is over for this side, and the application is
-                // told so, as dropping the half would have told it. Ordinarily
-                // every byte has been read and this says nothing new; when the
-                // client went away mid-response it is what stops the
-                // application waiting on a ring nobody will empty.
-                (Some(read), Some(write)) => {
-                    read.stop_reading();
-                    Endpoint::rejoin(read, write).ok()
-                }
+                (Some(read), Some(write)) => Endpoint::rejoin(read, write).ok(),
                 // The other half is still out; it will find this one here.
                 (read, write) => {
                     halves.0 = read;
@@ -275,6 +267,9 @@ impl Drop for LentWrite {
 impl Drop for LentRead {
     fn drop(&mut self) {
         if let Some(half) = self.half.take() {
+            // Cancel response work immediately, even while the upload still
+            // owns its half. Pooling the endpoint must not delay this signal.
+            half.stop_reading();
             self.loan
                 .halves
                 .lock()
