@@ -5,6 +5,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 EXAMPLE_ROOT="$ROOT/examples/edge-server"
 cd "$EXAMPLE_ROOT"
 source "$ROOT/examples/scripts/lib/application.sh"
+source "$ROOT/examples/scripts/lib/build.sh"
 application_init "$EXAMPLE_ROOT" edge-server "$EXAMPLE_ROOT/logs" "$@"
 set -- "${APP_ARGS[@]}"
 
@@ -95,16 +96,7 @@ fi
 application_guard
 
 if [[ "$skip_build" == false ]]; then
-  build_env=()
-  if [[ "$enable_native" == true ]]; then
-    # Cargo gives encoded flags precedence; preserve the caller's active flags.
-    if [[ -n "${CARGO_ENCODED_RUSTFLAGS+x}" ]]; then
-      build_env+=("CARGO_ENCODED_RUSTFLAGS=${CARGO_ENCODED_RUSTFLAGS:+${CARGO_ENCODED_RUSTFLAGS}$'\x1f'}-C"$'\x1f'"target-cpu=native")
-    else
-      build_env+=("RUSTFLAGS=${RUSTFLAGS:+$RUSTFLAGS }-C target-cpu=native")
-    fi
-  fi
-  env "${build_env[@]}" cargo build --manifest-path "$EXAMPLE_ROOT/Cargo.toml" \
+  example_build "$enable_native" cargo build --manifest-path "$EXAMPLE_ROOT/Cargo.toml" \
     --bin edge-server "${build_args[@]}"
 fi
 

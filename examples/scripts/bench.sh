@@ -2,6 +2,7 @@
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
+source "$ROOT/examples/scripts/lib/build.sh"
 APP="$ROOT/examples/bench-app"
 EDGE="$ROOT/examples/edge-server"
 if [[ -n "${CARGO_TARGET_DIR:-}" && "${CARGO_TARGET_DIR:-}" != /* ]]; then
@@ -9,8 +10,9 @@ if [[ -n "${CARGO_TARGET_DIR:-}" && "${CARGO_TARGET_DIR:-}" != /* ]]; then
 fi
 
 usage() {
-  echo 'Usage: examples/scripts/bench.sh start|status|stop [--release] [--no-build]'
+  echo 'Usage: examples/scripts/bench.sh start|status|stop [--release] [--native] [--no-build]'
   echo 'Validate both configs, then start the native Rust app and benchmark Edge.'
+  echo '--native builds both binaries with target-cpu=native for this machine.'
 }
 
 action="${1:-}"
@@ -23,10 +25,12 @@ profile=debug
 build_args=()
 launch_args=(--no-build)
 skip_build=false
+enable_native=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --release) profile=release; build_args=(--release); launch_args+=(--release) ;;
     --no-build) skip_build=true ;;
+    --native) enable_native=true ;;
     *) usage >&2; exit 2 ;;
   esac
   shift
@@ -70,8 +74,8 @@ if "$ROOT/examples/scripts/edge.sh" status >/dev/null 2>&1 ||
 fi
 
 if [[ "$skip_build" == false ]]; then
-  cargo build --manifest-path "$APP/Cargo.toml" --workspace --all-features --all-targets "${build_args[@]}"
-  cargo build --manifest-path "$EDGE/Cargo.toml" --workspace --all-features --all-targets "${build_args[@]}"
+  example_build "$enable_native" cargo build --manifest-path "$APP/Cargo.toml" --workspace --all-features --all-targets "${build_args[@]}"
+  example_build "$enable_native" cargo build --manifest-path "$EDGE/Cargo.toml" --workspace --all-features --all-targets "${build_args[@]}"
 fi
 
 # Validation is foreground-only and publishes no lifecycle PID file. Neither

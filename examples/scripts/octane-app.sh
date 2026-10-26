@@ -8,15 +8,17 @@ BIN="${BIN:-${SCRIPT_NAME%.sh}}"
 FLEET="${FLEET:-octane}"
 cd "$ROOT"
 source "$REPO_ROOT/examples/scripts/lib/application.sh"
+source "$REPO_ROOT/examples/scripts/lib/build.sh"
 application_init "$ROOT" octane-app "$ROOT/storage/logs" "$@"
 set -- "${APP_ARGS[@]}"
 
 usage() {
   cat <<HELP
-Usage: examples/scripts/$SCRIPT_NAME [start|run|status|stop] [--bench] [--release] [--sudo] [--no-build] [server options...]
+Usage: examples/scripts/$SCRIPT_NAME [start|run|status|stop] [--bench] [--release] [--native] [--sudo] [--no-build] [server options...]
 
 Build examples/octane-app, then run it in the foreground as the current user.
 --release builds and runs the release binary instead.
+--native builds the Rust runner with target-cpu=native for this machine.
 --bench enables shared native baselines and Laravel workload routes.
 --sudo elevates only the server launch; the build still runs as your user.
 --no-build skips the build. Use -- to pass remaining options unchanged.
@@ -53,6 +55,7 @@ HELP
 
 use_sudo=false
 skip_build=false
+enable_native=false
 enable_bench=false
 enable_deno=false
 build_profile=debug
@@ -62,6 +65,7 @@ while [[ "$#" -gt 0 ]]; do
   case "$1" in
   --sudo) use_sudo=true ;;
   --no-build) skip_build=true ;;
+  --native) enable_native=true ;;
   --bench) enable_bench=true ;;
   --deno) enable_deno=true ;;
   --release)
@@ -104,7 +108,7 @@ application_guard
 
 if [[ "$skip_build" == false ]]; then
   # The workspace's macOS ZTS embed toolchain; never select Homebrew PHP.
-  cargo build --bin "$BIN" "${build_args[@]}"
+  example_build "$enable_native" cargo build --bin "$BIN" "${build_args[@]}"
 fi
 
 HOSTNAME=$(hostname -s)

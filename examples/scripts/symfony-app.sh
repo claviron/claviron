@@ -7,19 +7,23 @@ APP_ROOT="${SYMFONY_ROOT:-$WORKSPACE_ROOT/web/symfony-app}"
 SKENE_ROOT="${SKENE_ROOT:-$WORKSPACE_ROOT/skene}"
 cd "$APP_ROOT"
 source "$REPO_ROOT/examples/scripts/lib/application.sh"
+source "$REPO_ROOT/examples/scripts/lib/build.sh"
 application_init "$APP_ROOT" symfony-app "$APP_ROOT/var/log/runner" "$@"
 set -- "${APP_ARGS[@]}"
 
 profile=debug
 build_args=()
 skip_build=false
+enable_native=false
 server_args=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --release) profile=release; build_args=(--release) ;;
     --no-build) skip_build=true ;;
+    --native) enable_native=true ;;
     --help|-h)
-      echo 'Usage: examples/scripts/symfony-app.sh [start|run|status|stop] [--release] [--no-build] [Skene options...]'
+      echo 'Usage: examples/scripts/symfony-app.sh [start|run|status|stop] [--release] [--native] [--no-build] [Skene options...]'
+      echo '--native builds the Rust runner with target-cpu=native for this machine.'
       echo 'SYMFONY_ROOT selects the PHP application; SKENE_ROOT selects its native runner.'
       echo 'Builds Skene with its default features: native bench interception stays disabled.'
       exit 0 ;;
@@ -29,7 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 application_guard
 if [[ "$skip_build" == false ]]; then
-  cargo build --manifest-path "$SKENE_ROOT/Cargo.toml" --bin skene "${build_args[@]}"
+  example_build "$enable_native" cargo build --manifest-path "$SKENE_ROOT/Cargo.toml" --bin skene "${build_args[@]}"
 fi
 worker_args=()
 [[ -z "${WORKERS:-}" ]] || worker_args=(--workers "$WORKERS")

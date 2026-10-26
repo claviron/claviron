@@ -8,17 +8,19 @@ BIN="${BIN:-${SCRIPT_NAME%.sh}}"
 FLEET="${FLEET:-fastapi}"
 cd "$ROOT"
 source "$REPO_ROOT/examples/scripts/lib/application.sh"
+source "$REPO_ROOT/examples/scripts/lib/build.sh"
 application_init "$ROOT" fastapi-app "$ROOT/storage/logs" "$@"
 set -- "${APP_ARGS[@]}"
 
 usage() {
   cat <<HELP
-Usage: examples/scripts/$SCRIPT_NAME [start|run|status|stop] [--sync] [--bench] [--release] [--no-build] [--venv PATH] [server options...]
+Usage: examples/scripts/$SCRIPT_NAME [start|run|status|stop] [--sync] [--bench] [--release] [--native] [--no-build] [--venv PATH] [server options...]
 
 Build examples/fastapi-app and run it from its application root.
 The example edge-server routes Host: orbit.bench to this application's
 fastapi fleet over Orbit shared memory; no TCP/UDS listener is needed.
 --release builds and runs the release binary instead.
+--native builds the Rust runner with target-cpu=native for this machine.
 --bench enables shared native baselines and FastAPI workload routes.
 --sync installs the locked Python dependencies into the selected environment first.
 --no-build skips the Rust build. Use -- to forward remaining server options.
@@ -61,6 +63,7 @@ if [[ -z "${UV_PROJECT_ENVIRONMENT:-}" && "$(uname -s)" == Linux ]] && command -
 fi
 
 skip_build=false
+enable_native=false
 sync=false
 enable_bench=false
 build_profile=debug
@@ -70,6 +73,7 @@ while [[ "$#" -gt 0 ]]; do
   case "$1" in
   --sync) sync=true ;;
   --no-build) skip_build=true ;;
+  --native) enable_native=true ;;
   --bench) enable_bench=true ;;
   --release)
     build_profile=release
@@ -129,7 +133,7 @@ fi
 # Keep the shared build interpreter stable across terminal and IDE builds.
 "$venv/bin/python" -c 'import sys; assert sys.version_info[:2] == (3, 15), "FastAPI example requires CPython 3.15; recreate the environment with --sync"'
 if [[ "$skip_build" == false ]]; then
-  cargo build --bin "$BIN" "${build_args[@]}"
+  example_build "$enable_native" cargo build --bin "$BIN" "${build_args[@]}"
 fi
 
 binary="${CARGO_TARGET_DIR:-$ROOT/target}/$build_profile/$BIN"
