@@ -99,7 +99,7 @@ geoip = ["dep:claviron-geoip"]
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-broadcast = { workspace = true, optional = true }
-claviron-db = { workspace = true, optional = true, features = ["server"] }
+claviron-db = { workspace = true, default-features = true, optional = true, features = ["server"] }
 claviron-files.workspace = true
 claviron-geoip = { workspace = true, optional = true }
 claviron-helpers.workspace = true

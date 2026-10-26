@@ -33,7 +33,7 @@ postgres = ["sqlx/postgres", "claviron-db?/postgres"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
-claviron-db = { workspace = true, optional = true }
+claviron-db = { workspace = true, default-features = true, optional = true }
 claviron-orbit = { workspace = true, optional = true }
 claviron-runtime = { workspace = true, optional = true }
 claviron-types = { workspace = true, default-features = false }

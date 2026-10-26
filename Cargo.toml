@@ -169,7 +169,7 @@ claviron-app = { workspace = true, optional = true }
 claviron-auth = { workspace = true, optional = true }
 claviron-broadcast = { workspace = true, optional = true }
 claviron-cache = { workspace = true, optional = true }
-claviron-db = { workspace = true, optional = true }
+claviron-db = { workspace = true, default-features = true, optional = true }
 claviron-edge = { workspace = true, optional = true }
 claviron-ffi = { workspace = true, features = ["http"], optional = true }
 claviron-files = { workspace = true, features = ["axum"], optional = true }
@@ -293,7 +293,7 @@ claviron-app = { version = "0.2.0-alpha.22", path = "crates/app" }
 claviron-auth = { version = "0.2.0-alpha.22", path = "crates/auth" }
 claviron-broadcast = { version = "0.2.0-alpha.22", path = "crates/broadcast" }
 claviron-cache = { version = "0.2.0-alpha.22", path = "crates/cache" }
-claviron-db = { version = "0.2.0-alpha.22", path = "crates/db" }
+claviron-db = { version = "0.2.0-alpha.22", path = "crates/db", default-features = false }
 claviron-edge = { version = "0.2.0-alpha.22", path = "crates/edge" }
 claviron-ffi = { version = "0.2.0-alpha.22", path = "crates/ffi" }
 claviron-files = { version = "0.2.0-alpha.22", path = "crates/files" }
@@ -309,14 +309,14 @@ claviron-php = { version = "0.2.0-alpha.22", path = "crates/php" }
 claviron-php-embed = { version = "0.2.0-alpha.22", path = "crates/php-embed" }
 claviron-php-fcgi = { version = "0.2.0-alpha.22", path = "crates/php-fcgi" }
 claviron-pusher = { version = "0.2.0-alpha.22", path = "crates/pusher" }
-claviron-resolver = { version = "0.2.0-alpha.22", path = "crates/resolver" }
+claviron-resolver = { version = "0.2.0-alpha.22", path = "crates/resolver", default-features = false }
 claviron-runner = { version = "0.2.0-alpha.22", path = "crates/runner" }
 claviron-runtime = { version = "0.2.0-alpha.22", path = "crates/runtime" }
 claviron-supervisor = { version = "0.2.0-alpha.22", path = "crates/supervisor" }
 claviron-sys = { version = "0.2.0-alpha.22", path = "crates/sys" }
 claviron-tasks = { version = "0.2.0-alpha.22", path = "crates/tasks" }
-claviron-tls = { version = "0.2.0-alpha.22", path = "crates/tls" }
-claviron-types = { version = "0.2.0-alpha.22", path = "crates/types" }
+claviron-tls = { version = "0.2.0-alpha.22", path = "crates/tls", default-features = false }
+claviron-types = { version = "0.2.0-alpha.22", path = "crates/types", default-features = false }
 claviron-upstream = { version = "0.2.0-alpha.22", path = "crates/upstream" }
 
 # ── Async runtime & primitives ───────────────────────────────────────

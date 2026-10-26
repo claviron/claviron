@@ -26,7 +26,7 @@ db = [
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
-claviron-db = { workspace = true, optional = true }
+claviron-db = { workspace = true, default-features = true, optional = true }
 claviron-helpers.workspace = true
 claviron-hosting = { workspace = true, optional = true }
 claviron-orbit.workspace = true
