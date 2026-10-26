@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn fleet_broadcast_uses_the_selected_route_not_an_unrelated_root_owner() {
     let host: HostConfig = serde_yaml::from_str(
-        "root: public\nroutes:\n  /app:\n    broadcast: { target: fleet }\n  /app/private:\n    root: private\n",
+        "root: public\nroutes:\n  /app:\n    broadcast: { target: fleet }\n  /app/private:\n    path: private\n",
     )
     .unwrap();
     assert!(!is_fleet(&host));

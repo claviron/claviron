@@ -92,13 +92,13 @@ async fn exercise() {
     let script = directory.path().join("application.php");
     std::fs::write(directory.path().join("index.php"), "<?php echo 'classic';")
         .unwrap();
-    std::fs::create_dir(directory.path().join("assets")).unwrap();
+    std::fs::create_dir_all(directory.path().join("live/build")).unwrap();
     std::fs::write(
-        directory.path().join("assets/app.css"),
+        directory.path().join("live/build/app.css"),
         "body { color: red; }",
     )
     .unwrap();
-    std::fs::create_dir(directory.path().join("live")).unwrap();
+    std::fs::create_dir(directory.path().join("live/optional")).unwrap();
     std::fs::write(
         directory.path().join("live/data.json"),
         "must not bypass PHP",
@@ -149,20 +149,19 @@ async fn exercise() {
     })
     .await;
 
-    // Deliberately unsorted mixed entries: longest segment prefix must win.
+    // Directory policies share the PHP owner so misses and dynamic files can
+    // continue to it. The unsorted PHP mounts still require longest-prefix selection.
     let config: HostConfig = serde_yaml::from_str(&format!(
         r#"
 root: {}
 try_files: true
 routes:
-  /live/build:
-    path: assets
-    static:
-      none_found: false
-  /live/optional:
-    path: assets
-    static:
-      none_found: true
+  /:
+    statics:
+      - dir: live/build
+        none_found: false
+      - dir: live/optional
+        none_found: true
 php:
   - path: /live/admin
     runner: application
@@ -231,8 +230,8 @@ php:
         "/live/build/index.php",
     ] {
         let (status, body) = call(&router, "GET", uri, "").await;
-        assert_eq!(status, StatusCode::OK);
-        assert!(body.contains(&format!("GET {uri}")));
+        assert_eq!(status, StatusCode::OK, "{uri}: {body}");
+        assert!(body.contains(&format!("GET {uri}")), "{uri}: {body}");
     }
     assert_eq!(
         call(&router, "GET", "/live/build/.env", "").await.0,
