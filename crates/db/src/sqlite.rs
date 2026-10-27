@@ -9,9 +9,9 @@ use crate::config::{SqliteEntry, SqliteMode};
 use crate::error::{Error, Result};
 
 /// `checking`: a configuration check (`ConfigCheck`) opens the file read-only
-/// and immutable. A check changes nothing it shares with the running server,
-/// and an immutable open needs neither the WAL's `-shm` file nor write access
-/// to the directory — only read access to the file, which the check has.
+/// with SQLite's ordinary locking and WAL visibility. SQLite may manage WAL
+/// index coordination; the check does not write application data or force a
+/// checkpoint. A live source must not be declared immutable.
 pub fn build_pool(
     name: &str,
     entry: &SqliteEntry,
@@ -44,7 +44,7 @@ pub fn build_pool(
     let options = if memory {
         options.journal_mode(SqliteJournalMode::Memory)
     } else if checking {
-        options.read_only(true).immutable(true)
+        options.read_only(true)
     } else {
         options
             .create_if_missing(entry.create)

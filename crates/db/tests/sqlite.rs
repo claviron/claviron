@@ -12,6 +12,40 @@ fn entry(
 }
 
 #[tokio::test]
+async fn configcheck_reads_committed_wal_with_reserved_path_characters() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut settings = entry(std::path::Path::new("fixture.sqlite"), "");
+    settings.path = directory.path().join("database #?%.sqlite");
+    let writer = build_pool("fixture", &settings, false).unwrap();
+    let mut connection = writer.acquire().await.unwrap();
+    sqlx::query("CREATE TABLE saved (value INTEGER NOT NULL)")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    let main_before = std::fs::read(&settings.path).unwrap();
+    sqlx::query("INSERT INTO saved VALUES (37)")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    assert_eq!(main_before, std::fs::read(&settings.path).unwrap());
+
+    let checking = build_pool("fixture", &settings, true).unwrap();
+    let value: i64 = sqlx::query_scalar("SELECT value FROM saved")
+        .fetch_one(&checking)
+        .await
+        .unwrap();
+    assert_eq!(value, 37, "checking must include the committed WAL");
+    checking.close().await;
+    assert_eq!(main_before, std::fs::read(&settings.path).unwrap());
+    drop(connection);
+    writer.close().await;
+}
+
+#[tokio::test]
 async fn mmap_is_applied_to_each_connection_without_changing_persistence() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("database.sqlite");

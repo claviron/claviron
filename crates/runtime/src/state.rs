@@ -159,10 +159,11 @@ impl LaunchBlob {
 }
 
 /// This process only checks configuration (`--check-config`): it boots
-/// providers to read their files, and must leave every shared resource as it
-/// found it. A check may run beside the live service — same user, same
-/// fleet, same shared memory — and the service's segments are not its to
-/// reset, recreate or unlink. Present in the registry of a process started
+/// providers to read their files without mutating application data. Storage
+/// drivers may perform ordinary read-only coordination, such as SQLite WAL
+/// index locks and sidecars. A check may run beside the live service — same
+/// user, same fleet, same shared memory — and the service's segments are not
+/// its to reset, recreate or unlink. Present in the registry of a process started
 /// through `Server::initialize_for_check`, absent everywhere else.
 #[derive(Clone, Copy, Debug)]
 pub struct ConfigCheck;
