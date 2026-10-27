@@ -53,3 +53,33 @@ async fn stopping_ends_a_parked_wait() {
     stop.cancel();
     running.await.unwrap().unwrap();
 }
+
+#[test]
+fn cell_revision_preserves_scalar_validation_and_signed_text_tokens() {
+    let cells = Cells::new(Arc::new(
+        claviron_orbit::Fleet::join("revision", 1).unwrap(),
+    ))
+    .unwrap();
+    let interrupt = std::sync::atomic::AtomicBool::new(false);
+    let scalar = cells.allocate(7_i64).unwrap();
+    let handle = Cell::Int(scalar.clone());
+    let before = handle.version().unwrap();
+    scalar.store(8).unwrap();
+    assert_eq!(handle.wait_changed_until(before, &interrupt).unwrap(), Some(1));
+    for invalid in [-1, i64::from(u32::MAX) + 1] {
+        assert!(handle.wait_changed_until(invalid, &interrupt).is_err());
+    }
+    let text = cells.allocate_text("before").unwrap();
+    let handle = Cell::Text(text.clone());
+    let before = handle.version().unwrap();
+    text.store("after").unwrap();
+    let after = text.version().unwrap() as i64;
+    assert_eq!(
+        handle.wait_changed_until(before, &interrupt).unwrap(),
+        Some(after)
+    );
+    assert_eq!(
+        handle.wait_changed_until(i64::MIN, &interrupt).unwrap(),
+        Some(after)
+    );
+}

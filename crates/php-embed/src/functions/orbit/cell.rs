@@ -165,11 +165,11 @@ impl Cell {
         cell.load().map(Loaded::Text).map_err(failure)
     }
 
-    fn version(&self) -> Result<u32, PhpException> {
+    fn version(&self) -> Result<u64, PhpException> {
         match self {
-            Self::Int(cell) => cell.version(),
-            Self::Float(cell) => cell.version(),
-            Self::Bool(cell) => cell.version(),
+            Self::Int(cell) => cell.version().map(u64::from),
+            Self::Float(cell) => cell.version().map(u64::from),
+            Self::Bool(cell) => cell.version().map(u64::from),
             Self::Text(cell) => cell.version(),
         }
         .map_err(failure)
@@ -177,12 +177,16 @@ impl Cell {
 
     fn wait_changed(
         &self,
-        since: u32,
-    ) -> Result<u32, PhpException> {
+        since: u64,
+    ) -> Result<u64, PhpException> {
+        let scalar = || {
+            u32::try_from(since)
+                .map_err(|_| failure("wait takes a version from version()"))
+        };
         match self {
-            Self::Int(cell) => cell.wait_changed(since),
-            Self::Float(cell) => cell.wait_changed(since),
-            Self::Bool(cell) => cell.wait_changed(since),
+            Self::Int(cell) => cell.wait_changed(scalar()?).map(u64::from),
+            Self::Float(cell) => cell.wait_changed(scalar()?).map(u64::from),
+            Self::Bool(cell) => cell.wait_changed(scalar()?).map(u64::from),
             Self::Text(cell) => cell.wait_changed(since),
         }
         .map_err(failure)
@@ -377,21 +381,20 @@ impl PhpOrbital {
         Ok(self.cell()?.append(text)?.as_string())
     }
 
-    /// The write count; take it before `get()` and `wait()` misses nothing.
+    /// Opaque revision token; pass it unchanged to wait(), even if negative.
     pub fn version(&self) -> Result<i64, PhpException> {
-        Ok(i64::from(self.cell()?.version()?))
+        // PHP integers carry the complete u64 token as the same signed bits.
+        Ok(self.cell()?.version()? as i64)
     }
 
     /// Block until the cell has been written since `$since`, by any process,
-    /// and return the count now. Coalescing: many writes while parked wake
+    /// and return the current opaque token. Coalescing: many writes while parked wake
     /// once; `get()` reads the latest. Throws once the cell is released.
     pub fn wait(
         &self,
         since: i64,
     ) -> Result<i64, PhpException> {
-        let since = u32::try_from(since)
-            .map_err(|_| failure("wait takes a version from version()"))?;
-        Ok(i64::from(self.cell()?.wait_changed(since)?))
+        Ok(self.cell()?.wait_changed(since as u64)? as i64)
     }
 
     pub fn release(&mut self) -> Result<(), PhpException> {
@@ -576,3 +579,7 @@ unsafe extern "C" fn cast_object(
     }
     ZEND_RESULT_CODE_SUCCESS
 }
+
+#[cfg(test)]
+#[path = "../../../tests/functions/orbit/cell.rs"]
+mod tests;

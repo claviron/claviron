@@ -152,7 +152,7 @@ impl UserData for LuaCell {
         // time.
         methods.add_async_method(
             "wait",
-            |_, this: UserDataRef<LuaCell>, since: u32| {
+            |_, this: UserDataRef<LuaCell>, since: i64| {
                 let cells = Arc::clone(&this.cells);
                 let execution = Arc::clone(&this.execution);
                 let id = this.id.clone();
@@ -412,26 +412,39 @@ impl Cell {
         cell.load().map_err(failure)
     }
 
-    fn version(&self) -> mlua::Result<u32> {
+    fn version(&self) -> mlua::Result<i64> {
         match self {
-            Self::Int(cell) => cell.version(),
-            Self::Float(cell) => cell.version(),
-            Self::Bool(cell) => cell.version(),
-            Self::Text(cell) => cell.version(),
+            Self::Int(cell) => cell.version().map(i64::from),
+            Self::Float(cell) => cell.version().map(i64::from),
+            Self::Bool(cell) => cell.version().map(i64::from),
+            // Lua's signed integer retains every bit of the opaque u64 token.
+            Self::Text(cell) => cell.version().map(|revision| revision as i64),
         }
         .map_err(failure)
     }
 
     fn wait_changed_until(
         &self,
-        since: u32,
+        since: i64,
         interrupt: &AtomicBool,
-    ) -> mlua::Result<Option<u32>> {
+    ) -> mlua::Result<Option<i64>> {
+        let scalar = || {
+            u32::try_from(since)
+                .map_err(|_| failure("wait takes a version from version()"))
+        };
         match self {
-            Self::Int(cell) => cell.wait_changed_until(since, interrupt),
-            Self::Float(cell) => cell.wait_changed_until(since, interrupt),
-            Self::Bool(cell) => cell.wait_changed_until(since, interrupt),
-            Self::Text(cell) => cell.wait_changed_until(since, interrupt),
+            Self::Int(cell) => cell
+                .wait_changed_until(scalar()?, interrupt)
+                .map(|revision| revision.map(i64::from)),
+            Self::Float(cell) => cell
+                .wait_changed_until(scalar()?, interrupt)
+                .map(|revision| revision.map(i64::from)),
+            Self::Bool(cell) => cell
+                .wait_changed_until(scalar()?, interrupt)
+                .map(|revision| revision.map(i64::from)),
+            Self::Text(cell) => cell
+                .wait_changed_until(since as u64, interrupt)
+                .map(|revision| revision.map(|revision| revision as i64)),
         }
         .map_err(failure)
     }

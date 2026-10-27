@@ -196,3 +196,12 @@ Part of Claviron's alpha development series; APIs and configuration may change.
 Licensed under either [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT)
 or [Apache-2.0](https://github.com/claviron/claviron/blob/main/LICENSE-APACHE), at your option.
 Bundled third-party Lua sources retain their own license notices.
+
+
+### Cell revision tokens
+
+Cell `version()` and `wait()` return opaque integer tokens. Pass a token back
+unchanged; do not increment it or convert it through a float. Text cells retain
+all 64 revision bits in the language's signed 64-bit integer, so a valid token
+can be negative. Scalar cell tokens remain unsigned 32-bit counts represented
+as nonnegative integers; out-of-range scalar wait tokens are rejected.
