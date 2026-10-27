@@ -8,9 +8,10 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::completion::Completion;
 use claviron_helpers::sync::LockUnpoisoned;
 use claviron_runtime::AppState;
-use tokio::task::JoinHandle;
+use futures_util::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -22,7 +23,7 @@ use crate::snapshot::TaskLifecycle;
 struct ActivePoolController {
     runner: Arc<TaskRunner>,
     cancel: CancellationToken,
-    handle: JoinHandle<()>,
+    handle: Completion,
 }
 
 /// Owns one local controller generation per configured pool task.
@@ -63,9 +64,9 @@ impl PoolReloader {
         runner.begin_generation();
         let cancel = CancellationToken::new();
         let controller_cancel = cancel.clone();
-        let handle = tokio::spawn(async move {
+        let handle = Completion::new(tokio::spawn(async move {
             run(task, state, controller_cancel, lease_ttl).await;
-        });
+        }));
         active.insert(name, ActivePoolController { runner, cancel, handle });
         true
     }
@@ -103,19 +104,18 @@ impl PoolReloader {
         count
     }
 
-    pub(crate) fn pending_reload(
+    pub(crate) fn completions(
         &self,
-        targets: &BTreeMap<String, ReloadAction>,
-    ) -> usize {
-        let active = self.active.lock_unpoisoned();
-        targets
-            .keys()
-            .filter_map(|name| active.get(name))
-            .filter(|controller| {
-                !controller.handle.is_finished()
-                    || controller.runner.is_running()
+        targets: Option<&BTreeMap<String, ReloadAction>>,
+    ) -> Vec<BoxFuture<'static, ()>> {
+        self.active
+            .lock_unpoisoned()
+            .iter()
+            .filter(|(name, _)| {
+                targets.is_none_or(|targets| targets.contains_key(*name))
             })
-            .count()
+            .map(|(_, controller)| controller.handle.waiter())
+            .collect()
     }
 
     pub(crate) fn finish_reload(

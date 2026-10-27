@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Utc};
 use claviron_helpers::sync::LockUnpoisoned;
 use cron::Schedule;
+use futures_util::{FutureExt, future::BoxFuture};
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use tracing::error;
@@ -132,7 +133,7 @@ struct OccurrenceGuard(Arc<ScheduleStatus>);
 impl Drop for OccurrenceGuard {
     fn drop(&mut self) {
         self.0.pending.fetch_sub(1, Ordering::AcqRel);
-        self.0.changed.notify_one();
+        self.0.changed.notify_waiters();
     }
 }
 
@@ -153,14 +154,24 @@ impl ScheduleHandle {
         self.status.finished()
     }
 
-    pub(crate) async fn stopped(&self) {
-        loop {
-            let changed = self.status.changed.notified();
-            if self.is_finished() {
-                return;
+    pub(crate) fn completion(&self) -> BoxFuture<'static, ()> {
+        let status = Arc::clone(&self.status);
+        async move {
+            loop {
+                let changed = status.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if status.finished() {
+                    return;
+                }
+                changed.await;
             }
-            changed.await;
         }
+        .boxed()
+    }
+
+    pub(crate) async fn stopped(&self) {
+        self.completion().await;
     }
 }
 
@@ -224,7 +235,7 @@ impl Scheduler {
             entry.stop_metrics();
             entry.run.token.cancel();
             entry.status.closed.store(true, Ordering::Release);
-            entry.status.changed.notify_one();
+            entry.status.changed.notify_waiters();
         }
     }
 
@@ -241,7 +252,7 @@ impl Scheduler {
                 let entry = queue.entries.remove(&id).unwrap();
                 entry.stop_metrics();
                 entry.status.closed.store(true, Ordering::Release);
-                entry.status.changed.notify_one();
+                entry.status.changed.notify_waiters();
                 continue;
             }
             if let Some(execution) =
@@ -264,7 +275,7 @@ impl Scheduler {
                 let entry = queue.entries.remove(&id).unwrap();
                 entry.stop_metrics();
                 entry.status.closed.store(true, Ordering::Release);
-                entry.status.changed.notify_one();
+                entry.status.changed.notify_waiters();
                 error!(
                     task = entry.runner.name(),
                     "cron produced no next occurrence"

@@ -1,5 +1,6 @@
 use claviron_runtime::AppState;
 
+mod completion;
 mod config;
 mod environment;
 

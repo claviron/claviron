@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::{Duration, SystemTime};
 
+use crate::completion::{self, Completion};
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use claviron_helpers::sync::{LockUnpoisoned, Unpoisoned};
@@ -18,8 +19,8 @@ use claviron_runtime::registry::{
 };
 use claviron_runtime::{AppState, RunContext, RunMode};
 use futures_util::FutureExt;
+use futures_util::future::BoxFuture;
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
-use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -109,7 +110,7 @@ struct ActiveSupervisor {
 }
 
 enum SupervisorHandle {
-    Execution(JoinHandle<()>),
+    Execution(Completion),
     Schedule(crate::scheduler::ScheduleHandle),
 }
 
@@ -118,6 +119,13 @@ impl SupervisorHandle {
         match self {
             Self::Execution(handle) => handle.is_finished(),
             Self::Schedule(handle) => handle.is_finished(),
+        }
+    }
+
+    fn waiter(&self) -> BoxFuture<'static, ()> {
+        match self {
+            Self::Execution(handle) => handle.waiter(),
+            Self::Schedule(handle) => handle.completion(),
         }
     }
 
@@ -140,6 +148,7 @@ struct ActiveExplicitRun {
     token: CancellationToken,
     stop: StopContext,
     completion: oneshot::Sender<TaskResult<()>>,
+    finished: CancellationToken,
 }
 
 #[derive(Default)]
@@ -1361,6 +1370,7 @@ impl TaskService {
                     token: token.clone(),
                     stop: stop.clone(),
                     completion,
+                    finished: CancellationToken::new(),
                 },
             );
             debug_assert!(
@@ -1411,7 +1421,9 @@ impl TaskService {
         let mut explicit_runs = self.inner.explicit_runs.lock_unpoisoned();
         let (completion, remove_task) = match explicit_runs.get_mut(name) {
             Some(runs) => {
-                let completion = runs.remove(&run_id).map(|run| run.completion);
+                let completion = runs
+                    .remove(&run_id)
+                    .map(|run| (run.completion, run.finished));
                 (completion, runs.is_empty())
             }
             None => (None, false),
@@ -1421,7 +1433,8 @@ impl TaskService {
         }
         drop(explicit_runs);
 
-        if let Some(completion) = completion {
+        if let Some((completion, finished)) = completion {
+            finished.cancel();
             let _ = completion.send(result);
         }
     }
@@ -1599,9 +1612,9 @@ impl TaskService {
                         }
                     }
                 } else {
-                    SupervisorHandle::Execution(tokio::spawn(
+                    SupervisorHandle::Execution(Completion::new(tokio::spawn(
                         runner.run_supervisor(st, cf, scope, dispatch),
-                    ))
+                    )))
                 };
                 self.inner.supervisors.lock_unpoisoned().insert(
                     name.clone(),
@@ -1820,59 +1833,65 @@ impl TaskService {
         count
     }
 
+    /// Snapshot exact generation joins before awaiting; no registry lock crosses
+    /// an await, and completion before waiter registration remains observable.
+    fn completion_waiters(
+        &self,
+        targets: Option<&ReloadTargets>,
+    ) -> Vec<BoxFuture<'static, ()>> {
+        let mut waiters: Vec<_> = self
+            .inner
+            .supervisors
+            .lock_unpoisoned()
+            .iter()
+            .filter(|(name, _)| {
+                targets
+                    .is_none_or(|targets| targets.supervisors.contains(*name))
+            })
+            .map(|(_, active)| active.handle.waiter())
+            .collect();
+        waiters.extend(
+            self.inner
+                .pool_reloader
+                .completions(targets.map(|targets| &targets.pools)),
+        );
+        waiters.extend(
+            self.inner
+                .explicit_runs
+                .lock_unpoisoned()
+                .iter()
+                .filter(|(name, _)| {
+                    targets.is_none_or(|targets| {
+                        targets.supervisors.contains(*name)
+                            || targets.pools.contains_key(*name)
+                    })
+                })
+                .flat_map(|(_, runs)| {
+                    runs.values().map(|run| {
+                        run.finished.clone().cancelled_owned().boxed()
+                    })
+                }),
+        );
+        waiters
+    }
+
     async fn wait_reload_targets(
         &self,
         targets: &ReloadTargets,
         timeout: Option<Duration>,
     ) -> bool {
-        use tokio::time::{Instant, sleep};
-
-        let started = Instant::now();
-        loop {
-            let pending_supervisors = {
-                let supervisors = self.inner.supervisors.lock_unpoisoned();
-                targets
-                    .supervisors
-                    .iter()
-                    .filter_map(|name| supervisors.get(name))
-                    .filter(|active| {
-                        !active.handle.is_finished()
-                            || active.runner.is_running()
-                    })
-                    .count()
-            };
-            let pending_pool =
-                self.inner.pool_reloader.pending_reload(&targets.pools);
-            let pending_manual = {
-                let explicit_runs = self.inner.explicit_runs.lock_unpoisoned();
-                targets
-                    .supervisors
-                    .iter()
-                    .chain(targets.pools.keys())
-                    .map(|name| explicit_runs.get(name).map_or(0, HashMap::len))
-                    .sum::<usize>()
-            };
-            let pending = pending_supervisors + pending_pool + pending_manual;
-
-            if pending == 0 {
-                self.inner
-                    .supervisors
-                    .lock()
-                    .unwrap()
-                    .retain(|name, _| !targets.supervisors.contains(name));
-                self.inner.pool_reloader.finish_reload(&targets.pools);
-                return true;
-            }
-
-            if timeout.is_some_and(|timeout| started.elapsed() >= timeout) {
-                error!(
-                    pending,
-                    "TaskService reload timed out while draining task state"
-                );
-                return false;
-            }
-            sleep(Duration::from_millis(10)).await;
+        if !completion::wait(self.completion_waiters(Some(targets)), timeout)
+            .await
+        {
+            error!("TaskService reload timed out while draining task state");
+            return false;
         }
+        self.inner
+            .supervisors
+            .lock_unpoisoned()
+            .retain(|name, _| !targets.supervisors.contains(name));
+        self.inner.pool_reloader.finish_reload(&targets.pools);
+        true
     }
 
     fn running_tasks_count(&self) -> usize {
@@ -1903,27 +1922,14 @@ impl TaskService {
         &self,
         timeout: Option<Duration>,
     ) {
-        use tokio::time::{Instant, sleep};
-        let start = Instant::now();
-        debug!(
-            "⌛ TaskService stop: waiting for all running tasks to finish...(timeout :{timeout:?}"
-        );
-        loop {
-            let running = self.running_tasks_count();
-            if running == 0 {
-                debug!("🔸 TaskService stop: all tasks stopped");
-                break;
-            }
-            if let Some(t) = timeout
-                && start.elapsed() > t
-            {
-                error!(
-                    "⛔ TaskService stop: Shutdown forced,  {} task(s) still marked running",
-                    running,
-                );
-                break;
-            }
-            sleep(Duration::from_millis(10)).await;
+        debug!(?timeout, "TaskService stop: waiting for owned task completion");
+        if completion::wait(self.completion_waiters(None), timeout).await {
+            debug!("TaskService stop: all tasks stopped");
+        } else {
+            error!(
+                pending = self.running_tasks_count(),
+                "TaskService stop: drain deadline expired"
+            );
         }
     }
 

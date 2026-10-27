@@ -161,3 +161,9 @@ Part of Claviron's alpha development series; APIs and configuration may change.
 
 Licensed under either [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT)
 or [Apache-2.0](https://github.com/claviron/claviron/blob/main/LICENSE-APACHE), at your option.
+
+Task-service drain and reload wait on the selected generation's completion:
+joined supervisors and pool controllers, retired cron registrations including
+admitted bodies, and explicit-run completion. There is no periodic drain poll.
+An optional grace deadline bounds only that wait; dropping or timing out an
+observer does not abort the work it observes.

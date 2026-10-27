@@ -1681,3 +1681,71 @@ tasks:
 
     tokio::fs::remove_file(path).await.expect("remove candidate config");
 }
+
+#[tokio::test]
+async fn audit_lifecycle_completion_selects_only_reload_targets_and_explicit_runs()
+ {
+    use super::{
+        ActiveExplicitRun, ActiveSupervisor, ReloadTargets, SupervisorHandle,
+    };
+    use crate::completion::Completion;
+    use crate::{StopContext, TaskRunner};
+    use futures_util::{FutureExt, poll};
+    use tokio::sync::oneshot;
+    use tokio_util::sync::CancellationToken;
+
+    let service = TaskService::new(PathBuf::from("unused-tasks.yaml"));
+    let mut releases = Vec::new();
+    for name in ["target", "unrelated"] {
+        let (release, held) = oneshot::channel::<()>();
+        releases.push(release);
+        service.inner.supervisors.lock_unpoisoned().insert(
+            name.into(),
+            ActiveSupervisor {
+                phase: SupervisorPhase::Stopping,
+                runner: Arc::new(TaskRunner::from(|_, _| async { Ok(()) })),
+                handle: SupervisorHandle::Execution(Completion::new(
+                    tokio::spawn(async move {
+                        let _ = held.await;
+                    }),
+                )),
+            },
+        );
+    }
+    let (completion, _result) = oneshot::channel();
+    service.inner.explicit_runs.lock_unpoisoned().insert(
+        "target".into(),
+        [(
+            1,
+            ActiveExplicitRun {
+                token: CancellationToken::new(),
+                stop: StopContext::default(),
+                completion,
+                finished: CancellationToken::new(),
+            },
+        )]
+        .into_iter()
+        .collect(),
+    );
+    let targets = ReloadTargets {
+        supervisors: ["target".into()].into_iter().collect(),
+        ..Default::default()
+    };
+    let mut waiter = service.wait_reload_targets(&targets, None).boxed();
+    assert!(poll!(&mut waiter).is_pending());
+    releases.remove(0).send(()).unwrap();
+    assert!(
+        poll!(&mut waiter).is_pending(),
+        "explicit execution still owns work"
+    );
+    service.finish_explicit_run("target", 1, Ok(()));
+    assert!(waiter.await);
+    assert_eq!(
+        service.running_tasks_count(),
+        1,
+        "unrelated generation stays owned"
+    );
+    releases.remove(0).send(()).unwrap();
+    service.wait_all_stopped(None).await;
+    assert_eq!(service.running_tasks_count(), 0);
+}

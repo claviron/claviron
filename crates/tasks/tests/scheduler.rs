@@ -100,3 +100,37 @@ fn overlap_configuration_defaults_to_skip_and_rejects_unknown_policy() {
         .is_err()
     );
 }
+
+#[tokio::test]
+async fn audit_lifecycle_completion_cron_wakes_all_registered_observers() {
+    use futures_util::task::{ArcWake, waker_ref};
+    use std::sync::atomic::AtomicUsize;
+    use std::task::{Context, Poll};
+    #[derive(Default)]
+    struct Wakes(AtomicUsize);
+    impl ArcWake for Wakes {
+        fn wake_by_ref(owner: &Arc<Self>) {
+            owner.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    let status = Arc::new(ScheduleStatus::default());
+    status.pending.store(1, Ordering::Release);
+    status.closed.store(true, Ordering::Release);
+    let handle = super::ScheduleHandle {
+        scheduler: Arc::new(super::Scheduler::default()),
+        id: 0,
+        status: Arc::clone(&status),
+    };
+    let mut first = handle.completion();
+    let mut second = handle.completion();
+    let wakes = Arc::new(Wakes::default());
+    let waker = waker_ref(&wakes);
+    let mut context = Context::from_waker(&waker);
+    assert_eq!(first.as_mut().poll(&mut context), Poll::Pending);
+    assert_eq!(second.as_mut().poll(&mut context), Poll::Pending);
+    drop(OccurrenceGuard(status));
+    assert_eq!(wakes.0.load(Ordering::Relaxed), 2);
+    first.await;
+    second.await;
+    handle.completion().await;
+}
