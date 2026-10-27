@@ -73,14 +73,17 @@ fn signs(
             _ => None,
         }
     });
-    if let Some(aki) = aki {
-        if aki.key_identifier.as_ref().zip(ski).is_some_and(|(a, s)| a.0 != *s)
+    if let Some(aki) = aki
+        && (aki
+            .key_identifier
+            .as_ref()
+            .zip(ski)
+            .is_some_and(|(a, s)| a.0 != *s)
             || aki
                 .authority_cert_serial
-                .is_some_and(|serial| serial != parent.raw_serial())
-        {
-            return Ok(false);
-        }
+                .is_some_and(|serial| serial != parent.raw_serial()))
+    {
+        return Ok(false);
     }
     Ok(child.verify_signature(Some(parent.public_key())).is_ok())
 }

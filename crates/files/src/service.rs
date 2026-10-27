@@ -288,7 +288,7 @@ async fn serve_static(
 
     match serve_with_policy_and_condition(
         &path,
-        &base,
+        base,
         policy,
         ConditionalRequest::from_headers(headers),
     )

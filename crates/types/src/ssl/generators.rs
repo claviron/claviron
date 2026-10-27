@@ -340,15 +340,13 @@ pub fn generate_intermediate_ca_cert(
     let ca = super::parsers::take_first_cert_from_der(&pem.contents)?;
     if let Some(limit) =
         ca.basic_constraints()?.and_then(|ext| ext.value.path_len_constraint)
+        && (limit == 0
+            || path_len.is_none_or(|requested| u32::from(requested) >= limit))
     {
-        if limit == 0
-            || path_len.is_none_or(|requested| u32::from(requested) >= limit)
-        {
-            return Err(Error::Other(
-                "requested CA path length exceeds the issuer delegation limit"
-                    .into(),
-            ));
-        }
+        return Err(Error::Other(
+            "requested CA path length exceeds the issuer delegation limit"
+                .into(),
+        ));
     }
 
     // Build intermediate CA key pair from PEM

@@ -124,7 +124,7 @@ impl ProcessHandle {
                     "process exited while opening pidfd",
                 ));
             }
-            return Ok(Self { identity, notifier: Some(notifier) });
+            Ok(Self { identity, notifier: Some(notifier) })
         }
 
         #[cfg(target_os = "freebsd")]

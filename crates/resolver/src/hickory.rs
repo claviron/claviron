@@ -65,15 +65,13 @@ impl Deadlines {
         if capacity > 0 {
             if self.entries.len() as u64 >= capacity
                 && !self.entries.contains_key(&key)
-            {
-                if let Some(oldest) = self
+                && let Some(oldest) = self
                     .entries
                     .iter()
                     .min_by_key(|(_, expiry)| **expiry)
                     .map(|(key, _)| key.clone())
-                {
-                    self.entries.remove(&oldest);
-                }
+            {
+                self.entries.remove(&oldest);
             }
             self.entries.insert(key, deadline);
         }
@@ -201,12 +199,12 @@ fn driver_config(
 ) -> Result<DriverConfig, ResolveError> {
     let mut driver = DriverConfig::default();
     for addr in &config.nameservers {
-        if let std::net::SocketAddr::V6(v6) = addr {
-            if v6.scope_id() != 0 || v6.flowinfo() != 0 {
-                return Err(ResolveError::config(
-                    "Hickory nameservers do not support IPv6 scope_id or flowinfo",
-                ));
-            }
+        if let std::net::SocketAddr::V6(v6) = addr
+            && (v6.scope_id() != 0 || v6.flowinfo() != 0)
+        {
+            return Err(ResolveError::config(
+                "Hickory nameservers do not support IPv6 scope_id or flowinfo",
+            ));
         }
         let mut connections =
             vec![ConnectionConfig::udp(), ConnectionConfig::tcp()];
