@@ -53,7 +53,8 @@ pub async fn stream_from_disk(
     // Fallback: open and stream the file fully (200 OK)
     match File::open(&path).await {
         Ok(file) => {
-            let stream = ReaderStream::new(file).map_ok(Frame::data);
+            // Later appends must not extend the advertised representation.
+            let stream = ReaderStream::new(file.take(len)).map_ok(Frame::data);
             let ct = resolve_content_type(path.as_path());
             let since_ref = since.as_deref().unwrap_or("");
             let mut resp = build_full_ok(
@@ -156,3 +157,7 @@ async fn stream_range_response(
         resp
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/stream.rs"]
+mod tests;
