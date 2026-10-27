@@ -55,10 +55,30 @@ async fn request(
         }
     }
 }
-async fn peer_closed(socket: &mut UnixStream) -> Result<()> {
+#[derive(Clone, Copy)]
+enum Closure {
+    Graceful,
+    Abandoned,
+}
+async fn peer_closed(
+    socket: &mut (impl AsyncRead + Unpin),
+    closure: Closure,
+) -> Result<()> {
     let mut bytes = [0; 4096];
-    while socket.read(&mut bytes).await? != 0 {}
-    Ok(())
+    loop {
+        match socket.read(&mut bytes).await {
+            Ok(0) => return Ok(()),
+            Ok(_) => {}
+            // Deliberate abandonment with unread data can close as reset on Linux.
+            Err(error)
+                if matches!(closure, Closure::Abandoned)
+                    && error.kind() == std::io::ErrorKind::ConnectionReset =>
+            {
+                return Ok(());
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
 }
 async fn finish(socket: &mut UnixStream) -> Result<()> {
     socket
@@ -110,12 +130,22 @@ async fn exercise(
             // interrupt an upload/read/write that is currently backpressured.
             let chunk = record(6, &[42; 65_535]);
             for _ in 0..128 {
-                if socket.write_all(&chunk).await.is_err() {
-                    break;
+                match socket.write_all(&chunk).await {
+                    Ok(()) => {}
+                    Err(error)
+                        if matches!(
+                            error.kind(),
+                            std::io::ErrorKind::BrokenPipe
+                                | std::io::ErrorKind::ConnectionReset
+                        ) =>
+                    {
+                        break;
+                    }
+                    Err(error) => return Err(error.into()),
                 }
             }
         }
-        peer_closed(&mut socket).await?;
+        peer_closed(&mut socket, Closure::Abandoned).await?;
         let (mut next, _) = listener.accept().await?;
         request(&mut next, false).await?;
         finish(&mut next).await?;
@@ -207,16 +237,16 @@ async fn retire_replenisher(
         request(&mut repair, false).await?;
         if !during_probe {
             finish(&mut repair).await?; // "ok" is intentionally not a valid ping "pong".
-            peer_closed(&mut repair).await?;
+            peer_closed(&mut repair, Closure::Abandoned).await?;
         }
         ready.send(()).unwrap();
         if during_probe {
-            peer_closed(&mut repair).await?;
+            peer_closed(&mut repair, Closure::Abandoned).await?;
         }
         finish_response.await?;
         response.write_all(&record(6, b"ok")).await?;
         response.write_all(&record(3, &[0; 8])).await?;
-        peer_closed(&mut response).await?;
+        peer_closed(&mut response, Closure::Graceful).await?;
         Ok::<_, Box<dyn Error + Send + Sync>>(())
     });
     let state = AppState::standalone("fcgi-repair", directory.path());
@@ -252,6 +282,10 @@ async fn retire_replenisher(
     backend.await??;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/io/closure.rs"]
+mod tests;
 
 #[tokio::main]
 async fn main() -> Result<()> {
