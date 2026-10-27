@@ -65,13 +65,22 @@ where
         where
             A: serde::de::SeqAccess<'de>,
         {
-            let mut bytes = Vec::with_capacity(16);
-            while let Some(b) = seq.next_element()? {
-                bytes.push(b);
+            let mut bytes = [0u8; 16];
+            for (index, byte) in bytes.iter_mut().enumerate() {
+                *byte = seq.next_element()?.ok_or_else(|| {
+                    serde::de::Error::invalid_length(index, &self)
+                })?;
             }
-            self.visit_bytes(&bytes)
+            if seq.next_element::<serde::de::IgnoredAny>()?.is_some() {
+                return Err(serde::de::Error::invalid_length(17, &self));
+            }
+            Ok(Uuid::from_bytes(bytes))
         }
     }
 
     deserializer.deserialize_bytes(UuidBytesVisitor)
 }
+
+#[cfg(test)]
+#[path = "../tests/uuid.rs"]
+mod tests;
