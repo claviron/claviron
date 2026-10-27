@@ -201,11 +201,10 @@ pub async fn start_services(
     let drain_result = runtime.drain().await;
     if let Err(e) = &drain_result {
         error!("runtime drain failed: {e}");
-        runtime.abort_and_drain().await;
     }
 
-    // Runnables have drained (each run() future owns its own graceful
-    // teardown); release the remaining non-running resources.
+    // Even an unsuccessful drain has joined every runnable. Each run() future
+    // owns its graceful teardown; finalize only after that boundary.
     let finalization = registry.finalize_all(&state).await?;
     #[cfg(feature = "supervisor")]
     let mut failed_finalizers = 0usize;

@@ -132,10 +132,21 @@ Reload returns structured validation and reload outcomes. A request to start or
 stop work is not proof that the requested state has already been observed;
 service snapshots expose the execution state separately.
 
-Shutdown is cooperative. A runnable owns the cleanup and drain of the work it
-accepted; the runtime waits for that work rather than inventing a termination
-deadline. Cancellation alone does not roll back external effects or make work
-durable.
+`Registry::reload_one` uses AppState's configuration reader to prepare the
+addressed owner and acknowledge successful application. `reload_hook_one`
+invokes only the hook; its caller owns preparation and acknowledgement.
+
+Cancellation is cooperative, whether requested by process shutdown or a
+controller stopping one service generation. The owner closes admission and
+drains accepted work. `Gate` is a transport-independent helper from Continuo's
+`support` feature: accepted work holds RAII permits, and dropping each permit
+releases its atomic count. Admission and release take no gate mutex.
+
+A runnable owns its cleanup; the runtime waits for it rather than inventing a
+termination deadline. Cancellation alone does not roll back external effects
+or make work durable. Runnable errors and panics do not let drain return before surviving
+generations finish. Provider finalization follows the completed drain, including
+when drain reports a task failure.
 
 ## Features
 
