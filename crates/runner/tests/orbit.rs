@@ -217,3 +217,56 @@ fn edge_shutdown_application_event_preserves_notice_identity() {
         event
     );
 }
+
+#[tokio::test]
+async fn idle_stream_releases_its_body_when_the_response_reader_leaves() {
+    struct Idle {
+        entered: Option<tokio::sync::oneshot::Sender<()>>,
+        dropped: Option<tokio::sync::oneshot::Sender<()>>,
+    }
+    impl http_body::Body for Idle {
+        type Data = Bytes;
+        type Error = std::convert::Infallible;
+        fn poll_frame(
+            mut self: Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Result<http_body::Frame<Bytes>, Self::Error>>>
+        {
+            if let Some(entered) = self.entered.take() {
+                let _ = entered.send(());
+            }
+            std::task::Poll::Pending
+        }
+    }
+    impl Drop for Idle {
+        fn drop(&mut self) {
+            if let Some(dropped) = self.dropped.take() {
+                let _ = dropped.send(());
+            }
+        }
+    }
+    let (reader, mut outgoing) = cancellation_stream();
+    let (entered, ready) = tokio::sync::oneshot::channel();
+    let (dropped, released) = tokio::sync::oneshot::channel();
+    let body = Idle { entered: Some(entered), dropped: Some(dropped) };
+    let serving =
+        tokio::spawn(async move { stream_reply(&mut outgoing, body, 1).await });
+    ready.await.unwrap();
+    // The caller stays alive; only its response reader is abandoned.
+    drop(reader);
+    assert_eq!(serving.await.unwrap(), None);
+    released.await.unwrap();
+}
+
+#[tokio::test]
+async fn completed_upload_does_not_cancel_a_streaming_response() {
+    let (mut reader, mut outgoing) = cancellation_stream();
+    let bytes = Bytes::from_static(b"one event");
+    let body = http_body_util::Full::new(bytes.clone());
+    assert_eq!(stream_reply(&mut outgoing, body, 1).await, Some(bytes.len()));
+    let mut received = Vec::new();
+    tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut received)
+        .await
+        .unwrap();
+    assert_eq!(received, bytes);
+}

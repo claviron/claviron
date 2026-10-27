@@ -65,20 +65,32 @@ impl HttpServer {
                 sessions.clone(),
             )
         });
+        let stream = crate::tcp::io::TcpIo::new(stream);
+        let errors = stream.clone();
         let connection = crate::tcp::protocol::h1(&snapshot.h1)
             .serve_connection(TokioIo::new(stream), service)
             .with_upgrades();
         tokio::pin!(connection);
+        let serving = async {
+            tokio::select! {
+                biased;
+                _ = scope.permit().wait_graceful_shutdown() => {
+                    connection.as_mut().graceful_shutdown();
+                    tokio::select! {
+                        result = connection.as_mut() => Some(result),
+                        _ = scope.permit().wait_forced_shutdown() => None
+                    }
+                }
+                result = connection.as_mut() => Some(result)
+            }
+        };
         let result = tokio::select! {
             biased;
-            _ = scope.permit().wait_graceful_shutdown() => {
-                connection.as_mut().graceful_shutdown();
-                tokio::select! {
-                    result = connection.as_mut() => Some(result),
-                    _ = scope.permit().wait_forced_shutdown() => None
-                }
-            }
-            result = connection.as_mut() => Some(result)
+            error = errors.failed() => {
+                debug!(listener = %snapshot.listener.id, %error, "H1 socket failed");
+                None
+            },
+            result = serving => result,
         };
         if let Some(Err(error)) = result
             && !error.is_user()

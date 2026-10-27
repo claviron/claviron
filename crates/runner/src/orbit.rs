@@ -811,50 +811,19 @@ async fn serve(
     let answered = arrived.elapsed();
 
     let mut sent = bytes.len();
-    if let (false, Some(outgoing), Some(mut response_body)) =
+    if let (false, Some(outgoing), Some(response_body)) =
         (whole, reply_body.as_mut(), streaming)
     {
-        // Streamed: each part to the slot as the application sends it, so a
-        // server-sent event reaches the edge when it is produced.
-        loop {
-            let frame = tokio::select! {
-                biased;
-                _ = std::future::poll_fn(|cx| outgoing.poll_peer_dead(cx)) => {
-                    tracing::debug!(correlation, "🛰 reply stream owner is gone");
-                    return;
-                }
-                frame = response_body.frame() => frame,
-            };
-            let Some(frame) = frame else { break };
-            let part = match frame {
-                Ok(frame) => match frame.into_data() {
-                    Ok(part) => part,
-                    Err(_) => continue,
-                },
-                Err(error) => {
-                    tracing::debug!(
-                        correlation,
-                        "🛰 ✗ reply body failed: {error}"
-                    );
-                    outgoing.reset();
-                    return;
-                }
-            };
-            sent += part.len();
-            if let Err(error) = outgoing.write_all(&part).await {
-                tracing::debug!(
-                    correlation,
-                    "🛰 ✗ reply body was cut short: {error}"
-                );
-                return;
-            }
-        }
-        if let Err(error) = outgoing.shutdown().await {
+        let Some(streamed) =
+            stream_reply(outgoing, response_body, correlation).await
+        else {
             tracing::debug!(
                 correlation,
-                "🛰 ✗ reply body did not close: {error}"
+                "🛰 reply stream ended before completion"
             );
-        }
+            return;
+        };
+        sent += streamed;
     }
     tracing::debug!(
         correlation,
@@ -862,6 +831,49 @@ async fn serve(
         arrived.elapsed(),
         if whole { ", buffered" } else { "" }
     );
+}
+
+/// Own the streaming body until FIN or the response reader leaves. Waiting
+/// for process death alone misses cancellation by a caller that stays alive.
+async fn stream_reply<B>(
+    outgoing: &mut claviron_orbit::stream::WriteHalf,
+    mut body: B,
+    correlation: u64,
+) -> Option<usize>
+where
+    B: http_body::Body<Data = Bytes> + Unpin,
+    B::Error: std::fmt::Display,
+{
+    let mut sent = 0;
+    loop {
+        let frame = tokio::select! {
+            biased;
+            _ = outgoing.peer_closed() => return None,
+            frame = body.frame() => frame,
+        };
+        let Some(frame) = frame else { break };
+        let frame = match frame {
+            Ok(frame) => frame,
+            Err(error) => {
+                tracing::debug!(correlation, "🛰 ✗ reply body failed: {error}");
+                outgoing.reset();
+                return None;
+            }
+        };
+        let Ok(part) = frame.into_data() else { continue };
+        sent += part.len();
+        if let Err(error) = outgoing.write_all(&part).await {
+            tracing::debug!(
+                correlation,
+                "🛰 ✗ reply body was cut short: {error}"
+            );
+            return None;
+        }
+    }
+    if let Err(error) = outgoing.shutdown().await {
+        tracing::debug!(correlation, "🛰 ✗ reply body did not close: {error}");
+    }
+    Some(sent)
 }
 
 /// Before publishing a head, no response read can otherwise observe caller

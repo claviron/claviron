@@ -17,7 +17,6 @@ use claviron_tls::Proto;
 use claviron_types::ssl::{
     parsers::take_first_cert_from_der, peer::peer_identity,
 };
-use tokio::net::TcpStream;
 use tokio_rustls::server::TlsStream;
 
 use super::error::ConnectionError;
@@ -37,8 +36,8 @@ impl TlsHostConnection {
     /// Capture physical TLS metadata and the SNI host chosen by this generation.
     ///
     /// Missing, invalid or unhosted SNI rejects the connection.
-    pub fn from_tls_stream(
-        tls_stream: &TlsStream<TcpStream>,
+    pub fn from_tls_stream<IO>(
+        tls_stream: &TlsStream<IO>,
         socket_addr: SocketAddr,
         local_addr: SocketAddr,
         listener: &ListenerConfig,
@@ -142,7 +141,7 @@ impl TlsHostConnection {
     }
 }
 
-fn tls_info(tls_stream: &TlsStream<TcpStream>) -> Option<TlsInfo> {
+fn tls_info<IO>(tls_stream: &TlsStream<IO>) -> Option<TlsInfo> {
     let conn = tls_stream.get_ref().1;
     let protocol_version = conn.protocol_version();
     let cipher_suite =

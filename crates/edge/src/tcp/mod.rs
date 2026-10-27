@@ -6,6 +6,7 @@
 //! QUIC/H3 belongs to the sibling `quic` module, not to this transport.
 
 mod geo;
+mod io;
 mod listener;
 pub mod plain;
 mod protocol;

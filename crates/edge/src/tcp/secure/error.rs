@@ -8,6 +8,8 @@ pub(crate) enum ConnectionError {
     HostPolicyUnavailable,
     /// Hyper-level serving error
     Serve(hyper::Error),
+    /// Physical TCP failure observed while an H1 response is idle.
+    Socket(std::io::Error),
     /// Timeout in http
     Timeout,
     /// Host policy requires ALPN but client did not negotiate one
@@ -41,6 +43,9 @@ impl Display for ConnectionError {
             }
             ConnectionError::HostPolicyUnavailable => {
                 f.write_str("host access policy is unavailable")
+            }
+            ConnectionError::Socket(err) => {
+                write!(f, "Connection socket error: {err}")
             }
             ConnectionError::Serve(err) => {
                 write!(f, "Connection serve error: {}", err)

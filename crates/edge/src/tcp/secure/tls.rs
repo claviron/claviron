@@ -32,7 +32,7 @@ pub(super) struct TlsPolicy {
 }
 
 pub(crate) struct AcceptedTls {
-    pub stream: TlsStream<TcpStream>,
+    pub stream: TlsStream<crate::tcp::io::TcpIo>,
     pub host: VhostCtx,
 }
 
@@ -139,7 +139,7 @@ impl TlsAccept {
         let hosts = VhostBindings::new(table.clone(), names);
         let start = LazyConfigAcceptor::new(
             rustls::server::Acceptor::default(),
-            stream,
+            crate::tcp::io::TcpIo::new(stream),
         )
         .await?;
         let sni = start.client_hello().server_name().map(str::to_owned);
