@@ -2,6 +2,9 @@
 
 Application examples built on Claviron.
 
+See [benchmark results](BENCHMARKS.md) for measured Edge and Orbit application
+paths, hardware, configuration and comparison limits.
+
 | Example | What it demonstrates | Connection |
 | --- | --- | --- |
 | [Edge](edge-server/) | HTTP ingress, host routing and static assets | Public HTTP listener |

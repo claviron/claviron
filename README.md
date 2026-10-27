@@ -341,6 +341,9 @@ JavaScript and Laravel examples connect to one edge over Orbit Link. Each keeps
 its own application process and dependencies; the edge owns HTTP ingress. Launchers live in
 `examples`. These sources are available in Git, not the Cargo package.
 
+[Benchmark results](examples/BENCHMARKS.md) cover native and language application
+paths on macOS ARM64 and Linux x86-64, with configurations, latency and errors.
+
 ## Architectural Design Contracts
 
 These notes explain the choices behind Claviron's behavior, not new protocol

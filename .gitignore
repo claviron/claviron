@@ -92,6 +92,7 @@ core.*
 # docs
 *.md
 !README.md
+!/examples/BENCHMARKS.md
 !/docs/**/*.md
 !/CONTRIBUTING.md
 !/SECURITY.md
