@@ -158,3 +158,34 @@ fn accept_encoding_matches_supported_tokens_and_respects_zero_q() {
     assert!(req.accepts_encoding(ContentEncoding::Brotli));
     assert!(!req.accepts_encoding(ContentEncoding::Zstd));
 }
+
+#[test]
+fn regression_repeated_list_fields_match_the_combined_form() {
+    use http::header::{ACCEPT_ENCODING, IF_MATCH, IF_NONE_MATCH, IF_RANGE};
+    for (name, expected) in [
+        (IF_NONE_MATCH, PreconditionOutcome::NotModified),
+        (IF_MATCH, PreconditionOutcome::Proceed),
+    ] {
+        let mut repeated = http::HeaderMap::new();
+        repeated.append(&name, "\"old\"".parse().unwrap());
+        repeated.append(&name, "\"current\"".parse().unwrap());
+        let mut combined = http::HeaderMap::new();
+        combined.insert(name, "\"old\",\"current\"".parse().unwrap());
+        for headers in [repeated, combined] {
+            assert_eq!(
+                ConditionalRequest::from_headers(&headers)
+                    .pre
+                    .evaluate_get_or_head(Some("\"current\""), None),
+                expected
+            );
+        }
+    }
+    let mut headers = http::HeaderMap::new();
+    headers.append(ACCEPT_ENCODING, "*;q=1".parse().unwrap());
+    headers.append(ACCEPT_ENCODING, "br;q=0, zstd".parse().unwrap());
+    headers.insert(IF_RANGE, "Thu, 01 Jan 1970 00:16:40 GMT".parse().unwrap());
+    let condition = ConditionalRequest::from_headers(&headers);
+    assert!(!condition.accepts_encoding(ContentEncoding::Brotli));
+    assert!(condition.accepts_encoding(ContentEncoding::Zstd));
+    assert!(matches!(condition.pre.if_range, Some(IfRange::Date(_))));
+}

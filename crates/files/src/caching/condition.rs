@@ -145,8 +145,8 @@ impl ByteRange {
 impl ConditionalRequest {
     pub fn from_headers(h: &http::HeaderMap) -> Self {
         let pre = Preconditions {
-            if_none_match: req_if_none_match(h).map(|s| s.to_string()),
-            if_match: req_if_match(h),
+            if_none_match: req_etag_list(h, IF_NONE_MATCH),
+            if_match: req_etag_list(h, http::header::IF_MATCH),
             if_modified_since: req_if_modified_since(h),
             if_unmodified_since: req_if_unmodified_since(h),
             if_range: req_if_range(h),
@@ -183,17 +183,17 @@ impl ConditionalRequest {
     }
 }
 
-#[inline]
-fn req_if_none_match(headers: &http::HeaderMap) -> Option<&str> {
-    headers.get(IF_NONE_MATCH).and_then(|h| h.to_str().ok())
-}
-
-// Helper to parse If-Match header
-fn req_if_match(headers: &http::HeaderMap) -> Option<String> {
-    headers
-        .get(http::header::IF_MATCH)
-        .and_then(|h| h.to_str().ok())
-        .map(|s| s.to_string())
+fn req_etag_list(
+    headers: &http::HeaderMap,
+    name: http::HeaderName,
+) -> Option<String> {
+    let mut values = headers.get_all(name).iter();
+    let mut combined = values.next()?.to_str().ok()?.to_owned();
+    for value in values {
+        combined.push(',');
+        combined.push_str(value.to_str().ok()?);
+    }
+    Some(combined)
 }
 
 // Helper to parse If-Modified-Since header
@@ -275,27 +275,34 @@ fn req_accept_encoding(
     headers: &http::HeaderMap,
     encoding: ContentEncoding,
 ) -> bool {
-    headers
-        .get(http::header::ACCEPT_ENCODING)
-        .and_then(|h| h.to_str().ok())
-        .map(|s| accepts_encoding_token(s, encoding.token()))
-        .unwrap_or(false)
+    accepts_encoding_parts(
+        headers
+            .get_all(http::header::ACCEPT_ENCODING)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .flat_map(|value| value.split(',')),
+        encoding.token(),
+    )
 }
 
+#[cfg(test)]
 fn accepts_encoding_token(
     header: &str,
     token: &str,
 ) -> bool {
+    accepts_encoding_parts(header.split(','), token)
+}
+
+fn accepts_encoding_parts<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    token: &str,
+) -> bool {
     let mut wildcard = false;
-    for part in header.split(',') {
+    for part in parts {
         let mut segments = part.split(';').map(str::trim);
-        let Some(candidate) = segments.next() else {
-            continue;
-        };
+        let Some(candidate) = segments.next() else { continue };
         let accepted = segments.all(|segment| {
-            let Some(q) = segment.strip_prefix("q=") else {
-                return true;
-            };
+            let Some(q) = segment.strip_prefix("q=") else { return true };
             q.parse::<f32>().map(|q| q > 0.0).unwrap_or(true)
         });
         if candidate.eq_ignore_ascii_case(token) {
