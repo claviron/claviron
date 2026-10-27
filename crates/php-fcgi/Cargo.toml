@@ -34,7 +34,7 @@ async-trait.workspace = true
 futures = { workspace = true, optional = true }
 futures-util.workspace = true
 tokio.workspace = true
-tokio-util.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true

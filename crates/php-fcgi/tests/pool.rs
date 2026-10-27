@@ -26,6 +26,7 @@ fn opts() -> PoolOpts {
         max_requests: None,
         idle_timeout: None,
         ping_path: None,
+        replenish: Some(crate::config::ReplenishConfig::default()),
     }
 }
 
@@ -185,4 +186,37 @@ fn abandoned_stream_dial_reservation_returns_capacity_without_a_socket() {
     assert!(matches!(pool.inner.try_admit(), Admission::Granted));
     drop(DialSlot { inner: &pool.inner, retained: false });
     assert_eq!(pool.stats().live, 0);
+}
+
+#[tokio::test]
+async fn audit_replenish_retry_wait_is_cancelled_and_drain_is_pool_local() {
+    use futures_util::poll;
+    let parent = CancellationToken::new();
+    let cancel = parent.child_token();
+    let wait = wait_retry(&cancel, Duration::from_secs(3600));
+    tokio::pin!(wait);
+    assert!(poll!(&mut wait).is_pending());
+    cancel.cancel();
+    assert!(!wait.await);
+    assert!(!wait_retry(&cancel, Duration::from_secs(3600)).await);
+    assert!(!parent.is_cancelled());
+
+    for disabled in [false, true] {
+        let mut config = opts();
+        config.min_live = usize::from(disabled);
+        if disabled {
+            config.replenish = None;
+        }
+        let pool = FcgiPool::new(
+            FcgiEndpoint::Unix(PathBuf::from("unused-fpm.sock")),
+            config,
+            parent.clone(),
+        );
+        pool.maybe_spawn_replenisher();
+        assert!(pool.inner.replenish_tasks.is_empty());
+        pool.shutdown().await;
+        assert!(pool.inner.replenish_tasks.is_closed());
+        assert!(pool.inner.replenish_tasks.is_empty());
+        assert!(!parent.is_cancelled());
+    }
 }

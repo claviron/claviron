@@ -93,6 +93,7 @@ async fn abandoned_stream_retires_the_connection_instead_of_pooling_it() {
             max_requests: None,
             idle_timeout: None,
             ping_path: None,
+            replenish: Some(crate::config::ReplenishConfig::default()),
         },
         CancellationToken::new(),
     );
@@ -172,6 +173,7 @@ async fn a_silent_fpm_gives_the_head_back_and_frees_the_slot() {
             max_requests: None,
             idle_timeout: None,
             ping_path: None,
+            replenish: Some(crate::config::ReplenishConfig::default()),
         },
         CancellationToken::new(),
     );
@@ -360,6 +362,7 @@ async fn evidence_belongs_to_the_request_and_not_to_the_connection() {
             max_requests: None,
             idle_timeout: None,
             ping_path: None,
+            replenish: Some(crate::config::ReplenishConfig::default()),
         },
         CancellationToken::new(),
     );

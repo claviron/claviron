@@ -9,8 +9,8 @@ use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
 use bytes::{Bytes, BytesMut};
 use claviron_http::{RouteBody, boxed_body};
-use claviron_runtime::AppState;
-use claviron_runtime::registry::{Component, Reloadable};
+use claviron_runtime::registry::{Component, Reloadable, Runnable};
+use claviron_runtime::{AppState, RunContext};
 use fastcgi_client::response::{Content, ResponseStream};
 use fastcgi_client::{Client, ClientError, Params, Request, StreamExt};
 use http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
@@ -26,7 +26,6 @@ use crate::balancer::pick_spacious_entry;
 use claviron_runtime::congif::{
     self, ConfigFile, ConfigObserver, Configurable,
 };
-#[cfg(feature = "tasks")]
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::config::{FpmClient, FpmDocument, FpmTable, HousekeepConfig};
@@ -96,6 +95,7 @@ pub struct PhpFcgiService {
     fpm_table: Arc<ArcSwapOption<FpmTable>>,
     config_path: PathBuf,
     state: AppState,
+    stopped: Arc<AtomicBool>,
     #[cfg(feature = "tasks")]
     housekeeping_registered: Arc<AtomicBool>,
 }
@@ -119,6 +119,7 @@ impl PhpFcgiService {
             fpm_table: Arc::new(ArcSwapOption::empty()),
             config_path,
             state,
+            stopped: Arc::new(AtomicBool::new(false)),
             #[cfg(feature = "tasks")]
             housekeeping_registered: Arc::new(AtomicBool::new(false)),
         }
@@ -141,7 +142,7 @@ impl PhpFcgiService {
             self.fpm_table.store(Some(Arc::new(document.fpm.clone())));
         }
         if self.state.is_master() {
-            self.entries.write().await.clear();
+            self.retire_entries().await;
         } else {
             self.reconcile_pools().await.map_err(|e| {
                 claviron_runtime::registry::Error::msg(format!(
@@ -182,6 +183,9 @@ impl PhpFcgiService {
         &self,
         name: &str,
     ) -> Option<FpmEntry> {
+        if self.stopped.load(Ordering::Acquire) {
+            return None;
+        }
         // Fast path — already instantiated.
         if let Some(entry) = self.entries.read().await.get(name).cloned() {
             return Some(entry);
@@ -192,6 +196,9 @@ impl PhpFcgiService {
         // requests for the same pool.
         let cfg = self.fpm_table.load_full()?.get(name)?.clone();
         let mut entries = self.entries.write().await;
+        if self.stopped.load(Ordering::Acquire) {
+            return None;
+        }
         if let Some(entry) = entries.get(name).cloned() {
             return Some(entry);
         }
@@ -367,48 +374,72 @@ impl PhpFcgiService {
 
     /// Sync the entries map with the current `fpm.yaml` snapshot.
     ///
-    /// **Drop-only**: an entry is removed when its name left the catalog
+    /// **Retire-only**: an entry is removed when its name left the catalog
     /// *or* when its configuration no longer describes it. New and
     /// never-touched names are not pre-built — `get_entry` instantiates
     /// lazily the first time a route dispatches to it, so pools declared
     /// in `fpm.yaml` and referenced by no live route cost nothing.
     ///
-    /// Dropping is how a changed entry takes effect, because a pool's
+    /// Retiring is how a changed entry takes effect, because a pool's
     /// options are baked at construction: the only way a new `max_live`
     /// reaches one is a new pool. Until 2026-09-19 this reconciliation
     /// only removed *vanished* names, so a reload that changed a number
     /// logged success and changed nothing — an operator raising a ceiling
     /// under pressure got no relief and no error.
     ///
-    /// Dropping is safe under load. A `PoolLease` holds the pool's inner
-    /// state alive, so requests in flight finish on the old pool; the
-    /// idle connections it still holds close when the last of them lets
-    /// go, and each one's ledger row is released with it.
+    /// Retirement cancels and joins the old replenisher outside the map lock.
+    /// A leased response keeps the old pool alive until its pump finishes;
+    /// idle sockets close now, and retired leases never rejoin the queue.
     ///
     /// Called from `boot()` and `reload()` after `rebuild()` stores the
     /// new snapshot.
     async fn reconcile_pools(&self) -> Result<(), ExecuteError> {
         let Some(fpm_table) = self.fpm_table.load_full() else {
             // No snapshot yet — drop everything; nothing to converge to.
-            self.entries.write().await.clear();
+            self.retire_entries().await;
             return Ok(());
         };
 
+        let mut retired = Vec::new();
         let mut entries = self.entries.write().await;
-        entries.retain(|name, entry| match fpm_table.get(name) {
-            None => {
-                debug!("php-pool `{name}` left the catalog; dropped");
-                false
+        entries.retain(|name, entry| {
+            let keep = match fpm_table.get(name) {
+                None => {
+                    debug!("php-pool `{name}` left the catalog; retired");
+                    false
+                }
+                Some(cfg) if entry_matches_config(entry, cfg) => true,
+                Some(_) => {
+                    info!("php-pool `{name}` reconfigured; rebuilt on next request");
+                    false
+                }
+            };
+            if !keep && let FpmEntry::Pooled(pool) = entry {
+                retired.push(pool.local.clone());
             }
-            Some(cfg) if entry_matches_config(entry, cfg) => true,
-            Some(_) => {
-                info!(
-                    "php-pool `{name}` reconfigured; rebuilt on next request"
-                );
-                false
-            }
+            keep
         });
+        drop(entries);
+        for pool in retired {
+            pool.shutdown().await;
+        }
         Ok(())
+    }
+
+    async fn retire_entries(&self) {
+        let pools: Vec<_> = self
+            .entries
+            .write()
+            .await
+            .drain()
+            .filter_map(|(_, entry)| match entry {
+                FpmEntry::Pooled(pool) => Some(pool.local),
+                FpmEntry::OneShot(_) => None,
+            })
+            .collect();
+        for pool in pools {
+            pool.shutdown().await;
+        }
     }
 }
 
@@ -512,6 +543,7 @@ fn build_opts(cfg: &FpmClient) -> PoolOpts {
         max_requests: pool.max_requests,
         idle_timeout: pool.idle_timeout,
         ping_path: pool.ping_path.clone(),
+        replenish: pool.replenish.clone(),
     }
 }
 
@@ -1053,6 +1085,28 @@ impl Component<AppState> for PhpFcgiService {
 
     fn as_reloadable(&self) -> Option<&dyn Reloadable<AppState>> {
         Some(self)
+    }
+
+    fn as_runnable(
+        self: Arc<Self>
+    ) -> Option<Arc<dyn Runnable<AppState, Self::Deps>>> {
+        Some(self)
+    }
+}
+
+#[async_trait]
+impl Runnable<AppState> for PhpFcgiService {
+    async fn run(
+        self: Arc<Self>,
+        _: (),
+        _: AppState,
+        context: RunContext,
+    ) -> claviron_runtime::registry::Result<()> {
+        self.stopped.store(false, Ordering::Release);
+        context.cancelled().await;
+        self.stopped.store(true, Ordering::Release);
+        self.retire_entries().await;
+        Ok(())
     }
 }
 

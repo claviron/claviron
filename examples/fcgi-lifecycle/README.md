@@ -14,3 +14,9 @@ before headers, a blocked request upload, response backpressure and natural
 completion. Every abandonment is followed by a successful request; the pooled
 case has one live slot. The harness creates and removes its own temporary
 socket/configuration state and uses no sleeps or polling loops.
+
+The repair cases configure a one-hour retry backoff, then remove a pool during
+failed repair or a silent ping probe. Retirement must complete within the
+supplied diagnostic bound, leave the application token untouched, and preserve
+an already accepted response. These cases exercise actual sockets outside the
+library test suite.

@@ -129,3 +129,26 @@ socket, releasing admission; it is never put back into the pool. This ends
 Claviron's connection ownership and does not promise that arbitrary backend
 PHP execution has synchronously stopped. An owned idle SSE response keeps its
 normal uncapped lifetime.
+
+Background pool repair is owned and drained by `PhpFcgiService`. Removing or
+replacing a pool cancels and joins only its replenisher; accepted leased
+responses may finish. Service stop drains all local replenishers and closes
+idle sockets; restart resumes lazy acquisition. New acquisition is rejected
+while the service is stopped.
+
+```yaml
+pool:
+  min_live: 2
+  max_idle: 4
+  max_live: 8
+  replenish:
+    initial_backoff: 100ms
+    max_backoff: 5s
+```
+
+Omitting `replenish` preserves those retry defaults. `replenish: null` disables
+proactive repair; `min_live: 0` also starts no replenisher. Initial backoff must
+be positive and no greater than the cap. Successful repair resets it; failures
+double it up to the cap. Cancellation wakes both retry waits and dial/probe
+work immediately. Direct `PoolOpts` constructors provide `replenish` explicitly;
+`Some(ReplenishConfig::default())` selects the compatibility policy.

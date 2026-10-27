@@ -6,8 +6,10 @@ use std::time::Duration;
 use tokio::sync::Notify;
 use tokio::time::{Instant as TokioInstant, timeout_at};
 use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 use tracing::warn;
 
+use crate::config::ReplenishConfig;
 use crate::connection::{FcgiConnection, FcgiEndpoint};
 use crate::error::ConnectError;
 use crate::events::PoolEvents;
@@ -60,6 +62,7 @@ pub struct PoolOpts {
     /// connect is performed; the first real request is the canary
     /// (operational lazy-mode fallback).
     pub ping_path: Option<String>,
+    pub replenish: Option<ReplenishConfig>,
 }
 
 /// Pool capacity as an observer sees it. `live` is **this worker's**
@@ -147,6 +150,8 @@ struct Inner {
     /// between two samples, which is where every one of these lives.
     events: PoolEvents,
     replenishing: AtomicBool,
+    replenish_tasks: TaskTracker,
+    replenish_start: StdMutex<()>,
     /// Pool-scoped monotonic id source for `FcgiConnection.id`. Each
     /// `FcgiConnection::open()` consumes the next value via a single
     /// `fetch_add` (relaxed); reads are lock-free since the conn owns its
@@ -273,9 +278,11 @@ impl FcgiPool {
                 breaks: AtomicUsize::new(0),
                 events: PoolEvents::default(),
                 replenishing: AtomicBool::new(false),
+                replenish_tasks: TaskTracker::new(),
+                replenish_start: StdMutex::new(()),
                 next_conn_id: AtomicU64::new(1),
                 notify: Notify::new(),
-                cancel,
+                cancel: cancel.child_token(),
             }),
         }
     }
@@ -624,7 +631,10 @@ impl FcgiPool {
     }
 
     fn needs_replenish(&self) -> bool {
-        if self.inner.opts.min_live == 0 || self.inner.cancel.is_cancelled() {
+        if self.inner.opts.min_live == 0
+            || self.inner.opts.replenish.is_none()
+            || self.inner.cancel.is_cancelled()
+        {
             return false;
         }
         // Compare against this worker's own `live` (idle + leased), NOT
@@ -642,8 +652,24 @@ impl FcgiPool {
         self.inner.live.load(Ordering::Acquire) < self.inner.opts.min_live
     }
 
+    /// Retire this pool's background work without cancelling the parent runtime
+    /// or interrupting an already leased response. No new repair can race drain.
+    pub async fn shutdown(&self) {
+        {
+            let _start = lk(&self.inner.replenish_start);
+            self.inner.cancel.cancel();
+            self.inner.replenish_tasks.close();
+        }
+        self.inner.replenish_tasks.wait().await;
+        self.purge_idle();
+    }
+
     fn maybe_spawn_replenisher(&self) {
         if !self.needs_replenish() {
+            return;
+        }
+        let _start = lk(&self.inner.replenish_start);
+        if !self.needs_replenish() || self.inner.replenish_tasks.is_closed() {
             return;
         }
         if self
@@ -654,36 +680,60 @@ impl FcgiPool {
         {
             return;
         }
-
         let pool = self.clone();
-        tokio::spawn(async move {
-            let mut backoff = Duration::from_millis(100);
-
-            while pool.needs_replenish() {
-                match pool.create_idle().await {
-                    CreateOutcome::Created => {
-                        backoff = Duration::from_millis(100);
+        self.inner.replenish_tasks.spawn(async move {
+            {
+                struct Reset<'a>(&'a AtomicBool);
+                impl Drop for Reset<'_> {
+                    fn drop(&mut self) {
+                        self.0.store(false, Ordering::Release);
                     }
-                    // The tiers are clamped so `min_live <= max_live`,
-                    // which makes this unreachable: a worker below its floor
-                    // is below its ceiling. Leaving rather than looping,
-                    // because if it ever does happen the floor is
-                    // unreachable and spinning on it would be a hot loop.
-                    CreateOutcome::WorkerFull => break,
-                    CreateOutcome::Failed(e) => {
-                        warn!("pool replenish failed: {e}");
-                        tokio::time::sleep(backoff).await;
-                        backoff = (backoff * 2).min(Duration::from_secs(5));
+                }
+                let _reset = Reset(&pool.inner.replenishing);
+                let policy = pool
+                    .inner
+                    .opts
+                    .replenish
+                    .as_ref()
+                    .expect("replenishment enabled");
+                let mut backoff = policy.initial_backoff();
+                while pool.needs_replenish() {
+                    let outcome = tokio::select! {
+                        biased;
+                        _ = pool.inner.cancel.cancelled() => break,
+                        outcome = pool.create_idle() => outcome,
+                    };
+                    match outcome {
+                        CreateOutcome::Created => {
+                            backoff = policy.initial_backoff()
+                        }
+                        CreateOutcome::WorkerFull => break,
+                        CreateOutcome::Failed(error) => {
+                            warn!("pool replenish failed: {error}");
+                            if !wait_retry(&pool.inner.cancel, backoff).await {
+                                break;
+                            }
+                            backoff = policy.next_backoff(backoff);
+                        }
                     }
                 }
             }
-
-            pool.inner.replenishing.store(false, Ordering::Release);
-
+            // Close the floor-check/start-flag race without a retry poll.
             if pool.needs_replenish() {
                 pool.maybe_spawn_replenisher();
             }
         });
+    }
+}
+
+async fn wait_retry(
+    cancel: &CancellationToken,
+    delay: Duration,
+) -> bool {
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => false,
+        _ = tokio::time::sleep(delay) => true,
     }
 }
 
@@ -733,7 +783,7 @@ impl Drop for PoolLease {
         }
 
         let mut conn = Some(conn);
-        if self.reusable && !stale {
+        if self.reusable && !stale && !self.inner.cancel.is_cancelled() {
             let max_idle = self.inner.opts.max_idle;
             let mut cur = self.inner.idle_count.load(Ordering::Acquire);
             while cur < max_idle {

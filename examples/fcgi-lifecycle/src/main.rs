@@ -185,6 +185,74 @@ async fn exercise(
     backend.await??;
     Ok(())
 }
+async fn retire_replenisher(
+    during_probe: bool,
+    bound: Duration,
+) -> Result<()> {
+    let directory = tempfile::tempdir()?;
+    let path = directory.path().join("repair.sock");
+    let listener = UnixListener::bind(&path)?;
+    let (ready, observed) = oneshot::channel();
+    let (release, finish_response) = oneshot::channel();
+    let backend = tokio::spawn(async move {
+        let (mut response, _) = listener.accept().await?;
+        request(&mut response, false).await?;
+        response
+            .write_all(&record(
+                6,
+                b"Status: 200\r\nContent-Type: text/plain\r\n\r\n",
+            ))
+            .await?;
+        let (mut repair, _) = listener.accept().await?;
+        request(&mut repair, false).await?;
+        if !during_probe {
+            finish(&mut repair).await?; // "ok" is intentionally not a valid ping "pong".
+            peer_closed(&mut repair).await?;
+        }
+        ready.send(()).unwrap();
+        if during_probe {
+            peer_closed(&mut repair).await?;
+        }
+        finish_response.await?;
+        response.write_all(&record(6, b"ok")).await?;
+        response.write_all(&record(3, &[0; 8])).await?;
+        peer_closed(&mut response).await?;
+        Ok::<_, Box<dyn Error + Send + Sync>>(())
+    });
+    let state = AppState::standalone("fcgi-repair", directory.path());
+    let shutdown = state.shutdown_token();
+    let service = PhpFcgiService::from_state(state);
+    let config: FpmDocument = serde_json::from_value(serde_json::json!({
+        "housekeep": { "enabled": false }, "fpm": { "example": {
+            "unix": path, "connect_timeout": format!("{}s", bound.as_secs()),
+            "pool": { "min_live": 2, "max_idle": 2, "max_live": 2, "ping_path": "/ping",
+                "replenish": { "initial_backoff": "1h", "max_backoff": "1h" } }
+        } }
+    }))?;
+    service.configure(&config).await?;
+    let (_, _, body) = service
+        .fcgi_execute_stream(
+            &["example".into()],
+            Params::default().request_method("GET").script_name("/index.php"),
+            Stdin::Whole(Bytes::new()),
+        )
+        .await?;
+    observed.await?;
+    service.configure(&FpmDocument::default()).await?;
+    assert!(
+        !shutdown.is_cancelled(),
+        "retirement must not cancel the application"
+    );
+    release.send(()).unwrap();
+    assert_eq!(
+        body.collect().await?.to_bytes(),
+        "ok",
+        "accepted response survives retirement"
+    );
+    backend.await??;
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let seconds = std::env::args()
@@ -207,6 +275,11 @@ async fn main() -> Result<()> {
                 .await??;
             println!("passed: pooled={pooled} case={case:?}");
         }
+    }
+    for during_probe in [false, true] {
+        tokio::time::timeout(bound, retire_replenisher(during_probe, bound))
+            .await??;
+        println!("passed: replenisher retirement during_probe={during_probe}");
     }
     Ok(())
 }

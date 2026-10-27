@@ -230,6 +230,11 @@ pub(crate) struct PoolConfig {
     #[serde(default)]
     pub ping_path: Option<String>,
 
+    /// Proactive repair retry policy. Null disables the replenisher; ordinary
+    /// request acquisition still works. Omission preserves the existing policy.
+    #[serde(default = "default_replenish")]
+    pub replenish: Option<ReplenishConfig>,
+
     /// Deprecated: prefer top-level `fpm.<name>.status_path` so metrics can
     /// apply to both pooled and one-shot FPM entries. Read only as a
     /// fallback, and only when `metrics` is compiled in.
@@ -275,3 +280,76 @@ impl PoolConfig {
         self.acquire_timeout.unwrap_or(Duration::from_secs(5))
     }
 }
+
+/// Retry policy for this pool's background repair, independent of request deadlines.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReplenishConfig {
+    initial_backoff: Duration,
+    max_backoff: Duration,
+}
+
+impl Default for ReplenishConfig {
+    fn default() -> Self {
+        Self {
+            initial_backoff: default_replenish_initial(),
+            max_backoff: default_replenish_max(),
+        }
+    }
+}
+impl ReplenishConfig {
+    pub fn initial_backoff(&self) -> Duration {
+        self.initial_backoff
+    }
+    pub fn next_backoff(
+        &self,
+        current: Duration,
+    ) -> Duration {
+        current.saturating_mul(2).min(self.max_backoff)
+    }
+}
+fn default_replenish() -> Option<ReplenishConfig> {
+    Some(ReplenishConfig::default())
+}
+fn default_replenish_initial() -> Duration {
+    Duration::from_millis(100)
+}
+fn default_replenish_max() -> Duration {
+    Duration::from_secs(5)
+}
+
+impl<'de> Deserialize<'de> for ReplenishConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D
+    ) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Policy {
+            #[serde(
+                default = "default_replenish_initial",
+                deserialize_with = "deserialize_duration"
+            )]
+            initial_backoff: Duration,
+            #[serde(
+                default = "default_replenish_max",
+                deserialize_with = "deserialize_duration"
+            )]
+            max_backoff: Duration,
+        }
+        let policy = Policy::deserialize(deserializer)?;
+        if policy.initial_backoff.is_zero()
+            || policy.max_backoff < policy.initial_backoff
+        {
+            return Err(serde::de::Error::custom(
+                "replenish requires 0 < initial_backoff <= max_backoff",
+            ));
+        }
+        Ok(Self {
+            initial_backoff: policy.initial_backoff,
+            max_backoff: policy.max_backoff,
+        })
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/replenish.rs"]
+mod replenish_tests;
