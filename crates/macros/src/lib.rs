@@ -3,7 +3,7 @@ mod overridable;
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse::{Parse, ParseStream};
-use syn::{ItemFn, Lit, Token, parse_macro_input};
+use syn::{ItemFn, LitStr, Token, parse_macro_input};
 
 /// Arguments for the task attribute macro
 struct TaskArgs {
@@ -27,45 +27,30 @@ impl Parse for TaskArgs {
         while !input.is_empty() {
             let ident: syn::Ident = input.parse()?;
             let _: Token![=] = input.parse()?;
-            let value: Lit = input.parse()?;
-
-            match ident.to_string().as_str() {
-                "name" => {
-                    if let Lit::Str(s) = value {
-                        name = Some(s.value());
-                    }
+            let destination = match ident.to_string().as_str() {
+                "name" => &mut name,
+                "scope" => &mut scope,
+                "dispatch" => &mut dispatch,
+                "feature" => &mut feature,
+                "crate_path" => &mut crate_path,
+                "config" => &mut config,
+                _ => {
+                    return Err(syn::Error::new_spanned(
+                        &ident,
+                        "unknown task argument",
+                    ));
                 }
-                "scope" => {
-                    if let Lit::Str(s) = value {
-                        scope = Some(s.value());
-                    }
-                }
-                "dispatch" => {
-                    if let Lit::Str(s) = value {
-                        dispatch = Some(s.value());
-                    }
-                }
-                "feature" => {
-                    if let Lit::Str(s) = value {
-                        feature = Some(s.value());
-                    }
-                }
-                "crate_path" => {
-                    if let Lit::Str(s) = value {
-                        crate_path = Some(s.value());
-                    }
-                }
-                "config" => {
-                    if let Lit::Str(s) = value {
-                        config = Some(s.value());
-                    }
-                }
-                _ => {}
+            };
+            if destination.is_some() {
+                return Err(syn::Error::new_spanned(
+                    &ident,
+                    "duplicate task argument",
+                ));
             }
-
-            // Try to parse comma, if not present we're at the end
-            if input.parse::<Token![,]>().is_err() {
-                break;
+            let value: LitStr = input.parse()?;
+            *destination = Some(value.value());
+            if !input.is_empty() {
+                input.parse::<Token![,]>()?;
             }
         }
 
@@ -276,3 +261,7 @@ pub fn task(
 pub fn overridable(input: TokenStream) -> TokenStream {
     overridable::derive(input)
 }
+
+#[cfg(test)]
+#[path = "../tests/task.rs"]
+mod task_tests;

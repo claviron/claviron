@@ -102,3 +102,8 @@ Part of Claviron's alpha development series; APIs and configuration may change.
 
 Licensed under either [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT)
 or [Apache-2.0](https://github.com/claviron/claviron/blob/main/LICENSE-APACHE), at your option.
+
+Task attribute arguments are string literals. Unknown names, duplicate arguments
+and values of another literal type are compile errors at the offending input;
+they never silently select placement defaults. Omitted scope and dispatch retain
+the documented defaults.
