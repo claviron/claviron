@@ -128,8 +128,11 @@ work and joins its thread without inventing a separate graceful deadline.
 The `otlp` implementation feature includes `pipeline` and adds OTLP/HTTP logs.
 The channel declares the complete endpoint and a required bounded `queue`.
 The SDK batch processor owns its export scheduling and timeout behavior; a
-full export queue can drop records instead of blocking file channels. The
-current exporter is HTTP-only, without TLS support. Journald is available for
+full export queue can drop records instead of blocking file channels. The SDK
+reports the first queue-full drop and the aggregate count at shutdown
+through `tracing`, independently of the pipeline and subject to its subscriber
+filter. It does not emit a warning for every dropped record. The current
+exporter is HTTP-only, without TLS support. Journald is available for
 process diagnostics, not as a pipeline channel adapter.
 
 - [Runtime](../runtime/README.md): prepared environments, lifecycle, reopen events.

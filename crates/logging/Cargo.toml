@@ -39,7 +39,8 @@ time.workspace = true
 # exporter, with reqwest's blocking client and no TLS features (http only).
 opentelemetry = { version = "0.33", default-features = false, features = ["logs"], optional = true }
 opentelemetry-otlp = { version = "0.33", default-features = false, features = ["logs", "http-proto", "reqwest-blocking-client"], optional = true }
-opentelemetry_sdk = { version = "0.33", default-features = false, features = ["logs"], optional = true }
+# Keep the SDK's bounded loss diagnostics on tracing, outside the pipeline.
+opentelemetry_sdk = { version = "0.33", default-features = false, features = ["logs", "internal-logs"], optional = true }
 thiserror.workspace = true
 tracing.workspace = true
 # System journal output for the configured tracing sink.
