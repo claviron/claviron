@@ -375,10 +375,10 @@ async fn handle_certificate_event(
             })?;
 
             // No assignment check: parent row is gone, the join would
-            // return false anyway. `remove_cert` is idempotent (returns
+            // return false anyway. Owned removal is idempotent (returns
             // 0 if the cn isn't installed) so this is safe to apply on
             // every listener regardless of original assignment.
-            let removed = resolver.remove_cert(&old.cn);
+            let removed = resolver.remove_managed_cert(&old.cn);
             if removed > 0 {
                 info!("✅ cert removed cn={} entries={}", old.cn, removed);
             } else {
@@ -402,15 +402,6 @@ async fn handle_alias_event(
 ) -> claviron_runtime::registry::Result<()> {
     match event.operation.as_str() {
         "INSERT" | "UPDATE" => {
-            // For UPDATE: hostname may have rotated; remove the previous
-            // entry first so a stale alias doesn't outlive the rename.
-            if event.operation == "UPDATE"
-                && let Some(old) = event.old.as_ref()
-                && let Ok(old) = serde_json::from_value::<AliasRow>(old.clone())
-            {
-                resolver.remove_host(&old.hostname);
-            }
-
             let Some(new) = event.new else { return Ok(()) };
             let new: AliasRow = serde_json::from_value(new).map_err(|e| {
                 Error::msg(format!("cert_aliases.new parse: {e}"))
@@ -423,6 +414,18 @@ async fn handle_alias_event(
                 return Ok(());
             };
 
+            // Same-owner rotation retires old aliases in the complete group
+            // publication. A cross-certificate move retires only the old owner's
+            // binding, never a name subsequently claimed by another certificate.
+            if event.operation == "UPDATE"
+                && let Some(old) = event.old.as_ref()
+                && let Ok(old) = serde_json::from_value::<AliasRow>(old.clone())
+                && let Some(old_cn) = old.cn
+                && !old_cn.eq_ignore_ascii_case(&cn)
+            {
+                resolver.remove_alias(&old_cn, &old.hostname);
+            }
+
             if !cert_assigned_to_server(store, &cn, server_id).await {
                 debug!(
                     "alias event op={} hostname={} cn={} not on server_id={}, skipping",
@@ -431,9 +434,6 @@ async fn handle_alias_event(
                 return Ok(());
             }
 
-            // Re-run the full upsert: re-stamps the cn entry and every
-            // alias row currently in DB, including the just-added /
-            // updated one. Idempotent — same Arc<CertifiedKey> chain.
             let manager = CertificateManager::new(store, resolver);
             match manager.upsert_cn(&cn).await {
                 Ok((certificate, aliases)) => {
@@ -456,12 +456,11 @@ async fn handle_alias_event(
                 Error::msg(format!("cert_aliases.old parse: {e}"))
             })?;
 
-            // If `cn` is None, the parent cert was already cascade-deleted
-            // and the certificates trigger fired in the same txn; the
-            // matching `remove_cert(cn)` already cleared everything. This
-            // event is a duplicate — `remove_host` is idempotent so it
-            // is safe to apply anyway.
-            resolver.remove_host(&old.hostname);
+            // A cascade without a CN has no remaining owner to remove; the
+            // parent certificate event retires its complete owned group.
+            if let Some(cn) = old.cn.as_deref() {
+                resolver.remove_alias(cn, &old.hostname);
+            }
             debug!(
                 "✅ alias removed hostname={} cn={:?}",
                 old.hostname, old.cn

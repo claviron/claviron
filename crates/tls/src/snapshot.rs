@@ -25,8 +25,7 @@ pub struct Snapshot {
     pub cert_map: HashMap<String, Arc<CertifiedKey>>,
     default_cert: Option<Arc<CertifiedKey>>,
     pub cert_cache: HashMap<(PathBuf, PathBuf), Arc<CertifiedKey>>,
-    #[cfg(feature = "db")]
-    db_certs: HashMap<String, Arc<CertifiedKey>>,
+    pub(crate) owners: HashMap<String, String>,
 }
 
 impl Snapshot {
@@ -35,8 +34,7 @@ impl Snapshot {
             cert_map: HashMap::new(),
             default_cert: None,
             cert_cache: HashMap::new(),
-            #[cfg(feature = "db")]
-            db_certs: HashMap::new(),
+            owners: HashMap::new(),
         }
     }
 
@@ -270,6 +268,8 @@ impl Snapshot {
             // Insert for CN (Common Name)
             if let Ok(cn_sni) = Sni::from_str(&cn) {
                 if self.insert_ck(&cn_sni, ck.clone()) {
+                    self.owners
+                        .insert(cn_sni.key_string(), cn.to_ascii_lowercase());
                     tracing::trace!("🗄️  DB cert CN '{}' added", cn);
                     loaded += 1;
                 }
@@ -282,6 +282,10 @@ impl Snapshot {
             for alias_model in hosted.aliases {
                 if let Ok(alias_sni) = Sni::from_str(&alias_model.hostname) {
                     if self.insert_ck(&alias_sni, ck.clone()) {
+                        self.owners.insert(
+                            alias_sni.key_string(),
+                            cn.to_ascii_lowercase(),
+                        );
                         loaded += 1;
                     }
                 } else {
@@ -291,9 +295,6 @@ impl Snapshot {
                     );
                 }
             }
-
-            // Store in db_certs map for tracking
-            self.db_certs.insert(cn, ck);
         }
 
         Ok(loaded)

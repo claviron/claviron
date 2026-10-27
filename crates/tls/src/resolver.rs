@@ -39,6 +39,23 @@ pub fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
 struct Published {
     certs: HashMap<String, Arc<CertifiedKey>>,
     default_cert: Arc<CertifiedKey>,
+    // Only managed bindings carry a canonical CN owner. Key allocation identity
+    // is not ownership: rotation replaces the key, and a hostname may move.
+    owners: HashMap<String, String>,
+}
+
+impl Published {
+    fn remove_owned(
+        &mut self,
+        cn: &str,
+    ) -> usize {
+        let before = self.certs.len();
+        self.certs.retain(|host, _| {
+            self.owners.get(host).is_none_or(|owner| owner != cn)
+        });
+        self.owners.retain(|_, owner| owner != cn);
+        before - self.certs.len()
+    }
 }
 
 /// Hot-reloadable certificate resolver. Handshake reads never acquire the
@@ -54,10 +71,19 @@ impl CertResolver {
         cert_map: HashMap<String, Arc<CertifiedKey>>,
         default_cert: Arc<CertifiedKey>,
     ) -> Self {
+        Self::new_owned(cert_map, default_cert, HashMap::new())
+    }
+
+    pub(crate) fn new_owned(
+        cert_map: HashMap<String, Arc<CertifiedKey>>,
+        default_cert: Arc<CertifiedKey>,
+        owners: HashMap<String, String>,
+    ) -> Self {
         Self {
             published: ArcSwap::from_pointee(Published {
                 certs: cert_map,
                 default_cert,
+                owners,
             }),
             writers: Mutex::new(()),
         }
@@ -82,6 +108,7 @@ impl CertResolver {
     ) {
         let key = host.as_ref().to_ascii_lowercase();
         self.update(|next| {
+            next.owners.remove(&key);
             next.certs.insert(key, ck);
         });
     }
@@ -91,51 +118,88 @@ impl CertResolver {
         &self,
         host: &str,
     ) {
+        let host = host.to_ascii_lowercase();
         self.update(|next| {
-            next.certs.remove(&host.to_ascii_lowercase());
+            next.owners.remove(&host);
+            next.certs.remove(&host);
         });
     }
 
-    /// Remove the certificate identified by `cn` together with **every other
-    /// hostname pointing to the same `Arc<CertifiedKey>`** (CN entry + all
-    /// aliases that were installed via [`Self::upsert_host`] with the same
-    /// `Arc::clone`). Returns the number of hostname entries removed.
+    /// Remove all bindings still owned by a managed certificate's canonical CN.
+    /// Hostnames reassigned to another certificate are preserved, even if the
+    /// canonical hostname itself was reassigned. Names are case-insensitive.
     ///
-    /// **What:** Looks up the `Arc<CertifiedKey>` registered under `cn`,
-    /// then retains only the entries whose value points to a *different*
-    /// allocation. Pointer identity is the load-bearing invariant —
-    /// `CertificateManager::upsert_with_modal` always installs a single
-    /// `Arc::clone` chain per cert, so "same Arc" ⇔ "same physical cert".
-    ///
-    /// **Why:** when a certificate row is deleted from the database, the
-    /// notify listener has the CN but typically **not** the alias list —
-    /// `ON DELETE CASCADE` on `cert_aliases` may have already removed the
-    /// SAN rows by the time the listener queries. Identifying "everything
-    /// attached to this cert" by Arc pointer identity is `O(n)` in the
-    /// cert map (small, no allocations beyond the snapshot clone) but
-    /// exact — it doesn't depend on DB state at the moment of removal.
-    ///
-    /// **Use when:** purging a cert wholesale — DB DELETE handler for
-    /// `hosting.certificates`, or any operator-driven "drop this cert
-    /// everywhere" path.
-    ///
-    /// **Don't use when:** removing a single SAN/alias — use
-    /// [`Self::remove_host`] instead. Calling `remove_cert` on a SAN's hostname
-    /// would still remove the whole cert (every alias shares the same
-    /// Arc), which is almost certainly not what you want.
+    /// For maps installed through `new`, `replace_all` or `upsert_host`, which
+    /// carry no managed ownership, remove the unowned entries sharing the CN's
+    /// key allocation. Use `remove_host` to remove one such alias.
     pub fn remove_cert(
         &self,
         cn: &str,
     ) -> usize {
         let key = cn.to_ascii_lowercase();
         self.update(|next| {
+            let removed = next.remove_owned(&key);
+            if removed != 0 || next.owners.contains_key(&key) {
+                return removed;
+            }
             let Some(target) = next.certs.get(&key).cloned() else {
                 return 0;
             };
             let before = next.certs.len();
-            next.certs.retain(|_, arc| !Arc::ptr_eq(arc, &target));
+            next.certs.retain(|host, arc| {
+                next.owners.contains_key(host) || !Arc::ptr_eq(arc, &target)
+            });
             before - next.certs.len()
         })
+    }
+
+    /// DB events may retire only managed bindings, never a file/raw replacement
+    /// that happens to occupy the same canonical hostname.
+    #[cfg(feature = "db")]
+    pub(crate) fn remove_managed_cert(
+        &self,
+        cn: &str,
+    ) -> usize {
+        let cn = cn.to_ascii_lowercase();
+        self.update(|next| next.remove_owned(&cn))
+    }
+
+    /// Publish one managed certificate's CN and complete current alias set.
+    /// Parsing happens before this call; retirement and insertion share one
+    /// publication, so readers never observe a partially rotated identity.
+    #[cfg(feature = "db")]
+    pub(crate) fn upsert_cert(
+        &self,
+        cn: &str,
+        aliases: &[String],
+        ck: Arc<CertifiedKey>,
+    ) {
+        let cn = cn.to_ascii_lowercase();
+        self.update(|next| {
+            next.remove_owned(&cn);
+            for host in std::iter::once(&cn).chain(aliases) {
+                let host = host.to_ascii_lowercase();
+                next.owners.insert(host.clone(), cn.clone());
+                next.certs.insert(host, ck.clone());
+            }
+        });
+    }
+
+    /// A delayed alias event cannot remove a name now owned by another cert.
+    #[cfg(feature = "postgres")]
+    pub(crate) fn remove_alias(
+        &self,
+        cn: &str,
+        host: &str,
+    ) {
+        let cn = cn.to_ascii_lowercase();
+        let host = host.to_ascii_lowercase();
+        self.update(|next| {
+            if host != cn && next.owners.get(&host) == Some(&cn) {
+                next.owners.remove(&host);
+                next.certs.remove(&host);
+            }
+        });
     }
 
     /// Returns a list of all hostnames currently loaded in the resolver.
@@ -144,7 +208,8 @@ impl CertResolver {
         snapshot.certs.keys().cloned().collect()
     }
 
-    /// Change the default certificate used on SNI miss.
+    /// Change the default material exposed to TLS consumers. SNI resolution
+    /// continues to reject missing or unknown names.
     pub fn set_default(
         &self,
         ck: Arc<CertifiedKey>,
@@ -206,10 +271,20 @@ impl CertResolver {
         new_map: HashMap<String, Arc<CertifiedKey>>,
         new_default: Arc<CertifiedKey>,
     ) {
+        self.replace_owned(new_map, new_default, HashMap::new());
+    }
+
+    pub(crate) fn replace_owned(
+        &self,
+        new_map: HashMap<String, Arc<CertifiedKey>>,
+        new_default: Arc<CertifiedKey>,
+        owners: HashMap<String, String>,
+    ) {
         let _writer = self.writers.lock().unwrap_or_else(|e| e.into_inner());
         self.published.store(Arc::new(Published {
             certs: new_map,
             default_cert: new_default,
+            owners,
         }));
     }
 
@@ -247,7 +322,6 @@ impl ResolvesServerCert for CertResolver {
         } else {
             error!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), "🚫 handshake: no-sni provided — rejecting");
             None
-            // Some(self.published.load().default_cert.clone())
         }
     }
 }

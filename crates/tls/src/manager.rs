@@ -9,6 +9,10 @@ pub struct CertificateManager<'a> {
     store: &'a HostingStore,
 }
 
+#[cfg(test)]
+#[path = "../tests/rotation.rs"]
+mod tests;
+
 impl<'a> CertificateManager<'a> {
     pub fn new(
         store: &'a HostingStore,
@@ -41,24 +45,19 @@ impl<'a> CertificateManager<'a> {
             return Err(Error::Other("client and CA certificates cannot be installed in the server resolver".into()));
         }
         if !cert.enabled {
-            let removed = self.resolver.remove_cert(&cert.cn);
+            let removed = self.resolver.remove_managed_cert(&cert.cn);
             debug!(cn = %cert.cn, entries = removed, "disabled certificate removed from resolver");
             return Ok((cert, Vec::new()));
         }
         let certified_key = crate::pem::db_cert_to_certified_key(&cert)?;
         let cert_arc = std::sync::Arc::new(certified_key);
 
-        self.resolver.upsert_host(&cert.cn, cert_arc.clone());
-        debug!(cn = %cert.cn, "certificate loaded");
-
         let aliases = hosted
             .aliases
             .into_iter()
             .map(|alias| alias.hostname)
             .collect::<Vec<_>>();
-        for alias in &aliases {
-            self.resolver.upsert_host(alias, cert_arc.clone());
-        }
+        self.resolver.upsert_cert(&cert.cn, &aliases, cert_arc);
         debug!(cn = %cert.cn, ?aliases, "certificate aliases loaded");
         Ok((cert, aliases))
     }

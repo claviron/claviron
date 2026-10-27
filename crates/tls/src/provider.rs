@@ -255,7 +255,11 @@ pub async fn build_certificates(
         snapshot.default_cert().ok_or(Error::NoDefaultCert)?.clone();
 
     Ok(Certificates {
-        resolver: Arc::new(CertResolver::new(snapshot.cert_map, default_cert)),
+        resolver: Arc::new(CertResolver::new_owned(
+            snapshot.cert_map,
+            default_cert,
+            snapshot.owners,
+        )),
         authority,
     })
 }
@@ -281,7 +285,7 @@ pub async fn reload_resolver_certs(
 
     let default_cert =
         snapshot.default_cert().ok_or(Error::NoDefaultCert)?.clone();
-    resolver.replace_all(snapshot.cert_map, default_cert);
+    resolver.replace_owned(snapshot.cert_map, default_cert, snapshot.owners);
     Ok(())
 }
 

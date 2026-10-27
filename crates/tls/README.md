@@ -126,6 +126,14 @@ successful updates to different hostnames cannot overwrite one another. Full
 reload is authoritative at publication; it replaces, rather than merges, the
 previous snapshot. File and database IO complete before taking that lock.
 
+A managed certificate rotation publishes its CN and complete current alias set
+in one snapshot. Retired aliases disappear; aliases reassigned to another
+certificate remain with their new owner. Disabling or deleting the certificate
+removes only bindings it still owns. Invalid replacement material leaves the
+previous publication intact. Ownership loaded from the database survives full
+reload, while file-derived bindings retain their existing first-wins precedence.
+These changes affect subsequent handshakes, not established TLS connections.
+
 ## Features and scope
 
 The implementation has no default features. `db` adds hosting/database-backed
