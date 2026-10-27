@@ -11,20 +11,43 @@ fn is_trusted_proxy(
     trusted.iter().any(|n| n.contains(&remote))
 }
 
-/// Extract real IP from proxy headers (X-Forwarded-For, X-Real-IP, etc.)
+/// Resolve only the highest-priority header present. Malformed identity must
+/// not fall through to a less-preferred, potentially attacker-controlled field.
 fn extract_ip_from_headers(
     headers: &HeaderMap,
+    remote: IpAddr,
+    trusted: &[IpNet],
     order: &[HeaderName],
 ) -> Option<IpAddr> {
     for name in order {
-        if let Some(s) = headers.get(name).and_then(|v| v.to_str().ok()) {
-            // XFF: "client, proxy1, proxy2" -> the IP on the left side will be used
-            for cand in s.split(',').map(|p| p.trim()) {
-                if let Ok(ip) = cand.parse() {
-                    return Some(ip);
+        if !headers.contains_key(name) {
+            continue;
+        }
+        if name == http::header::HeaderName::from_static("x-forwarded-for") {
+            let mut client = remote;
+            // Header occurrences and comma-separated hops both retain wire
+            // order. Start at the socket side and never cross an untrusted hop.
+            for value in headers.get_all(name).iter().rev() {
+                let Ok(value) = value.to_str() else { return Some(client) };
+                for hop in value.rsplit(',') {
+                    if !is_trusted_proxy(client, trusted) {
+                        return Some(client);
+                    }
+                    let Ok(address) = hop.trim().parse() else {
+                        return Some(client);
+                    };
+                    client = address;
                 }
             }
+            return Some(client);
         }
+        // X-Real-IP and custom identity fields name one address, not a chain.
+        let mut values = headers.get_all(name).iter();
+        let value = values.next()?;
+        if values.next().is_some() {
+            return None;
+        }
+        return value.to_str().ok()?.trim().parse().ok();
     }
     None
 }
@@ -40,7 +63,13 @@ pub fn resolve_real_ip_from_headers(
         && is_trusted_proxy(remote_ip, trusted_proxies)
     {
         // Extract from headers
-        extract_ip_from_headers(headers, header_order).unwrap_or(remote_ip)
+        extract_ip_from_headers(
+            headers,
+            remote_ip,
+            trusted_proxies,
+            header_order,
+        )
+        .unwrap_or(remote_ip)
     } else {
         // Not behind trusted proxy
         remote_ip

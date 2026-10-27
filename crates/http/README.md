@@ -65,6 +65,12 @@ the actual listener, peer, transport, and TLS facts. Forwarded origin informatio
 is separate from those connection facts and is honored only under the caller's
 configured trust policy.
 
+For the real-IP resolver, `X-Forwarded-For` is traversed from the socket side,
+across repeated field lines, stopping at the first untrusted or malformed hop.
+An untrusted prefix cannot select the request identity. The highest-priority
+configured field present wins; malformed input does not fall through to another
+field. `X-Real-IP` and custom identity fields must contain one IP address.
+
 Shared helpers join split Cookie headers, resolve client IP through trusted
 proxies, strip hop-by-hop headers, and validate proxy framing boundaries. The
 authority parser checks request-head consistency without polling the body;
