@@ -29,6 +29,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use claviron_app::{EventArrayKey, EventValue};
 use claviron_orbit::invoke::INVOCATION_RING_CAPACITY;
@@ -38,7 +39,7 @@ use claviron_orbit::{
 use claviron_runtime::gate::Error as GateError;
 use claviron_runtime::registry::{self, Component, Runnable, priority};
 use claviron_runtime::{
-    AppState, Gate, GateDrainOutcome, RunContext, ServiceStartPolicy,
+    AppState, Gate, GateDrainOutcome, Permit, RunContext, ServiceStartPolicy,
 };
 use claviron_tasks::service::TaskService;
 use claviron_tasks::{Error as TaskError, TaskConfig, TaskResult};
@@ -276,6 +277,77 @@ fn string(
 /// shutdown.
 const ACQUIRE_TIMEOUT: Duration = Duration::from_millis(100);
 
+/// Publishes generation gates. The bridge caches a gate and refreshes it only
+/// after closure; ordinary admission uses Gate's existing atomic permit path.
+struct InvocationGates {
+    current: ArcSwap<Gate>,
+}
+
+impl InvocationGates {
+    fn new(max_in_flight: usize) -> Self {
+        let gate = Gate::new(Some(max_in_flight), ACQUIRE_TIMEOUT);
+        gate.graceful_shutdown(None);
+        Self { current: ArcSwap::from_pointee(gate) }
+    }
+
+    fn begin(
+        &self,
+        max_in_flight: usize,
+    ) -> registry::Result<InvocationGeneration> {
+        let previous = self.current.load_full();
+        if !previous.is_shutting_down() || previous.count() != 0 {
+            return Err(registry::Error::recoverable(
+                "previous PHP invocation generation is still running or draining",
+            ));
+        }
+        let gate = Arc::new(Gate::new(Some(max_in_flight), ACQUIRE_TIMEOUT));
+        let observed =
+            self.current.compare_and_swap(&previous, Arc::clone(&gate));
+        if !Arc::ptr_eq(&observed, &previous) {
+            return Err(registry::Error::recoverable(
+                "PHP invocation generation is already starting",
+            ));
+        }
+        Ok(InvocationGeneration { gate })
+    }
+
+    async fn enter(
+        &self,
+        cached: &mut Arc<Gate>,
+    ) -> Result<Permit, GateError> {
+        loop {
+            match cached.enter().await {
+                Ok(permit) => return Ok(permit),
+                Err(GateError::AcquireTimeout(_) | GateError::AtCapacity) => {
+                    continue;
+                }
+                Err(GateError::ShuttingDown) => {
+                    let current = self.current.load_full();
+                    if Arc::ptr_eq(cached, &current) {
+                        return Err(GateError::ShuttingDown);
+                    }
+                    *cached = current;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+struct InvocationGeneration {
+    gate: Arc<Gate>,
+}
+
+impl Drop for InvocationGeneration {
+    fn drop(&mut self) {
+        // Also close admission if the runnable future is dropped unexpectedly.
+        // Existing permits retain their own gate until their work ends.
+        if !self.gate.is_shutting_down() {
+            self.gate.graceful_shutdown(None);
+        }
+    }
+}
+
 /// The executor: threads, admission, and the drain that ends them.
 ///
 /// A runtime-owned service rather than a task, because those three are a
@@ -288,13 +360,13 @@ const ACQUIRE_TIMEOUT: Duration = Duration::from_millis(100);
 /// [`PhpInvocationService::invoke`] on the executor beside it.
 pub struct PhpInvocationService {
     runtime: Arc<PhpEmbedRuntime>,
-    gate: Gate,
+    gates: InvocationGates,
 }
 
 impl PhpInvocationService {
     pub(crate) fn new(runtime: Arc<PhpEmbedRuntime>) -> Self {
         let max_in_flight = runtime.launch_config().max_in_flight;
-        Self { runtime, gate: Gate::new(Some(max_in_flight), ACQUIRE_TIMEOUT) }
+        Self { runtime, gates: InvocationGates::new(max_in_flight) }
     }
 
     /// Admit and start one invocation. Returns once it has been handed to its
@@ -306,22 +378,15 @@ impl PhpInvocationService {
     pub(crate) async fn invoke(
         &self,
         invocation: Invocation,
+        gate: &mut Arc<Gate>,
     ) -> Result<(), String> {
         let program_invocation = invocation
             .decode::<PhpProgramInvocation>()
             .map_err(|error| error.to_string())?;
-        let permit = loop {
-            match self.gate.enter().await {
-                Ok(permit) => break permit,
-                Err(GateError::AcquireTimeout(_)) => continue,
-                Err(GateError::AtCapacity) => continue,
-                Err(error) => {
-                    return Err(format!(
-                        "invocation executor refused: {error}"
-                    ));
-                }
-            }
-        };
+        let permit =
+            self.gates.enter(gate).await.map_err(|error| {
+                format!("invocation executor refused: {error}")
+            })?;
         self.runtime.ensure_booted().map_err(|error| error.to_string())?;
 
         let config = self.runtime.launch_config();
@@ -408,10 +473,11 @@ impl Runnable<AppState, Arc<PhpEmbedRuntime>> for PhpInvocationService {
         context: RunContext,
     ) -> registry::Result<()> {
         let config = self.runtime.launch_config();
+        let generation = self.gates.begin(config.max_in_flight)?;
         tracing::info!(max_in_flight = config.max_in_flight, execution_timeout = ?config.execution_timeout, "PHP invocation service started");
         context.cancellation_token().cancelled().await;
-        self.gate.graceful_shutdown(Some(config.drain_timeout));
-        match self.gate.wait_all_done().await {
+        generation.gate.graceful_shutdown(Some(config.drain_timeout));
+        match generation.gate.wait_all_done().await {
             GateDrainOutcome::Drained => {
                 tracing::info!("PHP invocation service stopped");
                 Ok(())
@@ -540,6 +606,7 @@ async fn admit_invocations(
     executor: &Arc<PhpInvocationService>,
     cancellation: &CancellationToken,
 ) -> TaskResult<()> {
+    let mut gate = executor.gates.current.load_full();
     loop {
         let invocation = tokio::select! {
             biased;
@@ -552,7 +619,7 @@ async fn admit_invocations(
         let admitted = tokio::select! {
             biased;
             () = cancellation.cancelled() => break,
-            admitted = executor.invoke(invocation) => admitted
+            admitted = executor.invoke(invocation, &mut gate) => admitted
         };
         if let Err(error) = admitted {
             tracing::warn!(%error, "invocation not admitted");

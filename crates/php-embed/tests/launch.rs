@@ -116,3 +116,39 @@ async fn ring_reader_continues_with_retained_invocations_after_lag() {
     cancellation.cancel();
     reader.await.expect("reader task").expect("reader result");
 }
+
+#[tokio::test]
+async fn invocation_generation_restart_refreshes_cached_admission() {
+    let gates = InvocationGates::new(1);
+    let mut cached = gates.current.load_full();
+    assert!(matches!(
+        gates.enter(&mut cached).await,
+        Err(GateError::ShuttingDown)
+    ));
+    let first = gates.begin(1).unwrap();
+    let permit = gates.enter(&mut cached).await.unwrap();
+    assert!(Arc::ptr_eq(&cached, &first.gate));
+    assert!(gates.begin(1).is_err());
+    first.gate.graceful_shutdown(None);
+    assert!(matches!(
+        gates.enter(&mut cached).await,
+        Err(GateError::ShuttingDown)
+    ));
+    assert!(gates.begin(1).is_err());
+    drop(permit);
+    assert_eq!(first.gate.wait_all_done().await, GateDrainOutcome::Drained);
+    let second = gates.begin(2).unwrap();
+    let permit = gates.enter(&mut cached).await.unwrap();
+    assert!(Arc::ptr_eq(&cached, &second.gate));
+    assert_eq!(second.gate.max_count(), Some(2));
+    assert_eq!(first.gate.count(), 0);
+    // Dropping an old generation cannot close the replacement's admission.
+    drop(first);
+    assert!(!second.gate.is_shutting_down());
+    drop(second);
+    assert!(matches!(
+        gates.enter(&mut cached).await,
+        Err(GateError::ShuttingDown)
+    ));
+    drop(permit);
+}
