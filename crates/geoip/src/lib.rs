@@ -43,6 +43,7 @@ pub fn register(state: &AppState) -> Result<()> {
 
 /// Boot-time initializer; call this once during app startup.
 pub fn boot_geoip(cfg: &GeoIpConfig) {
+    let _ = NON_ROUTABLE_CODE.set(cfg.non_routable.clone());
     if !cfg.enabled {
         return;
     }
@@ -68,7 +69,6 @@ pub fn boot_geoip(cfg: &GeoIpConfig) {
             );
         }
     }
-    let _ = NON_ROUTABLE_CODE.set(cfg.non_routable.clone());
 }
 
 impl Register<AppState> for GeoIpProvider {
@@ -233,3 +233,7 @@ impl GeoIpConfig {
 fn default_true() -> bool {
     true
 }
+
+#[cfg(test)]
+#[path = "../tests/fallback.rs"]
+mod fallback_tests;
