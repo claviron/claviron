@@ -75,3 +75,66 @@ fn reload_reopen_and_service_restart_preserve_file_channels() {
         "earlier records\nadded during reload\n",
     );
 }
+
+#[test]
+fn audit_logging_context_cannot_replace_record_metadata() {
+    use super::{Decoded, OwnedValue, json_line};
+    use crate::pipeline::record::{ChannelId, Level};
+    let reserved = [
+        "time",
+        "level",
+        "channel",
+        "node",
+        "target",
+        "message",
+        "truncated",
+        "fields",
+    ];
+    let mut fields: Vec<_> = reserved
+        .iter()
+        .map(|key| (key.to_string(), OwnedValue::Str("context-value".into())))
+        .collect();
+    fields.extend([
+        ("status".into(), OwnedValue::U64(200)),
+        ("delta".into(), OwnedValue::I64(-3)),
+        ("ratio".into(), OwnedValue::F64(0.5)),
+        ("cached".into(), OwnedValue::Bool(true)),
+    ]);
+    let mut record = Decoded {
+        channel: ChannelId(1),
+        level: Level::Error,
+        time: 0,
+        target: "trusted-target".into(),
+        message: "trusted-message".into(),
+        fields,
+        truncated: false,
+    };
+    for empty in [false, true] {
+        if empty {
+            record.target.clear();
+            record.message.clear();
+        }
+        let mut output = Vec::new();
+        json_line(&mut output, "audit", 1, &record);
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        assert_eq!(value["level"], "error");
+        assert_eq!(value["channel"], "audit");
+        assert_eq!(value["node"], 1);
+        assert_eq!(value["time"], super::rfc3339(0));
+        if !empty {
+            assert_eq!(value["target"], "trusted-target");
+            assert_eq!(value["message"], "trusted-message");
+        } else {
+            assert!(value.get("target").is_none());
+            assert!(value.get("message").is_none());
+        }
+        assert!(value.get("truncated").is_none());
+        for key in reserved {
+            assert_eq!(value["fields"][key], "context-value");
+        }
+        assert_eq!(value["status"], 200);
+        assert_eq!(value["delta"], -3);
+        assert_eq!(value["ratio"], 0.5);
+        assert_eq!(value["cached"], true);
+    }
+}

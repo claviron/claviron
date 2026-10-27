@@ -424,8 +424,26 @@ fn json_line(
     if !record.message.is_empty() {
         object.insert("message".into(), record.message.clone().into());
     }
+    let mut collisions = serde_json::Map::new();
     for (key, value) in &record.fields {
-        object.insert(key.clone(), json_value(value));
+        if matches!(
+            key.as_str(),
+            "time"
+                | "level"
+                | "channel"
+                | "node"
+                | "target"
+                | "message"
+                | "truncated"
+                | "fields"
+        ) {
+            collisions.insert(key.clone(), json_value(value));
+        } else {
+            object.insert(key.clone(), json_value(value));
+        }
+    }
+    if !collisions.is_empty() {
+        object.insert("fields".into(), collisions.into());
     }
     if record.truncated {
         object.insert("truncated".into(), true.into());

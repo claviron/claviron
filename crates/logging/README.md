@@ -144,3 +144,9 @@ Part of Claviron's alpha development series; APIs and configuration may change.
 
 Licensed under either [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT)
 or [Apache-2.0](https://github.com/claviron/claviron/blob/main/LICENSE-APACHE), at your option.
+
+JSON output reserves `time`, `level`, `channel`, `node`, `target`, `message`,
+`truncated` and `fields` for record metadata. Context fields with these names
+are preserved under the `fields` object; they cannot replace metadata, even
+when an optional metadata value is absent. Other context fields remain at the
+top level with their original scalar types.
