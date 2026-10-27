@@ -628,7 +628,7 @@ pub(crate) async fn install_adopted_worker(
         evidence.runtime_started_at_unix_ms(),
         Arc::clone(&control.exited),
     )?
-    .close_links_on_exit(state, accepted.incarnation());
+    .recover_orbit_on_exit(state, accepted.incarnation());
     let mut workers = control.workers.write().await;
     let Some(worker) = workers.iter_mut().find(|worker| worker.id == worker_id)
     else {

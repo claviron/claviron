@@ -69,7 +69,7 @@ pub(crate) fn spawn_worker(
     // Every path that creates a worker process comes through here; the
     // process gets its one exit observer as it is adopted.
     let process = OwnedProcess::from_child(child, Arc::clone(&control.exited))?
-        .close_links_on_exit(state, incarnation);
+        .recover_orbit_on_exit(state, incarnation);
     debug!("⚙️  Worker #{id} started with PID {}", process.pid());
 
     Ok(WorkerProcess::new(

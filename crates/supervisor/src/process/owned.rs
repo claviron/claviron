@@ -83,10 +83,10 @@ impl fmt::Display for ProcessExit {
 }
 
 impl OwnedProcess {
-    /// Bind transport cleanup before publishing the process handle. The
+    /// Bind Orbit recovery before publishing the process handle. The
     /// observer is inert until polled; neither signalling nor withdrawal
     /// runs this callback. Exact kernel exit does, once, before waking waiters.
-    pub(crate) fn close_links_on_exit(
+    pub(crate) fn recover_orbit_on_exit(
         self,
         state: &claviron_runtime::AppState,
         incarnation: u64,
@@ -97,6 +97,8 @@ impl OwnedProcess {
             .registry_ref()
             .resolve::<claviron_orbit::transport::TransportService>(
         );
+        let cells =
+            state.registry_ref().resolve::<claviron_orbit::CellsProvider>();
         assert!(self.exit.cleanup.set(Box::new(move || {
             if let Some(transport) = &transport {
                 transport.process_exited(&fleet, pid, incarnation);
@@ -108,6 +110,19 @@ impl OwnedProcess {
                     });
                 if let Err(error) = result {
                     tracing::error!(%fleet, pid, incarnation, %error, "could not release exited worker Link streams");
+                }
+            }
+            if let Some(cells) = cells.as_ref().and_then(|provider| provider.handle()) {
+                match cells.recover_text_writers() {
+                    Ok(recovered) if recovered != 0 => {
+                        tracing::debug!(%fleet, pid, incarnation, recovered,
+                            "text cell writers recovered after worker exit");
+                    }
+                    Ok(_) => {},
+                    Err(error) => {
+                        tracing::error!(%fleet, pid, incarnation, %error,
+                            "could not recover text cells after worker exit");
+                    }
                 }
             }
         })).is_ok(), "exit cleanup is installed only once before publication");
