@@ -129,7 +129,7 @@ impl CacheStore for FileCacheStore {
         let Some(prefix) =
             self.prefix.clone().filter(|prefix| !prefix.is_empty())
         else {
-            if !self.path.exists() {
+            if !self.path.try_exists()? {
                 return Ok(());
             }
             return cacache::clear(self.path()).await.map_err(|err| {
@@ -145,8 +145,8 @@ impl CacheStore for FileCacheStore {
 
         let path = self.path.clone();
         let keys = tokio::task::spawn_blocking(
-            move || -> cacache::Result<Vec<String>> {
-                if !path.exists() {
+            move || -> crate::Result<Vec<String>> {
+                if !path.try_exists()? {
                     return Ok(Vec::new());
                 }
                 cacache::list_sync(path)
@@ -157,7 +157,8 @@ impl CacheStore for FileCacheStore {
                         Ok(_) => None,
                         Err(error) => Some(Err(error)),
                     })
-                    .collect()
+                    .collect::<cacache::Result<Vec<_>>>()
+                    .map_err(Error::from)
             },
         )
         .await

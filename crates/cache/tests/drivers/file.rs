@@ -12,6 +12,50 @@ fn test_path() -> PathBuf {
 }
 
 #[tokio::test]
+async fn file_clear_metadata_lookup_preserves_absent_success() {
+    let path = test_path().join("absent-cache");
+    for prefix in [None, Some(""), Some("owned:")] {
+        let store = FileCacheStore::new(
+            "missing",
+            path.clone(),
+            prefix.map(str::to_owned),
+        );
+        store.clear().await.expect("clear an absent store");
+        assert!(!path.try_exists().expect("inspect absent cache path"));
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn file_clear_metadata_lookup_errors_are_not_missing_stores() {
+    let root = test_path();
+    std::fs::create_dir(&root).expect("create isolated fixture");
+    std::os::unix::fs::symlink("cycle", root.join("cycle"))
+        .expect("create a self-referencing symlink");
+    let path = root.join("cycle").join("cache");
+    // A symlink loop produces a real metadata error even for privileged runners.
+    let native_error = path.try_exists().expect_err("metadata lookup fails");
+    let mut outcomes = Vec::new();
+    for prefix in [None, Some(""), Some("owned:")] {
+        let store = FileCacheStore::new(
+            "inaccessible",
+            path.clone(),
+            prefix.map(str::to_owned),
+        );
+        outcomes.push((prefix, store.clear().await));
+    }
+    std::fs::remove_dir_all(&root).expect("remove the isolated fixture");
+
+    for (prefix, outcome) in outcomes {
+        let error = outcome.expect_err("clear must propagate metadata errors");
+        assert!(
+            error.to_string().contains(&native_error.to_string()),
+            "prefix {prefix:?}: {error}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn prefixed_clear_keeps_other_store_keys() {
     let path = test_path();
     let first =
