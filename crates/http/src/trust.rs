@@ -106,13 +106,14 @@ impl Trust {
 
         let hops = parse_forwarded(headers);
         if !hops.is_empty() {
-            let nearest = hops
+            let boundary = hops
                 .iter()
-                .rev()
-                .find(|hop| {
+                .rposition(|hop| {
                     hop.address.is_none_or(|address| !self.admits(address))
                 })
-                .or_else(|| hops.first());
+                .unwrap_or(0);
+            let trusted = &hops[boundary..];
+            let nearest = trusted.first();
             return Resolved {
                 client: nearest
                     .and_then(|hop| hop.address)
@@ -123,12 +124,12 @@ impl Trust {
                         )
                     })
                     .or(peer),
-                scheme: hops
+                scheme: trusted
                     .iter()
                     .rev()
                     .find_map(|hop| hop.proto.clone())
                     .filter(|proto| is_http(proto)),
-                host: hops.iter().rev().find_map(|hop| hop.host.clone()),
+                host: trusted.iter().rev().find_map(|hop| hop.host.clone()),
             };
         }
 

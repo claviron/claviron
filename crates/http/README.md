@@ -70,6 +70,8 @@ across repeated field lines, stopping at the first untrusted or malformed hop.
 An untrusted prefix cannot select the request identity. The highest-priority
 configured field present wins; malformed input does not fall through to another
 field. `X-Real-IP` and custom identity fields must contain one IP address.
+`Trust::resolve` also limits Forwarded host and scheme lookup to the suffix
+reported by trusted proxies; absent fields fall back to connection facts.
 
 Shared helpers join split Cookie headers, resolve client IP through trusted
 proxies, strip hop-by-hop headers, and validate proxy framing boundaries. The

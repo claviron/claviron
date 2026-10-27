@@ -207,3 +207,34 @@ fn origin_prefers_a_trusted_hop_and_falls_back_to_the_connection() {
     assert_eq!(origin.server, Some("10.0.0.1:8443".parse().unwrap()));
     assert_eq!(origin.scheme, Some(Scheme::HTTPS));
 }
+
+#[test]
+fn regression_forwarded_metadata_stays_inside_the_authenticated_suffix() {
+    let trust = Trust::new(vec!["192.0.2.0/24".parse().unwrap()]);
+    let socket = peer("192.0.2.10");
+    let resolved = trust.resolve(
+        socket,
+        &headers(&[(
+            "forwarded",
+            "for=203.0.113.99;proto=https;host=forged.test, for=198.51.100.7",
+        )]),
+    );
+    assert_eq!(resolved.client.unwrap().ip().to_string(), "198.51.100.7");
+    assert!(resolved.host.is_none());
+    assert!(resolved.scheme.is_none());
+
+    let resolved = trust.resolve(socket, &headers(&[("forwarded",
+        "for=203.0.113.99;proto=http;host=forged.test, for=198.51.100.7;proto=https;host=app.test, for=192.0.2.11")]));
+    assert_eq!(resolved.host.as_deref(), Some("app.test"));
+    assert_eq!(resolved.scheme.as_deref(), Some("https"));
+    let resolved = trust.resolve(
+        socket,
+        &headers(&[(
+            "forwarded",
+            "for=203.0.113.99;proto=https;host=forged.test, for=unknown",
+        )]),
+    );
+    assert_eq!(resolved.client, socket);
+    assert!(resolved.host.is_none());
+    assert!(resolved.scheme.is_none());
+}
