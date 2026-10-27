@@ -104,7 +104,12 @@ def dependency_order(packages):
             if dep.get("path"):
                 other = paths.get(str(Path(dep["path"])))
                 if other is None:
-                    raise PublishError(f"{name}: path dependency {dep['name']} is outside the release.")
+                    # Cargo normalizes versioned sibling paths to registry
+                    # dependencies. They are prerequisites, not release members;
+                    # Cargo package still verifies the actual registry source.
+                    if dep.get("registry") or dep.get("req", "*") == "*":
+                        raise PublishError(f"{name}: path dependency {dep['name']} needs a crates.io version requirement outside the release.")
+                    continue
                 dependencies.add(other)
             elif dep.get("registry") or (dep.get("source") or "").startswith("git+"):
                 raise PublishError(f"{name}: {dep['name']} is not a crates.io dependency.")

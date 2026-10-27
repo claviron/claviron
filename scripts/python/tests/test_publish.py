@@ -58,6 +58,17 @@ class ReleaseTests(unittest.TestCase):
         with self.assertRaisesRegex(publisher.PublishError, "cycle"):
             publisher.dependency_order(packages)
 
+    def test_versioned_sibling_path_is_a_registry_prerequisite(self):
+        packages = {"claviron": package("claviron")}
+        dependency = {"name": "orbitive", "path": "/siblings/orbitive", "req": "^0.5.9"}
+        packages["claviron"]["dependencies"] = [dependency]
+        self.assertEqual(publisher.dependency_order(packages), ["claviron"])
+        for requirement, registry in (("*", None), ("^0.5.9", "https://registry.example.test/index")):
+            with self.subTest(requirement=requirement, registry=registry):
+                dependency.update(req=requirement, registry=registry)
+                with self.assertRaisesRegex(publisher.PublishError, "crates.io version"):
+                    publisher.dependency_order(packages)
+
     def test_retry_uses_server_clock_or_delta_and_never_guesses(self):
         self.assertEqual(publisher.retry_delay(headers(Retry_After="600"), "", 1), 600)
         response = headers(Date="Sun, 18 Oct 2026 15:00:00 GMT")
