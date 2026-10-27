@@ -176,8 +176,6 @@ impl crate::service::TaskService {
             // bounded occurrence does not. Same distinction the command kind
             // draws, and for the same reason.
             let persistent = cfg.timing.is_daemon();
-            let static_name: &'static str =
-                Box::leak(name.clone().into_boxed_str());
             let task = name.clone();
 
             let mut runner: TaskRunner = TaskRunner::from_with_stop_context(
@@ -197,7 +195,7 @@ impl crate::service::TaskService {
                     ))
                 },
             );
-            runner.set_name(static_name);
+            runner.set_name(name.as_str());
             runner.set_task_scope(effective_scope(cfg, None));
             runner.set_task_dispatch(dispatch);
             runner.set_runtime_state(self.runtime_state(name));
@@ -243,7 +241,7 @@ async fn run_with_environment(
             state: execution.state.clone(),
             cancellation: cancellation.clone(),
             stop: execution.stop.clone(),
-            runtime: execution.runtime,
+            runtime: execution.runtime.clone(),
             graceful_timeout: execution.graceful_timeout,
             persistent: execution.persistent,
         });

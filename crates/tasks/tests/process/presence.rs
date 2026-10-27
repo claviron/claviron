@@ -13,7 +13,7 @@ fn fixture() -> (AppState, TaskRuntime) {
         ".",
     );
     let runtime = TaskRuntime {
-        task_name: "presence_test",
+        task_name: "presence_test".into(),
         task_worker_number: 1,
         attempt: 1,
         task_scope: TaskScope::Workers,
@@ -27,7 +27,7 @@ fn fixture() -> (AppState, TaskRuntime) {
 
 fn record_instance(
     state: &AppState,
-    runtime: TaskRuntime,
+    runtime: &TaskRuntime,
     process: ProcessIdentity,
 ) {
     let path = instance::instance_path(state, runtime).unwrap();
@@ -89,11 +89,11 @@ fn process_owner_and_identity_round_trip() {
 async fn controller_tenure_is_exclusive_and_inventory_does_not_claim() {
     let (state, runtime) = fixture();
     let process = identity(std::process::id()).unwrap();
-    let controller = Controller::acquire(&state, runtime).await.unwrap();
-    record_instance(&state, runtime, process);
+    let controller = Controller::acquire(&state, &runtime).await.unwrap();
+    record_instance(&state, &runtime, process);
     controller.publish(process, false, TaskProcessPhase::Running).unwrap();
     assert!(
-        matches!(Controller::acquire(&state, runtime).await, Err(error) if error.kind() == io::ErrorKind::WouldBlock)
+        matches!(Controller::acquire(&state, &runtime).await, Err(error) if error.kind() == io::ErrorKind::WouldBlock)
     );
     let before = inspect(&state).unwrap();
     assert!(before.issues.is_empty());
@@ -108,17 +108,17 @@ async fn controller_tenure_is_exclusive_and_inventory_does_not_claim() {
         before.processes[0].controller
     );
     assert_eq!(after.processes[0].liveness, TaskProcessLiveness::Alive);
-    let _controller = Controller::acquire(&state, runtime).await.unwrap();
+    let _controller = Controller::acquire(&state, &runtime).await.unwrap();
     drop(_controller);
-    instance::remove_instance_dir(&state, runtime);
+    instance::remove_instance_dir(&state, &runtime);
 }
 
 #[tokio::test]
 async fn attach_preserves_birth_owner_and_unknown_legacy_birth() {
     let (state, runtime) = fixture();
     let process = identity(std::process::id()).unwrap();
-    let controller = Controller::acquire(&state, runtime).await.unwrap();
-    record_instance(&state, runtime, process);
+    let controller = Controller::acquire(&state, &runtime).await.unwrap();
+    record_instance(&state, &runtime, process);
     // Old instance records are visible before a controller ever attaches.
     let legacy = inspect(&state).unwrap();
     assert_eq!(legacy.processes[0].control, TaskProcessControl::Unknown);
@@ -126,7 +126,7 @@ async fn attach_preserves_birth_owner_and_unknown_legacy_birth() {
     controller.publish(process, true, TaskProcessPhase::Running).unwrap();
     assert_eq!(inspect(&state).unwrap().processes[0].spawned_by, None);
 
-    let path = instance::instance_path(&state, runtime)
+    let path = instance::instance_path(&state, &runtime)
         .unwrap()
         .with_extension("presence");
     let mut record = read_presence(&path).unwrap();
@@ -143,7 +143,7 @@ async fn attach_preserves_birth_owner_and_unknown_legacy_birth() {
     assert_eq!(status.controller, Some(ProcessOwner::Standalone(process)));
     assert_eq!(status.last_phase, Some(TaskProcessPhase::Stopping));
     drop(controller);
-    instance::remove_instance_dir(&state, runtime);
+    instance::remove_instance_dir(&state, &runtime);
 }
 
 #[tokio::test]
@@ -152,8 +152,8 @@ async fn inventory_keeps_missing_worker_slots_and_rejects_reused_pid_metadata()
     let (state, mut runtime) = fixture();
     runtime.run_mode = RunMode::Worker(WorkerId::new(4));
     let process = identity(std::process::id()).unwrap();
-    let controller = Controller::acquire(&state, runtime).await.unwrap();
-    record_instance(&state, runtime, process);
+    let controller = Controller::acquire(&state, &runtime).await.unwrap();
+    record_instance(&state, &runtime, process);
     controller.publish(process, false, TaskProcessPhase::Running).unwrap();
     drop(controller);
     let smaller = AppState::initialize(
@@ -173,12 +173,12 @@ async fn inventory_keeps_missing_worker_slots_and_rejects_reused_pid_metadata()
     assert_eq!(snapshot.processes[0].task.as_deref(), Some("presence_test"));
     assert_eq!(snapshot.processes[0].control, TaskProcessControl::Detached);
     let reused = ProcessIdentity::new(process.pid(), process.started_at() ^ 1);
-    record_instance(&state, runtime, reused);
+    record_instance(&state, &runtime, reused);
     let snapshot = inspect(&state).unwrap();
     assert_eq!(snapshot.processes[0].liveness, TaskProcessLiveness::Unverified);
     assert_eq!(snapshot.processes[0].controller, None);
     assert_eq!(snapshot.issues.len(), 1);
-    instance::remove_instance_dir(&state, runtime);
+    instance::remove_instance_dir(&state, &runtime);
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn invalid_records_are_reported_and_reads_do_not_create_a_namespace() {
     assert!(!dir.exists());
     assert!(inspect(&state).unwrap().processes.is_empty());
     assert!(!dir.exists());
-    let path = instance::instance_path(&state, runtime).unwrap();
+    let path = instance::instance_path(&state, &runtime).unwrap();
     let mut file = instance::open_instance_file(&path).unwrap();
     write!(file, "v1 1 2 {}", "é".repeat(32)).unwrap();
     let snapshot = inspect(&state).unwrap();
@@ -199,5 +199,5 @@ fn invalid_records_are_reported_and_reads_do_not_create_a_namespace() {
         "malformed fingerprint must not panic or disappear"
     );
     drop(file);
-    instance::remove_instance_dir(&state, runtime);
+    instance::remove_instance_dir(&state, &runtime);
 }

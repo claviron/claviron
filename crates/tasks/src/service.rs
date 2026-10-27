@@ -1042,9 +1042,6 @@ impl TaskService {
                 let graceful_timeout = cfg.graceful_timeout;
                 let dispatch = cfg.dispatch.unwrap_or_default();
                 let persistent_instance = cfg.timing.is_daemon();
-                // TaskRunner expects a 'static name; leak the String safely
-                let static_name: &'static str =
-                    Box::leak(name.clone().into_boxed_str());
 
                 let mut runner: TaskRunner = TaskRunner::from_with_stop_context(
                     move |state, token, runtime, stop| {
@@ -1063,7 +1060,7 @@ impl TaskService {
                         }
                     },
                 );
-                runner.set_name(static_name);
+                runner.set_name(name.as_str());
                 runner.set_task_scope(cfg.scope.unwrap_or_default());
                 runner.set_task_dispatch(dispatch);
                 runner.set_runtime_state(self.runtime_state(name));

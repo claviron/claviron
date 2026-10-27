@@ -41,6 +41,12 @@ This example requires the facade's `runtime` and `tasks` features and
 task surface; consumers do not need a separate macro or inventory dependency.
 `TaskService::register_fn` also supports explicit registration.
 
+Task names are shared owned strings. `TaskRunner::name()` borrows the runner's
+name; each `TaskRuntime` retains an `Arc<str>` so its identity remains valid
+after the runner is retired. `TaskRuntime` is `Clone`, not `Copy`. When building
+metadata directly, use `task_name: "refresh_index".into()`; clone the metadata
+when another execution owner needs to retain it.
+
 Task definitions live under `tasks:` in `tasks.yaml`. Without automatic timing,
 a configured body remains available for explicit execution:
 

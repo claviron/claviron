@@ -15,6 +15,88 @@ use crate::config::TaskServiceConfig;
 use crate::{Error, TaskDispatch, TaskExecutionResult, TaskScope};
 
 #[test]
+fn rematerialized_task_names_live_until_the_last_owner_drops() {
+    use crate::config::TaskExecutorKind;
+    use crate::service::TaskService;
+
+    for (kind, yaml) in [
+        (None, "command: { program: never-executed }"),
+        (Some(TaskExecutorKind::Php), "php: { script: never-executed.php }"),
+        (Some(TaskExecutorKind::Js), "js: { script: never-executed.js }"),
+        (Some(TaskExecutorKind::Lua), "lua: { script: never-executed.lua }"),
+    ] {
+        let name = "owned-task-name";
+        let service = TaskService::new(PathBuf::from("unused-tasks.yaml"));
+        service.inner.tasks.store(Arc::new(
+            [(
+                name.to_owned(),
+                Arc::new(crate::TaskConfig::from_yaml(yaml).unwrap()),
+            )]
+            .into_iter()
+            .collect(),
+        ));
+        if let Some(kind) = kind {
+            service.set_executor(
+                kind,
+                Arc::new(|_| panic!("registration must not execute a task")),
+            );
+        } else {
+            service.register_commands();
+        }
+        let current = || {
+            if kind.is_some() {
+                service.inner.engine_runners.read().unwrap()[name].clone()
+            } else {
+                service.get(name).unwrap()
+            }
+        };
+
+        for _ in 0..3 {
+            let retired = current();
+            let allocation = Arc::downgrade(&retired.name);
+            let retained_runner = retired.as_ref().clone();
+            let metadata = super::TaskRuntime {
+                task_name: Arc::clone(&retired.name),
+                task_worker_number: 1,
+                attempt: 1,
+                task_scope: TaskScope::Workers,
+                task_dispatch: TaskDispatch::Each,
+                run_mode: claviron_runtime::RunMode::Standalone,
+                worker_count: 0,
+                process_id: std::process::id(),
+            };
+            if kind.is_some() {
+                service.register_engine_tasks();
+            } else {
+                service.register_commands();
+            }
+            let replacement = current();
+            assert!(!Arc::ptr_eq(&retired.name, &replacement.name));
+            assert_eq!(replacement.name(), name);
+            drop(retired);
+            assert_eq!(retained_runner.name(), name);
+            drop(retained_runner);
+            assert_eq!(metadata.identity_env()[0].1, name);
+            assert!(
+                allocation.upgrade().is_some(),
+                "metadata still owns the retired name"
+            );
+            drop(metadata);
+            assert!(
+                allocation.upgrade().is_none(),
+                "retired name must be freed"
+            );
+        }
+        let allocation = Arc::downgrade(&current().name);
+        drop(service);
+        assert!(
+            allocation.upgrade().is_none(),
+            "service drop releases the current name"
+        );
+    }
+}
+
+#[test]
 fn reload_signals_notify_every_live_child_without_replaying_to_replacements() {
     use crate::process::ProcessSignal;
 

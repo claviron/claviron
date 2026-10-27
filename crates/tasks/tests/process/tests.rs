@@ -37,7 +37,7 @@ fn command(exit_action: ExitAction) -> CommandSpec {
 
 fn runtime() -> TaskRuntime {
     TaskRuntime {
-        task_name: "persistent_command_test",
+        task_name: "persistent_command_test".into(),
         task_worker_number: 1,
         attempt: 1,
         task_scope: TaskScope::Workers,
@@ -53,11 +53,12 @@ fn coordinated_runtime(
     worker_id: u8,
 ) -> TaskRuntime {
     TaskRuntime {
-        task_name: match dispatch {
+        task_name: (match dispatch {
             TaskDispatch::One => "one_process_recovery_test",
             TaskDispatch::Pool => "pool_process_recovery_test",
             TaskDispatch::Each => unreachable!("each is not fleet-coordinated"),
-        },
+        })
+        .into(),
         task_worker_number: 1,
         attempt: 1,
         task_scope: TaskScope::Workers,
@@ -90,34 +91,34 @@ fn restart_policy_classifies_natural_process_completion() {
     let failure = || ExitStatus::from_raw(7 << 8);
     let terminated = || ExitStatus::from_raw(nix::libc::SIGTERM);
 
-    assert!(classify_exit(&spec, runtime, success()).is_ok());
+    assert!(classify_exit(&spec, &runtime, success()).is_ok());
     assert!(matches!(
-        classify_exit(&spec, runtime, failure()),
+        classify_exit(&spec, &runtime, failure()),
         Err(Error::Other(_))
     ));
     assert!(matches!(
-        classify_exit(&spec, runtime, terminated()),
+        classify_exit(&spec, &runtime, terminated()),
         Err(Error::Other(_))
     ));
     assert!(matches!(
         classify_start_failure(
             &spec,
-            runtime,
+            &runtime,
             std::io::Error::other("missing")
         ),
         Error::Other(_)
     ));
 
     spec.restart = RestartPolicy::Never;
-    assert!(classify_exit(&spec, runtime, success()).is_ok());
+    assert!(classify_exit(&spec, &runtime, success()).is_ok());
     assert!(matches!(
-        classify_exit(&spec, runtime, failure()),
+        classify_exit(&spec, &runtime, failure()),
         Err(Error::Exit(Reason::Custom("process exited")))
     ));
     assert!(matches!(
         classify_start_failure(
             &spec,
-            runtime,
+            &runtime,
             std::io::Error::other("missing")
         ),
         Error::Exit(Reason::Custom("process failed to start"))
@@ -125,7 +126,7 @@ fn restart_policy_classifies_natural_process_completion() {
 
     spec.restart = RestartPolicy::Always;
     assert!(matches!(
-        classify_exit(&spec, runtime, success()),
+        classify_exit(&spec, &runtime, success()),
         Err(Error::Other(_))
     ));
 }
@@ -138,19 +139,21 @@ async fn unhandled_reload_hup_is_a_natural_failure_not_owner_cancellation() {
         Arc::<str>::from(format!("claviron-task-hup-exit-{unique}")),
         PathBuf::from("."),
     );
-    let runtime = TaskRuntime { task_name: "hup_exit_test", ..runtime() };
+    let runtime =
+        TaskRuntime { task_name: "hup_exit_test".into(), ..runtime() };
     let token = CancellationToken::new();
     let stop = StopContext::default();
     let child_state = state.clone();
     let child_token = token.clone();
     let child_stop = stop.clone();
+    let task_runtime = runtime.clone();
     let task = tokio::spawn(async move {
         run_command(
             child_state,
             child_token,
             child_stop,
             &command(ExitAction::Terminate),
-            runtime,
+            task_runtime,
             Some(Duration::from_secs(1)),
             true,
         )
@@ -159,7 +162,8 @@ async fn unhandled_reload_hup_is_a_natural_failure_not_owner_cancellation() {
 
     let identity = timeout(Duration::from_secs(2), async {
         loop {
-            if let Ok(identity) = instance::recorded_identity(&state, runtime) {
+            if let Ok(identity) = instance::recorded_identity(&state, &runtime)
+            {
                 break identity;
             }
             sleep(Duration::from_millis(10)).await;
@@ -175,7 +179,7 @@ async fn unhandled_reload_hup_is_a_natural_failure_not_owner_cancellation() {
     );
     assert!(!token.is_cancelled());
     assert!(!identity.is_alive(), "exited child must be reaped");
-    instance::remove_instance_dir(&state, runtime);
+    instance::remove_instance_dir(&state, &runtime);
 }
 
 #[tokio::test]
@@ -209,19 +213,20 @@ async fn execution_timeout_kills_and_reaps_even_a_persistent_command() {
         PathBuf::from("."),
     );
     let runtime =
-        TaskRuntime { task_name: "execution_timeout_test", ..runtime() };
+        TaskRuntime { task_name: "execution_timeout_test".into(), ..runtime() };
     let token = CancellationToken::new();
     let stop = StopContext::default();
     let child_state = state.clone();
     let child_token = token.clone();
     let child_stop = stop.clone();
+    let task_runtime = runtime.clone();
     let task = tokio::spawn(async move {
         run_command(
             child_state,
             child_token,
             child_stop,
             &command(ExitAction::KeepRunning),
-            runtime,
+            task_runtime,
             Some(Duration::from_secs(1)),
             true,
         )
@@ -230,7 +235,8 @@ async fn execution_timeout_kills_and_reaps_even_a_persistent_command() {
 
     let identity = timeout(Duration::from_secs(2), async {
         loop {
-            if let Ok(identity) = instance::recorded_identity(&state, runtime) {
+            if let Ok(identity) = instance::recorded_identity(&state, &runtime)
+            {
                 break identity;
             }
             sleep(Duration::from_millis(10)).await;
@@ -247,7 +253,7 @@ async fn execution_timeout_kills_and_reaps_even_a_persistent_command() {
         !identity.is_alive(),
         "timed-out command must be killed and reaped"
     );
-    instance::remove_instance_dir(&state, runtime);
+    instance::remove_instance_dir(&state, &runtime);
 }
 
 #[tokio::test]
@@ -266,6 +272,7 @@ async fn exit_can_keep_daemon_running_for_later_reattachment() {
     let first_state = state.clone();
     let first_wait = first_token.clone();
     let first_context = first_stop.clone();
+    let task_runtime = runtime.clone();
     let first = tokio::spawn(async move {
         let spec = command(ExitAction::KeepRunning);
         run_command(
@@ -273,7 +280,7 @@ async fn exit_can_keep_daemon_running_for_later_reattachment() {
             first_wait,
             first_context,
             &spec,
-            runtime,
+            task_runtime,
             Some(Duration::from_secs(1)),
             true,
         )
@@ -282,7 +289,8 @@ async fn exit_can_keep_daemon_running_for_later_reattachment() {
 
     let identity = timeout(Duration::from_secs(2), async {
         loop {
-            if let Ok(identity) = instance::recorded_identity(&state, runtime) {
+            if let Ok(identity) = instance::recorded_identity(&state, &runtime)
+            {
                 break identity;
             }
             sleep(Duration::from_millis(10)).await;
@@ -302,20 +310,24 @@ async fn exit_can_keep_daemon_running_for_later_reattachment() {
     let second_token = CancellationToken::new();
     let second_state = state.clone();
     let second_wait = second_token.clone();
+    let task_runtime = runtime.clone();
     let second = tokio::spawn(async move {
         run_command(
             second_state,
             second_wait,
             StopContext::default(),
             &command(ExitAction::Terminate),
-            runtime,
+            task_runtime,
             Some(Duration::from_secs(1)),
             true,
         )
         .await
     });
     sleep(Duration::from_millis(50)).await;
-    assert_eq!(instance::recorded_identity(&state, runtime).unwrap(), identity);
+    assert_eq!(
+        instance::recorded_identity(&state, &runtime).unwrap(),
+        identity
+    );
 
     nix::sys::signal::kill(
         nix::unistd::Pid::from_raw(identity.pid() as i32),
@@ -324,7 +336,7 @@ async fn exit_can_keep_daemon_running_for_later_reattachment() {
     .expect("stop inherited command");
     let replacement = timeout(Duration::from_secs(2), async {
         loop {
-            if let Ok(current) = instance::recorded_identity(&state, runtime)
+            if let Ok(current) = instance::recorded_identity(&state, &runtime)
                 && current != identity
                 && current.is_alive()
             {
@@ -350,7 +362,7 @@ async fn exit_can_keep_daemon_running_for_later_reattachment() {
     .await
     .expect("managed attach termination");
 
-    instance::remove_instance_dir(&state, runtime);
+    instance::remove_instance_dir(&state, &runtime);
 }
 
 async fn coordinated_command_is_reattached_by_the_next_worker_owner(
@@ -368,13 +380,14 @@ async fn coordinated_command_is_reattached_by_the_next_worker_owner(
     let first_token = CancellationToken::new();
     let spawned_state = first_state.clone();
     let spawned_token = first_token.clone();
+    let task_runtime = first_runtime.clone();
     let first = tokio::spawn(async move {
         run_command(
             spawned_state,
             spawned_token,
             StopContext::default(),
             &command(ExitAction::Terminate),
-            first_runtime,
+            task_runtime,
             Some(Duration::from_secs(1)),
             true,
         )
@@ -384,7 +397,7 @@ async fn coordinated_command_is_reattached_by_the_next_worker_owner(
     let identity = timeout(Duration::from_secs(2), async {
         loop {
             if let Ok(identity) =
-                instance::recorded_identity(&first_state, first_runtime)
+                instance::recorded_identity(&first_state, &first_runtime)
             {
                 break identity;
             }
@@ -405,7 +418,7 @@ async fn coordinated_command_is_reattached_by_the_next_worker_owner(
         "abrupt owner loss must leave a recoverable process"
     );
     assert_eq!(
-        instance::recorded_identity(&second_state, second_runtime).unwrap(),
+        instance::recorded_identity(&second_state, &second_runtime).unwrap(),
         identity,
         "coordinated identity must not include the former worker lane"
     );
@@ -413,13 +426,14 @@ async fn coordinated_command_is_reattached_by_the_next_worker_owner(
     let second_token = CancellationToken::new();
     let attached_state = second_state.clone();
     let attached_token = second_token.clone();
+    let task_runtime = second_runtime.clone();
     let second = tokio::spawn(async move {
         run_command(
             attached_state,
             attached_token,
             StopContext::default(),
             &command(ExitAction::Terminate),
-            second_runtime,
+            task_runtime,
             Some(Duration::from_secs(1)),
             true,
         )
@@ -427,7 +441,7 @@ async fn coordinated_command_is_reattached_by_the_next_worker_owner(
     });
     sleep(Duration::from_millis(50)).await;
     assert_eq!(
-        instance::recorded_identity(&second_state, second_runtime).unwrap(),
+        instance::recorded_identity(&second_state, &second_runtime).unwrap(),
         identity
     );
 
@@ -442,7 +456,7 @@ async fn coordinated_command_is_reattached_by_the_next_worker_owner(
         "replacement owner must terminate and reap the command"
     );
 
-    instance::remove_instance_dir(&second_state, second_runtime);
+    instance::remove_instance_dir(&second_state, &second_runtime);
 }
 
 #[tokio::test]

@@ -96,7 +96,7 @@ pub(crate) async fn run_command(
     // tenure excludes duplicate controllers (including two attach callers).
     let controller = if persistent_instance {
         Some(
-            presence::Controller::acquire(&state, runtime)
+            presence::Controller::acquire(&state, &runtime)
                 .await
                 .map_err(Error::Io)?,
         )
@@ -105,7 +105,7 @@ pub(crate) async fn run_command(
     };
     let instance = if persistent_instance {
         Some(
-            instance::resolve(&state, runtime, &spec)
+            instance::resolve(&state, &runtime, &spec)
                 .await
                 .map_err(Error::Io)?,
         )
@@ -113,14 +113,14 @@ pub(crate) async fn run_command(
         None
     };
 
-    let mut running = start(&spec, runtime, instance).await?;
+    let mut running = start(&spec, &runtime, instance).await?;
 
     loop {
         publish_presence(
             &controller,
             &running,
             TaskProcessPhase::Running,
-            runtime,
+            &runtime,
         );
         let mut reload_signals = stop.subscribe_reload_signals();
         // Register the live PID so the RSS sampler can inspect both newly
@@ -128,12 +128,12 @@ pub(crate) async fn run_command(
         #[cfg(feature = "metrics")]
         let _pid_guard = {
             crate::metrics::register_command_pid(
-                runtime.task_name,
+                &runtime.task_name,
                 runtime.task_worker_number,
                 running.pid(),
             );
             PidRegistrationGuard {
-                task: runtime.task_name,
+                task: &runtime.task_name,
                 slot: runtime.task_worker_number,
             }
         };
@@ -152,7 +152,7 @@ pub(crate) async fn run_command(
                         StopCause::ExecutionTimeout => Action::Signal(ProcessSignal::Kill)
                     };
                     if matches!(action, Action::Terminate | Action::Signal(ProcessSignal::Kill)) {
-                        publish_presence(&controller, &running, TaskProcessPhase::Stopping, runtime);
+                        publish_presence(&controller, &running, TaskProcessPhase::Stopping, &runtime);
                     }
                     running.apply(action, graceful_timeout).await?;
                     let reason = match stop.cause() {
@@ -164,13 +164,13 @@ pub(crate) async fn run_command(
                 result = running.wait() => break Some(result.map_err(Error::Io)?),
                 result = environment.notified() => match result {
                     Ok(()) => {
-                        publish_presence(&controller, &running, TaskProcessPhase::Stopping, runtime);
+                        publish_presence(&controller, &running, TaskProcessPhase::Stopping, &runtime);
                         // Env cannot be changed in a live process. Never detach
                         // here, even when exit_action permits it on shutdown.
                         running.apply(Action::Terminate, graceful_timeout).await?;
                         break None;
                     }
-                    Err(error) => warn!(task = runtime.task_name, slot = runtime.slot(), %error,
+                    Err(error) => warn!(task = runtime.task_name.as_ref(), slot = runtime.slot(), %error,
                         "task environment replacement rejected; keeping command supervision"),
                 },
                 Ok(()) = reload_signals.changed() => {
@@ -178,7 +178,7 @@ pub(crate) async fn run_command(
                     let Some(signal) = signal else { continue };
                     match running.apply(Action::Signal(signal), graceful_timeout).await {
                         Ok(()) => debug!(
-                            task = runtime.task_name,
+                            task = runtime.task_name.as_ref(),
                             slot = runtime.slot(),
                             ?signal,
                             "sent reload signal; keeping command supervision"
@@ -186,7 +186,7 @@ pub(crate) async fn run_command(
                         // A failed notification must not detach a live child
                         // or relinquish its pool slot.
                         Err(error) => warn!(
-                            task = runtime.task_name,
+                            task = runtime.task_name.as_ref(),
                             slot = runtime.slot(),
                             ?signal,
                             %error,
@@ -202,25 +202,25 @@ pub(crate) async fn run_command(
 
         match completion {
             Some(Completion::Spawned(status)) => {
-                return classify_exit(&spec, runtime, status);
+                return classify_exit(&spec, &runtime, status);
             }
             None => {
                 if token.is_cancelled() {
                     return Err(Error::stopped(Reason::Shutdown));
                 }
                 spec.env = environment.values().clone();
-                let next = instance::resolve(&state, runtime, &spec)
+                let next = instance::resolve(&state, &runtime, &spec)
                     .await
                     .map_err(Error::Io)?;
                 if token.is_cancelled() {
                     return Err(Error::stopped(Reason::Shutdown));
                 }
                 debug!(
-                    task = runtime.task_name,
+                    task = runtime.task_name.as_ref(),
                     slot = runtime.slot(),
                     "task environment changed; replacing drained command in the same slot"
                 );
-                running = start(&spec, runtime, Some(next)).await?;
+                running = start(&spec, &runtime, Some(next)).await?;
             }
             Some(Completion::Attached) => {
                 if spec.restart == RestartPolicy::Never {
@@ -235,13 +235,13 @@ pub(crate) async fn run_command(
                 if token.is_cancelled() {
                     return Err(Error::stopped(Reason::Shutdown));
                 }
-                let next = instance::resolve(&state, runtime, &spec)
+                let next = instance::resolve(&state, &runtime, &spec)
                     .await
                     .map_err(Error::Io)?;
                 if token.is_cancelled() {
                     return Err(Error::stopped(Reason::Shutdown));
                 }
-                running = start(&spec, runtime, Some(next)).await?;
+                running = start(&spec, &runtime, Some(next)).await?;
             }
         }
     }
@@ -251,7 +251,7 @@ fn publish_presence(
     controller: &Option<presence::Controller>,
     running: &child::Running,
     phase: TaskProcessPhase,
-    runtime: TaskRuntime,
+    runtime: &TaskRuntime,
 ) {
     if let Some(controller) = controller {
         let result = running.identity().and_then(|process| {
@@ -263,7 +263,7 @@ fn publish_presence(
         });
         // Observational I/O failure must never drop supervision of a live child.
         if let Err(error) = result {
-            warn!(task = runtime.task_name, slot = runtime.slot(), %error,
+            warn!(task = runtime.task_name.as_ref(), slot = runtime.slot(), %error,
                 "command presence publication failed; retaining process supervision");
         }
     }
@@ -271,14 +271,14 @@ fn publish_presence(
 
 fn classify_exit(
     spec: &CommandSpec,
-    runtime: TaskRuntime,
+    runtime: &TaskRuntime,
     status: ExitStatus,
 ) -> TaskResult<()> {
     let failed = !status.success();
     match spec.restart {
         RestartPolicy::Never if failed => {
             error!(
-                task = runtime.task_name,
+                task = runtime.task_name.as_ref(),
                 status = %status,
                 "process exited; restart policy is never"
             );
@@ -303,13 +303,13 @@ fn classify_exit(
 /// in the map, which the RSS sampler would still try to read from
 /// after `/proc/<pid>` is gone.
 #[cfg(feature = "metrics")]
-struct PidRegistrationGuard {
-    task: &'static str,
+struct PidRegistrationGuard<'a> {
+    task: &'a str,
     slot: u8,
 }
 
 #[cfg(feature = "metrics")]
-impl Drop for PidRegistrationGuard {
+impl Drop for PidRegistrationGuard<'_> {
     fn drop(&mut self) {
         crate::metrics::unregister_command_pid(self.task, self.slot);
     }

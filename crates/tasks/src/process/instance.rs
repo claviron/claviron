@@ -111,7 +111,7 @@ impl AttachedInstance {
 /// validates the PID/start stamp record, and attaches instead of duplicating.
 pub(super) async fn resolve(
     state: &AppState,
-    runtime: TaskRuntime,
+    runtime: &TaskRuntime,
     spec: &CommandSpec,
 ) -> io::Result<CommandInstance> {
     let path = instance_path(state, runtime)?;
@@ -190,7 +190,7 @@ pub(super) unsafe fn inherit_lock(raw_fd: RawFd) -> io::Result<()> {
 
 pub(super) fn instance_path(
     state: &AppState,
-    runtime: TaskRuntime,
+    runtime: &TaskRuntime,
 ) -> io::Result<PathBuf> {
     let dir = instance_directory(state)?;
     let subject = match runtime.task_dispatch {
@@ -417,7 +417,7 @@ fn decode_hex(value: &str) -> io::Result<[u8; 32]> {
 #[cfg(test)]
 pub(super) fn recorded_identity(
     state: &AppState,
-    runtime: TaskRuntime,
+    runtime: &TaskRuntime,
 ) -> io::Result<ProcessIdentity> {
     let path = instance_path(state, runtime)?;
     let mut file = open_instance_file(&path)?;
@@ -427,7 +427,7 @@ pub(super) fn recorded_identity(
 #[cfg(test)]
 pub(super) fn remove_instance_dir(
     state: &AppState,
-    runtime: TaskRuntime,
+    runtime: &TaskRuntime,
 ) {
     if let Ok(path) = instance_path(state, runtime)
         && let Some(dir) = path.parent()

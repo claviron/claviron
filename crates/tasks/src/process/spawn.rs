@@ -10,13 +10,13 @@ use crate::{Error, Reason, TaskResult, TaskRuntime};
 
 pub(super) async fn start(
     spec: &CommandSpec,
-    runtime: TaskRuntime,
+    runtime: &TaskRuntime,
     instance: Option<CommandInstance>,
 ) -> TaskResult<Running> {
     match instance {
         Some(CommandInstance::Attach(attached)) => {
             debug!(
-                task = runtime.task_name,
+                task = runtime.task_name.as_ref(),
                 slot = runtime.task_worker_number,
                 pid = attached.pid(),
                 "attached to existing command instance"
@@ -93,7 +93,7 @@ fn expand_segment(segment: &str) -> Option<String> {
 
 async fn spawn(
     spec: &CommandSpec,
-    runtime: TaskRuntime,
+    runtime: &TaskRuntime,
     reservation: Option<SpawnReservation>,
 ) -> TaskResult<Running> {
     let mut command = Command::new(&spec.program);
@@ -175,7 +175,7 @@ async fn spawn(
     let mut child = command
         .spawn()
         .map_err(|error| classify_start_failure(spec, runtime, error))?;
-    logger::attach(&mut child, spec, runtime.task_name);
+    logger::attach(&mut child, spec, &runtime.task_name);
     let pid = child.id().ok_or_else(|| {
         classify_start_failure(
             spec,
@@ -195,13 +195,13 @@ async fn spawn(
 
 pub(super) fn classify_start_failure(
     spec: &CommandSpec,
-    runtime: TaskRuntime,
+    runtime: &TaskRuntime,
     error: std::io::Error,
 ) -> Error {
     match spec.restart {
         RestartPolicy::Never => {
             error!(
-                task = runtime.task_name,
+                task = runtime.task_name.as_ref(),
                 error = %error,
                 "process failed to start; restart policy is never"
             );

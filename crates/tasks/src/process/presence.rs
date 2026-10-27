@@ -42,7 +42,7 @@ impl ProcessOwner {
         }
     }
 
-    fn current(runtime: TaskRuntime) -> io::Result<Self> {
+    fn current(runtime: &TaskRuntime) -> io::Result<Self> {
         let process = identity(std::process::id())
             .ok_or_else(|| invalid("controller identity unavailable"))?;
         if runtime.process_id != process.pid() {
@@ -228,7 +228,7 @@ pub(super) struct Controller {
 impl Controller {
     pub(super) async fn acquire(
         state: &AppState,
-        runtime: TaskRuntime,
+        runtime: &TaskRuntime,
     ) -> io::Result<Self> {
         let owner = ProcessOwner::current(runtime)?;
         let path = instance::instance_path(state, runtime)?;
@@ -262,7 +262,7 @@ impl Controller {
                 }
             }
         }
-        Ok(Self { _lock: lock, path, owner, runtime })
+        Ok(Self { _lock: lock, path, owner, runtime: runtime.clone() })
     }
 
     pub(super) fn publish(
@@ -289,7 +289,7 @@ impl Controller {
         };
         let record = Record {
             version: VERSION,
-            task: self.runtime.task_name.to_owned(),
+            task: self.runtime.task_name.to_string(),
             dispatch: self.runtime.task_dispatch,
             slot: self.runtime.slot(),
             process: process.into(),

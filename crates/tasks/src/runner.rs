@@ -99,7 +99,7 @@ impl Drop for ExecutionGuard {
 /// [`TaskScope`] and [`TaskDispatch`]. `tasks.yaml` may override either
 /// before the supervisor is spawned.
 pub struct TaskRunner {
-    name: &'static str,
+    name: Arc<str>,
     inner: Arc<TaskBody>,
     task_scope: TaskScope,
     task_dispatch: TaskDispatch,
@@ -242,8 +242,8 @@ impl StopContext {
 ///
 /// Tasks that need to identify themselves (logs, metrics, external
 /// process env vars, audit trails) read from this struct instead of
-/// re-resolving the same data from the registry. Surface-level fields
-/// only — no `Arc` references; cheap to copy across `await` points.
+/// re-resolving the same data from the registry. The task name shares owned
+/// storage with its runner, keeping metadata valid after runner retirement.
 ///
 /// Field meanings:
 /// - `task_name` — the registered name (matches `tasks.yaml` key).
@@ -264,9 +264,9 @@ impl StopContext {
 ///   captured for this attempt.
 /// - `process_id` — `std::process::id()`. Useful for external-process
 ///   tasks (passed through as `CLAVIRON_PROCESS_ID` env var).
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct TaskRuntime {
-    pub task_name: &'static str,
+    pub task_name: Arc<str>,
     pub task_worker_number: u8,
     pub attempt: u32,
     pub task_scope: TaskScope,
@@ -287,7 +287,7 @@ impl TaskRuntime {
     /// identity without a word.
     pub fn identity_env(&self) -> Vec<(&'static str, String)> {
         let mut env = vec![
-            ("CLAVIRON_TASK_NAME", self.task_name.to_owned()),
+            ("CLAVIRON_TASK_NAME", self.task_name.to_string()),
             ("CLAVIRON_TASK_SLOT", self.slot().to_string()),
             ("CLAVIRON_TASK_ATTEMPT", self.attempt.to_string()),
             (
@@ -322,7 +322,7 @@ impl TaskRuntime {
 
     /// The 1-indexed concurrency slot for this attempt. Under pool dispatch,
     /// this identity is stable across owner failover.
-    pub const fn slot(self) -> u8 {
+    pub const fn slot(&self) -> u8 {
         self.task_worker_number
     }
 }
@@ -334,7 +334,7 @@ impl Clone for TaskRunner {
             g.clone()
         };
         Self {
-            name: self.name,
+            name: Arc::clone(&self.name),
             inner: self.inner.clone(),
             task_scope: self.task_scope,
             task_dispatch: self.task_dispatch,
@@ -366,8 +366,8 @@ pub(crate) struct ScheduleContext {
 
 impl TaskRunner {
     #[inline]
-    pub fn name(&self) -> &'static str {
-        self.name
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     #[inline]
@@ -421,9 +421,9 @@ impl TaskRunner {
     #[inline]
     pub(crate) fn set_name(
         &mut self,
-        name: &'static str,
+        name: impl Into<Arc<str>>,
     ) {
-        self.name = name;
+        self.name = name.into();
     }
 
     #[inline]
@@ -543,7 +543,7 @@ where
 {
     fn from(f: F) -> Self {
         TaskRunner {
-            name: "<unnamed>",
+            name: Arc::from("<unnamed>"),
             inner: Arc::new(
                 move |state: AppState,
                       token: CancellationToken,
@@ -573,7 +573,7 @@ impl TaskRunner {
         Fut: Future<Output = TaskResult<()>> + Send + 'static,
     {
         Self {
-            name: "<unnamed>",
+            name: Arc::from("<unnamed>"),
             inner: Arc::new(
                 move |state: AppState,
                       token: CancellationToken,
@@ -601,7 +601,7 @@ impl TaskRunner {
         Fut: Future<Output = TaskResult<()>> + Send + 'static,
     {
         Self {
-            name: "<unnamed>",
+            name: Arc::from("<unnamed>"),
             inner: Arc::new(move |state, token, runtime, stop| {
                 f(state, token, runtime, stop).boxed()
             }),
@@ -1143,7 +1143,7 @@ impl TaskRunner {
             let started_at = Instant::now();
             let token = parent.child_token();
             let runtime = TaskRuntime {
-                task_name: self.name(),
+                task_name: Arc::clone(&self.name),
                 task_worker_number: worker_number,
                 attempt,
                 task_scope: scope,
