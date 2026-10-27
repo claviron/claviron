@@ -23,12 +23,14 @@ use crate::config::TaskProgram;
 use crate::engine::task::TaskExecutions;
 use crate::service::PhpEmbedRuntime;
 
-/// Install the PHP executor on the task service, if one is present.
+/// Install the invocation bridge and eligible PHP executor, if TaskService exists.
 ///
 /// Registration is idempotent and order-independent: installing also registers
 /// every `php:` task already in the table, and `TaskService`'s own boot and
 /// reload register again once the table is loaded. Whichever arrives last does
-/// the work.
+/// the work. If TaskService itself is registered later, call the public PHP
+/// registration entry again to complete these boot-time bindings. Masters
+/// register the bridge definition for management but do not install an executor.
 pub(crate) fn register(
     state: &AppState,
     runtime: Arc<PhpEmbedRuntime>,
@@ -38,25 +40,11 @@ pub(crate) fn register(
         // composition; there is simply nothing to install into.
         return Ok(());
     };
-    tasks.set_executor(TaskExecutorKind::Php, executor(runtime));
+    crate::service::invoke::register(&tasks, Arc::clone(&runtime))?;
+    if !state.is_master() {
+        tasks.set_executor(TaskExecutorKind::Php, executor(runtime));
+    }
     Ok(())
-}
-
-/// Give the task service the invocation bridge's own task entry, on every
-/// fleet member.
-///
-/// The entry is `scope: workers`, and scope is what keeps the master from
-/// running it: a member the scope rules out spawns nothing for the task. The
-/// master still has to know the task exists, because a management command for
-/// it reaches every member and each one looks the name up in its own table.
-pub(crate) fn register_bridge(
-    state: &AppState,
-    runtime: Arc<PhpEmbedRuntime>,
-) -> Result<(), String> {
-    let Some(tasks) = state.registry_ref().resolve::<TaskService>() else {
-        return Ok(());
-    };
-    crate::service::invoke::register(&tasks, runtime)
 }
 
 fn executor(runtime: Arc<PhpEmbedRuntime>) -> Executor {

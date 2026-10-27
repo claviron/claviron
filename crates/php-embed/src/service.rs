@@ -511,9 +511,9 @@ impl PhpEmbedRuntime {
         #[cfg(feature = "metrics")]
         crate::metrics::register(state, metrics)?;
 
-        // Every member, the master included: see `tasks::register_bridge`.
+        // Every member knows the bridge; only serving members install its executor.
         #[cfg(feature = "tasks")]
-        crate::tasks::register_bridge(state, Arc::clone(&runtime))
+        crate::tasks::register(state, Arc::clone(&runtime))
             .map_err(registry::Error::msg)?;
 
         if !runtime.options.warmup.is_empty() {
@@ -528,20 +528,12 @@ impl PhpEmbedRuntime {
                 Arc::new(crate::service::invoke::PhpInvocationService::new(
                     Arc::clone(&runtime),
                 ));
-            #[cfg(feature = "tasks")]
-            let runtime_for_tasks = Arc::clone(&runtime);
             let applications = Arc::new(PhpApplicationService::new(runtime));
             registry.register(Arc::clone(&script))?;
             #[cfg(feature = "tasks")]
             registry.register(invocation)?;
             registry.register(Arc::clone(&applications))?;
             crate::manager::register(state, applications, script)?;
-
-            // Hand the task service an engine for its `php:` kind. Installing
-            // also registers, so this is safe whichever of the two boots first.
-            #[cfg(feature = "tasks")]
-            crate::tasks::register(state, Arc::clone(&runtime_for_tasks))
-                .map_err(registry::Error::msg)?;
         }
 
         Ok(())

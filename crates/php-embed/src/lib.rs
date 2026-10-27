@@ -60,8 +60,17 @@ pub use service::{
 /// The library owns parsing, environment-file resolution, and validation.
 /// A missing file preserves the default one-thread request pool.
 /// Use [`PhpEmbedRuntime::builder`] for explicit, configuration-free composition.
+/// An existing runtime keeps its settings; repeated boot-time registration
+/// completes optional task bindings after TaskService becomes available.
 pub fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
-    if state.registry_ref().resolve::<PhpEmbedRuntime>().is_some() {
+    if let Some(runtime) = state.registry_ref().resolve::<PhpEmbedRuntime>() {
+        // A custom runtime may precede TaskService during server definitions.
+        // Complete optional wiring here without replacing its PHP settings.
+        #[cfg(feature = "tasks")]
+        tasks::register(state, runtime)
+            .map_err(claviron_runtime::registry::Error::msg)?;
+        #[cfg(not(feature = "tasks"))]
+        let _ = runtime;
         return Ok(());
     }
     config::file::load_service(state)?.register(state)
