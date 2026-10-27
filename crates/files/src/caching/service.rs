@@ -121,7 +121,7 @@ pub(crate) fn fast_cache_hit(
                 }
                 PreconditionOutcome::Proceed => {}
             }
-            if cond.honors_range(Some(&c.etag), Some(&c.last_modified)) {
+            if cond.honors_range(c.len, Some(&c.etag), Some(&c.last_modified)) {
                 return match cond.range_bounds(c.len) {
                     Some((start, end)) => {
                         Some(build_cached_partial_response(c, start, end))
@@ -234,8 +234,11 @@ pub(crate) fn try_serve_from_cache(
             if let Ok(m) = meta.modified() {
                 // validate via mtime when metadata is provided (opcache-style)
                 if c.mtime == m {
-                    if cond.honors_range(Some(&c.etag), Some(&c.last_modified))
-                    {
+                    if cond.honors_range(
+                        c.len,
+                        Some(&c.etag),
+                        Some(&c.last_modified),
+                    ) {
                         return match cond.range_bounds(c.len) {
                             Some((start, end)) => Some(
                                 build_cached_partial_response(c, start, end),

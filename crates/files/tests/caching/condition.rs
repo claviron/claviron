@@ -131,15 +131,23 @@ fn if_range_requires_a_strong_etag_or_matching_date() {
     let mut request = ConditionalRequest::from_headers(&headers);
 
     request.pre.if_range = Some(IfRange::ETag("\"current\"".to_string()));
-    assert!(request.honors_range(Some("\"current\""), None));
+    assert!(request.honors_range(100, Some("\"current\""), None));
 
     request.pre.if_range = Some(IfRange::ETag("W/\"current\"".to_string()));
-    assert!(!request.honors_range(Some("\"current\""), None));
+    assert!(!request.honors_range(100, Some("\"current\""), None));
 
     request.pre.if_range =
         Some(IfRange::Date("Thu, 01 Jan 1970 00:16:40 GMT".to_string()));
-    assert!(request.honors_range(None, Some("Thu, 01 Jan 1970 00:16:40 GMT")));
-    assert!(!request.honors_range(None, Some("Thu, 01 Jan 1970 00:16:41 GMT")));
+    assert!(request.honors_range(
+        100,
+        None,
+        Some("Thu, 01 Jan 1970 00:16:40 GMT")
+    ));
+    assert!(!request.honors_range(
+        100,
+        None,
+        Some("Thu, 01 Jan 1970 00:16:41 GMT")
+    ));
 }
 
 #[test]
@@ -188,4 +196,13 @@ fn regression_repeated_list_fields_match_the_combined_form() {
     assert!(!condition.accepts_encoding(ContentEncoding::Brotli));
     assert!(condition.accepts_encoding(ContentEncoding::Zstd));
     assert!(matches!(condition.pre.if_range, Some(IfRange::Date(_))));
+}
+
+#[test]
+fn regression_empty_suffix_has_no_inclusive_byte_interval() {
+    use super::ByteRange;
+    assert_eq!(ByteRange::Suffix(1).bounds(0), None);
+    assert_eq!(ByteRange::Suffix(0).bounds(10), None);
+    assert_eq!(ByteRange::Suffix(20).bounds(10), Some((0, 9)));
+    assert_eq!(ByteRange::Suffix(2).bounds(10), Some((8, 9)));
 }

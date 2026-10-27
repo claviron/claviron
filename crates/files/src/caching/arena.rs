@@ -136,7 +136,7 @@ pub(crate) fn hit(
     }
 
     let content_type = resolve_content_type(path);
-    if cond.honors_range(Some(&etag), Some(&last_modified)) {
+    if cond.honors_range(len, Some(&etag), Some(&last_modified)) {
         return Some(match cond.range_bounds(len) {
             Some((start, end)) => {
                 let part = Bytes::from_owner(entry.into_body())

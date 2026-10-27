@@ -521,9 +521,12 @@ async fn serve_with_policy_and_condition(
             }
 
             let last_modified = modified.map(httpdate::fmt_http_date);
-            if !cond.honors_range(etag.as_deref(), last_modified.as_deref())
-                && let Some(resp) =
-                    maybe_read_and_cache(path, &meta, &policy, &cond).await
+            if !cond.honors_range(
+                meta.len(),
+                etag.as_deref(),
+                last_modified.as_deref(),
+            ) && let Some(resp) =
+                maybe_read_and_cache(path, &meta, &policy, &cond).await
             {
                 metrics::miss();
                 return Ok(resp);

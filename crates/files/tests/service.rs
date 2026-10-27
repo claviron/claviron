@@ -232,3 +232,37 @@ async fn regression_subsecond_updates_do_not_return_stale_not_modified() {
     .unwrap();
     assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
 }
+
+#[tokio::test]
+async fn regression_empty_disk_suffix_returns_a_coherent_empty_representation()
+{
+    use crate::caching::{condition::ConditionalRequest, policy::CachePolicy};
+    use http::header::{CONTENT_LENGTH, CONTENT_RANGE, RANGE};
+    use http_body_util::BodyExt;
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let path = file.path().to_path_buf();
+    for (range, status) in [
+        ("bytes=-1", StatusCode::OK),
+        ("bytes=-0", StatusCode::RANGE_NOT_SATISFIABLE),
+    ] {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(RANGE, range.parse().unwrap());
+        let response = crate::stream::stream_from_disk(
+            &path,
+            &file.as_file().metadata().unwrap(),
+            &CachePolicy::no_cache(),
+            &ConditionalRequest::from_headers(&headers),
+        )
+        .await;
+        assert_eq!(response.status(), status);
+        if status == StatusCode::OK {
+            assert!(!response.headers().contains_key(CONTENT_RANGE));
+            assert_eq!(response.headers()[CONTENT_LENGTH], "0");
+        } else {
+            assert_eq!(response.headers()[CONTENT_RANGE], "bytes */0");
+        }
+        assert!(
+            response.into_body().collect().await.unwrap().to_bytes().is_empty()
+        );
+    }
+}

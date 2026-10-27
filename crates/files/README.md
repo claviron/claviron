@@ -74,7 +74,9 @@ case. Weak ETags support `If-None-Match` revalidation but cannot satisfy strong
 No additional file read or content hash is required to generate a validator.
 
 List-valued conditional and encoding headers include every field occurrence;
-singleton date and `If-Range` fields retain their own parsing.
+singleton date and `If-Range` fields retain their own parsing. A positive suffix
+range on an empty file is ignored and returns the full empty `200` response,
+without a fabricated byte interval. A zero-length suffix remains unsatisfiable.
 
 Client TTL, server-side reuse, timestamp validation, compression, and immutable
 policy are distinct choices. Use immutable caching only when the URL identifies

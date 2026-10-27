@@ -30,7 +30,7 @@ pub async fn stream_from_disk(
     let etag = mime::make_etag_from_meta(meta);
     let len = meta.len();
 
-    if cond.honors_range(etag.as_deref(), since.as_deref()) {
+    if cond.honors_range(len, etag.as_deref(), since.as_deref()) {
         return stream_range_response(
             path,
             policy,

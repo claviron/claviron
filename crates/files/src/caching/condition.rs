@@ -113,6 +113,9 @@ impl ByteRange {
         &self,
         total: u64,
     ) -> Option<(u64, u64)> {
+        if total == 0 {
+            return None;
+        }
         match *self {
             ByteRange::From(start) => {
                 if start >= total {
@@ -126,7 +129,7 @@ impl ByteRange {
                     return None;
                 }
                 if n >= total {
-                    Some((0, total.saturating_sub(1)))
+                    Some((0, total - 1))
                 } else {
                     Some((total - n, total - 1))
                 }
@@ -166,10 +169,15 @@ impl ConditionalRequest {
 
     pub(crate) fn honors_range(
         &self,
+        total: u64,
         etag: Option<&str>,
         last_modified: Option<&str>,
     ) -> bool {
-        self.range.is_some() && self.pre.if_range_matches(etag, last_modified)
+        // RFC 9110 permits ignoring Range on empty representations. A positive
+        // suffix is satisfiable but has no inclusive byte interval to emit.
+        self.range.as_ref().is_some_and(|range| {
+            !(total == 0 && matches!(range, ByteRange::Suffix(n) if *n > 0))
+        }) && self.pre.if_range_matches(etag, last_modified)
     }
 
     pub(crate) fn accepts_encoding(
