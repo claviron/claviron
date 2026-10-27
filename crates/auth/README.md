@@ -132,6 +132,13 @@ dedicated 32-byte key and the session scope used by your application. Use the
 same scope when issuing and verifying a token. `None` represents a guest scope.
 The request handler owns reading the cookie/header and handling a failed check.
 
+Tokens use `v1.<32 hex nonce characters>.<64 hex MAC characters>`. The MAC binds
+the version, fixed-size nonce, and explicitly framed scope. Guest scope (`None`)
+and an explicitly empty scope (`Some(b"")`) are distinct. Verification rejects
+malformed lengths before decoding into fixed-size buffers and compares the MAC
+in constant time. Unversioned tokens are rejected: after upgrading, issue fresh
+CSRF tokens and replace existing CSRF cookies. There is no legacy-format fallback.
+
 ## Authentication events
 
 `events::AuthEvent` represents successful login, logout and registration. Emit
