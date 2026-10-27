@@ -16,3 +16,9 @@ configured one-hour retry wait. Retry and handshake budgets in the synthetic
 configuration are one hour so cancellation cannot be mistaken for those budgets
 expiring. The harness does not certify health probes, DNS resolution, or
 fleet-wide lifecycle behavior.
+
+The accepted-response fixture waits for the complete HTTP request header before
+cancelling the provider. A warm socket closed before sending any HTTP bytes may
+be replaced; truncated headers, oversized headers and other IO errors fail the
+case. The existing per-case bound covers the entire wait without sleeps or a
+new retry timeout.

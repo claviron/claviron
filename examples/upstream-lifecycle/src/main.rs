@@ -10,7 +10,7 @@ use futures_util::poll;
 use http_body_util::BodyExt;
 use std::{error::Error, sync::Arc, time::Duration};
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
 use tokio_util::sync::CancellationToken;
@@ -89,15 +89,30 @@ fn run(
         RunContext::new(cancel),
     ))
 }
-async fn head(socket: &mut TcpStream) -> Result<()> {
+async fn head(socket: &mut (impl AsyncRead + Unpin)) -> std::io::Result<bool> {
     let mut bytes = Vec::new();
-    while !bytes.ends_with(b"\r\n\r\n") {
-        bytes.push(socket.read_u8().await?);
+    loop {
+        match socket.read_u8().await {
+            Ok(byte) => bytes.push(byte),
+            // A discarded warm sender may close without ever sending HTTP.
+            Err(error)
+                if bytes.is_empty()
+                    && error.kind() == std::io::ErrorKind::UnexpectedEof =>
+            {
+                return Ok(false);
+            }
+            Err(error) => return Err(error),
+        }
         if bytes.len() > 8192 {
-            return Err("unexpected request header size".into());
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unexpected request header size",
+            ));
+        }
+        if bytes.ends_with(b"\r\n\r\n") {
+            return Ok(true);
         }
     }
-    Ok(())
 }
 async fn eof(socket: &mut TcpStream) -> Result<()> {
     assert_eq!(socket.read(&mut [0; 1]).await?, 0, "warm transport must close");
@@ -151,7 +166,10 @@ async fn accepted(bound: Duration) -> Result<()> {
             assert_eq!(response.status(), http::StatusCode::OK);
             response.into_body().collect().await.map(|body| body.to_bytes())
         });
-        head(&mut socket).await?;
+        while !head(&mut socket).await? {
+            println!("observed warm transport departure before HTTP admission");
+            (socket, _) = listener.accept().await?;
+        }
         cancel.cancel();
         running.await?.map_err(|error| error.to_string())?;
         assert_eq!(service.lifecycle(), UpstreamLifecycle::Running);
@@ -170,6 +188,10 @@ async fn accepted(bound: Duration) -> Result<()> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/io/head.rs"]
+mod tests;
 async fn handshake(bound: Duration) -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
     let (_directory, state, provider) =
