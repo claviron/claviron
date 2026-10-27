@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Once};
+use std::sync::{Arc, Mutex, Once};
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
@@ -34,13 +34,19 @@ pub fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
     <CertResolverProvider as Register<AppState>>::register(state)
 }
 
-/// Custom Certificate Resolver for Multi-Domain TLS (hot-reloadable)
+/// A complete TLS publication. Readers keep one immutable generation.
+#[derive(Clone, Debug)]
+struct Published {
+    certs: HashMap<String, Arc<CertifiedKey>>,
+    default_cert: Arc<CertifiedKey>,
+}
+
+/// Hot-reloadable certificate resolver. Handshake reads never acquire the
+/// writer lock; cold updates are serialized before cloning and publishing.
 #[derive(Debug)]
 pub struct CertResolver {
-    // Snapshot of SNI → CertifiedKey map; atomically swappable for hot-reload
-    certs: ArcSwap<HashMap<String, Arc<CertifiedKey>>>,
-    // Default certificate used when SNI is missing or not found; atomically swappable
-    default_cert: ArcSwap<CertifiedKey>,
+    published: ArcSwap<Published>,
+    writers: Mutex<()>,
 }
 
 impl CertResolver {
@@ -49,9 +55,23 @@ impl CertResolver {
         default_cert: Arc<CertifiedKey>,
     ) -> Self {
         Self {
-            certs: ArcSwap::from(Arc::new(cert_map)),
-            default_cert: ArcSwap::from(default_cert),
+            published: ArcSwap::from_pointee(Published {
+                certs: cert_map,
+                default_cert,
+            }),
+            writers: Mutex::new(()),
         }
+    }
+
+    fn update<R>(
+        &self,
+        change: impl FnOnce(&mut Published) -> R,
+    ) -> R {
+        let _writer = self.writers.lock().unwrap_or_else(|e| e.into_inner());
+        let mut next = (**self.published.load()).clone();
+        let result = change(&mut next);
+        self.published.store(Arc::new(next));
+        result
     }
 
     /// Insert or replace certificate for a hostname. Hostnames are stored lowercased.
@@ -61,9 +81,9 @@ impl CertResolver {
         ck: Arc<CertifiedKey>,
     ) {
         let key = host.as_ref().to_ascii_lowercase();
-        let mut next = (**self.certs.load()).clone();
-        next.insert(key, ck);
-        self.certs.store(Arc::new(next));
+        self.update(|next| {
+            next.certs.insert(key, ck);
+        });
     }
 
     /// Remove the certificate for a hostname, if present.
@@ -71,9 +91,9 @@ impl CertResolver {
         &self,
         host: &str,
     ) {
-        let mut next = (**self.certs.load()).clone();
-        next.remove(&host.to_ascii_lowercase());
-        self.certs.store(Arc::new(next));
+        self.update(|next| {
+            next.certs.remove(&host.to_ascii_lowercase());
+        });
     }
 
     /// Remove the certificate identified by `cn` together with **every other
@@ -108,27 +128,20 @@ impl CertResolver {
         cn: &str,
     ) -> usize {
         let key = cn.to_ascii_lowercase();
-        let mut next = (**self.certs.load()).clone();
-
-        let Some(target) = next.get(&key) else {
-            return 0;
-        };
-        let target_ptr = Arc::as_ptr(target) as usize;
-
-        let before = next.len();
-        next.retain(|_, arc| Arc::as_ptr(arc) as usize != target_ptr);
-        let removed = before.saturating_sub(next.len());
-
-        if removed > 0 {
-            self.certs.store(Arc::new(next));
-        }
-        removed
+        self.update(|next| {
+            let Some(target) = next.certs.get(&key).cloned() else {
+                return 0;
+            };
+            let before = next.certs.len();
+            next.certs.retain(|_, arc| !Arc::ptr_eq(arc, &target));
+            before - next.certs.len()
+        })
     }
 
     /// Returns a list of all hostnames currently loaded in the resolver.
     pub fn hostnames(&self) -> Vec<String> {
-        let map = self.certs.load(); // Arc<HashMap<...>>
-        map.keys().cloned().collect()
+        let snapshot = self.published.load();
+        snapshot.certs.keys().cloned().collect()
     }
 
     /// Change the default certificate used on SNI miss.
@@ -136,11 +149,11 @@ impl CertResolver {
         &self,
         ck: Arc<CertifiedKey>,
     ) {
-        self.default_cert.store(ck);
+        self.update(|next| next.default_cert = ck);
     }
 
     pub fn get_default(&self) -> Arc<CertifiedKey> {
-        self.default_cert.load_full()
+        self.published.load().default_cert.clone()
     }
 
     /// Get certificate for a specific hostname
@@ -149,7 +162,8 @@ impl CertResolver {
         hostname: &str,
     ) -> Option<Arc<CertifiedKey>> {
         let key = hostname.to_ascii_lowercase();
-        let map = self.certs.load();
+        let snapshot = self.published.load();
+        let map = &snapshot.certs;
         map.get(&key).cloned()
     }
 
@@ -169,7 +183,8 @@ impl CertResolver {
     where
         I: IntoIterator<Item = &'a str>,
     {
-        let map = self.certs.load();
+        let snapshot = self.published.load();
+        let map = &snapshot.certs;
         let mut found = HashMap::new();
         for h in hosts {
             let key = h.to_ascii_lowercase();
@@ -183,17 +198,23 @@ impl CertResolver {
     }
 
     /// Atomically replace the entire certificate snapshot and default cert.
+    /// This is an authoritative replacement, ordered with incremental updates
+    /// at publication. Prepare IO outside the writer lock; a later replacement
+    /// supersedes earlier updates rather than merging them.
     pub fn replace_all(
         &self,
         new_map: HashMap<String, Arc<CertifiedKey>>,
         new_default: Arc<CertifiedKey>,
     ) {
-        self.certs.store(Arc::new(new_map));
-        self.default_cert.store(new_default);
+        let _writer = self.writers.lock().unwrap_or_else(|e| e.into_inner());
+        self.published.store(Arc::new(Published {
+            certs: new_map,
+            default_cert: new_default,
+        }));
     }
 
     pub fn count(&self) -> usize {
-        (**self.certs.load()).len()
+        self.published.load().certs.len()
     }
 }
 
@@ -206,8 +227,9 @@ impl ResolvesServerCert for CertResolver {
             let sni = server_name.to_ascii_lowercase();
             debug!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), "🔍 handshake: requested sni: {}", sni);
             // Use an atomic snapshot for lookup
-            let map = self.certs.load();
-            trace!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), snapshot = %format_args!("{:p}", Arc::as_ptr(&map)), cert_count = map.len(), %sni, "TLS resolver lookup");
+            let snapshot = self.published.load();
+            let map = &snapshot.certs;
+            trace!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), snapshot = %format_args!("{:p}", Arc::as_ptr(&snapshot)), cert_count = map.len(), %sni, "TLS resolver lookup");
             if let Some(cert) = map.get(&sni) {
                 debug!(resolver = %format_args!("{:p}", self), "📜 handshake: found cert for {}", sni);
                 Some(cert.clone())
@@ -217,7 +239,7 @@ impl ResolvesServerCert for CertResolver {
                     let mut hostnames: Vec<_> =
                         map.keys().map(String::as_str).collect();
                     hostnames.sort_unstable();
-                    trace!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), snapshot = %format_args!("{:p}", Arc::as_ptr(&map)), cert_count = map.len(), %sni, ?hostnames, "TLS resolver SNI miss before rejection");
+                    trace!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), snapshot = %format_args!("{:p}", Arc::as_ptr(&snapshot)), cert_count = map.len(), %sni, ?hostnames, "TLS resolver SNI miss before rejection");
                 }
                 error!(resolver = %format_args!("{:p}", self), "🚫 handshake: unknown sni '{}': - rejecting", sni);
                 None
@@ -225,7 +247,7 @@ impl ResolvesServerCert for CertResolver {
         } else {
             error!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), "🚫 handshake: no-sni provided — rejecting");
             None
-            // Some(self.default_cert.load_full())
+            // Some(self.published.load().default_cert.clone())
         }
     }
 }
@@ -336,3 +358,7 @@ pub fn install_aws_crypto_provider() {
 #[cfg(all(test, feature = "db"))]
 #[path = "../tests/resolver.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../tests/publication.rs"]
+mod publication;

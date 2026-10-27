@@ -120,6 +120,12 @@ consumes the configured PostgreSQL notification path. Application composition
 must explicitly supply hosting and database capabilities. A database pool alone
 does not opt an application into certificate management.
 
+Resolver reads use one immutable snapshot without taking a writer lock.
+Incremental updates and full reload publication share a cold writer lock, so
+successful updates to different hostnames cannot overwrite one another. Full
+reload is authoritative at publication; it replaces, rather than merges, the
+previous snapshot. File and database IO complete before taking that lock.
+
 ## Features and scope
 
 The implementation has no default features. `db` adds hosting/database-backed
