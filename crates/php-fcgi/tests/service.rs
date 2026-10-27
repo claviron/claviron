@@ -66,9 +66,8 @@ async fn abandoned_stream_retires_the_connection_instead_of_pooling_it() {
 
         let _ = body_dropped_rx.await;
 
-        // Now the body chunk the client is no longer listening for.
-        conn.write_all(&stdout_record(b"hello")).await.expect("write body");
-        conn.flush().await.expect("flush body");
+        // Receiver departure must wake the pump while this backend stays
+        // silent; sending another body record would hide a missing wake.
 
         let mut buf = [0u8; 1024];
         loop {

@@ -122,3 +122,10 @@ Part of Claviron's alpha development series; APIs and configuration may change.
 
 Licensed under either [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT)
 or [Apache-2.0](https://github.com/claviron/claviron/blob/main/LICENSE-APACHE), at your option.
+
+Dropping a streamed HTTP response wakes its FastCGI pump even when the backend
+is silent. A partially consumed keep-alive response is discarded with its
+socket, releasing admission; it is never put back into the pool. This ends
+Claviron's connection ownership and does not promise that arbitrary backend
+PHP execution has synchronously stopped. An owned idle SSE response keeps its
+normal uncapped lifetime.

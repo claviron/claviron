@@ -167,3 +167,22 @@ async fn a_fresh_acquire_refuses_the_queue_and_makes_its_own_room() {
     fpm.abort();
     let _ = std::fs::remove_file(&sock);
 }
+
+#[test]
+fn abandoned_stream_dial_reservation_returns_capacity_without_a_socket() {
+    let mut config = opts();
+    config.max_live = 1;
+    let pool = FcgiPool::new(
+        FcgiEndpoint::Unix(PathBuf::from("unused-fpm.sock")),
+        config,
+        CancellationToken::new(),
+    );
+    assert!(matches!(pool.inner.try_admit(), Admission::Granted));
+    let reservation = DialSlot { inner: &pool.inner, retained: false };
+    assert!(matches!(pool.inner.try_admit(), Admission::WorkerFull));
+    drop(reservation);
+    assert_eq!(pool.stats().live, 0);
+    assert!(matches!(pool.inner.try_admit(), Admission::Granted));
+    drop(DialSlot { inner: &pool.inner, retained: false });
+    assert_eq!(pool.stats().live, 0);
+}

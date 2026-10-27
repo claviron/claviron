@@ -589,29 +589,33 @@ async fn exec_pooled_stream(
             let from_idle = !lease.is_fresh();
             lease.connection().begin_request();
 
-            let end = match lease
-                .connection()
-                .client_mut()
-                .execute_stream(Request::new(attempt, reader.compat()))
-                .await
-            {
-                Ok(stream) => {
-                    drive_response_stream(
-                        stream,
-                        &mut head_tx,
-                        &body_tx,
-                        head_timeout,
-                    )
-                    .await
-                }
-                Err(e) if is_dead_on_arrival(&e) => {
-                    StreamEnd::Unanswered(ExecuteError::Client(e))
-                }
-                Err(e) => {
-                    if let Some(tx) = head_tx.take() {
-                        let _ = tx.send(Err(ExecuteError::Client(e)));
+            let end = {
+                let response = tokio::select! {
+                    biased;
+                    _ = body_tx.closed() => None,
+                    response = lease.connection().client_mut()
+                        .execute_stream(Request::new(attempt, reader.compat())) => Some(response),
+                };
+                match response {
+                    None => StreamEnd::Abandoned,
+                    Some(Ok(stream)) => {
+                        drive_response_stream(
+                            stream,
+                            &mut head_tx,
+                            &body_tx,
+                            head_timeout,
+                        )
+                        .await
                     }
-                    StreamEnd::Abandoned
+                    Some(Err(e)) if is_dead_on_arrival(&e) => {
+                        StreamEnd::Unanswered(ExecuteError::Client(e))
+                    }
+                    Some(Err(e)) => {
+                        if let Some(tx) = head_tx.take() {
+                            let _ = tx.send(Err(ExecuteError::Client(e)));
+                        }
+                        StreamEnd::Abandoned
+                    }
                 }
             };
 
@@ -673,7 +677,11 @@ async fn exec_pooled_stream(
             // Fresh on purpose: the queue this connection came out of is
             // under suspicion and has not been condemned, so the retry has to
             // step around it rather than draw the next one from it.
-            lease = match pool.acquire_fresh().await {
+            lease = match tokio::select! {
+                biased;
+                _ = body_tx.closed() => return,
+                lease = pool.acquire_fresh() => lease,
+            } {
                 Ok(lease) => lease,
                 Err(e) => {
                     if let Some(tx) = head_tx.take() {
@@ -802,6 +810,7 @@ where
     loop {
         let next = tokio::select! {
             biased;
+            _ = body_tx.closed() => return StreamEnd::Abandoned,
             _ = tokio::time::sleep_until(head_deadline), if head_tx.is_some() => {
                 // FPM took the request and said nothing. Without this the
                 // caller waits for ever and the pump holds the lease with

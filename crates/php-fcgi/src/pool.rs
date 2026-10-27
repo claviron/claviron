@@ -178,6 +178,21 @@ pub struct PoolLease {
     fresh: bool,
 }
 
+/// A dial owns admission before it owns a socket. Cancellation or error must
+/// return that capacity even when the dial future never reaches its match arm.
+struct DialSlot<'a> {
+    inner: &'a Inner,
+    retained: bool,
+}
+
+impl Drop for DialSlot<'_> {
+    fn drop(&mut self) {
+        if !self.retained {
+            self.inner.release_slot();
+        }
+    }
+}
+
 fn lk<T>(m: &StdMutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -454,6 +469,7 @@ impl FcgiPool {
             }
 
             if let Admission::Granted = self.inner.try_admit() {
+                let mut slot = DialSlot { inner: &self.inner, retained: false };
                 // Acquire-time fresh dial: pool is dry, request is waiting.
                 // We hand the freshly opened connection straight to the
                 // caller — no ping. Ping only runs on the replenisher's
@@ -481,6 +497,7 @@ impl FcgiPool {
                 .await
                 {
                     Ok(conn) => {
+                        slot.retained = true;
                         self.inner.events.dialled();
                         self.maybe_spawn_replenisher();
                         Ok(PoolLease {
@@ -491,7 +508,6 @@ impl FcgiPool {
                         })
                     }
                     Err(e) => {
-                        self.inner.release_slot();
                         self.inner.events.dial_failed();
                         // A dial cut short by the acquire deadline is the
                         // caller running out of patience, not FPM refusing
@@ -551,6 +567,7 @@ impl FcgiPool {
             Admission::Granted => {}
             Admission::WorkerFull => return CreateOutcome::WorkerFull,
         };
+        let mut slot = DialSlot { inner: &self.inner, retained: false };
         let id = self.inner.next_conn_id.fetch_add(1, Ordering::Relaxed);
         let mut conn = match FcgiConnection::open(
             &self.inner.endpoint,
@@ -564,7 +581,6 @@ impl FcgiPool {
                 conn
             }
             Err(e) => {
-                self.inner.release_slot();
                 self.inner.events.dial_failed();
                 return CreateOutcome::Failed(e.into());
             }
@@ -581,7 +597,6 @@ impl FcgiPool {
         {
             warn!("pool replenish ping failed: {e}");
             drop(conn);
-            self.inner.release_slot();
             self.inner.events.ping_failed();
             return CreateOutcome::Failed(PoolError::Connect(
                 ConnectError::ping(e),
@@ -589,6 +604,7 @@ impl FcgiPool {
         }
 
         self.push_idle(conn);
+        slot.retained = true;
         CreateOutcome::Created
     }
 
