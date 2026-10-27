@@ -99,3 +99,100 @@ fn verifies_private_and_presence_channel_authorization() {
     )
     .unwrap();
 }
+
+#[test]
+fn audit_pusher_body_digest_covers_empty_replacements() {
+    let key = PusherAppKey::try_from("example-key".to_owned()).unwrap();
+    let secret =
+        PusherAppSecret::try_from("example-secret".to_owned()).unwrap();
+    let now = 1_700_000_000;
+    let query = authentication_query_at(
+        "POST",
+        "/apps/1/events",
+        b"signed",
+        &key,
+        &secret,
+        now,
+    );
+    for (body, expected) in [
+        (b"signed".as_slice(), Ok(())),
+        (b"".as_slice(), Err(AuthenticationError::BodyDigest)),
+        (b"changed".as_slice(), Err(AuthenticationError::BodyDigest)),
+    ] {
+        assert_eq!(
+            authenticate_at(
+                "POST",
+                "/apps/1/events",
+                Some(&query),
+                body,
+                &key,
+                &secret,
+                now
+            ),
+            expected
+        );
+    }
+    let empty_query = authentication_query_at(
+        "GET",
+        "/apps/1/channels",
+        b"",
+        &key,
+        &secret,
+        now,
+    );
+    assert_eq!(
+        authenticate_at(
+            "GET",
+            "/apps/1/channels",
+            Some(&empty_query),
+            b"",
+            &key,
+            &secret,
+            now
+        ),
+        Ok(())
+    );
+    // A supplied digest is part of the signature, including a digest of empty bytes.
+    let mut parameters = BTreeMap::from([
+        ("auth_key".into(), key.as_str().to_owned()),
+        ("auth_timestamp".into(), now.to_string()),
+        ("auth_version".into(), "1.0".into()),
+        ("body_md5".into(), hex::encode(Md5::digest(b""))),
+    ]);
+    let canonical = canonical_query(&parameters);
+    let mut signer =
+        Hmac::<Sha256>::new_from_slice(secret.expose().as_bytes()).unwrap();
+    signer.update(format!("POST\n/apps/1/events\n{canonical}").as_bytes());
+    parameters.insert(
+        "auth_signature".into(),
+        hex::encode(signer.finalize().into_bytes()),
+    );
+    let query = canonical_query(&parameters);
+    // canonical_query omits auth_signature, so append the signed value for transport.
+    let query =
+        format!("{query}&auth_signature={}", parameters["auth_signature"]);
+    assert_eq!(
+        authenticate_at(
+            "POST",
+            "/apps/1/events",
+            Some(&query),
+            b"",
+            &key,
+            &secret,
+            now
+        ),
+        Ok(())
+    );
+    assert_eq!(
+        authenticate_at(
+            "GET",
+            "/apps/1/channels",
+            Some(&empty_query),
+            b"unexpected",
+            &key,
+            &secret,
+            now
+        ),
+        Err(AuthenticationError::Missing("body_md5"))
+    );
+}

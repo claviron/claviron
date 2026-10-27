@@ -200,12 +200,13 @@ pub fn authenticate_at(
         return Err(AuthenticationError::Expired);
     }
 
-    if !body.is_empty() {
-        let expected = required(&parameters, "body_md5")?;
+    if let Some(expected) = parameters.get("body_md5") {
         let actual = hex::encode(Md5::digest(body));
-        if actual != expected {
+        if &actual != expected {
             return Err(AuthenticationError::BodyDigest);
         }
+    } else if !body.is_empty() {
+        return Err(AuthenticationError::Missing("body_md5"));
     }
 
     let canonical_query = canonical_query(&parameters);
