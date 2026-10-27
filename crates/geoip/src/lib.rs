@@ -11,7 +11,7 @@ use claviron_runtime::registry::{Component, Result};
 use claviron_runtime::{AppState, Register};
 use maxminddb::Reader;
 use moka::sync::Cache;
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use tracing::error;
 
@@ -44,6 +44,7 @@ pub fn register(state: &AppState) -> Result<()> {
 /// Boot-time initializer; call this once during app startup.
 pub fn boot_geoip(cfg: &GeoIpConfig) {
     let _ = NON_ROUTABLE_CODE.set(cfg.non_routable.clone());
+    GEO_CACHE.get_or_init(|| cfg.cache.build());
     if !cfg.enabled {
         return;
     }
@@ -113,25 +114,23 @@ impl Component<AppState> for GeoIpProvider {
     }
 }
 
-// Cache ~ 100k IPs with a 30-minute TTL; tune to your traffic
-static GEO_CACHE: Lazy<Cache<IpAddr, String>> = Lazy::new(|| {
-    Cache::builder()
-        .max_capacity(100_000)
-        .time_to_live(Duration::from_secs(1800))
-        .build()
-});
+// No pre-boot lookup may freeze a default policy before configuration arrives.
+static GEO_CACHE: OnceCell<Cache<IpAddr, String>> = OnceCell::new();
 
 pub fn geoip_lookup(ip: IpAddr) -> String {
     use maxminddb::PathElement;
 
-    if let Some(hit) = GEO_CACHE.get(&ip) {
+    let cache = GEO_CACHE.get();
+    if let Some(hit) = cache.and_then(|cache| cache.get(&ip)) {
         return hit;
     }
 
     // Skip GeoIP for local/private/reserved ranges
     if is_non_routable(&ip) {
         let code = non_routable_code();
-        GEO_CACHE.insert(ip, code.clone());
+        if let Some(cache) = cache {
+            cache.insert(ip, code.clone());
+        }
         return code;
     }
 
@@ -139,7 +138,9 @@ pub fn geoip_lookup(ip: IpAddr) -> String {
         Some(db) => db,
         None => {
             let code = non_routable_code();
-            GEO_CACHE.insert(ip, code.clone());
+            if let Some(cache) = cache {
+                cache.insert(ip, code.clone());
+            }
             return code;
         }
     };
@@ -170,7 +171,9 @@ pub fn geoip_lookup(ip: IpAddr) -> String {
         Err(_) => non_routable_code(),
     };
 
-    GEO_CACHE.insert(ip, iso.clone());
+    if let Some(cache) = cache {
+        cache.insert(ip, iso.clone());
+    }
     iso
 }
 
@@ -206,6 +209,9 @@ pub struct GeoIpConfig {
 
     #[serde(default = "default_non_routable_code")]
     non_routable: String,
+
+    #[serde(default)]
+    cache: GeoIpCacheConfig,
 }
 
 fn default_db_path() -> PathBuf {
@@ -226,6 +232,7 @@ impl GeoIpConfig {
             enabled: false,
             db_path: default_db_path(),
             non_routable: default_non_routable_code(),
+            cache: GeoIpCacheConfig::default(),
         }
     }
 }
@@ -237,3 +244,57 @@ fn default_true() -> bool {
 #[cfg(test)]
 #[path = "../tests/fallback.rs"]
 mod fallback_tests;
+
+/// Process-local lookup cache policy, applied once at boot with the database.
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct GeoIpCacheConfig {
+    #[serde(default = "default_cache_capacity")]
+    capacity: u64,
+    #[serde(
+        default = "default_cache_ttl",
+        deserialize_with = "deserialize_cache_ttl"
+    )]
+    ttl: Duration,
+}
+
+impl Default for GeoIpCacheConfig {
+    fn default() -> Self {
+        Self { capacity: default_cache_capacity(), ttl: default_cache_ttl() }
+    }
+}
+
+impl GeoIpCacheConfig {
+    fn build(&self) -> Cache<IpAddr, String> {
+        Cache::builder()
+            .max_capacity(self.capacity)
+            .time_to_live(self.ttl)
+            .build()
+    }
+}
+
+fn default_cache_capacity() -> u64 {
+    100_000
+}
+fn default_cache_ttl() -> Duration {
+    Duration::from_secs(1800)
+}
+
+fn deserialize_cache_ttl<'de, D: serde::Deserializer<'de>>(
+    deserializer: D
+) -> std::result::Result<Duration, D::Error> {
+    let ttl = claviron_helpers::de::deserialize_duration(deserializer)?;
+    // Moka's cache builder panics beyond 1000 * 365 days to prevent timestamp
+    // overflow. This library limit cannot be enlarged by runtime configuration.
+    let maximum = Duration::from_secs(1_000 * 365 * 24 * 3600);
+    if ttl > maximum {
+        return Err(serde::de::Error::custom(
+            "GeoIP cache TTL exceeds Moka's 1000-year limit",
+        ));
+    }
+    Ok(ttl)
+}
+
+#[cfg(test)]
+#[path = "../tests/cache.rs"]
+mod cache_tests;

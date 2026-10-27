@@ -21,6 +21,9 @@ before configuration is applied. For example:
 enabled: true
 db_path: storage/geoip/GeoLite2-Country.mmdb
 non_routable: ZZ
+cache:
+  capacity: 100000
+  ttl: 30m
 ```
 
 The operator supplies the database file and manages its updates and applicable
@@ -68,11 +71,13 @@ their policy.
 The reader and fallback configuration use process-wide once-initialized cells.
 Changing the database path or enabled state is not a hot-swap operation;
 restart the process to apply a new dataset/configuration consistently.
-Initialization does not clear an already populated lookup cache.
+Lookups before boot do not initialize the cache or freeze its configuration.
 
-The current Moka cache is process-local, with a built-in capacity of 100,000
-entries and a 30-minute TTL. Those are implementation values, not configurable
-fields in `geoip.yaml`. It caches fallback results too. This is neither a
+The process-local Moka cache uses `cache.capacity` (default 100,000 entries)
+and `cache.ttl` (default 30 minutes). The boot configuration applies even when
+GeoIP is disabled or the database is unavailable. Capacity zero or TTL zero
+disables retention; TTLs beyond Moka's 1000-year limit are rejected during
+configuration parsing. It caches fallback results too. This is neither a
 named application cache store nor a shared fleet cache.
 
 ## Related crates
