@@ -77,10 +77,10 @@ impl OriginTransport {
     }
     pub(crate) async fn wait(&self) {
         self.io.wait().await;
-        if self.force.is_cancelled() {
-            if let Some(owner) = &self.health_owner {
-                owner.joined();
-            }
+        if self.force.is_cancelled()
+            && let Some(owner) = &self.health_owner
+        {
+            owner.joined();
         }
     }
 }

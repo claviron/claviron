@@ -369,7 +369,7 @@ fn has_exited(identity: ProcessIdentity) -> bool {
         if started_at != Some(identity.started_at) {
             return true;
         }
-        return matches!(fields.first(), Some(&"Z") | Some(&"X"));
+        matches!(fields.first(), Some(&"Z") | Some(&"X"))
     }
 
     #[cfg(not(all(target_os = "linux", feature = "legacy-linux")))]

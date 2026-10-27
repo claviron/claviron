@@ -922,22 +922,21 @@ fn value_zval(value: Value) -> Result<Zval, String> {
 /// Preserve both SQLSTATE and MySQL errno for Laravel's concurrency and
 /// unique-constraint detection. Never turn an ambiguous commit into a retry.
 pub(super) fn describe(error: &sqlx::Error) -> String {
-    if let sqlx::Error::Database(database) = error {
-        if let Some(mysql) =
+    if let sqlx::Error::Database(database) = error
+        && let Some(mysql) =
             database.try_downcast_ref::<sqlx::mysql::MySqlDatabaseError>()
-        {
-            let label = match mysql.code() {
-                Some("23000") => "Integrity constraint violation",
-                Some("40001") => "Serialization failure",
-                _ => "Database error",
-            };
-            return format!(
-                "SQLSTATE[{}]: {label}: {} {}",
-                mysql.code().unwrap_or_default(),
-                mysql.number(),
-                mysql.message()
-            );
-        }
+    {
+        let label = match mysql.code() {
+            Some("23000") => "Integrity constraint violation",
+            Some("40001") => "Serialization failure",
+            _ => "Database error",
+        };
+        return format!(
+            "SQLSTATE[{}]: {label}: {} {}",
+            mysql.code().unwrap_or_default(),
+            mysql.number(),
+            mysql.message()
+        );
     }
     error.to_string()
 }

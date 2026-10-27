@@ -163,16 +163,14 @@ async fn run_messages<S: MessageStream>(
             .channels
             .leave_presence(&session.application, &channel, &session.socket_id)
             .unwrap_or(false)
+            && let Some(fleet) = &session.generation.fleet
+            && let Err(error) = fleet.publish_presence_left(
+                &session.application,
+                &channel,
+                &session.socket_id,
+            )
         {
-            if let Some(fleet) = &session.generation.fleet
-                && let Err(error) = fleet.publish_presence_left(
-                    &session.application,
-                    &channel,
-                    &session.socket_id,
-                )
-            {
-                tracing::warn!(%error, "Pusher presence leave could not reach the fleet");
-            }
+            tracing::warn!(%error, "Pusher presence leave could not reach the fleet");
         }
         session.generation.channels.unsubscribe(
             &session.application,

@@ -226,15 +226,14 @@ pub async fn start_services(
     // Final worker notification: write synchronously to Orbit, since a local
     // event-forwarding task may not get another turn before process exit.
     #[cfg(feature = "supervisor")]
-    if is_worker {
-        if let Err(error) =
+    if is_worker
+        && let Err(error) =
             claviron_supervisor::publish_worker_teardown_completed(
                 &state,
                 failed_finalizers,
             )
-        {
-            tracing::warn!(%error, "failed to publish worker teardown completion");
-        }
+    {
+        tracing::warn!(%error, "failed to publish worker teardown completion");
     }
 
     runtime_result?;

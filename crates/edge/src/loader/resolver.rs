@@ -490,11 +490,11 @@ impl VhostResolver {
         let current = self.snapshot();
         let mut snapshot = VhostSnapshot::from_table(current.as_ref().clone());
         let removed = snapshot.delete_host(canonical);
-        if removed {
-            if let Err(error) = self.publish_locked(snapshot.into_table()) {
-                tracing::error!(%error, "vhost removal rejected; previous snapshot retained");
-                return false;
-            }
+        if removed
+            && let Err(error) = self.publish_locked(snapshot.into_table())
+        {
+            tracing::error!(%error, "vhost removal rejected; previous snapshot retained");
+            return false;
         }
         removed
     }
@@ -529,11 +529,11 @@ impl VhostResolver {
         let current = self.snapshot();
         let mut snapshot = VhostSnapshot::from_table(current.as_ref().clone());
         let removed = snapshot.delete_alias(alias);
-        if removed {
-            if let Err(error) = self.publish_locked(snapshot.into_table()) {
-                tracing::error!(%error, "vhost alias removal rejected; previous snapshot retained");
-                return false;
-            }
+        if removed
+            && let Err(error) = self.publish_locked(snapshot.into_table())
+        {
+            tracing::error!(%error, "vhost alias removal rejected; previous snapshot retained");
+            return false;
         }
         removed
     }

@@ -183,17 +183,16 @@ async fn probe(
     request: Request,
     next: Next,
 ) -> Response {
-    if request.method() == Method::GET || request.method() == Method::HEAD {
-        if let claviron_http::ServiceResult::Handled(response) =
+    if (request.method() == Method::GET || request.method() == Method::HEAD)
+        && let claviron_http::ServiceResult::Handled(response) =
             claviron_files::try_files_probe(
                 &files.root,
                 request.uri(),
                 request.headers(),
             )
             .await
-        {
-            return claviron_http::into_axum_response(response);
-        }
+    {
+        return claviron_http::into_axum_response(response);
     }
     next.run(request).await
 }

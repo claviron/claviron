@@ -531,15 +531,14 @@ impl ResolutionWriter {
             {
                 return Ok(None);
             }
-            if let Some(current) = &current {
-                if snapshot.generation() < current.snapshot.generation()
+            if let Some(current) = &current
+                && (snapshot.generation() < current.snapshot.generation()
                     || (snapshot.generation() == current.snapshot.generation()
-                        && !snapshot.same_membership(&current.snapshot))
-                {
-                    return Err(PublicationError::Invalid(
-                        "membership changed without a newer generation",
-                    ));
-                }
+                        && !snapshot.same_membership(&current.snapshot)))
+            {
+                return Err(PublicationError::Invalid(
+                    "membership changed without a newer generation",
+                ));
             }
             let publication = PublishedResolution {
                 revision: expected_revision
