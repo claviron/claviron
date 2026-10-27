@@ -13,7 +13,7 @@ pub use http::adapter::PusherAdapter;
 pub use protocol::{
     ClientMessage, PresenceMember, PresenceMemberError, PresenceSnapshot,
     PublishedEvent, ServerMessage, SubscriptionRequest, TriggerEvent,
-    TriggerEventError, subscription,
+    TriggerEventError, UnsubscribeRequest, subscription, unsubscribe,
 };
 
 #[cfg(feature = "axum")]

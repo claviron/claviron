@@ -24,6 +24,11 @@ pub struct SubscriptionRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct UnsubscribeRequest {
+    pub channel: String,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct TriggerEvent {
     pub name: String,
@@ -251,6 +256,18 @@ impl<'a> ServerMessage<'a> {
 
 pub fn subscription(message: &ClientMessage) -> Option<SubscriptionRequest> {
     if message.event != "pusher:subscribe" {
+        return None;
+    }
+    let value = match &message.data {
+        serde_json::Value::String(json) => serde_json::from_str(json).ok()?,
+        value => value.clone(),
+    };
+    serde_json::from_value(value).ok()
+}
+
+/// Decode a leave request from either Pusher data representation.
+pub fn unsubscribe(message: &ClientMessage) -> Option<UnsubscribeRequest> {
+    if message.event != "pusher:unsubscribe" {
         return None;
     }
     let value = match &message.data {

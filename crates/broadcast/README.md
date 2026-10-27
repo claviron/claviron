@@ -155,3 +155,8 @@ Part of Claviron's alpha development series; APIs and configuration may change.
 
 Licensed under either [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT)
 or [Apache-2.0](https://github.com/claviron/claviron/blob/main/LICENSE-APACHE), at your option.
+
+Pusher clients can leave a channel with `pusher:unsubscribe`. Leaving removes
+only that channel's delivery, presence and fleet occupancy membership while
+the connection and its other subscriptions remain active. Repeating a leave
+or naming an unknown channel is harmless.

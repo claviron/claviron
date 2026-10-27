@@ -7,7 +7,8 @@ use std::sync::Arc;
 
 use claviron_pusher::{
     ClientMessage, PresenceMember, PusherAppId, PusherAppKey, PusherAppSecret,
-    ServerMessage, TriggerEvent, subscription, verify_channel_authorization,
+    ServerMessage, TriggerEvent, subscription, unsubscribe,
+    verify_channel_authorization,
 };
 use claviron_runtime::Permit;
 use tokio::sync::mpsc;
@@ -141,6 +142,10 @@ async fn run_messages<S: MessageStream>(
                                     ServerMessage::subscription_succeeded(&request.channel)?
                                 };
                                 if !write_text(socket, response, &session, &mut shutdown).await? { break Ok(()) }
+                            } else if let Some(request) = unsubscribe(&message) {
+                                if subscriptions.remove(request.channel.as_str()) {
+                                    unsubscribe_session(&session, &request.channel);
+                                }
                             } else if message.event.starts_with("client-") {
                                 publish_client_event(&session, &subscriptions, message)?;
                             }
@@ -158,37 +163,45 @@ async fn run_messages<S: MessageStream>(
     }
     .await;
     for channel in subscriptions {
-        if session
-            .generation
-            .channels
-            .leave_presence(&session.application, &channel, &session.socket_id)
-            .unwrap_or(false)
-            && let Some(fleet) = &session.generation.fleet
-            && let Err(error) = fleet.publish_presence_left(
-                &session.application,
-                &channel,
-                &session.socket_id,
-            )
-        {
-            tracing::warn!(%error, "Pusher presence leave could not reach the fleet");
-        }
-        session.generation.channels.unsubscribe(
-            &session.application,
-            &channel,
-            &session.socket_id,
-        );
-        if let Some(fleet) = &session.generation.fleet
-            && let Err(error) = fleet.publish_subscription_left(
-                session.app_id.as_str(),
-                &channel,
-                &session.socket_id,
-            )
-        {
-            tracing::warn!(%error, "Pusher subscription leave could not reach the occupancy owner");
-        }
+        unsubscribe_session(&session, &channel);
     }
     debug!(application = %session.application, socket_id = %session.socket_id, "Pusher connection closed");
     result
+}
+
+/// The same membership release for a wire leave and final socket cleanup.
+fn unsubscribe_session(
+    session: &BroadcastSession,
+    channel: &str,
+) {
+    if session
+        .generation
+        .channels
+        .leave_presence(&session.application, channel, &session.socket_id)
+        .unwrap_or(false)
+        && let Some(fleet) = &session.generation.fleet
+        && let Err(error) = fleet.publish_presence_left(
+            &session.application,
+            channel,
+            &session.socket_id,
+        )
+    {
+        tracing::warn!(%error, "Pusher presence leave could not reach the fleet");
+    }
+    session.generation.channels.unsubscribe(
+        &session.application,
+        channel,
+        &session.socket_id,
+    );
+    if let Some(fleet) = &session.generation.fleet
+        && let Err(error) = fleet.publish_subscription_left(
+            session.app_id.as_str(),
+            channel,
+            &session.socket_id,
+        )
+    {
+        tracing::warn!(%error, "Pusher subscription leave could not reach the occupancy owner");
+    }
 }
 
 fn presence_subscription(
@@ -319,3 +332,7 @@ async fn write_text<S: MessageStream>(
         sent = socket.send(Message::Text(text)) => sent.map(|()| true),
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/session.rs"]
+mod tests;
