@@ -1,6 +1,6 @@
 use std::fs::Metadata;
 use std::path::Path;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 pub fn resolve_content_type(path: &Path) -> String {
     // 1) Fast map (by extension)
@@ -121,5 +121,14 @@ pub(crate) fn make_etag_from_meta(meta: &Metadata) -> Option<String> {
     meta.modified()
         .ok()
         .and_then(|m| m.duration_since(SystemTime::UNIX_EPOCH).ok())
-        .map(|d| format!("\"{:x}-{:x}\"", meta.len(), d.as_secs()))
+        .map(|modified| make_etag(meta.len(), modified))
+}
+
+/// Metadata is not a content digest. Preserve timestamp precision without
+/// advertising byte-for-byte strength or reading/hashing the file per request.
+pub(crate) fn make_etag(
+    len: u64,
+    modified: Duration,
+) -> String {
+    format!("W/\"{:x}-{:x}\"", len, modified.as_nanos())
 }

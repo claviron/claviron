@@ -89,10 +89,11 @@ fn key(path: &Path) -> Key {
     Key::from_bytes(first)
 }
 
-fn stamp(modified: SystemTime) -> u64 {
+fn stamp(modified: SystemTime) -> Option<u64> {
     modified
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_nanos() as u64)
+        .ok()
+        .and_then(|since| since.as_nanos().try_into().ok())
 }
 
 /// Same shape as `mime::make_etag_from_meta`, from what the arena kept.
@@ -100,7 +101,7 @@ fn etag(
     len: u64,
     stamp: u64,
 ) -> String {
-    format!("\"{:x}-{:x}\"", len, stamp / 1_000_000_000)
+    crate::mime::make_etag(len, Duration::from_nanos(stamp))
 }
 
 /// A hit from the fleet tier. With `meta`, the record is served only if it
@@ -114,7 +115,7 @@ pub(crate) fn hit(
     let arena = active()?;
     let entry = arena.get(key(path))?;
     if let Some(meta) = meta
-        && (meta.modified().ok().map(stamp) != Some(entry.stamp())
+        && (meta.modified().ok().and_then(stamp) != Some(entry.stamp())
             || meta.len() != entry.extra())
     {
         return None;
@@ -226,6 +227,7 @@ pub(crate) async fn read_and_store(
 ) -> Option<RouteResponse> {
     let arena = active()?;
     let modified = meta.modified().ok()?;
+    let stamp = stamp(modified)?;
     let buf = tokio::fs::read(path).await.ok()?;
 
     let encoded = policy
@@ -256,7 +258,7 @@ pub(crate) async fn read_and_store(
             }
         });
 
-    let record = Record::body(&buf).stamp(stamp(modified)).extra(meta.len());
+    let record = Record::body(&buf).stamp(stamp).extra(meta.len());
     let record = match &encoded {
         Some((bytes, encoding)) => record.encoded(bytes, encoding.tag()),
         None => record,
@@ -272,7 +274,7 @@ pub(crate) async fn read_and_store(
 
     let content_type = resolve_content_type(path);
     let last_modified = httpdate::fmt_http_date(modified);
-    let etag = etag(meta.len(), stamp(modified));
+    let etag = etag(meta.len(), stamp);
     let mut resp = build_ok_response(
         policy,
         &content_type,
@@ -283,3 +285,7 @@ pub(crate) async fn read_and_store(
     resp.headers_mut().insert(ETAG, HeaderValue::from_str(&etag).unwrap());
     Some(resp)
 }
+
+#[cfg(test)]
+#[path = "../../tests/caching/arena.rs"]
+mod tests;

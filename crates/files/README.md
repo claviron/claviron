@@ -65,6 +65,14 @@ and single byte ranges with partial-content and unsatisfiable-range responses.
 Validators are independent of positive browser freshness: mutable resources
 can revalidate without being promised a long `max-age`.
 
+Metadata ETags retain the available modification-time precision and are weak
+validators, shared across disk, process-cache and fleet-cache paths. They do not
+claim a content digest: replacing bytes while preserving both size and exact
+modification time is not detectable by this policy. Use versioned URLs for that
+case. Weak ETags support `If-None-Match` revalidation but cannot satisfy strong
+`If-Match` or ETag-based `If-Range`; the latter falls back to a full response.
+No additional file read or content hash is required to generate a validator.
+
 Client TTL, server-side reuse, timestamp validation, compression, and immutable
 policy are distinct choices. Use immutable caching only when the URL identifies
 unchanging bytes. Conservative `try_files` policy permits server reuse with

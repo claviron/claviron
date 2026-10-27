@@ -373,7 +373,7 @@ pub(crate) async fn maybe_read_and_cache(
                         let since = httpdate::fmt_http_date(modified);
                         let etag =
                             make_etag_from_meta(meta).unwrap_or_else(|| {
-                                format!("\"{:x}-0\"", meta.len())
+                                format!("W/\"{:x}-0\"", meta.len())
                             });
 
                         let (encoded_body, encoding, encoded_len) =
@@ -568,7 +568,7 @@ async fn maybe_read_and_file_cache(
     let modified = meta.modified().ok()?;
     let since = httpdate::fmt_http_date(modified);
     let etag = make_etag_from_meta(meta)
-        .unwrap_or_else(|| format!("\"{:x}-0\"", meta.len()));
+        .unwrap_or_else(|| format!("W/\"{:x}-0\"", meta.len()));
 
     // Create file cache entry (only metadata in RAM)
     // No expires_at - file cache never expires, only invalidated by mtime change

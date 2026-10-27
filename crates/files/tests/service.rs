@@ -176,3 +176,59 @@ impl crate::FileSite for Site {
             .any(|name| !claviron_http::config::statics::is_dynamic_file(name))
     }
 }
+
+#[tokio::test]
+async fn regression_subsecond_updates_do_not_return_stale_not_modified() {
+    use crate::caching::{condition::ConditionalRequest, policy::CachePolicy};
+    use http::header::{ETAG, IF_NONE_MATCH};
+    use http_body_util::BodyExt;
+    use std::time::{Duration, UNIX_EPOCH};
+
+    let file = tempfile::NamedTempFile::new().unwrap();
+    let path = file.path().to_path_buf();
+    let epoch = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    let mut previous = String::new();
+    for (nanos, bytes) in [(100, b"AAAA"), (200, b"BBBB")] {
+        std::fs::write(&path, bytes).unwrap();
+        let modified = epoch + Duration::from_nanos(nanos);
+        file.as_file()
+            .set_times(std::fs::FileTimes::new().set_modified(modified))
+            .unwrap();
+        assert_eq!(
+            file.as_file().metadata().unwrap().modified().unwrap(),
+            modified
+        );
+        let mut headers = http::HeaderMap::new();
+        if !previous.is_empty() {
+            headers.insert(IF_NONE_MATCH, previous.parse().unwrap());
+        }
+        let response = super::serve_with_policy_and_condition(
+            &path,
+            path.parent().unwrap(),
+            CachePolicy::no_cache(),
+            ConditionalRequest::from_headers(&headers),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let current = response.headers()[ETAG].to_str().unwrap().to_owned();
+        assert!(current.starts_with("W/"), "metadata is a weak validator");
+        assert_ne!(current, previous);
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes().as_ref(),
+            bytes
+        );
+        previous = current;
+    }
+    let mut headers = http::HeaderMap::new();
+    headers.insert(IF_NONE_MATCH, previous.parse().unwrap());
+    let response = super::serve_with_policy_and_condition(
+        &path,
+        path.parent().unwrap(),
+        CachePolicy::no_cache(),
+        ConditionalRequest::from_headers(&headers),
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+}
