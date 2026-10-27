@@ -150,3 +150,8 @@ JSON output reserves `time`, `level`, `channel`, `node`, `target`, `message`,
 are preserved under the `fields` object; they cannot replace metadata, even
 when an optional metadata value is absent. Other context fields remain at the
 top level with their original scalar types.
+
+The binary record budget includes its fixed envelope and target as well as the
+message and fields. Oversized text is shortened on UTF-8 boundaries and marks
+the record truncated. A budget smaller than the empty envelope is rejected;
+record publication never exceeds the declared maximum number of frames.

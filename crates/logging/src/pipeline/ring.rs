@@ -49,6 +49,9 @@ pub(crate) const PAYLOAD_CAPACITY: usize =
         2048,
     );
 
+// Every multipart frame must have room beyond its index/count header.
+const _: () = assert!(PAYLOAD_CAPACITY > PART_HEADER);
+
 #[derive(Clone)]
 pub(crate) struct LogFrame;
 

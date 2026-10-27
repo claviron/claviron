@@ -101,6 +101,8 @@ pub enum EmitError {
     NotBooted,
     #[error("no declared log channel has id {0}")]
     UnknownChannel(u16),
+    #[error("record cannot fit the log frame budget")]
+    RecordCapacity,
     #[error("log ring write failed: {0}")]
     Ring(#[from] std::io::Error),
 }
@@ -171,7 +173,11 @@ impl LogChannels {
             record,
             SystemTime::now(),
             MAX_FRAMES * part,
-        );
+        )
+        .ok_or(EmitError::RecordCapacity)?;
+        if encoded.len() > MAX_FRAMES * part {
+            return Err(EmitError::RecordCapacity);
+        }
         if encoded.len() <= PAYLOAD_CAPACITY {
             fleet.publish_notified_parked::<LogFrame>(
                 FRAME_KIND_RECORD,
@@ -181,13 +187,18 @@ impl LogChannels {
             return Ok(());
         }
         let count = encoded.len().div_ceil(part);
+        if count > MAX_FRAMES {
+            return Err(EmitError::RecordCapacity);
+        }
+        let count =
+            u8::try_from(count).map_err(|_| EmitError::RecordCapacity)?;
         let parts = encoded
             .chunks(part)
             .enumerate()
             .map(|(index, bytes)| {
                 let mut frame = Vec::with_capacity(PART_HEADER + bytes.len());
                 frame.push(index as u8);
-                frame.push(count as u8);
+                frame.push(count);
                 frame.extend_from_slice(bytes);
                 Bytes::from(frame)
             })

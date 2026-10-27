@@ -10,8 +10,8 @@
 //! [field count u16] then per field: [key: u16 len, bytes][tag u8][value]
 //! ```
 //!
-//! A record that does not fit one frame keeps its header, target and as much
-//! of the message as fits; fields are kept in order while they fit after the
+//! A record that exceeds the byte budget keeps its header and UTF-8-safe
+//! prefixes of its target and message; fields are kept in order while they fit after the
 //! message. Anything left out sets [`Decoded::truncated`].
 
 use std::time::SystemTime;
@@ -118,12 +118,17 @@ pub enum OwnedValue {
 }
 
 /// Encode `record` for `channel` into at most `capacity` bytes.
+/// Returns `None` when even the empty wire envelope cannot fit.
 pub(crate) fn encode(
     channel: ChannelId,
     record: &Record<'_>,
     time: SystemTime,
     capacity: usize,
-) -> Vec<u8> {
+) -> Option<Vec<u8>> {
+    // Version/flags/channel/level/time plus the target and message lengths
+    // and field count are mandatory wire bytes, regardless of their content.
+    const ENVELOPE_BYTES: usize = 1 + 1 + 2 + 1 + 8 + 2 + 4 + 2;
+    let target_budget = capacity.checked_sub(ENVELOPE_BYTES)?;
     let mut out = Vec::with_capacity(capacity.min(512));
     let mut truncated = false;
     out.push(VERSION);
@@ -132,14 +137,15 @@ pub(crate) fn encode(
     out.push(record.level as u8);
     out.extend_from_slice(&unix_nanos(time).to_le_bytes());
 
-    let target = prefix(record.target, usize::from(u16::MAX));
+    let target =
+        prefix(record.target, target_budget.min(usize::from(u16::MAX)));
     truncated |= target.len() < record.target.len();
     out.extend_from_slice(&(target.len() as u16).to_le_bytes());
     out.extend_from_slice(target.as_bytes());
 
     // Room for the message, its length and the field count.
     let room = capacity.saturating_sub(out.len() + 4 + 2);
-    let message = prefix(record.message, room);
+    let message = prefix(record.message, room.min(u32::MAX as usize));
     truncated |= message.len() < record.message.len();
     out.extend_from_slice(&(message.len() as u32).to_le_bytes());
     out.extend_from_slice(message.as_bytes());
@@ -165,7 +171,7 @@ pub(crate) fn encode(
     if truncated {
         out[1] |= FLAG_TRUNCATED;
     }
-    out
+    Some(out)
 }
 
 /// Decode one frame; `None` for a frame this writer does not understand.
