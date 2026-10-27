@@ -4,6 +4,7 @@ pub(crate) mod assignment;
 pub(crate) mod layout;
 mod memory;
 pub(crate) mod provider;
+pub(crate) mod verdict;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 

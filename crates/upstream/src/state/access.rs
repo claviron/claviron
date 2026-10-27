@@ -32,33 +32,18 @@ impl SlotRef {
         self.write(|slot| slot.reserve_validator_probe()).unwrap_or(false)
     }
     pub(crate) fn cancel_validator_probe(&self) {
-        let _ = self.write(|slot| {
-            let _ = slot.health.compare_exchange(
-                OriginHealth::HalfOpen as u8,
-                OriginHealth::Down as u8,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            );
-        });
+        let _ = self.write(|slot| slot.cancel_validator_probe());
     }
     pub(crate) fn record_success_change(
         &self
     ) -> Option<(OriginHealth, OriginHealth)> {
-        self.write(|slot| {
-            let before = slot.health();
-            slot.record_success();
-            (before, slot.health())
-        })
+        self.write(|slot| slot.record_success())
     }
     pub(crate) fn record_failure_change(
         &self,
         threshold: u32,
     ) -> Option<(OriginHealth, OriginHealth)> {
-        self.write(|slot| {
-            let before = slot.health();
-            slot.record_origin_reachability_failure(threshold);
-            (before, slot.health())
-        })
+        self.write(|slot| slot.record_origin_reachability_failure(threshold))
     }
     pub(crate) fn healthy_since(&self) -> u64 {
         self.read(|slot| slot.healthy_since.load(Ordering::Acquire))

@@ -65,10 +65,9 @@ pub(crate) struct OriginSlot {
     pub(super) key_hash: AtomicU64,
     pub(super) key: [AtomicU8; KEY_MAX],
     pub(crate) config_generation: AtomicU64,
-    pub(crate) health: AtomicU8,
-    pub(crate) serving: AtomicU8,
-    pub(crate) lifecycle: AtomicU8,
-    pub(crate) failures: AtomicU32,
+    // Same eight bytes and encodings as health/serving/lifecycle/pad/failures;
+    // one atomic width makes compound reachability transitions coherent.
+    pub(crate) verdict: super::verdict::Verdict,
     pub(crate) healthy_since: AtomicU64,
     pub(crate) in_flight: AtomicU32,
     pub(crate) ewma_micros: AtomicU32,
@@ -82,10 +81,7 @@ impl OriginSlot {
             key_hash: AtomicU64::new(0),
             key: std::array::from_fn(|_| AtomicU8::new(0)),
             config_generation: AtomicU64::new(0),
-            health: AtomicU8::new(0),
-            serving: AtomicU8::new(1),
-            lifecycle: AtomicU8::new(1),
-            failures: AtomicU32::new(0),
+            verdict: super::verdict::Verdict::new(),
             healthy_since: AtomicU64::new(0),
             in_flight: AtomicU32::new(0),
             ewma_micros: AtomicU32::new(0),
@@ -112,16 +108,12 @@ impl OriginSlot {
             b.store(key.get(i).copied().unwrap_or(0), Ordering::Relaxed);
         }
         self.config_generation.store(generation, Ordering::Relaxed);
-        self.serving.store(1, Ordering::Relaxed);
-        self.lifecycle.store(1, Ordering::Relaxed);
+        self.verdict.install();
         self.healthy_since.store(now_millis(), Ordering::Relaxed);
         self.key_hash.store(hash, Ordering::Release);
     }
     pub(crate) fn reset(&self) {
-        self.health.store(0, Ordering::Relaxed);
-        self.serving.store(1, Ordering::Relaxed);
-        self.lifecycle.store(1, Ordering::Relaxed);
-        self.failures.store(0, Ordering::Relaxed);
+        self.verdict.reset();
         self.config_generation.store(0, Ordering::Relaxed);
         self.healthy_since.store(0, Ordering::Relaxed);
         self.in_flight.store(0, Ordering::Relaxed);
@@ -143,3 +135,9 @@ const _: () =
     assert!(CAPACITY.is_power_of_two() && CAPACITY <= u32::MAX as usize);
 const _: () =
     assert!(size_of::<Header>() == 64 && size_of::<OriginSlot>() == 160);
+const _: () = {
+    assert!(std::mem::offset_of!(OriginSlot, verdict) == 112);
+    assert!(std::mem::offset_of!(OriginSlot, healthy_since) == 120);
+    assert!(std::mem::offset_of!(OriginSlot, in_flight) == 128);
+    assert!(std::mem::offset_of!(OriginSlot, ewma_micros) == 132);
+};

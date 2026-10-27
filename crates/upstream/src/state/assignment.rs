@@ -292,3 +292,7 @@ impl AssignmentOwner {
         debug_assert!(before > 0);
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/state/assignment.rs"]
+mod tests;

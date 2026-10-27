@@ -56,24 +56,24 @@ pub(crate) enum Serving {
 const OUTLIER_DENY: u8 = 2;
 impl OriginSlot {
     pub(crate) fn outlier_ejected(&self) -> bool {
-        self.serving.load(Ordering::Acquire) & OUTLIER_DENY != 0
+        self.verdict.load().serving() & OUTLIER_DENY != 0
     }
     pub(crate) fn set_outlier_ejected(
         &self,
         ejected: bool,
     ) {
         if ejected {
-            self.serving.fetch_or(OUTLIER_DENY, Ordering::AcqRel);
+            self.verdict.serving_bits(OUTLIER_DENY, 0);
         } else {
-            self.serving.fetch_and(!OUTLIER_DENY, Ordering::AcqRel);
+            self.verdict.serving_bits(0, OUTLIER_DENY);
         }
     }
 
     pub(crate) fn health(&self) -> OriginHealth {
-        OriginHealth::decode(self.health.load(Ordering::Acquire))
+        OriginHealth::decode(self.verdict.load().health())
     }
     pub(crate) fn serving(&self) -> Serving {
-        if self.serving.load(Ordering::Acquire) == Serving::Yes as u8 {
+        if self.verdict.load().serving() == Serving::Yes as u8 {
             Serving::Yes
         } else {
             Serving::No
@@ -87,66 +87,89 @@ impl OriginSlot {
         // deny bits so a successful L7 result cannot undo another serving cause.
         match next {
             Serving::Yes => {
-                self.serving.fetch_or(Serving::Yes as u8, Ordering::AcqRel);
+                self.verdict.serving_bits(Serving::Yes as u8, 0);
             }
             Serving::No => {
-                self.serving.fetch_and(!(Serving::Yes as u8), Ordering::AcqRel);
+                self.verdict.serving_bits(0, Serving::Yes as u8);
             }
         }
     }
     pub(crate) fn reserve_validator_probe(&self) -> bool {
-        self.health
-            .compare_exchange(
-                OriginHealth::Down as u8,
-                OriginHealth::HalfOpen as u8,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_ok()
-    }
-    pub(crate) fn record_success(&self) {
-        self.failures.store(0, Ordering::Relaxed);
-        // Publish the recovery timestamp before Healthy makes the origin selectable.
-        // Ordinary successful requests must not restart the slow-start clock.
-        let before = self.health.load(Ordering::Acquire);
-        if before != OriginHealth::Healthy as u8 {
-            self.healthy_since
-                .store(crate::state::layout::now_millis(), Ordering::Relaxed);
+        let mut before = self.verdict.load();
+        loop {
+            if before.health() != OriginHealth::Down as u8 {
+                return false;
+            }
+            let after = before
+                .with_health(OriginHealth::HalfOpen as u8, before.failures());
+            match self.verdict.compare_exchange(before, after) {
+                Ok(_) => return true,
+                Err(current) => before = current,
+            }
         }
-        let _ = self.health.compare_exchange(
-            before,
-            OriginHealth::Healthy as u8,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
     }
-    pub(crate) fn mark_down(&self) {
-        self.failures.fetch_max(1, Ordering::Relaxed);
-        self.health.store(OriginHealth::Down as u8, Ordering::Release);
+    pub(crate) fn cancel_validator_probe(&self) {
+        let mut before = self.verdict.load();
+        loop {
+            if before.health() != OriginHealth::HalfOpen as u8 {
+                return;
+            }
+            let after =
+                before.with_health(OriginHealth::Down as u8, before.failures());
+            match self.verdict.compare_exchange(before, after) {
+                Ok(_) => return,
+                Err(current) => before = current,
+            }
+        }
+    }
+    pub(crate) fn record_success(&self) -> (OriginHealth, OriginHealth) {
+        let mut before = self.verdict.load();
+        loop {
+            let health = OriginHealth::decode(before.health());
+            if health == OriginHealth::Healthy && before.failures() == 0 {
+                return (health, health);
+            }
+            // Publish recovery time before the CAS makes this origin selectable.
+            // An ordinary successful request never resets the slow-start clock.
+            if health != OriginHealth::Healthy {
+                self.healthy_since.store(
+                    crate::state::layout::now_millis(),
+                    Ordering::Relaxed,
+                );
+            }
+            let after = before.with_health(OriginHealth::Healthy as u8, 0);
+            match self.verdict.compare_exchange(before, after) {
+                Ok(_) => return (health, OriginHealth::Healthy),
+                Err(current) => before = current,
+            }
+        }
     }
     pub(crate) fn record_origin_reachability_failure(
         &self,
         threshold: u32,
-    ) {
-        let mut before = self.failures.load(Ordering::Relaxed);
+    ) -> (OriginHealth, OriginHealth) {
+        let mut before = self.verdict.load();
         loop {
-            match self.failures.compare_exchange_weak(
-                before,
-                before.saturating_add(1),
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            ) {
-                Ok(_) => break,
+            let health = OriginHealth::decode(before.health());
+            let failures = before.failures().saturating_add(1);
+            // A failed HalfOpen recovery always returns Down, even when a
+            // peer's installed history is below this worker's passive threshold.
+            let after_health = if (threshold > 0 && failures >= threshold)
+                || health == OriginHealth::HalfOpen
+            {
+                OriginHealth::Down
+            } else {
+                health
+            };
+            let after = before.with_health(after_health as u8, failures);
+            match self.verdict.compare_exchange(before, after) {
+                Ok(_) => return (health, after_health),
                 Err(current) => before = current,
             }
         }
-        // HalfOpen was already Down before reservation. A failed recovery
-        // cannot make it Healthy merely because this worker's passive threshold
-        // is higher than the failure history installed by a peer.
-        if (threshold > 0 && before.saturating_add(1) >= threshold)
-            || self.health() == OriginHealth::HalfOpen
-        {
-            self.mark_down();
-        }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/origin/health.rs"]
+mod tests;

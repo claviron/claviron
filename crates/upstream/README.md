@@ -153,6 +153,13 @@ Probe schedules, thresholds, recovery policy, and ejection windows are explicit
 configuration surfaces. No enabled probe is a substitute for an application's
 own consistency checks.
 
+Reachability and its consecutive-failure counter change together atomically,
+including concurrent request/probe outcomes. Failed HalfOpen recovery returns
+Down; a successful outcome resets the counter. Serving deny causes stay
+independent. Processes sharing a state table must use matching atomic access:
+legacy byte/counter writers cannot run concurrently with the combined-word
+implementation, although the stored byte layout remains unchanged.
+
 ## Reload and drain
 
 The provider compiles candidates before registry adoption. Unchanged profiles
