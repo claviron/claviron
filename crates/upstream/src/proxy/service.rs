@@ -9,6 +9,7 @@ pub(crate) mod prepare;
 pub(crate) mod request;
 pub(crate) mod runtime;
 pub(crate) mod transport;
+pub(crate) mod warm;
 pub use membership::{MembershipError, MembershipTarget};
 pub use policy::UpstreamRequestPolicy;
 pub(crate) use runtime::ProtocolPools;

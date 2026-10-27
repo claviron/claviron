@@ -36,6 +36,7 @@ pub struct UpstreamProvider {
     config_path: PathBuf,
     state: AppState,
     rebuild_lock: tokio::sync::Mutex<()>,
+    warm: Arc<crate::proxy::service::warm::Owner>,
     pub(crate) resolution: Arc<crate::resolve::control::Control>,
     resolution_table: OnceLock<Arc<crate::resolve::ResolutionTable>>,
     state_table: OnceLock<Arc<crate::state::UpstreamStateTable>>,
@@ -51,6 +52,7 @@ impl UpstreamProvider {
             config_path: upstreams_config_path(state),
             state: state.clone(),
             rebuild_lock: tokio::sync::Mutex::new(()),
+            warm: Arc::new(crate::proxy::service::warm::Owner::default()),
             resolution: Arc::new(crate::resolve::control::Control::default()),
             resolution_table: OnceLock::new(),
             state_table: OnceLock::new(),
@@ -174,6 +176,7 @@ impl UpstreamProvider {
                 .worker_id()
                 .map_or(0, |id| usize::from(id).saturating_sub(1)),
             shutdown: state.shutdown_token(),
+            warm_owner: Some(Arc::clone(&self.warm)),
             events: Some(state.events().bus().clone()),
             ..crate::proxy::service::runtime::ServiceRuntime::with_table(
                 state_table.clone(),
@@ -389,6 +392,10 @@ impl Runnable<AppState, UpstreamDeps> for UpstreamProvider {
         state: AppState,
         context: RunContext,
     ) -> claviron_runtime::registry::Result<()> {
+        let generation = self
+            .warm
+            .start(&context.cancellation_token())
+            .map_err(claviron_runtime::registry::Error::msg)?;
         let shutdown = state.shutdown_token();
         loop {
             // Subscribe before reading the registry so a concurrent reload
@@ -400,11 +407,13 @@ impl Runnable<AppState, UpstreamDeps> for UpstreamProvider {
                 service.warm_pools();
             }
             tokio::select! {
-                _ = context.cancelled() => return Ok(()),
-                _ = shutdown.cancelled() => return Ok(()),
+                _ = context.cancelled() => break,
+                _ = shutdown.cancelled() => break,
                 _ = &mut changed => {}
             }
         }
+        generation.drain().await;
+        Ok(())
     }
 }
 

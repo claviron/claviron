@@ -22,6 +22,8 @@ pub(crate) struct ServiceRuntime {
     /// origin rather than all of them filling the same one.
     pub(crate) worker: usize,
     pub(crate) shutdown: tokio_util::sync::CancellationToken,
+    /// None for direct profile consumers; managed providers own warm generations.
+    pub(crate) warm_owner: Option<Arc<super::warm::Owner>>,
     pub(crate) events: Option<claviron_runtime::events::ProcessEventBus>,
     pub(crate) lock: Option<crate::health::lock::UpstreamLock>,
     pub(crate) changed: Arc<tokio::sync::Notify>,
@@ -41,6 +43,7 @@ impl ServiceRuntime {
             serving_role: true,
             worker: 0,
             shutdown: tokio_util::sync::CancellationToken::new(),
+            warm_owner: None,
             events: None,
             lock: None,
             changed: Arc::new(tokio::sync::Notify::new()),

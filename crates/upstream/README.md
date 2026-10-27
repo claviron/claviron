@@ -166,6 +166,13 @@ remaining outbound work. This explicit profile deadline is distinct from an
 inbound listener's potentially indefinite graceful drain. Restart creates fresh
 pools. Removed-origin and full-profile shutdown remain separate operations.
 
+Managed provider warm maintenance follows its runnable generation. Stopping the
+provider cancels and joins warm jobs, including a dial or configured retry wait,
+before that run returns. Restart primes a fresh generation. This does not stop
+profile admission, accepted request/response IO, health services, or another
+provider. Explicit profile stop/start keeps its separate lifecycle. Direct
+`UpstreamService` consumers retain profile-owned maintenance.
+
 Public entry points are organized by responsibility: `UpstreamProvider`,
 `binding::UpstreamApp`, `binding::call_upstream_service`,
 `proxy::service::UpstreamService`, and the `origin`, `resolve`, `config`, and

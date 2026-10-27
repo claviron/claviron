@@ -370,6 +370,32 @@ impl UpstreamService {
             tokio::select! { biased; _ = cancelled.cancelled() => {}, _ = shutdown.cancelled() => {}, _ = future => {} }
         })))
     }
+    /// Warm jobs have both profile-epoch and managed provider-generation owners.
+    /// Direct profile consumers retain the existing epoch-only lifecycle.
+    pub(crate) fn spawn_warm_for(
+        &self,
+        epoch: &Arc<ServiceEpoch>,
+        future: impl Future<Output = ()> + Send + 'static,
+    ) {
+        let _admission = self
+            .inner
+            .lifecycle
+            .admission
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if !Arc::ptr_eq(epoch, &self.epoch())
+            || epoch.background.is_cancelled()
+            || self.inner.runtime.shutdown.is_cancelled()
+        {
+            return;
+        }
+        if let Some(owner) = &self.inner.runtime.warm_owner {
+            owner.spawn(epoch.tasks.track_future(future));
+        } else {
+            epoch.tasks.spawn(future);
+        }
+    }
+
     pub(crate) fn spawn_background_for(
         &self,
         epoch: &Arc<ServiceEpoch>,

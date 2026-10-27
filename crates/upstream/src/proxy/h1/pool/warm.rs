@@ -123,7 +123,7 @@ pub(crate) fn kick(pool: &Arc<Mutex<TargetPool>>) {
     let cancelled = epoch.background.clone();
     let shutdown = service.inner.runtime.shutdown.clone();
     let captured = epoch.clone();
-    service.spawn_background_for(&epoch, async move {
+    service.spawn_warm_for(&epoch, async move {
         let completed = tokio::select! {
             biased;
             _ = cancelled.cancelled() => false,

@@ -1,0 +1,17 @@
+[package]
+name = "upstream-lifecycle"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[workspace]
+[dependencies]
+claviron = { path = "../..", default-features = false, features = ["runtime", "http", "upstream"] }
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+futures-util = "0.3"
+http = "1"
+http-body-util = "0.1"
+serde_json = "1"
+tempfile = "3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["registry"] }
