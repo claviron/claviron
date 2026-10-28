@@ -11,4 +11,4 @@ applications:
       min_idle: 8
       max_idle: 8
       max_size: 64
-      max_waiting: 64
+      max_waiting: 128
