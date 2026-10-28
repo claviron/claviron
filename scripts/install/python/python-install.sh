@@ -216,7 +216,23 @@ prepare_source() {
 
 build_python() {
   cd "$PYTHON_SRC_DIR"
-  [[ -f Makefile ]] && { make distclean >/dev/null 2>&1 || true; }
+  local make="make"
+  [[ "$(detect_os)" == "freebsd" ]] && make="gmake"
+
+  # Use the selected Clang's profiling tools, not an unrelated LLVM on PATH.
+  # Profile formats are not interchangeable across LLVM releases.
+  local compiler=() compiler_version profdata
+  read -r -a compiler <<< "${CC:-cc}"
+  compiler_version="$("${compiler[@]}" --version)"
+  if [[ "$compiler_version" == *clang* && -z "${LLVM_PROFDATA:-}" ]]; then
+    profdata="$("${compiler[@]}" -print-prog-name=llvm-profdata)"
+    [[ "$profdata" == /* && -x "$profdata" ]] ||
+      die "cannot locate this Clang's llvm-profdata; set LLVM_PROFDATA to its matching tool"
+    export LLVM_PROFDATA="$profdata"
+    log "PGO profile merger: $LLVM_PROFDATA"
+  fi
+
+  [[ -f Makefile ]] && "$make" distclean
 
   local flags="-fno-semantic-interposition"
   local shared=(--enable-shared)
@@ -245,8 +261,6 @@ build_python() {
     --with-computed-gotos \
     --without-ensurepip
 
-  local make="make"
-  [[ "$(detect_os)" == "freebsd" ]] && make="gmake"
   "$make" -j"$(jobs_count)" PROFILE_TASK="-m test --pgo -x $PGO_EXCLUDE"
   # Compilation stays unprivileged; only installation into /opt needs root.
   if [[ "$INSTALL_WITH_SUDO" == "1" ]]; then
@@ -272,7 +286,7 @@ print("OK:", sys.version.split()[0],
     # The interpreter must load this prefix's library, not the system's.
     local loaded_lib
     loaded_lib="$(ldd "$python" | awk -v lib="libpython$PYTHON_MINOR.so" \
-      '($1 == lib || index($1, lib ".") == 1) && $2 == "=>" { print $3; exit }')"
+      '($1 == lib || index($1, lib ".") == 1) && $2 == "=>" && !found { print $3; found = 1 }')"
     # A relocated installation may retain its original rpath through a symlink.
     # Compare file identity so that this still rejects a different libpython.
     [[ -n "$loaded_lib" && "$loaded_lib" -ef "$PYTHON_DIR/lib/libpython$PYTHON_MINOR.so" ]] ||
