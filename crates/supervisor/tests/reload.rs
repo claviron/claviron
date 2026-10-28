@@ -10,17 +10,24 @@ use claviron_runtime::{
 };
 use tokio::sync::{Notify, mpsc};
 
-use super::{
-    SERVER_RELOADING_BYTES, ServerReloading, WORKER_RELOADED_BYTES,
-    WorkerReloaded,
-};
+use super::{RELOAD_EVENT_BYTES, ServerReloading, WorkerReloaded};
+
+fn test_issuer() -> crate::MasterIdentity {
+    crate::MasterIdentity::new(
+        claviron_sys::process::ProcessIdentity::new(u32::MAX, u64::MAX),
+        u64::MAX,
+    )
+}
 
 #[test]
-fn reload_events_roundtrip_within_orbit_frame_limit() {
-    let request =
-        ServerReloading { generation: u64::MAX, target_worker_id: u8::MAX };
+fn reload_issuer_codec_roundtrip_within_orbit_frame_limit() {
+    let request = ServerReloading {
+        issuer: test_issuer(),
+        generation: u64::MAX,
+        target_worker_id: u8::MAX,
+    };
     let request_payload = request.encode_orbit();
-    assert_eq!(request_payload.len(), SERVER_RELOADING_BYTES);
+    assert_eq!(request_payload.len(), RELOAD_EVENT_BYTES);
     assert_eq!(
         ServerReloading::decode_orbit(&request_payload)
             .expect("decode request"),
@@ -31,10 +38,13 @@ fn reload_events_roundtrip_within_orbit_frame_limit() {
             <= EVENT_PAYLOAD_MAX
     );
 
-    let acknowledgement =
-        WorkerReloaded { generation: u64::MAX, worker_id: u8::MAX };
+    let acknowledgement = WorkerReloaded {
+        issuer: test_issuer(),
+        generation: u64::MAX,
+        worker_id: u8::MAX,
+    };
     let acknowledgement_payload = acknowledgement.encode_orbit();
-    assert_eq!(acknowledgement_payload.len(), WORKER_RELOADED_BYTES);
+    assert_eq!(acknowledgement_payload.len(), RELOAD_EVENT_BYTES);
     assert_eq!(
         WorkerReloaded::decode_orbit(&acknowledgement_payload)
             .expect("decode acknowledgement"),
@@ -44,6 +54,31 @@ fn reload_events_roundtrip_within_orbit_frame_limit() {
         12 + WorkerReloaded::TOPIC.len() + acknowledgement_payload.len()
             <= EVENT_PAYLOAD_MAX
     );
+}
+
+#[test]
+fn reload_issuer_codec_rejects_legacy_and_invalid_correlations() {
+    let request = ServerReloading {
+        issuer: test_issuer(),
+        generation: 1,
+        target_worker_id: 0,
+    };
+    let valid = request.encode_orbit();
+    // v1 lacks an issuer and must never become completion evidence for v2.
+    for bytes in [
+        vec![0; 9],
+        valid[..valid.len() - 1].to_vec(),
+        [valid.as_slice(), &[0]].concat(),
+    ] {
+        assert!(ServerReloading::decode_orbit(&bytes).is_err());
+        assert!(WorkerReloaded::decode_orbit(&bytes).is_err());
+    }
+    for field in [0..4, 12..20, 20..28] {
+        let mut invalid = valid.clone();
+        invalid[field].fill(0);
+        assert!(ServerReloading::decode_orbit(&invalid).is_err());
+        assert!(WorkerReloaded::decode_orbit(&invalid).is_err());
+    }
 }
 
 struct SlowReload {
@@ -129,9 +164,11 @@ async fn worker_reload_is_serial_on_its_runner_and_cancellable_at_process_shutdo
         })
         .unwrap();
 
-    state
-        .events()
-        .emit(ServerReloading { generation: 17, target_worker_id: 0 });
+    state.events().emit(ServerReloading {
+        issuer: test_issuer(),
+        generation: 17,
+        target_worker_id: 0,
+    });
     assert!(started_rx.try_recv().is_err());
     let dispatcher = tokio::spawn(
         state.registry_ref().resolve::<EventDispatcher>().unwrap().run(
@@ -144,9 +181,11 @@ async fn worker_reload_is_serial_on_its_runner_and_cancellable_at_process_shutdo
         .await
         .unwrap()
         .unwrap();
-    state
-        .events()
-        .emit(ServerReloading { generation: 18, target_worker_id: 1 });
+    state.events().emit(ServerReloading {
+        issuer: test_issuer(),
+        generation: 18,
+        target_worker_id: 1,
+    });
     state.events().emit(Notice);
     tokio::time::timeout(Duration::from_secs(1), notice_rx.recv())
         .await
@@ -162,7 +201,7 @@ async fn worker_reload_is_serial_on_its_runner_and_cancellable_at_process_shutdo
             .await
             .unwrap()
             .unwrap(),
-        WorkerReloaded { generation: 17, worker_id: 1 }
+        WorkerReloaded { issuer: test_issuer(), generation: 17, worker_id: 1 }
     );
     tokio::time::timeout(Duration::from_secs(1), started_rx.recv())
         .await
@@ -226,9 +265,11 @@ async fn worker_ignores_reload_targeted_at_another_worker() {
         ),
     );
 
-    state
-        .events()
-        .emit(ServerReloading { generation: 21, target_worker_id: 2 });
+    state.events().emit(ServerReloading {
+        issuer: test_issuer(),
+        generation: 21,
+        target_worker_id: 2,
+    });
     assert!(
         tokio::time::timeout(Duration::from_millis(50), started_rx.recv())
             .await

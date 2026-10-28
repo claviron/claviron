@@ -55,6 +55,13 @@ every application protocol, and fresh metrics are not a substitute for a
 heartbeat. Process incarnation and operation identity keep stale observations
 from being mistaken for the current worker.
 
+Reload completion is scoped to the exact issuing master and its request number.
+An adopted worker can finish an earlier master's reload without completing a
+successor's request. The internal reload request and acknowledgement topics use
+v2; workers that only understand v1 cannot acknowledge v2 requests. Align worker
+binaries before relying on reload completion across an upgrade. Adoption keeps
+processes alive; it does not upgrade their code.
+
 ## Recovery and rolling restart
 
 Recovery uses configured attempt limits, windows, and backoff. Rotation can be

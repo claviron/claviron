@@ -6,11 +6,14 @@ use std::time::Duration;
 use claviron_orbit::{FleetEventCodec, FleetEventRegistry};
 use claviron_runtime::events::Event;
 use claviron_runtime::{AppState, RunMode, WorkerId};
+use claviron_sys::process::ProcessIdentity;
 
-use crate::Error;
+use crate::{Error, MasterIdentity, WorkerControl};
 
-const SERVER_RELOADING_BYTES: usize = size_of::<u64>() + size_of::<u8>();
-const WORKER_RELOADED_BYTES: usize = size_of::<u64>() + size_of::<u8>();
+// The v2 wire record fixes PID, kernel start stamp, master generation, request
+// generation and worker byte. Changing this layout requires a new event topic.
+const RELOAD_EVENT_BYTES: usize =
+    size_of::<u32>() + 3 * size_of::<u64>() + size_of::<u8>();
 static NEXT_RELOAD_GENERATION: AtomicU64 = AtomicU64::new(1);
 
 /// Master request to reload one worker or the active fleet in place.
@@ -18,6 +21,7 @@ static NEXT_RELOAD_GENERATION: AtomicU64 = AtomicU64::new(1);
 /// not itself acknowledge acceptance or completion.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ServerReloading {
+    pub(crate) issuer: MasterIdentity,
     pub(crate) generation: u64,
     /// Zero broadcasts to all workers; non-zero targets one worker id.
     pub(crate) target_worker_id: u8,
@@ -26,29 +30,15 @@ pub(crate) struct ServerReloading {
 impl Event for ServerReloading {}
 
 impl FleetEventCodec for ServerReloading {
-    const TOPIC: &'static str = "claviron.supervisor.server.reloading.v1";
+    const TOPIC: &'static str = "claviron.supervisor.server.reloading.v2";
 
     fn encode_orbit(&self) -> Vec<u8> {
-        let mut payload = Vec::with_capacity(SERVER_RELOADING_BYTES);
-        payload.extend_from_slice(&self.generation.to_be_bytes());
-        payload.push(self.target_worker_id);
-        payload
+        encode_reload(self.issuer, self.generation, self.target_worker_id)
     }
 
     fn decode_orbit(bytes: &[u8]) -> Result<Self, String> {
-        if bytes.len() != SERVER_RELOADING_BYTES {
-            return Err(format!(
-                "invalid server reload payload length: expected {SERVER_RELOADING_BYTES}, got {}",
-                bytes.len()
-            ));
-        }
-
-        let mut generation = [0; size_of::<u64>()];
-        generation.copy_from_slice(&bytes[..size_of::<u64>()]);
-        Ok(Self {
-            generation: u64::from_be_bytes(generation),
-            target_worker_id: bytes[size_of::<u64>()],
-        })
+        let (issuer, generation, target_worker_id) = decode_reload(bytes)?;
+        Ok(Self { issuer, generation, target_worker_id })
     }
 }
 
@@ -56,6 +46,7 @@ impl FleetEventCodec for ServerReloading {
 /// registry reload cycle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct WorkerReloaded {
+    pub(crate) issuer: MasterIdentity,
     pub(crate) generation: u64,
     pub(crate) worker_id: u8,
 }
@@ -63,30 +54,57 @@ pub(crate) struct WorkerReloaded {
 impl Event for WorkerReloaded {}
 
 impl FleetEventCodec for WorkerReloaded {
-    const TOPIC: &'static str = "claviron.supervisor.worker.reloaded.v1";
+    const TOPIC: &'static str = "claviron.supervisor.worker.reloaded.v2";
 
     fn encode_orbit(&self) -> Vec<u8> {
-        let mut payload = Vec::with_capacity(WORKER_RELOADED_BYTES);
-        payload.extend_from_slice(&self.generation.to_be_bytes());
-        payload.push(self.worker_id);
-        payload
+        encode_reload(self.issuer, self.generation, self.worker_id)
     }
 
     fn decode_orbit(bytes: &[u8]) -> Result<Self, String> {
-        if bytes.len() != WORKER_RELOADED_BYTES {
-            return Err(format!(
-                "invalid worker reload payload length: expected {WORKER_RELOADED_BYTES}, got {}",
-                bytes.len()
-            ));
-        }
-
-        let mut generation = [0; size_of::<u64>()];
-        generation.copy_from_slice(&bytes[..size_of::<u64>()]);
-        Ok(Self {
-            generation: u64::from_be_bytes(generation),
-            worker_id: bytes[size_of::<u64>()],
-        })
+        let (issuer, generation, worker_id) = decode_reload(bytes)?;
+        Ok(Self { issuer, generation, worker_id })
     }
+}
+
+fn encode_reload(
+    issuer: MasterIdentity,
+    generation: u64,
+    worker_id: u8,
+) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(RELOAD_EVENT_BYTES);
+    payload.extend_from_slice(&issuer.process().pid().to_be_bytes());
+    payload.extend_from_slice(&issuer.process().started_at().to_be_bytes());
+    payload.extend_from_slice(&issuer.generation().to_be_bytes());
+    payload.extend_from_slice(&generation.to_be_bytes());
+    payload.push(worker_id);
+    payload
+}
+
+fn decode_reload(bytes: &[u8]) -> Result<(MasterIdentity, u64, u8), String> {
+    if bytes.len() != RELOAD_EVENT_BYTES {
+        return Err(format!(
+            "invalid reload payload length: expected {RELOAD_EVENT_BYTES}, got {}",
+            bytes.len()
+        ));
+    }
+    let pid = u32::from_be_bytes(bytes[..4].try_into().expect("4 bytes"));
+    let started_at =
+        u64::from_be_bytes(bytes[4..12].try_into().expect("8 bytes"));
+    let master_generation =
+        u64::from_be_bytes(bytes[12..20].try_into().expect("8 bytes"));
+    let generation =
+        u64::from_be_bytes(bytes[20..28].try_into().expect("8 bytes"));
+    if pid == 0 || master_generation == 0 || generation == 0 {
+        return Err("reload requires a non-zero issuer PID, master generation and request generation".into());
+    }
+    Ok((
+        MasterIdentity::new(
+            ProcessIdentity::new(pid, started_at),
+            master_generation,
+        ),
+        generation,
+        bytes[28],
+    ))
 }
 
 #[derive(Debug)]
@@ -152,6 +170,12 @@ async fn reload_workers_with_target(
         return Ok(outcome(Vec::new(), Vec::new(), unavailable_worker_ids));
     }
 
+    let issuer = state
+        .registry_ref()
+        .resolve::<WorkerControl>()
+        .ok_or_else(|| "worker control was not registered".to_owned())?
+        .master()
+        .map_err(|error| error.to_string())?;
     let generation = NEXT_RELOAD_GENERATION.fetch_add(1, Ordering::Relaxed);
     let observer = state
         .registry_ref()
@@ -159,10 +183,11 @@ async fn reload_workers_with_target(
         .ok_or_else(|| {
             "worker reload observer was not registered".to_owned()
         })?;
-    let acknowledgements = observer.begin(generation);
+    let acknowledgements = observer.begin(issuer, generation);
 
     // Zero on the wire is the whole-fleet broadcast, not a worker id.
     state.events().emit(ServerReloading {
+        issuer,
         generation,
         target_worker_id: target.map_or(0, WorkerId::raw),
     });

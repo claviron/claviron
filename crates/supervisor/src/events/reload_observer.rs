@@ -6,6 +6,7 @@ use claviron_runtime::WorkerId;
 use tokio::sync::Notify;
 
 use super::reload::WorkerReloaded;
+use crate::MasterIdentity;
 
 /// Master-local, non-Runnable acknowledgement router installed by the registry.
 ///
@@ -19,8 +20,8 @@ pub(crate) struct ReloadObserver {
 /// Request-owned evidence of which workers acknowledged one reload generation.
 /// Wakes its waiter when evidence changes; it neither executes reloads nor
 /// decides the request's expected worker set or timeout.
-#[derive(Default)]
 pub(crate) struct ReloadObservation {
+    issuer: MasterIdentity,
     received: Mutex<BTreeSet<WorkerId>>,
     pub(crate) changed: Notify,
 }
@@ -32,9 +33,14 @@ impl ReloadObservation {
 impl ReloadObserver {
     pub(crate) fn begin(
         &self,
+        issuer: MasterIdentity,
         generation: u64,
     ) -> Arc<ReloadObservation> {
-        let observation = Arc::new(ReloadObservation::default());
+        let observation = Arc::new(ReloadObservation {
+            issuer,
+            received: Mutex::default(),
+            changed: Notify::new(),
+        });
         let mut requests =
             self.requests.lock().unwrap_or_else(|e| e.into_inner());
         requests.retain(|_, request| request.strong_count() != 0);
@@ -55,6 +61,9 @@ impl ReloadObserver {
             .get(&event.generation)
             .and_then(Weak::upgrade);
         if let Some(observation) = observation {
+            if event.issuer != observation.issuer {
+                return;
+            }
             observation
                 .received
                 .lock()

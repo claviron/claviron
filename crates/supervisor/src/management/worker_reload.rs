@@ -74,6 +74,9 @@ impl WorkerReloadRunner {
                     // errors above say why.
                     if completed {
                         state.events().emit(WorkerReloaded {
+                            // Adoption may have changed our owner during the
+                            // await. Echo the issuer captured by this request.
+                            issuer: request.issuer,
                             generation: request.generation,
                             worker_id: worker_id.raw()
                         });
