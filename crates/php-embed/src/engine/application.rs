@@ -10,7 +10,6 @@ use arc_swap::ArcSwap;
 use bytes::Bytes;
 use claviron_http::{RouteBody, RouteResponse, bytes_body};
 use http::{Method, Request, Response, StatusCode};
-use http_body_util::BodyExt;
 use tokio::sync::{Notify, Semaphore, mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
@@ -21,6 +20,7 @@ use crate::event::{
 use crate::{PhpApplication, SapiGatewayError};
 
 mod dispatch;
+mod request_body;
 use dispatch::{Control, Mailbox, Waiting};
 
 type Reply =
@@ -708,7 +708,7 @@ impl ApplicationWorkers {
                 "application admission is full or closed".into(),
             )
         })?;
-        let (mut parts, mut body) = req.into_parts();
+        let (mut parts, body) = req.into_parts();
         // What the route decides for this request — the wait for an instance
         // and the reply's ceiling — carried from the adapter; running limits
         // are this application's own.
@@ -733,75 +733,29 @@ impl ApplicationWorkers {
         )
         .map_err(|e| SapiGatewayError::BadRequest(e.to_string()))?;
         let head = parts.method == Method::HEAD;
-        // Validate the effective route override in the existing input path;
-        // the transport already owns its body guard. None is explicit off.
-        if claviron_http::body::declared_length_within(
-            &parts.headers,
-            policy.requests.max_body_size,
+        let bytes = match request_body::read(
+            &parts,
+            body,
+            &policy.requests,
+            &self.stopping,
         )
-        .is_err()
+        .await
         {
-            let mut response = Response::new(claviron_http::empty_body());
-            *response.status_mut() = StatusCode::PAYLOAD_TOO_LARGE;
-            return Ok(response);
-        }
-        let mut buffered = bytes::BytesMut::new();
-        loop {
-            let frame = tokio::select! {
-                biased;
-                _ = self.stopping.cancelled() => return Err(SapiGatewayError::ServiceUnavailable("application is stopped".into())),
-                frame = body.frame() => frame,
-            };
-            let Some(frame) = frame else {
-                break;
-            };
-            let frame = match frame {
-                Ok(frame) => frame,
-                Err(error)
-                    if matches!(
-                        error.downcast_ref::<claviron_http::body::BodyLimit>(),
-                        Some(claviron_http::body::BodyLimit::TooLarge { .. })
-                    ) =>
-                {
-                    let mut response =
-                        Response::new(claviron_http::empty_body());
-                    *response.status_mut() = StatusCode::PAYLOAD_TOO_LARGE;
-                    return Ok(response);
-                }
-                Err(error) => {
-                    return Err(SapiGatewayError::BadRequest(format!(
-                        "application body rejected: {error}"
-                    )));
-                }
-            };
-            if let Ok(data) = frame.into_data() {
-                if let Some(limit) = policy.requests.max_body_size
-                    && buffered.len().saturating_add(data.len()) > limit
-                {
-                    let mut response =
-                        Response::new(claviron_http::empty_body());
-                    *response.status_mut() = StatusCode::PAYLOAD_TOO_LARGE;
-                    return Ok(response);
-                }
-                buffered.extend_from_slice(&data);
-            } else {
-                return Err(SapiGatewayError::BadRequest(
-                    "application request trailers are not supported".into(),
+            Ok(bytes) => bytes,
+            Err(request_body::Rejection::TooLarge) => {
+                let mut response = Response::new(claviron_http::empty_body());
+                *response.status_mut() = StatusCode::PAYLOAD_TOO_LARGE;
+                return Ok(response);
+            }
+            Err(request_body::Rejection::Stopped) => {
+                return Err(SapiGatewayError::ServiceUnavailable(
+                    "application is stopped".into(),
                 ));
             }
-        }
-        let bytes = buffered.freeze();
-        if parts
-            .headers
-            .get(http::header::CONTENT_LENGTH)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.trim().parse::<u64>().ok())
-            .is_some_and(|declared| declared != bytes.len() as u64)
-        {
-            return Err(SapiGatewayError::BadRequest(
-                "application body length differs from Content-Length".into(),
-            ));
-        }
+            Err(request_body::Rejection::BadRequest(error)) => {
+                return Err(SapiGatewayError::BadRequest(error));
+            }
+        };
         claviron_http::forwarding::strip_hop_by_hop_headers(&mut parts.headers);
         let request = Request::from_parts(parts, bytes);
         let (reply, result) = oneshot::channel();

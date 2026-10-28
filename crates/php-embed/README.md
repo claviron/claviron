@@ -147,6 +147,12 @@ hold weak senders, so old snapshots cannot keep a stopped receive loop alive.
 Growth demand wakes lifecycle maintenance, which owns thread creation and joins.
 Drain retains accepted mailbox work and PHP cleanup until the owned threads exit.
 
+Empty GET/HEAD requests skip body collection when the transport reports
+end-of-stream. Requests with a body retain the existing limit checks and byte
+preservation, including GET/HEAD bodies. Incoming body and header values copy
+directly into PHP-owned binary strings without an intermediate Rust vector;
+PHP does not borrow the Rust message's storage.
+
 ## Native capabilities and environment
 
 The PostgreSQL bridge lets a native host function borrow the PHP request's

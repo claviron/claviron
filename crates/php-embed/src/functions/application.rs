@@ -7,7 +7,7 @@ use ext_php_rs::args::Arg;
 use ext_php_rs::builders::FunctionBuilder;
 use ext_php_rs::exception::PhpException;
 use ext_php_rs::flags::DataType;
-use ext_php_rs::types::{ZendHashTable, Zval};
+use ext_php_rs::types::{ZendHashTable, ZendStr, Zval};
 use ext_php_rs::zend::{ExecuteData, SapiGlobals};
 use http::{HeaderName, HeaderValue, Request, Response, StatusCode};
 
@@ -319,7 +319,7 @@ extern "C" fn end(
 
 fn binary(bytes: &[u8]) -> Zval {
     let mut value = Zval::new();
-    value.set_binary(bytes.to_vec());
+    value.set_zend_string(ZendStr::new(bytes, false));
     value
 }
 
