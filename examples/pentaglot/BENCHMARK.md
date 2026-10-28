@@ -352,3 +352,85 @@ with no survivors.
 The [new JSON report](public/assets/benchmark-deno-multiplexed-four.json) retains
 all process samples, source fingerprints and the link to the unchanged
 [one-isolate baseline](public/assets/benchmark-deno-multiplexed.json).
+
+
+## Framework-free persistent PHP comparison
+
+Measured at `2026-10-28T18:49:11.153021+00:00`. The new `apps/php/plain.php` uses the existing
+persistent application runner and its native receive/respond protocol. It loads
+no Composer autoloader or Symfony kernel. Each PHP instance retains its request
+counter across messages; Claviron owns HTTP ingress and application drain.
+The default example configuration continues to select Symfony. The isolated
+configuration selects the plain entry for the same `pentaglot-php` application
+and `/php` route, and removes the Symfony framework metadata.
+
+This run reuses the original release/native binary
+`979daa43a57124f383e9770adeb834dc9a758493b649555576b8b9560134282b`. No Rust rebuild, dependency update or version change
+was made. The preserved Symfony baseline uses FrameworkBundle, HttpKernel and
+HttpFoundation **8.1.9**; its Composer lock hash is unchanged. `^8.0` in the
+manifest permits that version.
+
+Both cases use a fresh master and 16 workers, 16 SO_REUSEPORT listeners,
+128 persistent connections, eight generator threads and five minutes of GET
+load. PHP starts with eight warm contexts per worker; max idle is eight,
+max size is 64 and admission is 128. Lua concurrency remains one, Deno remains
+eight isolates per worker, and Python remains one ASGI loop. Tokio uses its
+default multithreaded runtime. Warmup remains 65,536 untimed requests over
+128 connections, reaching all 16 workers. Logging and mimalloc policy are
+unchanged: warn, access log off, immediate unused-page purge with decommit.
+
+The same `engine.warmup: [apps/php]` compiles application, vendor and generated
+cache bytecode into OPcache, including the new plain entry. All 16 OPcaches
+finish before load; timestamp checks remain disabled and Xdebug is absent.
+Vendor bytecode remains present in the plain case, although the handler does
+not load the framework. This controls the warmup policy rather than measuring
+the minimum memory of a standalone framework-free installation.
+
+| Metric | Symfony 8.1.9 | Plain PHP | Observed change |
+| --- | ---: | ---: | ---: |
+| Completed responses | 8,932,528 | 40,869,614 |  |
+| Load duration (s) | 300.069803 | 300.061034 |  |
+| Successful req/s | 29,768.17 | 136,204.34 | +357.55% |
+| Server CPU time (s) | 9,000.04 | 6,575.63 |  |
+| CPU µs/request | 1007.5580 | 160.8929 | -84.03% |
+| p99 (ms) | 13.659 | 10.039 | -26.50% |
+| RSS before load (MiB) | 2,964.58 | 2,768.17 | -6.63% |
+| RSS end of load (MiB) | 3,111.38 | 2,883.72 | -7.32% |
+| RSS +120s (MiB) | 3,056.35 | 2,878.48 | -5.82% |
+| Released by +120s (MiB) | 55.03 | 5.23 |  |
+| Errors (all counters) | 0 | 0 |  |
+
+| Idle offset (s) | Symfony RSS (MiB) | Plain PHP RSS (MiB) |
+| ---: | ---: | ---: |
+| 0 | 3,111.38 | 2,883.72 |
+| 10 | 3,111.38 | 2,883.72 |
+| 30 | 3,111.38 | 2,883.72 |
+| 60 | 3,106.62 | 2,883.52 |
+| 120 | 3,056.35 | 2,878.48 |
+
+Plain PHP used 84.03% less aggregate CPU per
+completed request, with 4.58 times the throughput in this observation.
+Post-idle RSS was 177.87 MiB lower.
+RSS sums the master and all 16 workers, includes every embedded runtime and
+counts shared pages per process. CPU includes those processes' background work.
+The JSON keys are the same; the engine label identifies the selected handler.
+
+The pool policy is identical, but demand-driven growth differs: the Symfony
+log records 174 cumulative instance starts, versus 150 for plain PHP.
+These include the initial 128; they are not simultaneous instance counts.
+No runtime replacement or failure was logged. These single runs on a shared
+host show the cost difference between the two application paths; they do not
+isolate a particular Symfony component, establish an unavoidable framework
+cost, or prove that the embed bridge has no optimization opportunities.
+
+The new handler passed GET/query-path, UTF-8 POST, 404/405 and persistent-state
+checks before load. Process identities remained stable through load and all
+idle samples. Private Linux mount/network/IPC/PID namespaces, read-only source
+mounts and a separate writable PHP cache kept the run isolated. No GC or
+explicit purge was triggered. After +120 seconds, the owned master and every
+worker exited gracefully with no survivors.
+
+The [plain PHP JSON report](public/assets/benchmark-php-plain.json) records all
+samples, configuration fingerprints and the unchanged
+[Symfony baseline](public/assets/benchmark.json). Earlier measurements were
+preserved; the Symfony and other language benchmarks were not rerun.

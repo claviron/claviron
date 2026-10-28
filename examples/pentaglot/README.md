@@ -72,6 +72,16 @@ background warmup is separate from Symfony's generated production cache;
 wait for its completion log before benchmarking. Restart after changing PHP
 source because timestamp validation is disabled.
 
+For the framework-free PHP variant, change `script_path` in `config/php.yaml`
+to `apps/php/plain.php` and remove `frameworks: [Symfony]`. Keep the same pool
+and `/php` route. This selects one entry script for the existing application;
+it does not start another pool or a separate PHP server. The script loads no
+Composer autoloader or Symfony kernel. It boots once per PHP instance, receives
+request messages with `claviron_application_receive()`, and returns buffered
+JSON with `claviron_application_respond()`. Claviron owns HTTP ingress and
+drain; the receive loop ends when its application stops. The default entry
+remains Symfony.
+
 All configuration paths follow the process working directory, which the
 launcher sets to this example. Rust, Lua, Deno and PHP use their existing
 public composition APIs. The example's ASGI provider owns startup and final
@@ -109,13 +119,17 @@ of load, followed by 120 seconds idle with the server still running.
 | Lua | 108,810 | 198.69 | 5.072 | 2,936.6 → 3,014.9 → 3,014.9 | 0 |
 | Deno | 95,398 | 236.77 | 8.110 | 2,464.0 → 3,326.5 → 3,307.9 | 0 |
 | PHP / Symfony | 29,768 | 1007.56 | 13.659 | 2,964.6 → 3,111.4 → 3,056.4 | 0 |
+| PHP / plain | 136,204 | 160.89 | 10.039 | 2,768.2 → 2,883.7 → 2,878.5 | 0 |
 | Python / Gufi-ASGI | 123,932 | 194.95 | 6.694 | 2,936.7 → 3,015.9 → 3,018.0 | 0 |
 
 CPU is aggregate master/worker CPU time per completed request. RSS sums those
 17 processes with all five runtimes loaded; shared pages count per process.
 The Deno row uses the updated bridge with one isolate per worker. Other rows
 retain the original binary and eight Deno isolates per worker. PHP starts with
-eight warm instances throughout. The [original measurements](public/assets/benchmark.json)
+eight warm instances throughout. Plain PHP reuses the original binary and pool
+with a framework-free entry; the Symfony result uses 8.1.9. The
+[original measurements](public/assets/benchmark.json),
+[plain PHP comparison](public/assets/benchmark-php-plain.json),
 and [updated Deno report](public/assets/benchmark-deno-multiplexed.json) include
 settings, source revisions, CPU totals and idle RSS samples. See
 [BENCHMARK.md](BENCHMARK.md) for the full history.
