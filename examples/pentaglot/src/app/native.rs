@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -10,7 +11,17 @@ use claviron::axum::routing::{any, get};
 use claviron::edge::{Host, HostConfig, Routable, RouteLayerContext};
 use claviron::runtime::{AppState, Component, registry};
 use http_body_util::BodyExt;
-use serde_json::json;
+use serde::Serialize;
+
+#[derive(Serialize)]
+struct Answer<'a> {
+    runtime: &'static str,
+    engine: &'static str,
+    method: &'a str,
+    path: &'a str,
+    body: Cow<'a, str>,
+    requests: u64,
+}
 
 #[derive(Default)]
 pub struct Native {
@@ -91,10 +102,14 @@ impl Native {
             Ok(body) => body.to_bytes(),
             Err(_) => return StatusCode::BAD_REQUEST.into_response(),
         };
-        claviron::axum::Json(json!({
-            "runtime": "rust", "engine": "native", "method": parts.method.as_str(),
-            "path": parts.uri.path(), "body": String::from_utf8_lossy(&body),
-            "requests": self.requests.fetch_add(1, Ordering::Relaxed) + 1,
-        })).into_response()
+        claviron::axum::Json(Answer {
+            runtime: "rust",
+            engine: "native",
+            method: parts.method.as_str(),
+            path: parts.uri.path(),
+            body: String::from_utf8_lossy(&body),
+            requests: self.requests.fetch_add(1, Ordering::Relaxed) + 1,
+        })
+        .into_response()
     }
 }

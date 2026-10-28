@@ -1,0 +1,233 @@
+{
+  "measured_at": "2026-10-28T03:53:31.340078+00:00",
+  "hardware": "Apple M3 Max, 16 CPU cores, 128 GiB RAM; macOS 27.2 ARM64",
+  "architecture": "arm64",
+  "source_revision": "68e0e8da950965664d2037e2d1bd463c1a4abd56",
+  "binary_sha256": "6b384972f39a183f09ccc1cdadee254e7b2ee7e51ad8302d5cd5a2b1f2c2af76",
+  "build": "release, target-cpu=native",
+  "source_modified": true,
+  "notes": "Production/native; Rust typed Serde JSON; Lua one VM, concurrency 1; Deno 8 isolates; PHP 8 warm instances, adaptive ceiling 64, queue 64; Symfony prod/debug=false, authoritative classmap, warmed container/router and OPcache; opcache.validate_timestamps=0; Xdebug absent; Python one async ASGI loop with compact JSON. Unprofiled; all five runtimes loaded.",
+  "transport": "HTTP/1.1, loopback, persistent connections",
+  "mode": "standalone",
+  "serving_processes": 1,
+  "resource_processes": 1,
+  "connections": 64,
+  "generator_threads": 4,
+  "requested_duration": "1m",
+  "generator": "wrk 4.2.0 [kqueue] Copyright (C) 2012 Will Glozer",
+  "method": "GET JSON; sequential cases; all five runtimes remain loaded",
+  "measured_runtimes": [
+    "rust",
+    "lua",
+    "deno",
+    "php",
+    "python"
+  ],
+  "preflight": "one untimed GET per runtime before measurement",
+  "access_logging": false,
+  "memory_metric": "RSS before/after each case; all five runtimes included; worker mode sums master and workers and counts shared pages per process",
+  "cpu_metric": "Cumulative process CPU-time delta divided by wall time; 100 percent equals one fully used CPU core",
+  "results": [
+    {
+      "runtime": "rust",
+      "path": "/rust",
+      "requests_per_second": 175356.56,
+      "successful_requests": 10538925,
+      "completed_requests": 10538925,
+      "duration_seconds": 60.099977,
+      "p99_ms": 0.448,
+      "rss_before_bytes": 234553344,
+      "rss_after_bytes": 237961216,
+      "rss_delta_bytes": 3407872,
+      "cpu_before_seconds": 0.69,
+      "cpu_after_seconds": 381.61,
+      "cpu_used_seconds": 380.92,
+      "cpu_percent": 633.7,
+      "resource_window_seconds": 60.110076,
+      "process_usage_before": [
+        {
+          "pid": 49720,
+          "rss_bytes": 234553344,
+          "cpu_seconds": 0.69,
+          "role": "standalone"
+        }
+      ],
+      "process_usage_after": [
+        {
+          "pid": 49720,
+          "rss_bytes": 237961216,
+          "cpu_seconds": 381.61,
+          "role": "standalone"
+        }
+      ],
+      "errors": {
+        "connect": 0,
+        "read": 0,
+        "write": 0,
+        "status": 0,
+        "timeout": 0
+      }
+    },
+    {
+      "runtime": "lua",
+      "path": "/lua",
+      "requests_per_second": 45583.3,
+      "successful_requests": 2739545,
+      "completed_requests": 2739545,
+      "duration_seconds": 60.099753,
+      "p99_ms": 1.807,
+      "rss_before_bytes": 237961216,
+      "rss_after_bytes": 239845376,
+      "rss_delta_bytes": 1884160,
+      "cpu_before_seconds": 381.61,
+      "cpu_after_seconds": 486.23,
+      "cpu_used_seconds": 104.62,
+      "cpu_percent": 174.05,
+      "resource_window_seconds": 60.110163,
+      "process_usage_before": [
+        {
+          "pid": 49720,
+          "rss_bytes": 237961216,
+          "cpu_seconds": 381.61,
+          "role": "standalone"
+        }
+      ],
+      "process_usage_after": [
+        {
+          "pid": 49720,
+          "rss_bytes": 239845376,
+          "cpu_seconds": 486.23,
+          "role": "standalone"
+        }
+      ],
+      "errors": {
+        "connect": 0,
+        "read": 0,
+        "write": 0,
+        "status": 0,
+        "timeout": 0
+      }
+    },
+    {
+      "runtime": "deno",
+      "path": "/deno",
+      "requests_per_second": 144953.42,
+      "successful_requests": 8698153,
+      "completed_requests": 8698153,
+      "duration_seconds": 60.006537,
+      "p99_ms": 2.244,
+      "rss_before_bytes": 239845376,
+      "rss_after_bytes": 791003136,
+      "rss_delta_bytes": 551157760,
+      "cpu_before_seconds": 486.23,
+      "cpu_after_seconds": 1161.77,
+      "cpu_used_seconds": 675.54,
+      "cpu_percent": 1125.59,
+      "resource_window_seconds": 60.016444,
+      "process_usage_before": [
+        {
+          "pid": 49720,
+          "rss_bytes": 239845376,
+          "cpu_seconds": 486.23,
+          "role": "standalone"
+        }
+      ],
+      "process_usage_after": [
+        {
+          "pid": 49720,
+          "rss_bytes": 791003136,
+          "cpu_seconds": 1161.77,
+          "role": "standalone"
+        }
+      ],
+      "errors": {
+        "connect": 0,
+        "read": 0,
+        "write": 0,
+        "status": 0,
+        "timeout": 1
+      }
+    },
+    {
+      "runtime": "php",
+      "path": "/php",
+      "requests_per_second": 106850.53,
+      "successful_requests": 6419027,
+      "completed_requests": 6419027,
+      "duration_seconds": 60.074827,
+      "p99_ms": 5.699,
+      "rss_before_bytes": 791003136,
+      "rss_after_bytes": 823902208,
+      "rss_delta_bytes": 32899072,
+      "cpu_before_seconds": 1161.77,
+      "cpu_after_seconds": 1909.33,
+      "cpu_used_seconds": 747.56,
+      "cpu_percent": 1244.11,
+      "resource_window_seconds": 60.08787,
+      "process_usage_before": [
+        {
+          "pid": 49720,
+          "rss_bytes": 791003136,
+          "cpu_seconds": 1161.77,
+          "role": "standalone"
+        }
+      ],
+      "process_usage_after": [
+        {
+          "pid": 49720,
+          "rss_bytes": 823902208,
+          "cpu_seconds": 1909.33,
+          "role": "standalone"
+        }
+      ],
+      "errors": {
+        "connect": 0,
+        "read": 0,
+        "write": 0,
+        "status": 0,
+        "timeout": 0
+      }
+    },
+    {
+      "runtime": "python",
+      "path": "/python",
+      "requests_per_second": 98318.22,
+      "successful_requests": 5908900,
+      "completed_requests": 5908900,
+      "duration_seconds": 60.099743,
+      "p99_ms": 0.757,
+      "rss_before_bytes": 823902208,
+      "rss_after_bytes": 795049984,
+      "rss_delta_bytes": -28852224,
+      "cpu_before_seconds": 1909.33,
+      "cpu_after_seconds": 2176.04,
+      "cpu_used_seconds": 266.71,
+      "cpu_percent": 443.7,
+      "resource_window_seconds": 60.110987,
+      "process_usage_before": [
+        {
+          "pid": 49720,
+          "rss_bytes": 823902208,
+          "cpu_seconds": 1909.33,
+          "role": "standalone"
+        }
+      ],
+      "process_usage_after": [
+        {
+          "pid": 49720,
+          "rss_bytes": 795049984,
+          "cpu_seconds": 2176.04,
+          "role": "standalone"
+        }
+      ],
+      "errors": {
+        "connect": 0,
+        "read": 0,
+        "write": 0,
+        "status": 0,
+        "timeout": 0
+      }
+    }
+  ],
+  "complete": false
+}

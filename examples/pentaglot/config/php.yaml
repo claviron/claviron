@@ -1,11 +1,14 @@
 # Only the named persistent application needs PHP capacity.
+engine:
+  ini_scan_dir: config/php.d
+  warmup: [apps/php]
 sapi: null
 applications:
   pentaglot-php:
     script_path: apps/php/app.php
     frameworks: [Symfony]
     pool:
-      min_idle: 1
-      max_idle: 1
-      max_size: 1
+      min_idle: 8
+      max_idle: 8
+      max_size: 64
       max_waiting: 64

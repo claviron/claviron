@@ -16,8 +16,10 @@ struct Args {
     fleet: FleetName,
     #[arg(long, default_value_t = 0)]
     workers: u8,
-    #[arg(long, default_value = "local")]
-    environment: String,
+    #[arg(long, conflicts_with = "production")]
+    environment: Option<String>,
+    #[arg(long)]
+    production: bool,
     #[arg(long)]
     check_config: bool,
 }
@@ -26,12 +28,16 @@ struct Args {
 async fn main() -> claviron::Result<()> {
     let args = Args::parse();
     let check = args.check_config;
-    let options = ServerOptions::new()
+    let mut options = ServerOptions::new()
         .config_dir(args.config)
         .name(args.name)
         .fleet_name(args.fleet)
-        .workers(args.workers)
-        .environment(args.environment);
+        .workers(args.workers);
+    if args.production {
+        options = options.production();
+    } else if let Some(environment) = args.environment {
+        options = options.environment(environment);
+    }
     let server = Server::with_options(options).register(app::register);
     if check { server.check_config().await } else { server.serve().await }
 }

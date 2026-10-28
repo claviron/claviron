@@ -7,14 +7,13 @@ publish = false
 [workspace]
 
 [dependencies]
-claviron = { path = "../..", default-features = false, features = ["edge", "lua", "php_embed", "logging"] }
-claviron-deno = { path = "../../../deno", default-features = false, features = ["edge", "fetch"] }
-gufi-asgi = { path = "../../../gufi/crates/asgi", default-features = false }
+claviron = { version = "0.2.0-alpha.23", default-features = false, features = ["edge", "lua", "php_embed", "logging"] }
+claviron-deno = { version = "0.2.0-alpha.23", default-features = false, features = ["edge", "fetch"] }
+gufi-asgi = { version = "0.2.0-alpha.24", default-features = false }
 async-trait = "0.1"
 clap = { version = "4", features = ["derive"] }
 http-body-util = "0.1"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1"
 

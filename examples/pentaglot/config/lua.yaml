@@ -1,5 +1,6 @@
 applications:
   pentaglot-lua:
     module: apps/lua/app.lua
-    concurrency: 8
+    # This handler computes JSON; it does not wait for external I/O.
+    concurrency: 1
     max_waiting: 64

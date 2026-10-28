@@ -40,7 +40,7 @@ async def app(scope, receive, send):
         response = json.dumps({
             "runtime": "python", "engine": "Gufi-ASGI", "method": scope["method"],
             "path": path, "body": body.decode(), "requests": requests,
-        }).encode()
+        }, separators=(",", ":")).encode()
         await send({"type": "http.response.start", "status": status,
                     "headers": [(b"content-type", b"application/json")]})
         await send({"type": "http.response.body", "body": response})

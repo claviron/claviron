@@ -24,6 +24,15 @@
   button { cursor: pointer; padding: .5rem .8rem; margin-right: .4rem; }
   pre { font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 8rem; }
   a { color: light-dark(#0369a1, #7dd3fc); }
+  .benchmark { margin-top: 3rem; padding-top: 1.5rem; border-top: 1px solid light-dark(#dce3ed, #334155); }
+  .benchmark h2 { margin-bottom: .25rem; }
+  .benchmark p { font-size: .9rem; }
+  .table-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; white-space: nowrap; }
+  th, td { padding: .7rem .6rem; border-bottom: 1px solid light-dark(#e2e8f0, #273548); text-align: right; }
+  th:first-child, td:first-child { text-align: left; }
+  td { font-variant-numeric: tabular-nums; }
+  .benchmark-meta { color: light-dark(#64748b, #94a3b8); }
 </style>
 <header>
   <img class="brand" src="/assets/pentaglot.svg" width="112" height="112" alt="Pentaglot: five connected rings">
@@ -33,6 +42,30 @@
   inside the serving process; each application owns a separate URL prefix.</p>
 <p><button id="all">Run all five</button> <a href="/python/events">Python event stream</a></p>
 <main></main>
+<section class="benchmark" aria-labelledby="benchmark-title">
+  <h2 id="benchmark-title">Five languages under load</h2>
+  <p>Recorded JSON throughput from a release-built Edge, with all five runtimes loaded.
+    Each path is measured separately over HTTP/1.1 keep-alive.</p>
+  <p id="benchmark-summary" class="benchmark-meta">Loading recorded results…</p>
+  <div class="table-scroll">
+    <table id="benchmark-table" hidden>
+      <thead><tr><th scope="col">Application</th><th scope="col">Successful req/s</th>
+        <th scope="col">Concurrency</th><th scope="col">p99</th>
+        <th scope="col">CPU avg</th><th scope="col">RSS before</th><th scope="col">RSS after</th><th scope="col">Errors</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  <p id="benchmark-hardware" class="benchmark-meta"></p>
+  <p id="benchmark-notes" class="benchmark-meta"></p>
+  <p class="benchmark-meta">Runtime settings for each measurement are recorded above.
+    Lua coroutine concurrency, Deno isolates, PHP instances and ASGI event loops are different execution models.
+    RSS and CPU cover all measured Edge processes with all five runtimes loaded.
+    CPU is the CPU-time delta over the measurement window; 100% equals one core.
+    Worker-mode RSS is a sum and counts shared pages per process.</p>
+  <p>These are measurements of the supplied handlers and runtime capacities, including a minimal
+    Symfony application. They are not a like-for-like language or framework ranking.
+    <a href="/assets/benchmark.json">Measurement data</a></p>
+</section>
 <script type="module">
   const runtimes = [
     { id: "rust", name: "Rust", image: "rust.png", engine: "Native" },
@@ -84,5 +117,47 @@
   }
   document.querySelector("#all").onclick = () =>
     Promise.all([...document.querySelectorAll("article")].map(article => run(article)));
+
+  async function loadBenchmark() {
+    const summary = document.querySelector("#benchmark-summary");
+    try {
+      const response = await fetch("/assets/benchmark.json", { cache: "no-store" });
+      if (!response.ok) throw new Error("No recorded benchmark");
+      const report = await response.json();
+      const format = new Intl.NumberFormat("en", { maximumFractionDigits: 0 });
+      const memory = bytes => typeof bytes === "number" ? `${(bytes / 2**20).toFixed(1)} MiB` : "—";
+      const table = document.querySelector("#benchmark-table");
+      for (const result of report.results) {
+        const runtime = runtimes.find(item => item.id === result.runtime);
+        const row = document.createElement("tr");
+        const title = document.createElement("td");
+        title.textContent = `${runtime?.name ?? result.runtime} · ${runtime?.engine ?? result.path}`;
+        row.append(title);
+        const values = result.error
+          ? ["Incomplete", report.connections, "—", "—", memory(result.rss_before_bytes),
+             memory(result.rss_after_bytes), "See raw results"]
+          : [format.format(result.requests_per_second), report.connections,
+             `${result.p99_ms.toFixed(2)} ms`, typeof result.cpu_percent === "number" ? `${result.cpu_percent.toFixed(1)}%` : "—",
+             memory(result.rss_before_bytes),
+             memory(result.rss_after_bytes), Object.values(result.errors).reduce((sum, n) => sum + n, 0)];
+        for (const value of values) {
+          const cell = document.createElement("td"); cell.textContent = String(value); row.append(cell);
+        }
+        table.querySelector("tbody").append(row);
+      }
+      summary.textContent = `${report.connections} concurrent connections · ${report.generator_threads} generator threads · ` +
+        `${report.requested_duration} per path · ${report.serving_processes} serving ` +
+        `${report.serving_processes === 1 ? "process" : "processes"} · ${report.build} · ` +
+        `${report.complete ? "complete" : "includes errors or incomplete cases"}`;
+      document.querySelector("#benchmark-hardware").textContent = `${report.hardware} · ` +
+        `${report.measured_at.slice(0, 10)} · source ${report.source_revision.slice(0, 7)}` +
+        (report.source_modified ? " + local changes" : "");
+      document.querySelector("#benchmark-notes").textContent = report.notes ?? "";
+      table.hidden = false;
+    } catch {
+      summary.textContent = "No recorded results are available. Run scripts/benchmark.py to create them.";
+    }
+  }
+  loadBenchmark();
 </script>
 </html>
