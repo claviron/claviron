@@ -323,8 +323,23 @@ fn request_value(request: &Request<Bytes>) -> Result<Zval, String> {
     let result = (|| -> ext_php_rs::error::Result<Zval> {
         let mut value = ZendHashTable::new();
         value.insert("method", request.method().as_str())?;
-        value.insert("uri", request.uri().to_string())?;
-        value.insert("protocol", format!("{:?}", request.version()))?;
+        let uri = request.uri();
+        if uri.scheme().is_none() && uri.authority().is_none() {
+            value.insert(
+                "uri",
+                uri.path_and_query().map_or("/", |value| value.as_str()),
+            )?;
+        } else {
+            value.insert("uri", uri.to_string())?;
+        }
+        match request.version() {
+            http::Version::HTTP_09 => value.insert("protocol", "HTTP/0.9")?,
+            http::Version::HTTP_10 => value.insert("protocol", "HTTP/1.0")?,
+            http::Version::HTTP_11 => value.insert("protocol", "HTTP/1.1")?,
+            http::Version::HTTP_2 => value.insert("protocol", "HTTP/2.0")?,
+            http::Version::HTTP_3 => value.insert("protocol", "HTTP/3.0")?,
+            other => value.insert("protocol", format!("{other:?}"))?,
+        };
         value.insert("body", binary(request.body()))?;
         let mut headers = ZendHashTable::new();
         for name in request.headers().keys() {

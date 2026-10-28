@@ -68,8 +68,9 @@ off. PHP scans the demo's `config/php.d` instead of the host CLI extension
 directory: OPcache is enabled with 256 MiB, 20,000 accelerated files,
 16 MiB for interned strings, `opcache.validate_timestamps=0`, and Xdebug is
 not loaded from that directory. The selected PHP build must provide OPcache
-as a built-in module or load it from its primary INI. The pool keeps eight
-persistent PHP instances warm and can grow to 64 under demand. `engine.warmup`
+as a built-in module or load it from its primary INI. The application starts eight
+persistent PHP instances. The count remains fixed under load; admission is
+bounded at 128 callers. `engine.warmup`
 compiles the application, vendor and generated cache
 files into the serving process's OPcache, excluding test directories. This
 background warmup is separate from Symfony's generated production cache;
@@ -77,9 +78,9 @@ wait for its completion log before benchmarking. Restart after changing PHP
 source because timestamp validation is disabled.
 
 For the framework-free PHP variant, change `script_path` in `config/php.yaml`
-to `apps/php/plain.php` and remove `frameworks: [Symfony]`. Keep the same pool
+to `apps/php/plain.php` and remove `frameworks: [Symfony]`. Keep the same instance count
 and `/php` route. This selects one entry script for the existing application;
-it does not start another pool or a separate PHP server. The script loads no
+it does not start additional instances or a separate PHP server. The script loads no
 Composer autoloader or Symfony kernel. It boots once per PHP instance, receives
 request messages with `claviron_application_receive()`, and returns buffered
 JSON with `claviron_application_respond()`. Claviron owns HTTP ingress and
@@ -111,6 +112,10 @@ not a library test or a performance benchmark. Stop the server with Ctrl-C or
 the launcher's `stop` command after clients have finished.
 
 ## Benchmark
+
+These archived Linux measurements used the earlier elastic PHP application
+model (eight initial instances, ceiling 64 per serving worker). They have not
+been rerun with the fixed-instance configuration above.
 
 Linux x86-64; two Xeon E5-2650 v2 CPUs, 16 physical cores / 32 logical CPUs,
 125 GiB RAM. Release/native with mimalloc release; Tokio default multi_thread.

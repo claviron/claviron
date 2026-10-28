@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, AtomicU64, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
 
 use tokio::sync::{Notify, mpsc};
 use tokio_util::sync::CancellationToken;
@@ -13,12 +12,12 @@ const READY: u8 = 1;
 const BUSY: u8 = 2;
 // Retirement permanently excludes this execution generation from selection.
 const RETIRING: u8 = 4;
+// Native execution has returned; lifecycle may begin its owned thread join.
+const EXITED: u8 = 8;
 
 pub(super) struct Control {
     availability: AtomicU8,
     pub served: AtomicU64,
-    epoch: Instant,
-    idle_since_ns: AtomicU64,
     pub wake: Arc<Notify>,
     pub maintenance: Arc<Notify>,
     pub cancel: CancellationToken,
@@ -32,8 +31,6 @@ impl Control {
         Self {
             availability: AtomicU8::new(0),
             served: AtomicU64::new(0),
-            epoch: Instant::now(),
-            idle_since_ns: AtomicU64::new(0),
             wake,
             maintenance,
             cancel: CancellationToken::new(),
@@ -48,17 +45,13 @@ impl Control {
         self.availability.load(Ordering::Acquire) & BUSY != 0
     }
 
-    pub fn starting_or_idle(&self) -> bool {
-        self.availability.load(Ordering::Acquire) & (BUSY | RETIRING) == 0
-    }
-
     pub fn publish_ready(&self) {
         if self
             .availability
             .compare_exchange(0, READY, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
         {
-            self.wake.notify_waiters();
+            self.wake.notify_one();
         }
     }
 
@@ -75,7 +68,8 @@ impl Control {
 
     pub fn release_claim(&self) {
         self.availability.fetch_and(!BUSY, Ordering::Release);
-        self.wake.notify_waiters();
+        // One released instance admits one caller; avoid waking the whole queue.
+        self.wake.notify_one();
     }
 
     pub fn complete(
@@ -85,37 +79,11 @@ impl Control {
         if served {
             self.served.fetch_add(1, Ordering::Relaxed);
         }
-        self.idle_since_ns.store(self.elapsed_ns(), Ordering::Release);
         self.release_claim();
     }
 
-    pub fn idle_for(&self) -> Duration {
-        Duration::from_nanos(
-            self.elapsed_ns()
-                .saturating_sub(self.idle_since_ns.load(Ordering::Acquire)),
-        )
-    }
-
-    fn elapsed_ns(&self) -> u64 {
-        self.epoch.elapsed().as_nanos().min(u128::from(u64::MAX)) as u64
-    }
-
-    /// Idle retirement and request admission have one atomic winner.
-    pub fn retire_idle(
-        &self,
-        minimum_idle: Option<Duration>,
-    ) -> bool {
-        if !self.claim() {
-            return false;
-        }
-        // A handler may have completed after maintenance read its idle age.
-        // Claim first, then validate the timestamp published by that completion.
-        if minimum_idle.is_some_and(|minimum| self.idle_for() < minimum) {
-            self.release_claim();
-            return false;
-        }
-        self.availability.store(RETIRING, Ordering::Release);
-        true
+    pub fn finished(&self) -> bool {
+        self.availability.load(Ordering::Acquire) & EXITED != 0
     }
 
     pub fn retire(&self) {
@@ -124,7 +92,7 @@ impl Control {
     }
 
     pub fn exited(&self) {
-        self.availability.store(RETIRING, Ordering::Release);
+        self.availability.store(RETIRING | EXITED, Ordering::Release);
         self.wake.notify_waiters();
         self.maintenance.notify_one();
     }
@@ -175,22 +143,6 @@ pub(super) fn send_available<T>(
     (0..mailboxes.len()).any(|offset| {
         mailboxes[(start + offset) % mailboxes.len()].try_send(value)
     })
-}
-
-/// Counts only dispatchers waiting for an instance, including cancelled callers.
-pub(super) struct Waiting<'a>(&'a AtomicUsize);
-
-impl<'a> Waiting<'a> {
-    pub fn enter(count: &'a AtomicUsize) -> Self {
-        count.fetch_add(1, Ordering::AcqRel);
-        Self(count)
-    }
-}
-
-impl Drop for Waiting<'_> {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::AcqRel);
-    }
 }
 
 #[cfg(test)]

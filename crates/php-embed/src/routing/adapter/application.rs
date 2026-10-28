@@ -7,15 +7,14 @@ use claviron_php::PhpRuntime;
 use claviron_runtime::{AppState, registry};
 use http::{Request, Response, StatusCode};
 
-use crate::PhpApplicationService;
 use crate::engine::context::RequestEnvironment;
+use crate::{PhpApplicationHandle, PhpApplicationService};
 
 /// Explicit application selection for custom Rust routing, independent of Axum.
 /// No filesystem script resolution or fleet forwarding happens on this path.
 #[derive(Clone)]
 pub struct PhpApplicationAdapter {
-    service: Arc<PhpApplicationService>,
-    application: String,
+    application: PhpApplicationHandle,
     environment: Option<RequestEnvironment>,
     /// The route's `requests:` / `responses:`, narrowing what the edge hands
     /// over. Empty for a caller routing on its own.
@@ -28,15 +27,15 @@ impl PhpApplicationAdapter {
         application: impl Into<String>,
     ) -> Self {
         Self {
-            service,
-            application: application.into(),
+            application: service
+                .application(Arc::<str>::from(application.into())),
             environment: None,
             route: HttpPolicyOverride::default(),
         }
     }
 
     /// Resolve the site's request values while preparing the route. This never
-    /// changes the application's boot environment, pool or management identity.
+    /// changes the application's boot environment, instances or management identity.
     /// Rebuilding the route rereads the files; no per-request I/O or watcher.
     pub fn environment(
         mut self,
@@ -79,7 +78,7 @@ impl PhpApplicationAdapter {
     ) -> Result<RouteResponse, Infallible> {
         let Some(policy) = request.extensions().get::<HttpPolicy>().copied()
         else {
-            tracing::error!(application = %self.application, "HttpPolicy is required for PHP application execution");
+            tracing::error!(application = %self.application.name(), "HttpPolicy is required for PHP application execution");
             let mut response = Response::new(empty_body());
             *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
             return Ok(response);
@@ -89,10 +88,10 @@ impl PhpApplicationAdapter {
         if let Some(environment) = &self.environment {
             request.extensions_mut().insert(environment.clone());
         }
-        Ok(match self.service.execute(&self.application, request).await {
+        Ok(match self.application.execute(request).await {
             Ok(response) => response,
             Err(error) => {
-                tracing::warn!(application = %self.application, %error, "PHP application request failed");
+                tracing::warn!(application = %self.application.name(), %error, "PHP application request failed");
                 let mut response = Response::new(empty_body());
                 *response.status_mut() = error.status_code();
                 if response.status() == StatusCode::SERVICE_UNAVAILABLE {

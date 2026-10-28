@@ -7,8 +7,5 @@ applications:
   pentaglot-php:
     script_path: apps/php/app.php
     frameworks: [Symfony]
-    pool:
-      min_idle: 8
-      max_idle: 8
-      max_size: 64
-      max_waiting: 128
+    instances: 8
+    max_waiting: 128

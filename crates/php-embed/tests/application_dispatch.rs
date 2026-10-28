@@ -1,7 +1,3 @@
-use std::future::Future;
-use std::sync::Barrier;
-use std::task::{Context, Poll, Waker};
-
 use super::*;
 
 fn control() -> Arc<Control> {
@@ -24,42 +20,10 @@ fn application_dispatch_keeps_context_owned_until_cleanup() {
         "dequeue does not finish PHP cleanup"
     );
     assert_eq!(second, Some(2));
-    assert!(
-        !control.retire_idle(None),
-        "maintenance cannot retire a busy context"
-    );
     control.complete(true);
     assert!(mailbox.try_send(&mut second));
     assert_eq!(receiver.try_recv().unwrap(), 2);
     assert_eq!(control.served.load(Ordering::Acquire), 1);
-}
-
-#[test]
-fn application_dispatch_and_idle_retirement_have_one_winner() {
-    let control = control();
-    control.publish_ready();
-    let barrier = Arc::new(Barrier::new(2));
-    let admission = {
-        let control = Arc::clone(&control);
-        let barrier = Arc::clone(&barrier);
-        std::thread::spawn(move || {
-            barrier.wait();
-            control.claim()
-        })
-    };
-    barrier.wait();
-    let retired = control.retire_idle(None);
-    let claimed = admission.join().unwrap();
-    assert_ne!(claimed, retired);
-    if claimed {
-        assert!(control.busy());
-        control.complete(false);
-        assert!(control.retire_idle(None));
-    }
-    control.retire();
-    control.publish_ready();
-    assert!(!control.ready(), "retirement cannot republish this generation");
-    assert!(!control.claim());
 }
 
 #[test]
@@ -127,21 +91,6 @@ fn application_dispatch_in_progress_publication_drains_after_stop() {
 }
 
 #[test]
-fn application_dispatch_retirement_rechecks_idle_age_after_claiming() {
-    let control = control();
-    control.publish_ready();
-    assert!(control.claim());
-    control.complete(true);
-    assert!(!control.retire_idle(Some(Duration::MAX)));
-    assert!(control.claim(), "an idle-age rejection releases the reservation");
-    control.complete(true);
-    assert!(
-        control.retire_idle(None),
-        "rotation can retire an idle context without an age threshold"
-    );
-}
-
-#[test]
 fn application_dispatch_closed_mailbox_restores_unsent_work() {
     let control = control();
     control.publish_ready();
@@ -152,22 +101,6 @@ fn application_dispatch_closed_mailbox_restores_unsent_work() {
     assert!(!mailbox.try_send(&mut request));
     assert_eq!(request, Some(9));
     assert!(!control.busy());
-}
-
-#[test]
-fn application_dispatch_cancelled_waiter_releases_growth_demand() {
-    let count = AtomicUsize::new(0);
-    let mut waiting = Box::pin(async {
-        let _waiting = Waiting::enter(&count);
-        std::future::pending::<()>().await;
-    });
-    assert!(matches!(
-        waiting.as_mut().poll(&mut Context::from_waker(Waker::noop())),
-        Poll::Pending
-    ));
-    assert_eq!(count.load(Ordering::Acquire), 1);
-    drop(waiting);
-    assert_eq!(count.load(Ordering::Acquire), 0);
 }
 
 #[test]

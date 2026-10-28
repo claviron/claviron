@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use axum::body::{Body, to_bytes};
 use claviron_php_embed::{
-    ApplicationPool, PhpApplication, PhpApplicationService, PhpEmbedRuntime,
+    PhpApplication, PhpApplicationService, PhpEmbedRuntime,
     PhpScriptService, RequestPool,
 };
 use claviron_runtime::ServiceStatus;
@@ -113,7 +113,7 @@ async fn exercise() {
         .application(
             PhpApplication::new("live", &script)
                 .args(["live"])
-                .pool(ApplicationPool::fixed(1)),
+                .instances(1),
         )
         .application(PhpApplication::new("admin", &script).args(["admin"]))
         .graceful_timeout(Some(Duration::from_secs(2)))

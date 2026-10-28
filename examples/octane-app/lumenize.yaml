@@ -56,15 +56,8 @@ php:
       SESSION_BLOCK: "false"
       BROADCAST_CONNECTION: claviron
       LOG_CHANNEL: claviron
-    pool:
-      min_idle: 1
-      max_idle: 1
-      max_size: 8
-      idle_timeout: 60s
-      max_life: 5m
-      max_requests: 1000
-      maintenance_interval: 100ms
-      max_waiting: 256
+    instances: 1
+    max_waiting: 256
     retry:
       max_attempts: null
       backoff: 1s

@@ -25,7 +25,11 @@ use super::PhpEmbedRuntime;
 const INTERRUPT_UNWIND: std::time::Duration = std::time::Duration::from_secs(1);
 use crate::SapiGatewayError;
 use crate::config::PhpApplication;
-use crate::engine::application::{ApplicationWorkers, PhpApplicationSnapshot};
+use crate::engine::application::{
+    ApplicationRequests, ApplicationWorkers, PhpApplicationSnapshot,
+};
+mod handle;
+pub use handle::PhpApplicationHandle;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PhpApplicationLifecycle {
@@ -57,19 +61,21 @@ struct ManagedApplication {
     enabled: bool,
     restart: bool,
     generation: u64,
-    pool: Option<Arc<ApplicationWorkers>>,
+    execution: Option<ApplicationWorkers>,
     last_error: Option<String>,
 }
 
-/// Named persistent PHP application pools, local to every serving process.
+/// Named persistent PHP applications with fixed worker-local instances.
 /// This service owns the aggregate runnable generation; named application
 /// lifecycle is exposed through the common `ApplicationManager` via
 /// `PhpApplicationController`.
 pub struct PhpApplicationService {
     runtime: Arc<PhpEmbedRuntime>,
     generation: tokio::sync::Mutex<()>,
+    // Control-plane ownership only; bound HTTP handles cannot access this lock.
     applications: Arc<Mutex<BTreeMap<String, ManagedApplication>>>,
-    dispatch: ArcSwap<BTreeMap<String, Arc<ApplicationWorkers>>>,
+    dispatch: ArcSwap<BTreeMap<String, Arc<ApplicationRequests>>>,
+    handles: Mutex<BTreeMap<String, PhpApplicationHandle>>,
     wake: Arc<Notify>,
 }
 
@@ -77,8 +83,8 @@ struct GenerationGuard(Arc<Mutex<BTreeMap<String, ManagedApplication>>>);
 
 impl Drop for GenerationGuard {
     fn drop(&mut self) {
-        for application in self.0.lock().unwrap().values() {
-            if let Some(pool) = &application.pool {
+        for application in self.0.lock().unwrap().values_mut() {
+            if let Some(pool) = &mut application.execution {
                 pool.stop();
             }
         }
@@ -92,6 +98,7 @@ impl PhpApplicationService {
             generation: tokio::sync::Mutex::new(()),
             applications: Arc::new(Mutex::new(BTreeMap::new())),
             dispatch: ArcSwap::from_pointee(BTreeMap::new()),
+            handles: Mutex::new(BTreeMap::new()),
             wake: Arc::new(Notify::new()),
         }
     }
@@ -112,6 +119,25 @@ impl PhpApplicationService {
         pool.execute(request).await
     }
 
+    /// Bind once while constructing a route. The handle follows lifecycle
+    /// generations without a per-request application-name lookup or mutex.
+    pub fn application(
+        &self,
+        name: impl Into<Arc<str>>,
+    ) -> PhpApplicationHandle {
+        let name = name.into();
+        let mut handles = self.handles.lock().unwrap();
+        handles
+            .entry(name.to_string())
+            .or_insert_with(|| {
+                let handle = PhpApplicationHandle::new(Arc::clone(&name));
+                handle
+                    .publish(self.dispatch.load().get(name.as_ref()).cloned());
+                handle
+            })
+            .clone()
+    }
+
     /// Only lifecycle changes publish a catalog. Readers never retain its lock.
     fn publish_dispatch(
         &self,
@@ -120,10 +146,10 @@ impl PhpApplicationService {
         let live = || {
             applications.iter().filter_map(|(name, application)| {
                 application
-                    .pool
+                    .execution
                     .as_ref()
                     .filter(|pool| pool.accepting())
-                    .map(|pool| (name, pool))
+                    .map(|pool| (name, &pool.requests))
             })
         };
         let current = self.dispatch.load();
@@ -136,11 +162,18 @@ impl PhpApplicationService {
         {
             return;
         }
-        self.dispatch.store(Arc::new(
-            live()
-                .map(|(name, pool)| (name.clone(), Arc::clone(pool)))
-                .collect(),
-        ));
+        let dispatch: BTreeMap<_, _> = live()
+            .map(|(name, requests)| (name.clone(), Arc::clone(requests)))
+            .collect();
+        // Route binding and generation publication share this control-plane
+        // critical section: a newly bound handle must not read the old catalog
+        // after this generation's handles have already been updated.
+        let handles = self.handles.lock().unwrap();
+        for (name, handle) in handles.iter() {
+            handle.publish(dispatch.get(name).cloned());
+        }
+        self.dispatch.store(Arc::new(dispatch));
+        drop(handles);
     }
 
     /// Compatibility telemetry for callers interested only in active pools.
@@ -151,7 +184,7 @@ impl PhpApplicationService {
             .iter()
             .filter_map(|(name, application)| {
                 application
-                    .pool
+                    .execution
                     .as_ref()
                     .map(|pool| (name.clone(), pool.snapshot()))
             })
@@ -165,7 +198,7 @@ impl PhpApplicationService {
             .iter()
             .map(|(name, application)| {
                 let pool =
-                    application.pool.as_ref().map(|pool| pool.snapshot());
+                    application.execution.as_ref().map(|pool| pool.snapshot());
                 let lifecycle =
                     match (&pool, application.enabled, &application.last_error)
                     {
@@ -212,7 +245,7 @@ impl PhpApplicationService {
             ApplicationCommandAction::Stop => {
                 application.enabled = false;
                 application.restart = false;
-                if let Some(pool) = &application.pool {
+                if let Some(pool) = &mut application.execution {
                     pool.stop();
                 }
             }
@@ -220,7 +253,7 @@ impl PhpApplicationService {
                 application.enabled = true;
                 application.restart = true;
                 application.last_error = None;
-                if let Some(pool) = &application.pool {
+                if let Some(pool) = &mut application.execution {
                     pool.stop();
                 }
             }
@@ -235,15 +268,7 @@ impl PhpApplicationService {
         &self,
         definitions: Vec<PhpApplication>,
         environments: &ApplicationEnvironments,
-    ) -> registry::Result<std::time::Duration> {
-        let interval = definitions
-            .iter()
-            .map(|application| application.pool.maintenance_interval)
-            .min()
-            .ok_or_else(|| {
-                registry::Error::msg("no PHP applications registered")
-            })?;
-
+    ) -> registry::Result<()> {
         // Resolve every script before publishing or starting any application.
         let prepared = definitions
             .into_iter()
@@ -270,15 +295,20 @@ impl PhpApplicationService {
             .collect::<registry::Result<Vec<_>>>()?;
 
         let mut applications = self.applications.lock().unwrap();
+        for application in applications.values_mut() {
+            if let Some(pool) = &mut application.execution {
+                pool.maintain();
+            }
+        }
         if applications.values().any(|application| {
-            application.pool.as_ref().is_some_and(|pool| !pool.drained())
+            application.execution.as_ref().is_some_and(|pool| !pool.drained())
         }) {
             return Err(registry::Error::msg(
                 "previous PHP application generation is still draining",
             ));
         }
         for application in applications.values_mut() {
-            application.pool = None;
+            application.execution = None;
         }
         for (name, definition, pool) in prepared {
             match applications.get_mut(&name) {
@@ -287,7 +317,7 @@ impl PhpApplicationService {
                     application.restart = false;
                     application.last_error = None;
                     if application.enabled {
-                        application.pool = Some(pool);
+                        application.execution = Some(pool);
                         application.generation =
                             application.generation.saturating_add(1);
                     }
@@ -300,7 +330,7 @@ impl PhpApplicationService {
                             enabled: true,
                             restart: false,
                             generation: 1,
-                            pool: Some(pool),
+                            execution: Some(pool),
                             last_error: None,
                         },
                     );
@@ -308,7 +338,7 @@ impl PhpApplicationService {
             }
         }
         self.publish_dispatch(&applications);
-        Ok(interval)
+        Ok(())
     }
 
     fn maintain(
@@ -318,12 +348,11 @@ impl PhpApplicationService {
     ) {
         let mut applications = self.applications.lock().unwrap();
         for (name, application) in applications.iter_mut() {
-            if let Some(pool) = &application.pool {
+            if let Some(pool) = &mut application.execution {
                 if !allow_start || !application.enabled || application.restart {
                     pool.stop();
-                } else {
-                    pool.maintain();
                 }
+                pool.maintain();
                 if pool.drained() {
                     info!(
                         application = %name,
@@ -335,20 +364,22 @@ impl PhpApplicationService {
                         id: application_id(name),
                         generation: application.generation,
                     });
-                    application.pool = None;
+                    application.execution = None;
                     application.restart = false;
                 }
             }
 
-            if allow_start && application.pool.is_none() && application.enabled
+            if allow_start
+                && application.execution.is_none()
+                && application.enabled
             {
                 match ApplicationWorkers::new(
                     application.definition.clone(),
                     Arc::clone(&self.wake),
                 ) {
-                    Ok(pool) => {
+                    Ok(mut pool) => {
                         pool.maintain();
-                        application.pool = Some(pool);
+                        application.execution = Some(pool);
                         application.generation =
                             application.generation.saturating_add(1);
                         application.last_error = None;
@@ -400,7 +431,7 @@ impl PhpApplicationService {
                 })?;
             environments.insert(definition.name.clone(), environment);
         }
-        let interval = self.initialize(definitions, &environments)?;
+        self.initialize(definitions, &environments)?;
         let _stop_on_drop = GenerationGuard(Arc::clone(&self.applications));
         if !context.is_cancelled() {
             self.maintain(state, true);
@@ -410,7 +441,7 @@ impl PhpApplicationService {
                         application = %application.name,
                         instances = application.pool.as_ref().map_or(0, |pool| pool.instances),
                         generation = application.generation,
-                        "🧩 PHP application pool started"
+                        "🧩 PHP application instances started"
                     );
                     state.events().emit(ApplicationStarted {
                         id: application_id(&application.name),
@@ -432,10 +463,10 @@ impl PhpApplicationService {
                                 let values = snapshot.as_ref().iter().map(|(key, value)| (key.clone(), value.clone())).collect();
                                 if application.definition.environment != values {
                                     application.definition.environment = values;
-                                    // Keep a stopped application stopped. A live pool uses the
-                                    // existing joined replacement path, never a second pool.
-                                    application.restart = application.pool.is_some();
-                                    if let Some(pool) = &application.pool { pool.stop(); }
+                                    // Keep a stopped application stopped. Live instances use the
+                                    // existing joined replacement path, never concurrent generations.
+                                    application.restart = application.execution.is_some();
+                                    if let Some(pool) = &mut application.execution { pool.stop(); }
                                 }
                             }
                             drop(applications);
@@ -445,30 +476,16 @@ impl PhpApplicationService {
                     }
                 },
                 _ = self.wake.notified() => self.maintain(state, true),
-                _ = tokio::time::sleep(interval) => self.maintain(state, true)
+                _ = wait_for_retry(self.next_retry()) => self.maintain(state, true)
             }
         }
 
-        for application in self.applications.lock().unwrap().values() {
-            if let Some(pool) = &application.pool {
+        for application in self.applications.lock().unwrap().values_mut() {
+            if let Some(pool) = &mut application.execution {
                 pool.stop();
             }
         }
-        let drain = async {
-            loop {
-                self.maintain(state, false);
-                if self
-                    .applications
-                    .lock()
-                    .unwrap()
-                    .values()
-                    .all(|application| application.pool.is_none())
-                {
-                    break;
-                }
-                tokio::time::sleep(interval).await;
-            }
-        };
+        let drain = self.drain(state);
         let Some(grace) = self.runtime.options.graceful_timeout else {
             drain.await;
 
@@ -493,7 +510,7 @@ impl PhpApplicationService {
             .lock()
             .unwrap()
             .values()
-            .filter_map(|application| application.pool.as_ref())
+            .filter_map(|application| application.execution.as_ref())
             .map(|pool| {
                 crate::engine::interrupt::interrupt_owned_by(pool.owner())
             })
@@ -510,21 +527,7 @@ impl PhpApplicationService {
         // bounded window before it reports. The script pool and task execution
         // group do the same; this one used to return the moment it signalled,
         // which reported work as drained while it was still running.
-        let unwind = async {
-            loop {
-                self.maintain(state, false);
-                if self
-                    .applications
-                    .lock()
-                    .unwrap()
-                    .values()
-                    .all(|application| application.pool.is_none())
-                {
-                    return true;
-                }
-                tokio::time::sleep(interval).await;
-            }
-        };
+        let unwind = self.drain(state);
         if tokio::time::timeout(INTERRUPT_UNWIND, unwind).await.is_ok() {
             tracing::info!(
                 "php application drain completed after interrupting in-flight work"
@@ -536,6 +539,38 @@ impl PhpApplicationService {
         Err(registry::Error::msg(
             "PHP application drain incomplete; in-flight executions interrupted",
         ))
+    }
+    fn next_retry(&self) -> Option<std::time::Instant> {
+        self.applications
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|application| {
+                application.execution.as_ref()?.next_retry()
+            })
+            .min()
+    }
+
+    async fn drain(
+        &self,
+        state: &AppState,
+    ) {
+        loop {
+            let notified = self.wake.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            self.maintain(state, false);
+            if self
+                .applications
+                .lock()
+                .unwrap()
+                .values()
+                .all(|application| application.execution.is_none())
+            {
+                return;
+            }
+            notified.await;
+        }
     }
 }
 
@@ -586,5 +621,12 @@ impl Runnable<AppState, Arc<PhpEmbedRuntime>> for PhpApplicationService {
             error!(%error, "❌ PHP application generation failed");
             registry::Error::recoverable(error.to_string())
         })
+    }
+}
+
+async fn wait_for_retry(deadline: Option<std::time::Instant>) {
+    match deadline {
+        Some(at) => tokio::time::sleep_until(at.into()).await,
+        None => std::future::pending().await,
     }
 }

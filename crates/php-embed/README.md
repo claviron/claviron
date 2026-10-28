@@ -111,8 +111,9 @@ Warmup does not watch files, reset OPcache, or reload persistent applications.
 policy. With timestamp validation disabled, updating source still requires
 explicit invalidation and an appropriate application or process restart.
 
-Request and application pools support fixed or elastic capacity, idle retention,
-and optional idle-instance rotation. Capacity is local to each serving process.
+Script request pools support fixed or elastic capacity, idle retention, and
+optional idle-thread rotation. Persistent applications have a fixed instance
+count per serving process; HTTP demand never starts or retires instances.
 HTTP route policy controls body limits, queue wait, and response handling;
 application execution limits and instance replacement are separate contracts.
 An accepted request is not automatically replayed when an instance fails.
@@ -140,17 +141,38 @@ post-response work. `claviron_application_stream()` / `write()` / `end()` also
 provide streamed responses through the shared HTTP response policy. Protocol
 upgrades remain unsupported; framework adapters may expose a buffered API.
 
-HTTP dispatch reads atomically published application and mailbox snapshots;
-catalog and pool maintenance mutexes stay on the lifecycle path. Requests and
-idle retirement claim the same context state atomically. Published mailboxes
-hold weak senders, so old snapshots cannot keep a stopped receive loop alive.
-Growth demand wakes lifecycle maintenance, which owns thread creation and joins.
-Drain retains accepted mailbox work and PHP cleanup until the owned threads exit.
+Bind `PhpApplicationService::application(name)` once when preparing a custom
+route, or use `PhpApplicationAdapter`, which binds it automatically. The stable
+`PhpApplicationHandle` follows service restart generations. Request dispatch
+reads that handle and the published inboxes without a name lookup, lifecycle
+mutex, filesystem check, or thread creation. It does not run script-mode SAPI
+startup/shutdown. Published inboxes hold weak senders so old generations cannot
+keep a stopped receive loop open.
+
+```yaml
+sapi: null
+applications:
+  web:
+    script_path: application.php
+    instances: 8
+    max_waiting: 64
+```
+
+The Rust equivalent is `PhpApplication::new("web", "application.php")
+.instances(8).max_waiting(64)`. `max_waiting` bounds admitted callers, including
+body ingestion and response waiting. It does not change the instance count.
+Legacy application `pool` keys are rejected; `sapi.pool` remains independent.
+A failed instance can be replaced under `retry`; accepted work is never replayed.
+Instance exit and completed joins notify the lifecycle owner. There is no
+periodic application maintenance scan; timers run only for declared retry or
+request/lifecycle bounds. Drain retains inbox work and PHP cleanup until owned
+threads are joined.
 
 Empty GET/HEAD requests skip body collection when the transport reports
 end-of-stream. Requests with a body retain the existing limit checks and byte
-preservation, including GET/HEAD bodies. Incoming body and header values copy
-directly into PHP-owned binary strings without an intermediate Rust vector;
+preservation, including GET/HEAD bodies. A single body frame retains its original `Bytes` allocation; multiple frames
+are combined only when needed. Bodies are never decoded as JSON, forms, or
+UTF-8 by this bridge. Incoming body and header values copy directly into PHP-owned binary strings without an intermediate Rust vector;
 PHP does not borrow the Rust message's storage.
 Header lists are built directly in PHP arrays. Response header names are parsed
 from their existing PHP storage. Event receivers belong exclusively to the PHP

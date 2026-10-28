@@ -62,3 +62,11 @@ fn single_application_uses_the_embed_schema_without_a_second_name_or_pool() {
         .is_err()
     );
 }
+
+#[test]
+fn persistent_application_rejects_the_retired_elastic_pool_schema() {
+    assert!(parse_application(
+        "application: {script_path: application.php, pool: {min_idle: 1, max_size: 8}}",
+        "example", |_| None,
+    ).is_err());
+}

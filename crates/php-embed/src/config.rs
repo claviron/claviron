@@ -11,7 +11,7 @@ use std::time::Duration;
 use serde::Deserialize;
 
 mod application;
-pub use application::{ApplicationPool, PhpApplication};
+pub use application::PhpApplication;
 pub(crate) mod file;
 mod pool;
 pub use pool::RequestPool;

@@ -198,3 +198,24 @@ fn application_body_stop_keeps_nonempty_reads_cancellable() {
     ));
     assert_eq!(polls.load(Ordering::Relaxed), 0);
 }
+
+#[test]
+fn application_body_single_frame_keeps_binary_payload_allocation() {
+    let payload = Bytes::from(vec![0, 255, 128, 1]);
+    let pointer = payload.as_ptr();
+    let (body, _) = probe(false, vec![Ok(Frame::data(payload.clone()))]);
+    let received = collect(
+        Method::POST,
+        Some(payload.len()),
+        body,
+        Some(payload.len()),
+        CancellationToken::new(),
+    )
+    .unwrap();
+    assert_eq!(received, payload);
+    assert_eq!(
+        received.as_ptr(),
+        pointer,
+        "a single frame must not be copied or decoded"
+    );
+}

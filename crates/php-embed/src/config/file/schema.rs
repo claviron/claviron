@@ -13,7 +13,7 @@ use claviron_helpers::yaml::expand_env_with;
 use claviron_runtime::registry::{Error, Result};
 use serde::{Deserialize, Deserializer};
 
-use crate::{ApplicationPool, PhpApplication, PhpEmbedRuntime, RequestPool};
+use crate::{PhpApplication, PhpEmbedRuntime, RequestPool};
 
 pub(super) fn parse(
     raw: &str,
@@ -322,7 +322,9 @@ struct ApplicationConfig {
     #[serde(default, alias = "environment")]
     env: BTreeMap<String, String>,
     #[serde(default)]
-    pool: ApplicationPoolConfig,
+    instances: Option<u8>,
+    #[serde(default)]
+    max_waiting: Option<usize>,
     /// Budget for one request or event on an instance; unset takes
     /// `lifecycle.execution_timeout`. Running, not request handling: events
     /// arrive with no route.
@@ -333,49 +335,6 @@ struct ApplicationConfig {
     requests: Option<serde::de::IgnoredAny>,
     #[serde(default)]
     retry: ApplicationRetryConfig,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct ApplicationPoolConfig {
-    min_idle: Option<u8>,
-    max_idle: Option<u8>,
-    max_size: Option<u8>,
-    #[serde(deserialize_with = "deserialize_optional_duration")]
-    idle_timeout: Option<Duration>,
-    #[serde(deserialize_with = "deserialize_optional_duration")]
-    max_life: Option<Duration>,
-    max_requests: Option<u64>,
-    /// Callers admitted at once, running and waiting.
-    max_waiting: Option<usize>,
-    #[serde(deserialize_with = "deserialize_optional_duration")]
-    maintenance_interval: Option<Duration>,
-}
-
-impl ApplicationPoolConfig {
-    fn resolve(self) -> ApplicationPool {
-        // Explicit fields keep strict unknown/duplicate rejection. Serde flatten
-        // with deny_unknown_fields does not reliably preserve that contract.
-        let capacity = PoolConfig {
-            min_idle: self.min_idle,
-            max_idle: self.max_idle,
-            max_size: self.max_size,
-            idle_timeout: self.idle_timeout,
-            max_life: self.max_life,
-            max_requests: self.max_requests,
-        };
-        let mut pool = ApplicationPool {
-            capacity: capacity.resolve(),
-            ..ApplicationPool::default()
-        };
-        if let Some(value) = self.maintenance_interval {
-            pool = pool.maintenance_interval(value);
-        }
-        if let Some(value) = self.max_waiting {
-            pool = pool.max_waiting(value);
-        }
-        pool
-    }
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -395,25 +354,32 @@ impl ApplicationConfig {
     ) -> Result<PhpApplication> {
         if self.requests.is_some() {
             return Err(Error::msg(format!(
-                "php.yaml applications.{name}.requests is gone: max_waiting goes under pool:, execution_timeout directly under the application; dispatch_queue_timeout is requests.queue_timeout and response_limit is responses.max_body_size, written on the route that selects it"
+                "php.yaml applications.{name}.requests is gone: max_waiting and execution_timeout go directly under the application; dispatch_queue_timeout is requests.queue_timeout and response_limit is responses.max_body_size, written on the route that selects it"
             )));
         }
-        let mut pool = self
-            .pool
-            .resolve()
-            .max_attempts(self.retry.max_attempts)
-            .execution_timeout(self.execution_timeout);
-        if let Some(value) = self.retry.backoff {
-            pool = pool.backoff(value);
-        }
-        if let Some(value) = self.retry.backoff_max {
-            pool = pool.backoff_max(value);
-        }
-        let mut application = PhpApplication::new(name, self.script_path)
+        let defaults = PhpApplication::new(name, self.script_path)
             .args(self.args)
             .env_files(self.env_file)
-            .environments(self.env)
-            .pool(pool);
+            .environments(self.env);
+        let retry = claviron_app::ApplicationRetryPolicy::new(
+            self.retry.backoff.unwrap_or(defaults.retry.backoff()),
+            self.retry.backoff_max.unwrap_or(defaults.retry.backoff_max()),
+            self.retry.max_attempts,
+        );
+        let mut application =
+            defaults
+                .instances(
+                    self.instances.unwrap_or(
+                        super::super::application::default_instances(),
+                    ),
+                )
+                .max_waiting(
+                    self.max_waiting.unwrap_or(
+                        super::super::application::default_max_waiting(),
+                    ),
+                )
+                .execution_timeout(self.execution_timeout)
+                .retry(retry);
         if let Some(frameworks) = self.frameworks {
             application = application.frameworks(frameworks);
         }

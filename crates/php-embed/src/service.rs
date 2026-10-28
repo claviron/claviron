@@ -26,7 +26,8 @@ mod application;
 pub(crate) mod invoke;
 pub(crate) use application::ApplicationCommandAction;
 pub use application::{
-    PhpApplicationLifecycle, PhpApplicationService, PhpApplicationStatus,
+    PhpApplicationHandle, PhpApplicationLifecycle, PhpApplicationService,
+    PhpApplicationStatus,
 };
 mod script;
 

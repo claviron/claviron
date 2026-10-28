@@ -27,8 +27,8 @@ pub(crate) mod tasks;
 mod warmup;
 
 pub use config::{
-    ApplicationPool, PhpApplication, PhpEventConfig, PhpLaunchConfig,
-    PhpManagementConfig, RequestPool,
+    PhpApplication, PhpEventConfig, PhpLaunchConfig, PhpManagementConfig,
+    RequestPool,
 };
 pub use engine::application::PhpApplicationSnapshot;
 pub use engine::{
@@ -51,9 +51,9 @@ pub use routing::adapter::script::PhpScriptAdapter;
 #[cfg(feature = "axum")]
 pub use routing::bindings::{build_application_router, build_script_router};
 pub use service::{
-    PhpApplicationLifecycle, PhpApplicationService, PhpApplicationStatus,
-    PhpEmbedRuntime, PhpEmbedRuntimeBuilder, PhpEmbedStateExt,
-    PhpScriptService,
+    PhpApplicationHandle, PhpApplicationLifecycle, PhpApplicationService,
+    PhpApplicationStatus, PhpEmbedRuntime, PhpEmbedRuntimeBuilder,
+    PhpEmbedStateExt, PhpScriptService,
 };
 
 /// Register PHP from `php.yaml` in the runtime configuration directory.

@@ -36,7 +36,8 @@ pub(super) async fn read(
     {
         return Err(Rejection::TooLarge);
     }
-    let mut buffered = BytesMut::new();
+    let mut bytes = Bytes::new();
+    let mut buffered: Option<BytesMut> = None;
     loop {
         let frame = tokio::select! {
             biased;
@@ -62,18 +63,34 @@ pub(super) async fn read(
         };
         if let Ok(data) = frame.into_data() {
             if policy.max_body_size.is_some_and(|limit| {
-                buffered.len().saturating_add(data.len()) > limit
+                buffered
+                    .as_ref()
+                    .map_or(bytes.len(), BytesMut::len)
+                    .saturating_add(data.len())
+                    > limit
             }) {
                 return Err(Rejection::TooLarge);
             }
-            buffered.extend_from_slice(&data);
+            if let Some(buffered) = &mut buffered {
+                buffered.extend_from_slice(&data);
+            } else if bytes.is_empty() {
+                // Keep a single transport frame as Bytes; no intermediate copy.
+                bytes = data;
+            } else if !data.is_empty() {
+                let mut joined = BytesMut::with_capacity(
+                    bytes.len().saturating_add(data.len()),
+                );
+                joined.extend_from_slice(&bytes);
+                joined.extend_from_slice(&data);
+                buffered = Some(joined);
+            }
         } else {
             return Err(Rejection::BadRequest(
                 "application request trailers are not supported".into(),
             ));
         }
     }
-    let bytes = buffered.freeze();
+    let bytes = buffered.map_or(bytes, BytesMut::freeze);
     if parts
         .headers
         .get(CONTENT_LENGTH)
