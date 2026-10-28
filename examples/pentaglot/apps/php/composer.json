@@ -1,0 +1,19 @@
+{
+  "name": "claviron/pentaglot-php",
+  "description": "Minimal persistent Symfony application in the Pentaglot Edge demo",
+  "type": "project",
+  "license": "MIT OR Apache-2.0",
+  "require": {
+    "php": "^8.4",
+    "claviron/symfony": "^0.1",
+    "symfony/framework-bundle": "^8.0"
+  },
+  "autoload": {
+    "psr-4": { "Pentaglot\\Php\\": "src/" }
+  },
+  "config": {
+    "optimize-autoloader": true,
+    "sort-packages": true,
+    "allow-plugins": false
+  }
+}

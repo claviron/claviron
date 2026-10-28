@@ -1,0 +1,5 @@
+applications:
+  pentaglot-lua:
+    module: apps/lua/app.lua
+    concurrency: 8
+    max_waiting: 64

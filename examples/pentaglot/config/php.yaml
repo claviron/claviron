@@ -1,0 +1,11 @@
+# Only the named persistent application needs PHP capacity.
+sapi: null
+applications:
+  pentaglot-php:
+    script_path: apps/php/app.php
+    frameworks: [Symfony]
+    pool:
+      min_idle: 1
+      max_idle: 1
+      max_size: 1
+      max_waiting: 64

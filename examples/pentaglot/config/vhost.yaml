@@ -1,0 +1,15 @@
+default:
+  root: public
+  access_log: "off"
+  transport: { non_ssl: serve, protocols: [h1] }
+  routes:
+    /assets:
+      static: {}
+    /lua:
+      lua: { application: pentaglot-lua }
+    /deno:
+      js: { application: pentaglot-deno }
+    /php:
+      php:
+        runner: application
+        application: pentaglot-php

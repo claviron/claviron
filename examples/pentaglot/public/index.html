@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pentaglot · Claviron</title>
+<link rel="icon" href="/assets/pentaglot.svg" type="image/svg+xml">
+<style>
+  :root { color-scheme: light dark; font: 16px/1.6 system-ui, sans-serif; }
+  body { max-width: 70rem; margin: 4rem auto; padding: 0 1.5rem; }
+  h1 { font-size: clamp(2.5rem, 8vw, 4rem); margin: 0; letter-spacing: -.06em; }
+  header { display: flex; align-items: center; gap: 1.5rem; }
+  .brand { width: clamp(5rem, 13vw, 7rem); height: auto; }
+  header p { margin: 0; }
+  p { color: light-dark(#475569, #a9b8cd); }
+  main { display: grid; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); gap: 1rem; }
+  article { border: 1px solid light-dark(#dce3ed, #334155); border-radius: 1rem; padding: 1.25rem; }
+  .application { display: flex; align-items: center; gap: .85rem; margin-bottom: 1rem; }
+  .application > img, .application > picture { width: 3rem; height: 3rem; flex-shrink: 0; }
+  .application > picture img { width: 100%; height: 100%; object-fit: contain; }
+  .application > img { object-fit: contain; }
+  .application h2 { margin: 0; font-size: 1.25rem; }
+  .engine { display: flex; align-items: center; gap: .3rem; margin: 0; font-size: .8rem; }
+  .engine img { width: 1rem; height: 1rem; object-fit: contain; }
+  button { cursor: pointer; padding: .5rem .8rem; margin-right: .4rem; }
+  pre { font-size: .8rem; white-space: pre-wrap; overflow-wrap: anywhere; min-height: 8rem; }
+  a { color: light-dark(#0369a1, #7dd3fc); }
+</style>
+<header>
+  <img class="brand" src="/assets/pentaglot.svg" width="112" height="112" alt="Pentaglot: five connected rings">
+  <div><h1>Pentaglot</h1><p>Five languages. One Edge.</p></div>
+</header>
+<p>Rust, Lua, Deno, PHP and Python execute
+  inside the serving process; each application owns a separate URL prefix.</p>
+<p><button id="all">Run all five</button> <a href="/python/events">Python event stream</a></p>
+<main></main>
+<script type="module">
+  const runtimes = [
+    { id: "rust", name: "Rust", image: "rust.png", engine: "Native" },
+    { id: "lua", name: "Lua", image: "lua.png", engine: "Olua" },
+    { id: "deno", name: "Deno", image: "deno.svg", dark: "deno-dark.svg", engine: "Deno Core / V8" },
+    { id: "php", name: "PHP", image: "php.png", engine: "Symfony", badge: "symfony.svg" },
+    { id: "python", name: "Python", image: "python.svg", engine: "Gufi-ASGI", badge: "gufi.svg" },
+  ];
+  async function run(article, echo = false) {
+    const runtime = article.dataset.runtime;
+    const output = article.querySelector("pre");
+    output.textContent = "Requesting…";
+    try {
+      const response = await fetch(`/${runtime}${echo ? "/echo" : ""}`,
+        echo ? { method: "POST", body: "Hello from Pentaglot" } : {});
+      const value = await response.json();
+      output.textContent = `HTTP ${response.status} · Edge PID ${response.headers.get("x-pentaglot-pid")}\n` +
+        JSON.stringify(value, null, 2);
+    } catch (error) { output.textContent = String(error); }
+  }
+  for (const runtime of runtimes) {
+    const article = document.createElement("article");
+    article.dataset.runtime = runtime.id;
+    const heading = document.createElement("div"); heading.className = "application";
+    const logo = document.createElement("img"); logo.src = `/assets/${runtime.image}`;
+    logo.alt = `${runtime.name} logo`; logo.width = 48; logo.height = 48;
+    if (runtime.dark) {
+      const picture = document.createElement("picture");
+      const source = document.createElement("source");
+      source.media = "(prefers-color-scheme: dark)"; source.srcset = `/assets/${runtime.dark}`;
+      picture.append(source, logo); heading.append(picture);
+    } else { heading.append(logo); }
+    const label = document.createElement("div");
+    const title = document.createElement("h2"); title.textContent = runtime.name;
+    const engine = document.createElement("p"); engine.className = "engine";
+    if (runtime.badge) {
+      const badge = document.createElement("img"); badge.src = `/assets/${runtime.badge}`;
+      badge.alt = ""; engine.append(badge);
+    }
+    engine.append(runtime.engine); label.append(title, engine); heading.append(label);
+    const link = document.createElement("a"); link.href = `/${runtime.id}`; link.textContent = `/${runtime.id}`;
+    const actions = document.createElement("p");
+    for (const [label, echo] of [["GET", false], ["POST echo", true]]) {
+      const button = document.createElement("button"); button.textContent = label;
+      button.onclick = () => run(article, echo); actions.append(button);
+    }
+    const output = document.createElement("pre"); output.textContent = "Ready";
+    article.append(heading, link, actions, output); document.querySelector("main").append(article);
+  }
+  document.querySelector("#all").onclick = () =>
+    Promise.all([...document.querySelectorAll("article")].map(article => run(article)));
+</script>
+</html>

@@ -1,0 +1,5 @@
+target: app:app
+module_path: apps/python
+# Null uses the CPython installation selected at build time. This application's
+# ASGI callable uses only the standard library. Set a venv for other packages.
+venv: null
