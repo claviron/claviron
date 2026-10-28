@@ -1,5 +1,5 @@
 applications:
   pentaglot-deno:
     module: apps/deno/app.ts
-    instances: 8
-    max_waiting: 64
+    instances: 1
+    max_waiting: 128
