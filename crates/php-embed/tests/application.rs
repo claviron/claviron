@@ -124,6 +124,7 @@ async fn interrupt_is_scoped_to_its_owner(script: &std::path::Path) {
                     ApplicationPool::fixed(1)
                         .maintenance_interval(Duration::from_millis(5)),
                 ),
+            Arc::new(Notify::new()),
         )
         .unwrap()
     };

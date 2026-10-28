@@ -136,8 +136,16 @@ This is not transparent SAPI reuse: `echo`, `header()`, `$_POST`, `$_FILES`, and
 `php://input` are not automatically remapped for each received message. The
 framework adapter supplies that request boundary and its cleanup. The next
 request is not admitted to an instance until PHP re-enters receive after its
-post-response work. Streaming and protocol upgrades are not supplied by this
-buffered application contract.
+post-response work. `claviron_application_stream()` / `write()` / `end()` also
+provide streamed responses through the shared HTTP response policy. Protocol
+upgrades remain unsupported; framework adapters may expose a buffered API.
+
+HTTP dispatch reads atomically published application and mailbox snapshots;
+catalog and pool maintenance mutexes stay on the lifecycle path. Requests and
+idle retirement claim the same context state atomically. Published mailboxes
+hold weak senders, so old snapshots cannot keep a stopped receive loop alive.
+Growth demand wakes lifecycle maintenance, which owns thread creation and joins.
+Drain retains accepted mailbox work and PHP cleanup until the owned threads exit.
 
 ## Native capabilities and environment
 

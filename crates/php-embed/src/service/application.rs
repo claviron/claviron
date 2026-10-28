@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use claviron_app::environment::{ApplicationEnvironments, EnvironmentContext};
 use claviron_app::management::{
@@ -68,7 +69,8 @@ pub struct PhpApplicationService {
     runtime: Arc<PhpEmbedRuntime>,
     generation: tokio::sync::Mutex<()>,
     applications: Arc<Mutex<BTreeMap<String, ManagedApplication>>>,
-    wake: Notify,
+    dispatch: ArcSwap<BTreeMap<String, Arc<ApplicationWorkers>>>,
+    wake: Arc<Notify>,
 }
 
 struct GenerationGuard(Arc<Mutex<BTreeMap<String, ManagedApplication>>>);
@@ -89,7 +91,8 @@ impl PhpApplicationService {
             runtime,
             generation: tokio::sync::Mutex::new(()),
             applications: Arc::new(Mutex::new(BTreeMap::new())),
-            wake: Notify::new(),
+            dispatch: ArcSwap::from_pointee(BTreeMap::new()),
+            wake: Arc::new(Notify::new()),
         }
     }
 
@@ -100,18 +103,44 @@ impl PhpApplicationService {
         name: &str,
         request: Request<RouteBody>,
     ) -> Result<RouteResponse, SapiGatewayError> {
-        let pool = self
-            .applications
-            .lock()
-            .unwrap()
-            .get(name)
-            .and_then(|application| application.pool.clone())
-            .ok_or_else(|| {
+        let pool =
+            self.dispatch.load().get(name).cloned().ok_or_else(|| {
                 SapiGatewayError::ServiceUnavailable(format!(
                     "PHP application '{name}' is not running"
                 ))
             })?;
         pool.execute(request).await
+    }
+
+    /// Only lifecycle changes publish a catalog. Readers never retain its lock.
+    fn publish_dispatch(
+        &self,
+        applications: &BTreeMap<String, ManagedApplication>,
+    ) {
+        let live = || {
+            applications.iter().filter_map(|(name, application)| {
+                application
+                    .pool
+                    .as_ref()
+                    .filter(|pool| pool.accepting())
+                    .map(|pool| (name, pool))
+            })
+        };
+        let current = self.dispatch.load();
+        if current.len() == live().count()
+            && current.iter().zip(live()).all(
+                |((old_name, old_pool), (name, pool))| {
+                    old_name == name && Arc::ptr_eq(old_pool, pool)
+                },
+            )
+        {
+            return;
+        }
+        self.dispatch.store(Arc::new(
+            live()
+                .map(|(name, pool)| (name.clone(), Arc::clone(pool)))
+                .collect(),
+        ));
     }
 
     /// Compatibility telemetry for callers interested only in active pools.
@@ -196,6 +225,7 @@ impl PhpApplicationService {
                 }
             }
         }
+        self.publish_dispatch(&applications);
         drop(applications);
         self.wake.notify_one();
         Ok(())
@@ -226,12 +256,15 @@ impl PhpApplicationService {
                     .iter()
                     .map(|(key, value)| (key.clone(), value.clone()))
                     .collect();
-                let pool = ApplicationWorkers::new(definition.clone())
-                    .map_err(|error| {
-                        registry::Error::msg(format!(
-                            "PHP application '{name}': {error}"
-                        ))
-                    })?;
+                let pool = ApplicationWorkers::new(
+                    definition.clone(),
+                    Arc::clone(&self.wake),
+                )
+                .map_err(|error| {
+                    registry::Error::msg(format!(
+                        "PHP application '{name}': {error}"
+                    ))
+                })?;
                 Ok((name, definition, pool))
             })
             .collect::<registry::Result<Vec<_>>>()?;
@@ -274,6 +307,7 @@ impl PhpApplicationService {
                 }
             }
         }
+        self.publish_dispatch(&applications);
         Ok(interval)
     }
 
@@ -308,7 +342,10 @@ impl PhpApplicationService {
 
             if allow_start && application.pool.is_none() && application.enabled
             {
-                match ApplicationWorkers::new(application.definition.clone()) {
+                match ApplicationWorkers::new(
+                    application.definition.clone(),
+                    Arc::clone(&self.wake),
+                ) {
                     Ok(pool) => {
                         pool.maintain();
                         application.pool = Some(pool);
@@ -334,6 +371,7 @@ impl PhpApplicationService {
                 }
             }
         }
+        self.publish_dispatch(&applications);
     }
 
     async fn run_generation(

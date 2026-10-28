@@ -2,10 +2,11 @@
 //! adapters receive explicit HTTP data and own framework request-scope cleanup.
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use arc_swap::ArcSwap;
 use bytes::Bytes;
 use claviron_http::{RouteBody, RouteResponse, bytes_body};
 use http::{Method, Request, Response, StatusCode};
@@ -18,6 +19,9 @@ use crate::event::{
     EventSubscription, PhpEventBridge, ReceivedEvent, RuntimeInput,
 };
 use crate::{PhpApplication, SapiGatewayError};
+
+mod dispatch;
+use dispatch::{Control, Mailbox, Waiting};
 
 type Reply =
     oneshot::Sender<Result<Response<ApplicationBody>, SapiGatewayError>>;
@@ -60,15 +64,6 @@ pub(crate) struct Job {
     pub stopping: CancellationToken,
 }
 
-pub(crate) struct Control {
-    ready: AtomicBool,
-    busy: AtomicBool,
-    served: AtomicU64,
-    idle_since: Mutex<Instant>,
-    wake: Arc<Notify>,
-    cancel: CancellationToken,
-}
-
 pub(crate) struct Inbox {
     rx: mpsc::Receiver<Job>,
     pub current: Option<Job>,
@@ -100,47 +95,38 @@ impl Inbox {
             );
         }
         if self.responded {
-            self.control.served.fetch_add(1, Ordering::Relaxed);
-            *self.control.idle_since.lock().unwrap() = Instant::now();
-            self.control.busy.store(false, Ordering::Release);
-            self.control.wake.notify_waiters();
+            self.control.complete(true);
             self.responded = false;
         }
         if self.event_handled {
-            *self.control.idle_since.lock().unwrap() = Instant::now();
-            self.control.busy.store(false, Ordering::Release);
-            self.control.wake.notify_waiters();
+            self.control.complete(false);
             self.event_handled = false;
         }
-        if self.control.cancel.is_cancelled() {
-            return Ok(None);
-        }
-        self.control.ready.store(true, Ordering::Release);
-        self.control.wake.notify_waiters();
+        self.control.publish_ready();
         loop {
             let input = match events.as_mut() {
-                Some((bridge, subscription)) => bridge.receive_with(
-                    &mut self.rx,
-                    subscription,
-                    &self.control.cancel,
-                )?,
+                Some((bridge, subscription)) => {
+                    match bridge.receive_with(
+                        &mut self.rx,
+                        subscription,
+                        &self.control.cancel,
+                    )? {
+                        Some(input) => Some(input),
+                        // Stop closes lifecycle-owned senders. A dispatcher that
+                        // already claimed this context may still be publishing
+                        // its accepted job; drain that mailbox before returning.
+                        None => {
+                            self.rx.blocking_recv().map(RuntimeInput::Value)
+                        }
+                    }
+                }
                 None => self.rx.blocking_recv().map(RuntimeInput::Value),
             };
             let Some(input) = input else { return Ok(None) };
             let job = match input {
                 RuntimeInput::Value(job) => job,
                 RuntimeInput::Event(event) => {
-                    if self
-                        .control
-                        .busy
-                        .compare_exchange(
-                            false,
-                            true,
-                            Ordering::AcqRel,
-                            Ordering::Acquire,
-                        )
-                        .is_ok()
-                    {
+                    if self.control.claim() {
                         self.event_handled = true;
                         return Ok(Some(ApplicationInput::Event(event)));
                     }
@@ -156,8 +142,7 @@ impl Inbox {
                 }
             };
             if job.reply.is_closed() {
-                self.control.busy.store(false, Ordering::Release);
-                self.control.wake.notify_waiters();
+                self.control.release_claim();
                 continue;
             }
             self.current = Some(job);
@@ -293,9 +278,7 @@ impl Drop for Inbox {
                 )
             }));
         }
-        self.control.ready.store(false, Ordering::Release);
-        self.control.busy.store(false, Ordering::Release);
-        self.control.wake.notify_waiters();
+        self.control.exited();
     }
 }
 
@@ -311,9 +294,7 @@ struct Slot {
 }
 
 struct State {
-    accepting: bool,
     slots: Vec<Slot>,
-    next: usize,
     maintain_at: Instant,
 }
 
@@ -322,6 +303,12 @@ struct State {
 pub(crate) struct ApplicationWorkers {
     definition: PhpApplication,
     state: Mutex<State>,
+    dispatch: ArcSwap<Vec<Mailbox<Job>>>,
+    accepting: AtomicBool,
+    next: AtomicUsize,
+    waiting: AtomicUsize,
+    growth_requested: AtomicBool,
+    maintenance: Arc<Notify>,
     wake: Arc<Notify>,
     admission: Semaphore,
     stopping: CancellationToken,
@@ -344,7 +331,8 @@ pub struct PhpApplicationSnapshot {
 
 impl ApplicationWorkers {
     pub(crate) fn new(
-        mut definition: PhpApplication
+        mut definition: PhpApplication,
+        maintenance: Arc<Notify>,
     ) -> Result<Arc<Self>, String> {
         definition.validate()?;
         definition.script_path = std::fs::canonicalize(&definition.script_path)
@@ -356,11 +344,15 @@ impl ApplicationWorkers {
         Ok(Arc::new(Self {
             definition,
             state: Mutex::new(State {
-                accepting: true,
                 slots: Vec::new(),
-                next: 0,
                 maintain_at: Instant::now(),
             }),
+            dispatch: ArcSwap::from_pointee(Vec::new()),
+            accepting: AtomicBool::new(true),
+            next: AtomicUsize::new(0),
+            waiting: AtomicUsize::new(0),
+            growth_requested: AtomicBool::new(false),
+            maintenance,
             wake: Arc::new(Notify::new()),
             admission,
             stopping: CancellationToken::new(),
@@ -371,7 +363,7 @@ impl ApplicationWorkers {
     pub(crate) fn snapshot(&self) -> PhpApplicationSnapshot {
         let state = self.state.lock().unwrap();
         PhpApplicationSnapshot {
-            accepting: state.accepting,
+            accepting: self.accepting.load(Ordering::Acquire),
             instances: state
                 .slots
                 .iter()
@@ -380,15 +372,9 @@ impl ApplicationWorkers {
             ready: state
                 .slots
                 .iter()
-                .filter(|s| {
-                    s.control.ready.load(Ordering::Acquire) && !s.retiring
-                })
+                .filter(|s| s.control.ready() && !s.retiring)
                 .count(),
-            busy: state
-                .slots
-                .iter()
-                .filter(|s| s.control.busy.load(Ordering::Acquire))
-                .count(),
+            busy: state.slots.iter().filter(|s| s.control.busy()).count(),
             retiring: state.slots.iter().filter(|s| s.retiring).count(),
             backing_off: state
                 .slots
@@ -414,14 +400,10 @@ impl ApplicationWorkers {
         Slot {
             id,
             tx: None,
-            control: Arc::new(Control {
-                ready: AtomicBool::new(false),
-                busy: AtomicBool::new(false),
-                served: AtomicU64::new(0),
-                idle_since: Mutex::new(Instant::now()),
-                wake: Arc::clone(&self.wake),
-                cancel: CancellationToken::new(),
-            }),
+            control: Arc::new(Control::new(
+                Arc::clone(&self.wake),
+                Arc::clone(&self.maintenance),
+            )),
             handle: None,
             born: Instant::now(),
             retiring: false,
@@ -549,75 +531,120 @@ impl ApplicationWorkers {
 
     fn retire(slot: &mut Slot) {
         slot.retiring = true;
-        slot.control.cancel.cancel();
+        slot.control.retire();
         slot.tx.take();
     }
 
-    /// Short synchronous bookkeeping only; join is called only after is_finished.
+    /// Lifecycle bookkeeping only. Request dispatch never takes this lock.
     pub(crate) fn maintain(&self) {
+        let grow = self.growth_requested.swap(false, Ordering::AcqRel);
         let mut state = self.state.lock().unwrap();
-        if state.accepting && Instant::now() < state.maintain_at {
+        let scheduled = !self.accepting.load(Ordering::Acquire)
+            || Instant::now() >= state.maintain_at;
+        if !scheduled && !grow {
             return;
         }
-        state.maintain_at =
-            Instant::now() + self.definition.pool.maintenance_interval;
-        for slot in &mut state.slots {
-            if slot.handle.as_ref().is_some_and(|h| h.is_finished()) {
-                let result =
-                    slot.handle.take().unwrap().join().unwrap_or_else(|_| {
-                        Err("PHP thread teardown panicked".into())
-                    });
-                slot.tx.take();
-                if !slot.retiring {
-                    self.failed(
-                        slot,
-                        result
-                            .as_ref()
-                            .err()
-                            .map(String::as_str)
-                            .unwrap_or("application script returned"),
-                    );
+        let mut changed = false;
+        if scheduled {
+            state.maintain_at =
+                Instant::now() + self.definition.pool.maintenance_interval;
+            for slot in &mut state.slots {
+                if slot.handle.as_ref().is_some_and(|h| h.is_finished()) {
+                    let result =
+                        slot.handle.take().unwrap().join().unwrap_or_else(
+                            |_| Err("PHP thread teardown panicked".into()),
+                        );
+                    slot.tx.take();
+                    changed = true;
+                    if !slot.retiring {
+                        self.failed(
+                            slot,
+                            result
+                                .as_ref()
+                                .err()
+                                .map(String::as_str)
+                                .unwrap_or("application script returned"),
+                        );
+                    }
                 }
             }
+            state.slots.retain(|s| !(s.retiring && s.handle.is_none()));
         }
-        state.slots.retain(|s| !(s.retiring && s.handle.is_none()));
-        if !state.accepting {
+        if !self.accepting.load(Ordering::Acquire) {
             return;
         }
         let capacity = &self.definition.pool.capacity;
-        let mut live = state.slots.iter().filter(|s| !s.retiring).count();
-        let now = Instant::now();
-        for slot in &mut state.slots {
-            if slot.retiring {
-                continue;
-            }
-            if slot.handle.is_none() {
-                if now >= slot.retry_at && !self.exhausted(slot) {
-                    self.spawn(slot);
+        if scheduled {
+            let mut live = state.slots.iter().filter(|s| !s.retiring).count();
+            let now = Instant::now();
+            for slot in &mut state.slots {
+                if slot.retiring {
+                    continue;
                 }
-                continue;
-            }
-            if !slot.control.ready.load(Ordering::Acquire)
-                || slot.control.busy.load(Ordering::Acquire)
-            {
-                continue;
-            }
-            let idle = slot.control.idle_since.lock().unwrap().elapsed();
-            let trim = live
-                > usize::from(capacity.max_idle.max(capacity.min_idle))
-                && idle >= capacity.idle_timeout;
-            let rotate =
-                capacity.max_life.is_some_and(|age| slot.born.elapsed() >= age)
+                if slot.handle.is_none() {
+                    if now >= slot.retry_at && !self.exhausted(slot) {
+                        self.spawn(slot);
+                        changed = true;
+                    }
+                    continue;
+                }
+                let trim = live
+                    > usize::from(capacity.max_idle.max(capacity.min_idle))
+                    && slot.control.idle_for() >= capacity.idle_timeout;
+                let rotate = capacity
+                    .max_life
+                    .is_some_and(|age| slot.born.elapsed() >= age)
                     || capacity.max_requests.is_some_and(|n| {
                         slot.control.served.load(Ordering::Relaxed) >= n
                     });
-            if trim || rotate {
-                Self::retire(slot);
-                live -= 1;
+                if (trim || rotate)
+                    && slot
+                        .control
+                        .retire_idle((!rotate).then_some(capacity.idle_timeout))
+                {
+                    Self::retire(slot);
+                    live -= 1;
+                    changed = true;
+                }
+            }
+            while state.slots.len() < usize::from(capacity.min_idle) {
+                self.add_slot(&mut state);
+                changed = true;
             }
         }
-        while state.slots.len() < usize::from(capacity.min_idle) {
-            self.add_slot(&mut state);
+        if grow {
+            // Starting contexts and idle contexts can satisfy these waiters.
+            // Coalesced demand must not start another thread for each wake.
+            let available = state
+                .slots
+                .iter()
+                .filter(|s| {
+                    !s.retiring
+                        && s.handle.is_some()
+                        && s.control.starting_or_idle()
+                })
+                .count();
+            let needed =
+                self.waiting.load(Ordering::Acquire).saturating_sub(available);
+            let room = usize::from(capacity.max_size)
+                .saturating_sub(state.slots.len());
+            for _ in 0..needed.min(room) {
+                self.add_slot(&mut state);
+                changed = true;
+            }
+        }
+        if changed && self.accepting.load(Ordering::Acquire) {
+            let mailboxes = state
+                .slots
+                .iter()
+                .filter(|s| !s.retiring)
+                .filter_map(|s| {
+                    s.tx.as_ref()
+                        .map(|tx| Mailbox::new(tx, Arc::clone(&s.control)))
+                })
+                .collect();
+            self.dispatch.store(Arc::new(mailboxes));
+            self.wake.notify_waiters();
         }
     }
 
@@ -639,10 +666,13 @@ impl ApplicationWorkers {
     }
 
     pub(crate) fn stop(&self) {
-        let mut state = self.state.lock().unwrap();
-        state.accepting = false;
+        if !self.accepting.swap(false, Ordering::AcqRel) {
+            return;
+        }
         self.stopping.cancel();
         self.admission.close();
+        self.dispatch.store(Arc::new(Vec::new()));
+        let mut state = self.state.lock().unwrap();
         for slot in &mut state.slots {
             Self::retire(slot);
         }
@@ -654,6 +684,19 @@ impl ApplicationWorkers {
         self.state.lock().unwrap().slots.is_empty()
             && self.admission.available_permits()
                 == self.definition.pool.max_waiting
+    }
+
+    /// Snapshot guards and transient strong senders end before any await.
+    fn try_dispatch(
+        &self,
+        job: &mut Option<Job>,
+    ) -> bool {
+        let slots = self.dispatch.load();
+        dispatch::send_available(&slots, &self.next, job)
+    }
+
+    pub(crate) fn accepting(&self) -> bool {
+        self.accepting.load(Ordering::Acquire)
     }
 
     pub(crate) async fn execute(
@@ -775,66 +818,25 @@ impl ApplicationWorkers {
             .requests
             .queue_timeout
             .map(|timeout| tokio::time::Instant::now() + timeout);
+        let mut waiting = None;
         loop {
             let notified = self.wake.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
+            if !self.accepting.load(Ordering::Acquire) {
+                return Err(SapiGatewayError::ServiceUnavailable(
+                    "application is stopped".into(),
+                ));
+            }
+            if self.try_dispatch(&mut job) {
+                break;
+            }
+            waiting.get_or_insert_with(|| Waiting::enter(&self.waiting));
+            if self.dispatch.load().len()
+                < usize::from(self.definition.pool.capacity.max_size)
+                && !self.growth_requested.swap(true, Ordering::AcqRel)
             {
-                let mut state = self.state.lock().unwrap();
-                if !state.accepting {
-                    return Err(SapiGatewayError::ServiceUnavailable(
-                        "application is stopped".into(),
-                    ));
-                }
-                let count = state.slots.len();
-                let mut accepted = false;
-                for offset in 0..count {
-                    let index = (state.next + offset) % count;
-                    let slot = &state.slots[index];
-                    if slot.retiring
-                        || !slot.control.ready.load(Ordering::Acquire)
-                        || slot.handle.as_ref().is_none_or(|h| h.is_finished())
-                    {
-                        continue;
-                    }
-                    if slot
-                        .control
-                        .busy
-                        .compare_exchange(
-                            false,
-                            true,
-                            Ordering::AcqRel,
-                            Ordering::Acquire,
-                        )
-                        .is_err()
-                    {
-                        continue;
-                    }
-                    match slot
-                        .tx
-                        .as_ref()
-                        .unwrap()
-                        .try_send(job.take().unwrap())
-                    {
-                        Ok(()) => {
-                            state.next = (index + 1) % count;
-                            accepted = true;
-                            break;
-                        }
-                        Err(error) => {
-                            job = Some(error.into_inner());
-                            slot.control.busy.store(false, Ordering::Release);
-                        }
-                    }
-                }
-                if accepted {
-                    break;
-                }
-                if state.slots.len()
-                    < usize::from(self.definition.pool.capacity.max_size)
-                {
-                    self.add_slot(&mut state);
-                }
+                self.maintenance.notify_one();
             }
             let expired = tokio::select! {
                 _ = notified => false,
@@ -852,6 +854,7 @@ impl ApplicationWorkers {
                 ));
             }
         }
+        drop(waiting);
         let response = result.await.map_err(|_| {
             SapiGatewayError::BadGateway(
                 "application worker disappeared; request was not replayed"
