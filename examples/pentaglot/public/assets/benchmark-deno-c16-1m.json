@@ -1,0 +1,1185 @@
+{
+  "measured_at": "2026-10-28T18:11:19.782180+00:00",
+  "hardware": "2 x Intel Xeon E5-2650 v2, 16 physical cores / 32 logical CPUs, 125 GiB RAM; AlmaLinux 8.10 x86-64, Linux 5.15.223",
+  "architecture": "x86_64",
+  "source_revision": "6a0c2ba7d094b924a570eddfc7d703b8c9707b72",
+  "binary_sha256": "918f2e8bf49d4b80ce7cd81af5c4de08bd4a7192827a5d6580fe5207ea18c945",
+  "build": "release, target-cpu=native",
+  "source_modified": true,
+  "notes": "Fresh master + 16 workers per runtime; SO_REUSEPORT; Tokio default multi_thread (no worker_threads override); Lua concurrency 1; Deno 1 isolate per worker; PHP warm floor 8, ceiling 64 per worker; Symfony prod/debug=false, authoritative Composer classmap, container/router cache and all 16 OPcaches warm; runtime log level warn, 16 startup-only OPcache completion records, access log off; timestamp checks off, Xdebug absent; Python one ASGI loop per worker. 65,536 untimed selected-runtime warmup requests over 128 connections (same warmup as baseline); timed load: 16 connections, 1 minute; all five runtimes loaded; mimalloc release (purge delay 0 ms, decommit enabled); idle RSS at +10/+30/+60/+120 s without forced GC or purge. Client and server share the host, no CPU affinity.",
+  "idle_sample_seconds": [
+    10,
+    30,
+    60,
+    120
+  ],
+  "transport": "HTTP/1.1, loopback, persistent connections",
+  "mode": "workers",
+  "serving_processes": 16,
+  "resource_processes": 17,
+  "connections": 16,
+  "generator_threads": 8,
+  "requested_duration": "1m",
+  "generator": "wrk 4.2.0 [epoll] Copyright (C) 2012 Will Glozer",
+  "method": "GET JSON; lower-concurrency check on the same concurrent-request Deno bridge; all five runtimes loaded",
+  "measured_runtimes": [
+    "deno"
+  ],
+  "preflight": "one untimed GET per runtime before measurement",
+  "access_logging": false,
+  "memory_metric": "RSS before/after each case; all five runtimes included; worker mode sums master and workers and counts shared pages per process",
+  "cpu_metric": "Cumulative process CPU-time delta divided by wall time; 100 percent equals one fully used CPU core",
+  "results": [
+    {
+      "runtime": "deno",
+      "path": "/deno",
+      "requests_per_second": 56751.8,
+      "successful_requests": 3410742,
+      "completed_requests": 3410742,
+      "duration_seconds": 60.099279,
+      "p99_ms": 0.925,
+      "rss_before_bytes": 2586185728,
+      "rss_after_bytes": 3150594048,
+      "rss_delta_bytes": 564408320,
+      "cpu_before_seconds": 57.97,
+      "cpu_after_seconds": 926.16,
+      "cpu_used_seconds": 868.19,
+      "cpu_percent": 1444.43,
+      "cpu_us_per_request": 254.5458,
+      "resource_window_seconds": 60.105954,
+      "process_usage_before": [
+        {
+          "pid": 22,
+          "start_ticks": 97500472,
+          "rss_bytes": 154427392,
+          "cpu_seconds": 0.1,
+          "role": "master"
+        },
+        {
+          "pid": 59,
+          "start_ticks": 97500481,
+          "rss_bytes": 152477696,
+          "cpu_seconds": 3.46,
+          "role": "worker"
+        },
+        {
+          "pid": 60,
+          "start_ticks": 97500481,
+          "rss_bytes": 153858048,
+          "cpu_seconds": 3.37,
+          "role": "worker"
+        },
+        {
+          "pid": 61,
+          "start_ticks": 97500481,
+          "rss_bytes": 153657344,
+          "cpu_seconds": 3.71,
+          "role": "worker"
+        },
+        {
+          "pid": 62,
+          "start_ticks": 97500482,
+          "rss_bytes": 147361792,
+          "cpu_seconds": 3.33,
+          "role": "worker"
+        },
+        {
+          "pid": 63,
+          "start_ticks": 97500482,
+          "rss_bytes": 150401024,
+          "cpu_seconds": 3.61,
+          "role": "worker"
+        },
+        {
+          "pid": 64,
+          "start_ticks": 97500482,
+          "rss_bytes": 158461952,
+          "cpu_seconds": 4.01,
+          "role": "worker"
+        },
+        {
+          "pid": 65,
+          "start_ticks": 97500482,
+          "rss_bytes": 156717056,
+          "cpu_seconds": 3.77,
+          "role": "worker"
+        },
+        {
+          "pid": 66,
+          "start_ticks": 97500482,
+          "rss_bytes": 145108992,
+          "cpu_seconds": 3.19,
+          "role": "worker"
+        },
+        {
+          "pid": 67,
+          "start_ticks": 97500482,
+          "rss_bytes": 152059904,
+          "cpu_seconds": 4.5,
+          "role": "worker"
+        },
+        {
+          "pid": 68,
+          "start_ticks": 97500482,
+          "rss_bytes": 152629248,
+          "cpu_seconds": 3.81,
+          "role": "worker"
+        },
+        {
+          "pid": 69,
+          "start_ticks": 97500482,
+          "rss_bytes": 157863936,
+          "cpu_seconds": 3.9,
+          "role": "worker"
+        },
+        {
+          "pid": 70,
+          "start_ticks": 97500482,
+          "rss_bytes": 151818240,
+          "cpu_seconds": 3.64,
+          "role": "worker"
+        },
+        {
+          "pid": 71,
+          "start_ticks": 97500482,
+          "rss_bytes": 146927616,
+          "cpu_seconds": 3.28,
+          "role": "worker"
+        },
+        {
+          "pid": 72,
+          "start_ticks": 97500482,
+          "rss_bytes": 148930560,
+          "cpu_seconds": 3.12,
+          "role": "worker"
+        },
+        {
+          "pid": 73,
+          "start_ticks": 97500482,
+          "rss_bytes": 149938176,
+          "cpu_seconds": 3.42,
+          "role": "worker"
+        },
+        {
+          "pid": 74,
+          "start_ticks": 97500482,
+          "rss_bytes": 153546752,
+          "cpu_seconds": 3.75,
+          "role": "worker"
+        }
+      ],
+      "process_usage_after": [
+        {
+          "pid": 22,
+          "start_ticks": 97500472,
+          "rss_bytes": 154427392,
+          "cpu_seconds": 0.12,
+          "role": "master"
+        },
+        {
+          "pid": 59,
+          "start_ticks": 97500481,
+          "rss_bytes": 207073280,
+          "cpu_seconds": 70.07,
+          "role": "worker"
+        },
+        {
+          "pid": 60,
+          "start_ticks": 97500481,
+          "rss_bytes": 208121856,
+          "cpu_seconds": 70.1,
+          "role": "worker"
+        },
+        {
+          "pid": 61,
+          "start_ticks": 97500481,
+          "rss_bytes": 202907648,
+          "cpu_seconds": 70.26,
+          "role": "worker"
+        },
+        {
+          "pid": 62,
+          "start_ticks": 97500482,
+          "rss_bytes": 147537920,
+          "cpu_seconds": 3.4,
+          "role": "worker"
+        },
+        {
+          "pid": 63,
+          "start_ticks": 97500482,
+          "rss_bytes": 204181504,
+          "cpu_seconds": 70.55,
+          "role": "worker"
+        },
+        {
+          "pid": 64,
+          "start_ticks": 97500482,
+          "rss_bytes": 206815232,
+          "cpu_seconds": 71.16,
+          "role": "worker"
+        },
+        {
+          "pid": 65,
+          "start_ticks": 97500482,
+          "rss_bytes": 156717056,
+          "cpu_seconds": 3.83,
+          "role": "worker"
+        },
+        {
+          "pid": 66,
+          "start_ticks": 97500482,
+          "rss_bytes": 200708096,
+          "cpu_seconds": 70.03,
+          "role": "worker"
+        },
+        {
+          "pid": 67,
+          "start_ticks": 97500482,
+          "rss_bytes": 199725056,
+          "cpu_seconds": 71.68,
+          "role": "worker"
+        },
+        {
+          "pid": 68,
+          "start_ticks": 97500482,
+          "rss_bytes": 152629248,
+          "cpu_seconds": 3.88,
+          "role": "worker"
+        },
+        {
+          "pid": 69,
+          "start_ticks": 97500482,
+          "rss_bytes": 207609856,
+          "cpu_seconds": 133.32,
+          "role": "worker"
+        },
+        {
+          "pid": 70,
+          "start_ticks": 97500482,
+          "rss_bytes": 198811648,
+          "cpu_seconds": 70.85,
+          "role": "worker"
+        },
+        {
+          "pid": 71,
+          "start_ticks": 97500482,
+          "rss_bytes": 201748480,
+          "cpu_seconds": 139.46,
+          "role": "worker"
+        },
+        {
+          "pid": 72,
+          "start_ticks": 97500482,
+          "rss_bytes": 148930560,
+          "cpu_seconds": 3.19,
+          "role": "worker"
+        },
+        {
+          "pid": 73,
+          "start_ticks": 97500482,
+          "rss_bytes": 149827584,
+          "cpu_seconds": 3.48,
+          "role": "worker"
+        },
+        {
+          "pid": 74,
+          "start_ticks": 97500482,
+          "rss_bytes": 202821632,
+          "cpu_seconds": 70.78,
+          "role": "worker"
+        }
+      ],
+      "errors": {
+        "connect": 0,
+        "read": 0,
+        "write": 0,
+        "status": 0,
+        "timeout": 0
+      },
+      "post_load_samples": [
+        {
+          "requested_seconds": 0,
+          "elapsed_seconds": 0,
+          "rss_bytes": 3150594048,
+          "cpu_seconds": 926.16,
+          "process_usage": [
+            {
+              "pid": 22,
+              "start_ticks": 97500472,
+              "rss_bytes": 154427392,
+              "cpu_seconds": 0.12,
+              "role": "master"
+            },
+            {
+              "pid": 59,
+              "start_ticks": 97500481,
+              "rss_bytes": 207073280,
+              "cpu_seconds": 70.07,
+              "role": "worker"
+            },
+            {
+              "pid": 60,
+              "start_ticks": 97500481,
+              "rss_bytes": 208121856,
+              "cpu_seconds": 70.1,
+              "role": "worker"
+            },
+            {
+              "pid": 61,
+              "start_ticks": 97500481,
+              "rss_bytes": 202907648,
+              "cpu_seconds": 70.26,
+              "role": "worker"
+            },
+            {
+              "pid": 62,
+              "start_ticks": 97500482,
+              "rss_bytes": 147537920,
+              "cpu_seconds": 3.4,
+              "role": "worker"
+            },
+            {
+              "pid": 63,
+              "start_ticks": 97500482,
+              "rss_bytes": 204181504,
+              "cpu_seconds": 70.55,
+              "role": "worker"
+            },
+            {
+              "pid": 64,
+              "start_ticks": 97500482,
+              "rss_bytes": 206815232,
+              "cpu_seconds": 71.16,
+              "role": "worker"
+            },
+            {
+              "pid": 65,
+              "start_ticks": 97500482,
+              "rss_bytes": 156717056,
+              "cpu_seconds": 3.83,
+              "role": "worker"
+            },
+            {
+              "pid": 66,
+              "start_ticks": 97500482,
+              "rss_bytes": 200708096,
+              "cpu_seconds": 70.03,
+              "role": "worker"
+            },
+            {
+              "pid": 67,
+              "start_ticks": 97500482,
+              "rss_bytes": 199725056,
+              "cpu_seconds": 71.68,
+              "role": "worker"
+            },
+            {
+              "pid": 68,
+              "start_ticks": 97500482,
+              "rss_bytes": 152629248,
+              "cpu_seconds": 3.88,
+              "role": "worker"
+            },
+            {
+              "pid": 69,
+              "start_ticks": 97500482,
+              "rss_bytes": 207609856,
+              "cpu_seconds": 133.32,
+              "role": "worker"
+            },
+            {
+              "pid": 70,
+              "start_ticks": 97500482,
+              "rss_bytes": 198811648,
+              "cpu_seconds": 70.85,
+              "role": "worker"
+            },
+            {
+              "pid": 71,
+              "start_ticks": 97500482,
+              "rss_bytes": 201748480,
+              "cpu_seconds": 139.46,
+              "role": "worker"
+            },
+            {
+              "pid": 72,
+              "start_ticks": 97500482,
+              "rss_bytes": 148930560,
+              "cpu_seconds": 3.19,
+              "role": "worker"
+            },
+            {
+              "pid": 73,
+              "start_ticks": 97500482,
+              "rss_bytes": 149827584,
+              "cpu_seconds": 3.48,
+              "role": "worker"
+            },
+            {
+              "pid": 74,
+              "start_ticks": 97500482,
+              "rss_bytes": 202821632,
+              "cpu_seconds": 70.78,
+              "role": "worker"
+            }
+          ]
+        },
+        {
+          "requested_seconds": 10,
+          "elapsed_seconds": 10.006693,
+          "rss_bytes": 3146399744,
+          "cpu_seconds": 926.32,
+          "process_usage": [
+            {
+              "pid": 22,
+              "start_ticks": 97500472,
+              "rss_bytes": 154427392,
+              "cpu_seconds": 0.12,
+              "role": "master"
+            },
+            {
+              "pid": 59,
+              "start_ticks": 97500481,
+              "rss_bytes": 207073280,
+              "cpu_seconds": 70.08,
+              "role": "worker"
+            },
+            {
+              "pid": 60,
+              "start_ticks": 97500481,
+              "rss_bytes": 208121856,
+              "cpu_seconds": 70.11,
+              "role": "worker"
+            },
+            {
+              "pid": 61,
+              "start_ticks": 97500481,
+              "rss_bytes": 202907648,
+              "cpu_seconds": 70.26,
+              "role": "worker"
+            },
+            {
+              "pid": 62,
+              "start_ticks": 97500482,
+              "rss_bytes": 147537920,
+              "cpu_seconds": 3.42,
+              "role": "worker"
+            },
+            {
+              "pid": 63,
+              "start_ticks": 97500482,
+              "rss_bytes": 204181504,
+              "cpu_seconds": 70.56,
+              "role": "worker"
+            },
+            {
+              "pid": 64,
+              "start_ticks": 97500482,
+              "rss_bytes": 206815232,
+              "cpu_seconds": 71.18,
+              "role": "worker"
+            },
+            {
+              "pid": 65,
+              "start_ticks": 97500482,
+              "rss_bytes": 156717056,
+              "cpu_seconds": 3.84,
+              "role": "worker"
+            },
+            {
+              "pid": 66,
+              "start_ticks": 97500482,
+              "rss_bytes": 200445952,
+              "cpu_seconds": 70.03,
+              "role": "worker"
+            },
+            {
+              "pid": 67,
+              "start_ticks": 97500482,
+              "rss_bytes": 197890048,
+              "cpu_seconds": 71.7,
+              "role": "worker"
+            },
+            {
+              "pid": 68,
+              "start_ticks": 97500482,
+              "rss_bytes": 152629248,
+              "cpu_seconds": 3.89,
+              "role": "worker"
+            },
+            {
+              "pid": 69,
+              "start_ticks": 97500482,
+              "rss_bytes": 207347712,
+              "cpu_seconds": 133.33,
+              "role": "worker"
+            },
+            {
+              "pid": 70,
+              "start_ticks": 97500482,
+              "rss_bytes": 198811648,
+              "cpu_seconds": 70.86,
+              "role": "worker"
+            },
+            {
+              "pid": 71,
+              "start_ticks": 97500482,
+              "rss_bytes": 201748480,
+              "cpu_seconds": 139.47,
+              "role": "worker"
+            },
+            {
+              "pid": 72,
+              "start_ticks": 97500482,
+              "rss_bytes": 148930560,
+              "cpu_seconds": 3.19,
+              "role": "worker"
+            },
+            {
+              "pid": 73,
+              "start_ticks": 97500482,
+              "rss_bytes": 149827584,
+              "cpu_seconds": 3.49,
+              "role": "worker"
+            },
+            {
+              "pid": 74,
+              "start_ticks": 97500482,
+              "rss_bytes": 200986624,
+              "cpu_seconds": 70.79,
+              "role": "worker"
+            }
+          ]
+        },
+        {
+          "requested_seconds": 30,
+          "elapsed_seconds": 30.006536,
+          "rss_bytes": 3135127552,
+          "cpu_seconds": 926.72,
+          "process_usage": [
+            {
+              "pid": 22,
+              "start_ticks": 97500472,
+              "rss_bytes": 154427392,
+              "cpu_seconds": 0.12,
+              "role": "master"
+            },
+            {
+              "pid": 59,
+              "start_ticks": 97500481,
+              "rss_bytes": 204976128,
+              "cpu_seconds": 70.11,
+              "role": "worker"
+            },
+            {
+              "pid": 60,
+              "start_ticks": 97500481,
+              "rss_bytes": 206286848,
+              "cpu_seconds": 70.14,
+              "role": "worker"
+            },
+            {
+              "pid": 61,
+              "start_ticks": 97500481,
+              "rss_bytes": 200810496,
+              "cpu_seconds": 70.28,
+              "role": "worker"
+            },
+            {
+              "pid": 62,
+              "start_ticks": 97500482,
+              "rss_bytes": 147537920,
+              "cpu_seconds": 3.44,
+              "role": "worker"
+            },
+            {
+              "pid": 63,
+              "start_ticks": 97500482,
+              "rss_bytes": 204181504,
+              "cpu_seconds": 70.58,
+              "role": "worker"
+            },
+            {
+              "pid": 64,
+              "start_ticks": 97500482,
+              "rss_bytes": 204718080,
+              "cpu_seconds": 71.2,
+              "role": "worker"
+            },
+            {
+              "pid": 65,
+              "start_ticks": 97500482,
+              "rss_bytes": 156717056,
+              "cpu_seconds": 3.86,
+              "role": "worker"
+            },
+            {
+              "pid": 66,
+              "start_ticks": 97500482,
+              "rss_bytes": 198348800,
+              "cpu_seconds": 70.06,
+              "role": "worker"
+            },
+            {
+              "pid": 67,
+              "start_ticks": 97500482,
+              "rss_bytes": 197890048,
+              "cpu_seconds": 71.72,
+              "role": "worker"
+            },
+            {
+              "pid": 68,
+              "start_ticks": 97500482,
+              "rss_bytes": 152629248,
+              "cpu_seconds": 3.91,
+              "role": "worker"
+            },
+            {
+              "pid": 69,
+              "start_ticks": 97500482,
+              "rss_bytes": 206299136,
+              "cpu_seconds": 133.35,
+              "role": "worker"
+            },
+            {
+              "pid": 70,
+              "start_ticks": 97500482,
+              "rss_bytes": 198811648,
+              "cpu_seconds": 70.89,
+              "role": "worker"
+            },
+            {
+              "pid": 71,
+              "start_ticks": 97500482,
+              "rss_bytes": 201748480,
+              "cpu_seconds": 139.5,
+              "role": "worker"
+            },
+            {
+              "pid": 72,
+              "start_ticks": 97500482,
+              "rss_bytes": 148930560,
+              "cpu_seconds": 3.22,
+              "role": "worker"
+            },
+            {
+              "pid": 73,
+              "start_ticks": 97500482,
+              "rss_bytes": 149827584,
+              "cpu_seconds": 3.52,
+              "role": "worker"
+            },
+            {
+              "pid": 74,
+              "start_ticks": 97500482,
+              "rss_bytes": 200986624,
+              "cpu_seconds": 70.82,
+              "role": "worker"
+            }
+          ]
+        },
+        {
+          "requested_seconds": 60,
+          "elapsed_seconds": 60.006441,
+          "rss_bytes": 3135127552,
+          "cpu_seconds": 927.3,
+          "process_usage": [
+            {
+              "pid": 22,
+              "start_ticks": 97500472,
+              "rss_bytes": 154427392,
+              "cpu_seconds": 0.14,
+              "role": "master"
+            },
+            {
+              "pid": 59,
+              "start_ticks": 97500481,
+              "rss_bytes": 204976128,
+              "cpu_seconds": 70.14,
+              "role": "worker"
+            },
+            {
+              "pid": 60,
+              "start_ticks": 97500481,
+              "rss_bytes": 206286848,
+              "cpu_seconds": 70.17,
+              "role": "worker"
+            },
+            {
+              "pid": 61,
+              "start_ticks": 97500481,
+              "rss_bytes": 200810496,
+              "cpu_seconds": 70.32,
+              "role": "worker"
+            },
+            {
+              "pid": 62,
+              "start_ticks": 97500482,
+              "rss_bytes": 147537920,
+              "cpu_seconds": 3.47,
+              "role": "worker"
+            },
+            {
+              "pid": 63,
+              "start_ticks": 97500482,
+              "rss_bytes": 204181504,
+              "cpu_seconds": 70.62,
+              "role": "worker"
+            },
+            {
+              "pid": 64,
+              "start_ticks": 97500482,
+              "rss_bytes": 204718080,
+              "cpu_seconds": 71.24,
+              "role": "worker"
+            },
+            {
+              "pid": 65,
+              "start_ticks": 97500482,
+              "rss_bytes": 156717056,
+              "cpu_seconds": 3.9,
+              "role": "worker"
+            },
+            {
+              "pid": 66,
+              "start_ticks": 97500482,
+              "rss_bytes": 198348800,
+              "cpu_seconds": 70.09,
+              "role": "worker"
+            },
+            {
+              "pid": 67,
+              "start_ticks": 97500482,
+              "rss_bytes": 197890048,
+              "cpu_seconds": 71.76,
+              "role": "worker"
+            },
+            {
+              "pid": 68,
+              "start_ticks": 97500482,
+              "rss_bytes": 152629248,
+              "cpu_seconds": 3.95,
+              "role": "worker"
+            },
+            {
+              "pid": 69,
+              "start_ticks": 97500482,
+              "rss_bytes": 206299136,
+              "cpu_seconds": 133.38,
+              "role": "worker"
+            },
+            {
+              "pid": 70,
+              "start_ticks": 97500482,
+              "rss_bytes": 198811648,
+              "cpu_seconds": 70.92,
+              "role": "worker"
+            },
+            {
+              "pid": 71,
+              "start_ticks": 97500482,
+              "rss_bytes": 201748480,
+              "cpu_seconds": 139.53,
+              "role": "worker"
+            },
+            {
+              "pid": 72,
+              "start_ticks": 97500482,
+              "rss_bytes": 148930560,
+              "cpu_seconds": 3.26,
+              "role": "worker"
+            },
+            {
+              "pid": 73,
+              "start_ticks": 97500482,
+              "rss_bytes": 149827584,
+              "cpu_seconds": 3.55,
+              "role": "worker"
+            },
+            {
+              "pid": 74,
+              "start_ticks": 97500482,
+              "rss_bytes": 200986624,
+              "cpu_seconds": 70.86,
+              "role": "worker"
+            }
+          ]
+        },
+        {
+          "requested_seconds": 120,
+          "elapsed_seconds": 120.00655,
+          "rss_bytes": 3135557632,
+          "cpu_seconds": 928.5,
+          "process_usage": [
+            {
+              "pid": 22,
+              "start_ticks": 97500472,
+              "rss_bytes": 154427392,
+              "cpu_seconds": 0.15,
+              "role": "master"
+            },
+            {
+              "pid": 59,
+              "start_ticks": 97500481,
+              "rss_bytes": 205008896,
+              "cpu_seconds": 70.22,
+              "role": "worker"
+            },
+            {
+              "pid": 60,
+              "start_ticks": 97500481,
+              "rss_bytes": 206286848,
+              "cpu_seconds": 70.24,
+              "role": "worker"
+            },
+            {
+              "pid": 61,
+              "start_ticks": 97500481,
+              "rss_bytes": 200810496,
+              "cpu_seconds": 70.39,
+              "role": "worker"
+            },
+            {
+              "pid": 62,
+              "start_ticks": 97500482,
+              "rss_bytes": 147582976,
+              "cpu_seconds": 3.55,
+              "role": "worker"
+            },
+            {
+              "pid": 63,
+              "start_ticks": 97500482,
+              "rss_bytes": 204181504,
+              "cpu_seconds": 70.69,
+              "role": "worker"
+            },
+            {
+              "pid": 64,
+              "start_ticks": 97500482,
+              "rss_bytes": 204718080,
+              "cpu_seconds": 71.31,
+              "role": "worker"
+            },
+            {
+              "pid": 65,
+              "start_ticks": 97500482,
+              "rss_bytes": 156717056,
+              "cpu_seconds": 3.98,
+              "role": "worker"
+            },
+            {
+              "pid": 66,
+              "start_ticks": 97500482,
+              "rss_bytes": 198348800,
+              "cpu_seconds": 70.17,
+              "role": "worker"
+            },
+            {
+              "pid": 67,
+              "start_ticks": 97500482,
+              "rss_bytes": 197890048,
+              "cpu_seconds": 71.84,
+              "role": "worker"
+            },
+            {
+              "pid": 68,
+              "start_ticks": 97500482,
+              "rss_bytes": 152629248,
+              "cpu_seconds": 4.02,
+              "role": "worker"
+            },
+            {
+              "pid": 69,
+              "start_ticks": 97500482,
+              "rss_bytes": 206299136,
+              "cpu_seconds": 133.45,
+              "role": "worker"
+            },
+            {
+              "pid": 70,
+              "start_ticks": 97500482,
+              "rss_bytes": 198811648,
+              "cpu_seconds": 71.0,
+              "role": "worker"
+            },
+            {
+              "pid": 71,
+              "start_ticks": 97500482,
+              "rss_bytes": 201748480,
+              "cpu_seconds": 139.61,
+              "role": "worker"
+            },
+            {
+              "pid": 72,
+              "start_ticks": 97500482,
+              "rss_bytes": 149164032,
+              "cpu_seconds": 3.32,
+              "role": "worker"
+            },
+            {
+              "pid": 73,
+              "start_ticks": 97500482,
+              "rss_bytes": 149946368,
+              "cpu_seconds": 3.63,
+              "role": "worker"
+            },
+            {
+              "pid": 74,
+              "start_ticks": 97500482,
+              "rss_bytes": 200986624,
+              "cpu_seconds": 70.93,
+              "role": "worker"
+            }
+          ]
+        }
+      ],
+      "rss_after_idle_bytes": 3135557632,
+      "rss_returned_bytes": 15036416,
+      "runtime_settings": {
+        "tokio_threads_per_process": "default multi_thread; no override",
+        "lua_concurrency": 1,
+        "deno_isolates_per_worker": 1,
+        "php_min_idle": 8,
+        "php_max_idle": 8,
+        "php_max_size": 64,
+        "max_waiting": 128,
+        "python_event_loops_per_worker": 1
+      },
+      "warmup_requests": 65536,
+      "warmup_connections": 128,
+      "worker_listener_count": 16,
+      "php_opcache_warmups": 16,
+      "graceful_family_exit_verified": true
+    }
+  ],
+  "complete": true,
+  "runtime_settings": {
+    "tokio_threads_per_process": "default multi_thread; no override",
+    "lua_concurrency": 1,
+    "deno_isolates_per_worker": 1,
+    "php_min_idle": 8,
+    "php_max_idle": 8,
+    "php_max_size": 64,
+    "max_waiting": 128,
+    "python_event_loops_per_worker": 1
+  },
+  "rotation_policy": {
+    "deno": {
+      "age_or_request_count_rotation": false,
+      "execution_timeout_seconds": 30,
+      "replacement": "failure recovery under retry policy"
+    },
+    "php": {
+      "max_life": null,
+      "max_requests": null,
+      "idle_timeout_seconds": 60,
+      "max_idle": 8
+    },
+    "supervisor": {
+      "rotation_max_age": null,
+      "rotation_rss_threshold": null
+    }
+  },
+  "measured_sources_sha256": {
+    "Cargo.toml": "e83bbbd8fbba3fe0fefa8e8195d13369a51f7fb5ae8d5f906e75f0a84736fdbb",
+    "src/main.rs": "132e8f847ee4ef1c4f40b2ae5d96ff0848c923443aa79138669bf21bafd1ffed",
+    "src/app.rs": "1ae075f40eb09c77448522ce05ab22cae8a555914f3373123cf3416285fe6563",
+    "src/app/native.rs": "e10f036c761633d5590489024eaacf59422caaea9f9631d38744002ef63c440c",
+    "src/app/asgi.rs": "27093ea19f4daadd986e15bbe8d84d0aa6f2f8b2df77ddc6c5048e8793b40d93",
+    "scripts/benchmark.py": "ff1441560f6a6f30232e934bcd2a27de9e6878646440022183ee258914e97521",
+    "apps/lua/app.lua": "a1fb71d3e7f5a628427b9b050455d933d8aace7ed2bab6b88ebbb321de5333bf",
+    "apps/deno/app.ts": "1ea132480488023d499f7deb0cdc81c7aa46fb4be4db93b5287f9a71d2601457",
+    "apps/php/app.php": "d557fa6e9694127dc080989f8a4260f82b9a9662a24630ca205439fa98ab78ca",
+    "apps/php/src/Kernel.php": "eb0702d5544edb40ab78fc8cda72e67ba6090e8f48485f8e6df67a5220eeab86",
+    "apps/php/src/Controller.php": "ae977b3b828cd0f5c4b5ad5d32a487b9d75678de0676038351b43d10873ea507",
+    "apps/python/app.py": "1f65307736c537bbc885d0d2495c0834e4c77242768646be6b0f977283c56d03"
+  },
+  "measured_dependency_sources_sha256": {
+    "claviron-deno/Cargo.toml": "b34a84197194dc0219e965a9c25f189ca618d5388be37f1e2b0fe03521350276",
+    "claviron-deno/src/application.rs": "a81b323f28ddf03f1b461c017410e88744bea1d031092af31685e02b885c8fee",
+    "claviron-deno/src/backend.rs": "0d17b912a42a8e74138dd1300517223f0d39c2f6b56db746d58708b1b46accb6",
+    "claviron-deno/src/config.rs": "fe69e27c85c811df3c7f8a9e006025bb7805ef53702dc6859bf227c6f4606888",
+    "claviron-deno/src/engine.rs": "cfaca5159be3e222e66829706e5f1747cbf96610e1a042f7fbc100dedcdd835e",
+    "claviron-deno/src/error.rs": "63ac3ca3c2565c5785939afbc1c0503571f145a23cfb2ddb28f1b81510970dec",
+    "claviron-deno/src/extensions.rs": "711b0c1572d267c32ef403243a7b83cd6651725ba62d3a63796dbcbae8163454",
+    "claviron-deno/src/lib.rs": "756b1ab91b0abd7aea8e70cb8c8a497fb119904b37beefd7fda00d037036b0f2",
+    "claviron-deno/src/routing.rs": "f6707828c9f2e40a75b24f2a9f143c29ba0d57517aa7c353eea689cbd389bd5e",
+    "claviron-deno/src/server.rs": "7a762c500b886d400f140c12b6f6c7a694bf4f502120ea85a5372be267b8cf8d",
+    "claviron-deno/src/task.rs": "8f11289ae2c3aed19b6283af100b6497755a0ac9fbaa0815985fe8d504064736",
+    "claviron-deno/src/application/definition.rs": "af55143c8293d8501034c277e1202af8b28af3576a468760d4989a84cd7a6aaa",
+    "claviron-deno/src/application/message.rs": "dfdbf0635f172e0ddb4d7888091f76dfaf6a43bd7dd7906e896eada62922c5a8",
+    "claviron-deno/src/application/runtime.rs": "28ec74c062cae5c610ba3bc719803feb3c2175fd8dfb886f3f0e3afe99222194",
+    "claviron-deno/src/application/request.rs": "ab170bda76630343b9c0b8f87b00d9aa8a2a09174b4dfa1b83b4aa7fde3cd486",
+    "claviron-deno/src/backend/deno.rs": "dd0d77c7215a732bcd83fe2c3782a4afa330272798d2073f685f7a029cf135a6",
+    "claviron-deno/src/engine/core.rs": "f758413b5f122ae5aad0b29939f5b837400f0b41130bd2b042f9ee270972942d",
+    "claviron-deno/src/engine/fetch.js": "8b949eb5837aabc7fdbf6dbc3c19a323ed60b0ee1910d8f2819d77e48864ec79",
+    "claviron-deno/src/engine/loader.rs": "333283dddfccc5cbf679fabb0a9768e6d3ac4ab71bce45468994b3017917eaea",
+    "claviron-deno/src/engine/platform.js": "46a71a2e9e6e40421101ccfc92ba6f8ba73795c54fc6e9e3581f61212aab3ac3",
+    "claviron-deno/src/engine/platform.rs": "f59c5ac9ffc05f7dec16af7e3a11686df23e518a30559ff54e9066c78ff03844",
+    "claviron-deno/src/engine/typescript.rs": "3676d4f49862a629872b342aa84018a92deaee366bc15244989f7c3dcb111166",
+    "claviron-deno/src/engine/web.js": "188d5c5c010bfd1fa07313fe120cdb9f09a6ab87eb978383fad1b6cac00ded47",
+    "claviron-deno/src/engine/websocket.js": "c398b7a84b4fa0503fff1344517d3637fba6cd93827d5caa19c05885c32f7ebb",
+    "claviron-deno/src/engine/application.js": "acb9b55368831565caf1f75a1612ad363b16857efbefd591947679b07f77118a",
+    "claviron-deno/src/engine/requests.rs": "97585ba6623678fb6a5072d6c771bb55ff316fbf6ba445780a10ed917f0d2a43",
+    "claviron-deno/src/extensions/cache.rs": "e287daf44c9e286ff9a646c66754e8b549aab27788cf25918d52da0e84edecb6",
+    "claviron-deno/src/extensions/context.rs": "b0fa46e86bcdbcccb500ebf6409b8168c2b007bf185f775ffef610b35ffab9a9",
+    "claviron-deno/src/extensions/database.rs": "ebbe713431f8be0dfe71ad65f739191fcb7ce5367aaa32eb0b0b943281576571",
+    "claviron-deno/src/extensions/log.rs": "3478ed138052724bbcca36f69380fb78692827a647160327b6f950d6ac28325a",
+    "claviron-deno/src/extensions/orbit.rs": "1d421a73e3af01770336ac2c3b33cd53bf2c7cbd3dcc3b58175357e8ea6a6024",
+    "claviron-deno/src/extensions/runtime.rs": "d7fd889626ccfdbfcc0b70fadb329c2bf0999585d02effceaef4a35e41f2c394",
+    "claviron-deno/src/extensions/websocket.rs": "fe8db5efe0f197e56258b49d62ba99d873446941c702f3e893695fddd8b800d2",
+    "claviron-deno/src/routing/config.rs": "25d888f1bf89a9af0e27f151e9ce0e8f0159b8b3725e54ef165c9800664669ab",
+    "claviron-deno/src/routing/edge.rs": "fab409fd54705ef26906f5d2bec914f09e7e26d3cb7799f3841a35753ca43cbc",
+    "claviron-deno/src/server/adapter.rs": "c44edf650d281e04db5fc2e88c1c5ee3036af0f3fca6b528541732c7ec15f81e",
+    "claviron-deno/src/server/controller.rs": "fa9fe6df6890e9ed1e1420f987a0c072341294c552855d0723442de1c22cea0a",
+    "claviron-deno/src/server/framework.rs": "7cf27aa774e655083e8776d50903f836b56f7b6b49e883f63280d8b9b79c7a9f",
+    "claviron-deno/src/server/pool.rs": "b9a9a8b2c15eb37bf67262e721945a6710abff7f01f1b9918073a74c00cfbe9b",
+    "claviron-deno/src/server/service.rs": "5b8ee0a2d21cb8cad514b5c22941dc4f272c6fe31d6e07390dd225c55076fd82",
+    "claviron-deno/src/server/websocket.rs": "fcd0eb868f11562251c0fabb6c2959ffb3e91c9e810d6d1a2f49ef7ceaf3cf20",
+    "claviron-deno/src/extensions/cache/cache.js": "c7d9414f8c9a78935c5c3ec55e11de0df7a50d1c1d4675888174bbdde109512c",
+    "claviron-deno/src/extensions/database/database.js": "3ad456e694defaeda61851473d33065acde8439fc24e0e319fa1f853805400f8",
+    "claviron-deno/src/extensions/database/mysql.rs": "a069b73be1901a83f5f5eb4a8a7785a9278ae4eceb1140391cadebed568cc769",
+    "claviron-deno/src/extensions/database/postgres.rs": "1d5f22d1b916635614422871983e67302bdb22ff4058e936b3ea87e9f7976135",
+    "claviron-deno/src/extensions/database/stream.rs": "f480cdd11ad281396222e4debd2a2746a8a6d88ae99f0a19a262de8f165558c2",
+    "claviron-deno/src/extensions/log/log.js": "0027bec7ef813bf990e00dbcc08e3d027ef40ecebc25747133a8bbfdf5d33f47",
+    "claviron-deno/src/extensions/orbit/cell.js": "9883e4d735c9425bdbc107b7339a7548d772a2994b04a0cfbfbec42674935933",
+    "claviron-deno/src/extensions/orbit/cell.rs": "e2459c612c8d4b6443f9fa731c4188386fd22a886a9b146c70263a24f821ff32",
+    "claviron-deno/src/extensions/orbit/counter.js": "a410259c56566249cd4ede8bcfc63e2e77231e20176db5ce2f1325e49e920471",
+    "claviron-deno/src/extensions/orbit/events.js": "8e7921f50f1ba244e6d360382bd25008fce740df133fa7e10158b50df8cca122",
+    "claviron-deno/src/extensions/orbit/invoke.js": "fc2b66135cef29ecbaecd678f3e857362968dd7de0294f5544c6f4757c8758b8",
+    "claviron-deno/src/extensions/orbit/invoke.rs": "2622e55ca9e2e996fdc970c9c9c4c29f7fb9eacbc01950d68c60ce8de4223061",
+    "claviron-deno/src/extensions/orbit/lock.js": "e7aef3bc5dc654a3107e3b7e003d9a88393c6097f1dcf5220299c1a1e4d39d4e",
+    "claviron-deno/src/extensions/orbit/orbit.js": "b3aa32cd4566be28f0596218e43c9c73b3733c44ec78ea27da6f75902dc0e6ee",
+    "claviron-deno/src/extensions/runtime/runtime.js": "cbb2cbeeb6b0c6582173b1c2cf411655dde5b8d1e561b61a90fa8364a64e82c8",
+    "claviron-deno/src/extensions/websocket/websocket.js": "70536daa677ed977f08a6be0a3f08b596de811d103f735f8e80b50c68c20337d",
+    "claviron-deno/src/extensions/orbit/modules/cell.js": "bbfe3adc70d556a4db3ae8393a5e483a0f710a2c6d8258cd7e2aa31aa383dee2",
+    "claviron-deno/src/extensions/orbit/modules/counter.js": "cc024b600c3feedfafefae632228e207df867da45a5eb11e70dac4d1938a7c40",
+    "claviron-deno/src/extensions/orbit/modules/events.js": "5e11095c328fe58cb4b60f8df66279be94182a5bd11ff4968b7dc11b8763a69e",
+    "claviron-deno/src/extensions/orbit/modules/invoke.js": "1fd7dc7f81476eed2b3c1dcf30662fe2bee9abda0ff8588e74be49bc791829ba",
+    "claviron-deno/src/extensions/orbit/modules/lock.js": "bb02b580e17428db26512b043708fb760bf383445e483148c5c78ddeb417c32e",
+    "claviron-deno/src/extensions/log/modules/log.js": "8a4c20824697d873bd889d865f733facc4756b14738f3849d52bd046c9f23310",
+    "claviron-deno/src/extensions/log/modules/logtape.js": "b32dacfd1ff07c74d803fa217f44139c37262a87d3d78c6e4987ae7158e441c0",
+    "claviron-deno/src/extensions/database/modules/db.js": "782924efb7f4a561d3926dd55961334a49791f1cb704778ee15482c9ac08d0df",
+    "claviron-deno/src/extensions/cache/modules/cache.js": "4b9bb1b8428824e1975c14ea99123d29358340411c6bf024f16e2a1a6a75c44e",
+    "claviron/Cargo.toml": "93846f790aece799876ca48a33776b88424aa9c3bc145f0aec5058607bcacfaa",
+    "claviron/src/clients.rs": "7b9a89ff10d36bc16653d05766e2d5b7de0e19eab42155b873549ec0baeac663",
+    "claviron/src/error.rs": "2f849cf037d8e4e5cc854eeea8a501767d1385acb4c010e4931ba2f1c6540022",
+    "claviron/src/lib.rs": "3c10a74d083353871197a917941617a81479079ed7dd4b9c5279c1587bee5760",
+    "claviron/src/bench/edge.rs": "341c6b6d4a647b69ee0fe7b8b8ebe476664877fb3e9a2417d0d2658bfb327a89",
+    "claviron/src/bench/handlers.rs": "2c8f27d23341d2a3c9493b7961ad966d7c569d2fe839741d7d6fb8a592747e22",
+    "claviron/src/bench/mod.rs": "b83cc1f48da7bb6970e0cd118eb5bc2b4bd7285b5ef52095957f0289c42a933c",
+    "claviron/src/bench/runner.rs": "638bd70a9edb8f1a04198b35a826b0770342d01be7e5f532a16cee34b5b8a5bd",
+    "claviron/src/clients/config.rs": "f855b57728fa322a7c0e48725fcb425c20b0286d32a3f19475bf4158978016bf",
+    "claviron/src/server/error.rs": "31c60b235a3d5065f0886f180cdf837e17960efa38a303fceb87e839aaf77304",
+    "claviron/src/server/instance.rs": "a8b8a406885dae3309939a8c0d85c9878db7cc7491163935ee9db8f4cc200db0",
+    "claviron/src/server/mod.rs": "0b436e10552e13495795a1205ab833765782e851dd8eda941f8c3683532f60d6",
+    "claviron/src/server/signals.rs": "85a758266f16a3d20c5ccd3f7089815ed089dd142c94b53c27ec7f43378e1fd6",
+    "claviron/src/server/bootstrap.rs": "dc767c6e9b70e04a40cda7578ea2a71e1593adf5e3fcdf0a9f2292bc5b2dd938",
+    "gufi-asgi/Cargo.toml": "b34fdf36d5ff36785c1a186425d2a47ce748b6014c090d749289b2afe7e21214",
+    "gufi-asgi/src/asgi.rs": "46f66a9e961343afedc5f2ba252cbd3fba89f389a24ea750d5f013d32ded5caa",
+    "gufi-asgi/src/broadcast.rs": "69e5611eede70481048ad79899e0eaa14a7889727f8869e020091bfa7595560a",
+    "gufi-asgi/src/config.rs": "068ca71e4858700c50c4afa94094300b0216614974f486bef63eaba3c5eba0f8",
+    "gufi-asgi/src/counter.rs": "295adce782b87555ae2b108f5e5d614b34ee4d30eb7cb16c3ca6ea4b07f3a87f",
+    "gufi-asgi/src/lib.rs": "6ea6cd6da1702d51fea9fdfda547c943a30cb3c2edca3ef265447cd7c065c0e8",
+    "gufi-asgi/src/log.py": "c1f8e86ea20633da6e12afbc0c9e6c536aba1c6447128b0236fb75fdac5c163c",
+    "gufi-asgi/src/log.rs": "baa2ff03661cd4ecf7cda1094ec55a027f628a615b12b874b098ff95f9d864f1",
+    "gufi-asgi/src/routing.rs": "01b884b3470adf515ee6229ccd5323b238a576a9b1a2d7dcf5f10f68fbe94d2a",
+    "gufi-asgi/src/asgi/driver.py": "7ad2399d9c8affcf81d0aa907d44337d553c0cc08d64b522c21a55a13ae21ee5",
+    "gufi-asgi/src/django/channels.py": "247787e9f8e1ce9a1d51dbb70116b66337d4a5d13aa51398ecb12506ed3f1614",
+    "gufi-asgi/src/django/channels.rs": "f7d5cf4a900ad18dc8e36b5e5713937d6d6f191929c2f85f3a5f00f60c8d563c",
+    "gufi-asgi/src/django/mod.rs": "3e66f55e849762c81582a1f61ff577a7e49f7b42beba5507de8b856fb0d5bbbc",
+    "orbitive/Cargo.toml": "ce381d21df252775272644a258a5a3e6669d950787990e41d5091fa9ff7ca3d1",
+    "orbitive/src/lib.rs": "61e5127fb4cd044d835264d2c0c47d21e9a3e122275d96c8fc2e811c9ca1773d",
+    "continuo/Cargo.toml": "6e68eb59f4ff7d394a14bf33c7d6c9ea9a7172566094e79f7f66be88ed7bc90a",
+    "continuo/src/events.rs": "a45964d2718cf1c739c153cf01629b98d3d5b50ad839de468e13936063350c6b",
+    "continuo/src/fleet.rs": "18cad445e4b41feeeb4bb5b1bd32dea2bedc0f1d0f3e2411fbc1ff5cca9200dc",
+    "continuo/src/guard.rs": "6b35fa95f4b322310dfa443e8a2d28be47307255c4e8a7202ed16f6b6c61f591",
+    "continuo/src/lib.rs": "8c1357bc0edee8bc72b37642a3dd9358f136870b3279fc25382e5b6b310c02a9",
+    "continuo/src/state.rs": "dc443f5e89c6a2171f2ce992e1cc37ed415e74ef842e4eba30fb63a02ef5d34c",
+    "continuo/src/watcher.rs": "c66bf39ff6be3d28e5a5d6f8e66bcfef8e43b57e7b7354f77239f7c7d5301c73",
+    "continuo/src/gate.rs": "f8794c2d93536615aad1dc7a01e7038ff6d9c8c3de309ce07fb1638393bdb730",
+    "continuo/src/registry.rs": "33b510c09bd6ffb1a0facbfb8fefad398765275c7f8dd4f8f7973c9e922e00d2",
+    "continuo/src/runtime.rs": "9855a05fdc31d6b1a2fa8269124535df4b75ff72aa2d7c57109d344baac9b4e4",
+    "continuo/src/service.rs": "cab0681a9afc709e4b9c087b2070c5c4474381d50e292bac7cae9daee6eba360",
+    "continuo/src/fleet/dispatch.rs": "8792643f09ac040d94521527c320a811c0f9484cc906e8c4c5b018f0e822a99a",
+    "continuo/src/registry/bootable.rs": "b091487ca58bba1a5fa0c5af3c7d37513942cec25e431eab9ee1c444901a32af",
+    "continuo/src/registry/component.rs": "0755f05a6bafd3a234f3742850b956d3f01fe1acabaf222d2f388589fa23d0a3",
+    "continuo/src/registry/erased.rs": "838a2f650c65af5e9d9cff3e5ca25d81925f2c433e046da3d194fed6cf45326f",
+    "continuo/src/registry/error.rs": "6e32e63ca0928798203512f83ed8c4e54ff5b27c126227a885eaa28f85e986a9",
+    "continuo/src/registry/finalizable.rs": "c6acff5e52c4c9a0d615dc66f72dd7cd05837da613d96d8e5eede6d660578dec",
+    "continuo/src/registry/order.rs": "445071c96e763087761f2a1828b463017d838e63c95a83fe60329d1c1b97f4cf",
+    "continuo/src/registry/priority.rs": "acc3a945383244764f4cf8ded78eda094bf3a26e23711c1387d7cdc0c23232dd",
+    "continuo/src/registry/register.rs": "2dc6e22349930c657cc3f23a4b23dbe0cb1294a4e6ce9799eab5eab4194728e7",
+    "continuo/src/registry/resolve.rs": "91d407b0f675989c192fba6237203db21834fd6be65f03cfbe55816f1a07faf3",
+    "continuo/src/registry/runnable.rs": "8f37101967393f6ee1dbc3fcc27ae518f91bf11b54a5e5d1ca9a0f85a9bbd83e",
+    "continuo/src/registry/validation.rs": "ba76dc1cce6e705ad89a0a8bcea4424c232855dec996541a62a002004d47b127",
+    "continuo/src/registry/reload.rs": "8ecfa12db5f1b0d6e392e4664845bc4792ea8b0fe483a2329642bfeecd5a5a36"
+  },
+  "dependency_revisions": {
+    "claviron": {
+      "base_revision": "7186b32a93dcf710ccafb69aff6baa66a7371ae4",
+      "working_tree_modified": true
+    },
+    "deno": {
+      "base_revision": "bfbe8434f7f6e0bd5e8d6308dfb2402603b140d2",
+      "working_tree_modified": true
+    },
+    "gufi": {
+      "base_revision": "147833418398d73ba2f9603db1e32f04f8698b2d",
+      "working_tree_modified": false
+    },
+    "orbitive": {
+      "base_revision": "bc0ebd2f0c5a2c9d953ac4f727d5dbcc50b8246a",
+      "working_tree_modified": false
+    },
+    "continuo": {
+      "base_revision": "d9c507ae7560c279f9eae6aa085cbf1e1b948657",
+      "working_tree_modified": false
+    }
+  },
+  "dependency_working_tree_modified": [
+    "claviron-deno"
+  ],
+  "isolation": {
+    "linux_namespaces": [
+      "mount",
+      "network",
+      "ipc",
+      "pid"
+    ],
+    "private_tmp_run_shm": true,
+    "sources_read_only": true,
+    "php_cache": "private writable copy at the same application path",
+    "graceful_family_exit_verified": true,
+    "test_survivors": []
+  },
+  "binary_rebuilt": false,
+  "warmup_connections": 128,
+  "comparison": {
+    "baseline_report": "benchmark-deno-multiplexed.json",
+    "baseline_report_sha256": "ff4d564596f7d6c9c0926955a3a8be4d51eb7a493b03be1e69ad1a3ef507d97e",
+    "same_binary": true,
+    "server_configuration_bytes_unchanged": true,
+    "warmup_unchanged": true,
+    "changed_load": {
+      "connections": {
+        "before": 128,
+        "after": 16
+      },
+      "requested_duration": {
+        "before": "5m",
+        "after": "1m"
+      }
+    },
+    "other_languages_retested": false,
+    "observed_changes_percent": {
+      "requests_per_second": -40.510206028373474,
+      "cpu_us_per_request": 7.509575922525946,
+      "p99_ms": -88.59432799013564,
+      "rss_before_bytes": 0.09591178018604207,
+      "rss_after_bytes": -9.67444951871419,
+      "rss_after_idle_bytes": -9.600550768998229
+    },
+    "interpretation": "Concurrency and duration both changed; this does not isolate a server-limit or concurrency-only cause."
+  }
+}
