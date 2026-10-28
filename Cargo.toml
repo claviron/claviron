@@ -108,6 +108,7 @@ files = ["dep:claviron-files", "claviron-runner?/files"]
 
 # ── Metrics extras
 metrics = [
+    "orbitive/metrics",
     "runtime",
     "claviron-runtime/metrics",
     "claviron-supervisor?/metrics",
