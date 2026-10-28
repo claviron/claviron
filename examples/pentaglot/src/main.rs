@@ -5,6 +5,9 @@ use std::path::PathBuf;
 use clap::Parser;
 use claviron::{FleetName, Server, ServerName, ServerOptions};
 
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[derive(Parser)]
 #[command(about = "Five applications embedded in one Claviron Edge")]
 struct Args {
@@ -24,7 +27,7 @@ struct Args {
     check_config: bool,
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread")]
 async fn main() -> claviron::Result<()> {
     let args = Args::parse();
     let check = args.check_config;

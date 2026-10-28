@@ -35,9 +35,17 @@ N serving workers. The default is standalone; `WORKERS` remains supported.
 dependencies; language engines use the selected runtime builds.
 `--production` explicitly selects Claviron's production environment instead
 of a named development environment.
-`PENTAGLOT_LISTEN` selects the loopback listener; `FLEET`, `CONFIG_DIR` and
-`WORKERS` select this instance's runtime resources. Server arguments after `--`
+`PENTAGLOT_LISTEN` is resolved from the environment-file recipe; the example's
+`.env` overrides an inherited value. For an isolated listener, copy the config
+and set `listeners.demo.listen` explicitly. `FLEET`, `CONFIG_DIR` and `WORKERS`
+select this instance's runtime resources. Server arguments after `--`
 can select a distinct instance name, fleet, environment or configuration.
+
+Pentaglot uses MiMalloc for Rust allocations. `--mimalloc release` sets immediate
+unused-page purging with decommit; `--mimalloc retain` disables purging.
+The default policy preserves inherited allocator settings.
+`--mimalloc-purge-delay-ms N` overrides the selected policy (`-1` disables,
+`0` purges immediately). These options take effect at process startup.
 
 Building requires a compatible PHP ZTS embed installation (`PHP` and
 `PHP_CONFIG`), CPython 3.15 (`PYO3_PYTHON`) and the Deno Core/V8 build
@@ -90,79 +98,24 @@ the launcher's `stop` command after clients have finished.
 
 ## Benchmark
 
-The bottom of the home page shows a recorded throughput summary, loaded from
-`public/assets/benchmark.json`. It reports successful requests/s, concurrency,
-p99 latency, CPU usage, process RSS before/after each case and errors. Opening
-the page reads the saved report; it does not
-start a load test.
+Linux x86-64; two Xeon E5-2650 v2 CPUs, 16 physical cores / 32 logical CPUs,
+125 GiB RAM. Release/native with mimalloc release; Tokio default multi_thread.
+Each language uses a fresh master and 16 workers, 128 connections and 5 minutes
+of load, followed by 120 seconds idle with the server still running.
 
-Build and start an isolated release instance with
-`examples/scripts/pentaglot.sh start --standalone --release --native --optimize --production`,
-then measure its five JSON
-paths from the repository root:
+| Language | Successful req/s | CPU µs/request | p99 (ms) | RSS start → end → +120s (MiB) | Errors |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Rust | 280,113 | 69.39 | 8.151 | 2,942.3 → 2,994.8 → 2,994.8 | 0 |
+| Lua | 108,810 | 198.69 | 5.072 | 2,936.6 → 3,014.9 → 3,014.9 | 0 |
+| Deno | 68,365 | 368.42 | 11.011 | 3,766.6 → 11,331.5 → 11,310.9 | 0 |
+| PHP / Symfony | 29,768 | 1007.56 | 13.659 | 2,964.6 → 3,111.4 → 3,056.4 | 0 |
+| Python / Gufi-ASGI | 123,932 | 194.95 | 6.694 | 2,936.7 → 3,015.9 → 3,018.0 | 0 |
 
-```sh
-python3 examples/pentaglot/scripts/benchmark.py \
-  --url http://127.0.0.1:8080 \
-  --connections 64 --threads 4 --duration 1m \
-  --standalone \
-  --binary examples/pentaglot/target/release/pentaglot \
-  --native \
-  --label "Your CPU, RAM and OS" \
-  --output examples/pentaglot/public/assets/benchmark.json \
-  --raw-dir examples/pentaglot/logs/benchmark
-```
-
-The script requires `wrk` and a running instance. It checks each
-handler's JSON response and serving PID before timing. Cases run sequentially
-with persistent HTTP/1.1 connections while all five runtimes remain loaded.
-Only the final summary uses a Lua reporting hook; there is no per-response
-Lua callback in the generator. HTTP error responses are excluded from
-successful throughput; socket errors and timeouts remain in the report. A
-run with errors produces a report and exits unsuccessfully.
-
-For a worker-process measurement, start with `--workers 16` and pass
-`--workers 16` to `benchmark.py` instead of `--standalone`. The sampler includes
-the master and its serving workers and rejects changes to that process set
-during the measurement. Runtime capacity is per serving process: sixteen
-workers with this PHP configuration keep eight PHP instances warm each, and
-each pool can grow to its configured ceiling.
-
-The workload is run with settings suited to each runtime. The Lua handler
-computes JSON rather than awaiting external I/O: concurrency 1 prevents
-multiple Tokio tasks competing for its one VM. Deno uses eight independent
-isolates, PHP keeps eight application instances warm with a configured pool
-ceiling, and Python uses one ASGI event loop with asynchronous request tasks.
-Rust serializes a typed response directly; Python also emits compact JSON.
-PHP uses the minimal Symfony production kernel with debug off
-and the OPcache settings described above. Access logging is off.
-Each handler serializes its own small JSON response, including a request
-counter; payload sizes and execution paths differ.
-
-Equal instance counts would not imply equal execution capacity: Lua concurrency
-is coroutine admission inside one VM, Deno instances are separate isolates,
-PHP instances are separate Zend contexts, and ASGI overlaps asynchronous
-requests on an event loop. All cases use the same machine, listener, client
-concurrency and duration, with the other applications still loaded. The report
-records CPU use and RSS alongside throughput, so additional parallelism is
-visible together with its resource cost. Framework and adapter work remains
-part of each labeled application.
-
-For focused tuning, repeat `--runtime` to measure selected paths and write to a
-separate report file. The default still measures all five. Keep profiled
-diagnostic runs separate from the final unprofiled throughput measurements.
-
-The report records the machine description, source revision, release binary
-hash, exact elapsed time, completed requests, CPU-time and RSS samples, and
-wrk error counters. CPU uses cumulative process time at the two boundaries,
-not an instantaneous `ps %cpu` value; 100% means one fully used core. Resource
-sampling runs outside the timed request loop. RSS
-includes all five loaded runtimes; the sequential per-path deltas do not
-isolate a language's allocations. Raw
-generator output stays under the ignored logs directory. The sample uses
-one minute and 64 connections per path, with client and server sharing a
-development machine, without CPU affinity. It describes this demo configuration; it is not a
-like-for-like language or framework ranking.
+CPU is aggregate master/worker CPU time per completed request. RSS sums those
+17 processes with all five runtimes loaded; shared pages count per process.
+PHP and Deno start with 8 instances per worker. All cases use the same binary.
+The [measurement data](public/assets/benchmark.json) includes settings, source
+revisions, CPU totals and every idle RSS sample.
 
 ## Ownership
 

@@ -13,6 +13,7 @@ gufi-asgi = { version = "0.2.0-alpha.24", default-features = false }
 async-trait = "0.1"
 clap = { version = "4", features = ["derive"] }
 http-body-util = "0.1"
+mimalloc = "0.1"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
 tracing = "0.1"
