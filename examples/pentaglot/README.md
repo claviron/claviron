@@ -117,6 +117,18 @@ PHP and Deno start with 8 instances per worker. All cases use the same binary.
 The [measurement data](public/assets/benchmark.json) includes settings, source
 revisions, CPU totals and every idle RSS sample.
 
+Deno capacity comparison: same binary, 16 workers, 128 connections, 5 minutes
+of load and 120 seconds idle. The original measurements above are retained.
+Only Deno isolates per worker changed.
+
+| Deno isolates/worker | Successful req/s | CPU µs/request | p99 (ms) | RSS start → end → +120s (MiB) | Errors |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 8 | 68,365 | 368.42 | 11.011 | 3,766.6 → 11,331.5 → 11,310.9 | 0 |
+| 1 | 63,708 | 346.69 | 6.904 | 2,614.8 → 3,375.2 → 3,356.5 | 0 |
+
+The [one-isolate report](public/assets/benchmark-deno-one.json) records the new
+run and links its unchanged baseline.
+
 ## Ownership
 
 Each serving worker embeds all five applications. Worker processes can scale
