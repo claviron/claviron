@@ -179,12 +179,8 @@ extern "C" fn subscribe_many_handler(
             let bridge = bridge()?;
             let context = context()?;
             let application = application(context)?;
-            let mut subscription =
-                context.event_subscription.lock().map_err(|_| {
-                    "PHP execution event subscription lock is poisoned"
-                        .to_owned()
-                })?;
-            let subscription = subscription
+            let subscription = context
+                .event_subscription
                 .get_or_insert_with(|| bridge.subscription(application));
             i64::try_from(subscription.subscribe_many(topics)).map_err(|_| {
                 "PHP event subscription count exceeds integer range".to_owned()
@@ -210,12 +206,8 @@ extern "C" fn subscribe_handler(
             let bridge = bridge()?;
             let context = context()?;
             let application = application(context)?;
-            let mut subscription =
-                context.event_subscription.lock().map_err(|_| {
-                    "PHP execution event subscription lock is poisoned"
-                        .to_owned()
-                })?;
-            let subscription = subscription
+            let subscription = context
+                .event_subscription
                 .get_or_insert_with(|| bridge.subscription(application));
             Ok::<_, String>(subscription.subscribe(topic))
         })();
@@ -237,11 +229,7 @@ extern "C" fn unsubscribe_handler(
         let result = (|| {
             let topic = parse_topic(ex)?;
             let context = context()?;
-            let mut subscription =
-                context.event_subscription.lock().map_err(|_| {
-                    "PHP execution event subscription lock is poisoned"
-                        .to_owned()
-                })?;
+            let subscription = &mut context.event_subscription;
             let removed = subscription
                 .as_mut()
                 .is_some_and(|subscription| subscription.unsubscribe(&topic));
@@ -327,15 +315,11 @@ extern "C" fn receive_handler(
                 }
                 PhpExecution::Request(_) => None,
             };
-            let mut subscription =
-                context.event_subscription.lock().map_err(|_| {
-                    "PHP execution event subscription lock is poisoned"
+            let subscription =
+                context.event_subscription.as_mut().ok_or_else(|| {
+                    "subscribe to at least one PHP event topic before receiving"
                         .to_owned()
                 })?;
-            let subscription = subscription.as_mut().ok_or_else(|| {
-                "subscribe to at least one PHP event topic before receiving"
-                    .to_owned()
-            })?;
             bridge.receive(subscription, timeout, cancellation.as_ref())
         })();
 

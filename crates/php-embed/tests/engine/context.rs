@@ -47,7 +47,7 @@ fn program(
             #[cfg(feature = "tasks")]
             output: None,
         }),
-        event_subscription: Mutex::new(None),
+        event_subscription: None,
         #[cfg(feature = "tasks")]
         invocation_subscription: Mutex::new(None),
         env_overlay: Mutex::new(HashMap::new()),

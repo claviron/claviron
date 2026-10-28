@@ -152,6 +152,10 @@ end-of-stream. Requests with a body retain the existing limit checks and byte
 preservation, including GET/HEAD bodies. Incoming body and header values copy
 directly into PHP-owned binary strings without an intermediate Rust vector;
 PHP does not borrow the Rust message's storage.
+Header lists are built directly in PHP arrays. Response header names are parsed
+from their existing PHP storage. Event receivers belong exclusively to the PHP
+execution thread; waiting for an HTTP message takes no subscription mutex,
+including in applications that subscribe to events.
 
 ## Native capabilities and environment
 

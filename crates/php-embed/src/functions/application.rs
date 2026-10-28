@@ -115,11 +115,7 @@ extern "C" fn receive(
             let execution_timeout = inbox.execution_timeout;
             let context =
                 ClavironContext::from_server_context(globals.server_context);
-            let mut subscription =
-                context.event_subscription.lock().map_err(|_| {
-                    "PHP execution event subscription lock is poisoned".to_owned()
-                })?;
-            let input = match subscription.as_mut() {
+            let input = match context.event_subscription.as_mut() {
                 Some(subscription) => {
                     let bridge = bridge()?;
                     inbox.receive(Some((bridge.as_ref(), subscription)))?
@@ -332,12 +328,10 @@ fn request_value(request: &Request<Bytes>) -> Result<Zval, String> {
         value.insert("body", binary(request.body()))?;
         let mut headers = ZendHashTable::new();
         for name in request.headers().keys() {
-            let values: Vec<Zval> = request
-                .headers()
-                .get_all(name)
-                .iter()
-                .map(|v| binary(v.as_bytes()))
-                .collect();
+            let mut values = ZendHashTable::new();
+            for value in request.headers().get_all(name) {
+                values.push(binary(value.as_bytes()))?;
+            }
             headers.insert(name.as_str(), values)?;
         }
         value.insert("headers", headers)?;
@@ -410,9 +404,19 @@ fn response_head(value: &ZendHashTable) -> Result<Response<()>, String> {
     let headers = value.get("headers").and_then(|v| v.array()).ok_or(
         "response.headers must be an array of header-name => list<string>",
     )?;
-    for (key, values) in headers {
-        let name = HeaderName::from_bytes(key.to_string().as_bytes())
-            .map_err(|e| e.to_string())?;
+    // The ordinary array iterator converts each string key to an owned Rust
+    // String. Keep the Zend key alive and parse its bytes directly instead.
+    let mut headers = headers.iter();
+    while let Some((key, values)) = headers.next_zval() {
+        let name = if let Some(name) = key.binary_slice::<u8>() {
+            HeaderName::from_bytes(name)
+        } else {
+            let name = key
+                .long()
+                .ok_or("response header name must be a string or integer")?;
+            HeaderName::from_bytes(name.to_string().as_bytes())
+        }
+        .map_err(|e| e.to_string())?;
         let values = values
             .array()
             .ok_or("each response header must be a list of strings")?;

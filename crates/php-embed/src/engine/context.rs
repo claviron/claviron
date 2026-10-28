@@ -166,9 +166,9 @@ pub(crate) struct ClavironContext {
     pub(crate) execution: PhpExecution,
     /// Topics and bus cursors belong to this execution, not its reusable ZTS
     /// thread. Persistent programs retain them for their lifetime; one-shot
-    /// requests drop them during request shutdown.
-    pub(crate) event_subscription:
-        Mutex<Option<crate::event::EventSubscription>>,
+    /// requests drop them during request shutdown. Only the owning PHP thread
+    /// accesses this receiver through its exclusive execution context.
+    pub(crate) event_subscription: Option<crate::event::EventSubscription>,
     /// Invocation operations this execution consumes; same ownership as the
     /// event subscription.
     #[cfg(feature = "tasks")]
@@ -203,7 +203,7 @@ impl ClavironContext {
                 body_sink,
                 environment,
             }),
-            event_subscription: Mutex::new(None),
+            event_subscription: None,
             #[cfg(feature = "tasks")]
             invocation_subscription: Mutex::new(None),
             env_overlay: Mutex::new(HashMap::new()),

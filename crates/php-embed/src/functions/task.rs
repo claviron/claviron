@@ -72,10 +72,7 @@ fn receive() -> Result<Option<TaskInput>, String> {
             );
         }
     };
-    let mut events = context
-        .event_subscription
-        .lock()
-        .map_err(|_| "PHP event subscription lock is poisoned".to_owned())?;
+    let events = &mut context.event_subscription;
     let mut invocations =
         context.invocation_subscription.lock().map_err(|_| {
             "PHP invocation subscription lock is poisoned".to_owned()
