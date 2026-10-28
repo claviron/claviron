@@ -5,3 +5,4 @@
 /apps/php/var/
 __pycache__/
 !/apps/php/composer.lock
+!BENCHMARK.md
