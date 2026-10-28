@@ -35,6 +35,11 @@ N serving workers. The default is standalone; `WORKERS` remains supported.
 dependencies; language engines use the selected runtime builds.
 `--production` explicitly selects Claviron's production environment instead
 of a named development environment.
+The launcher builds against this repository's Claviron sources, including its
+internal crates. It generates ignored Cargo overrides in `.cache/`, verifies
+the resolved source paths and refreshes a stale example lockfile when needed.
+The package manifest retains registry dependencies for direct Cargo builds;
+Deno and Gufi-ASGI retain their declared dependency sources.
 `PENTAGLOT_LISTEN` is resolved from the environment-file recipe; the example's
 `.env` overrides an inherited value. For an isolated listener, copy the config
 and set `listeners.demo.listen` explicitly. `FLEET`, `CONFIG_DIR` and `WORKERS`

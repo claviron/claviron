@@ -58,6 +58,7 @@ Usage: examples/scripts/pentaglot.sh [start|run|status|stop] [--standalone|--wor
                                   [--mimalloc default|release|retain] [--mimalloc-purge-delay-ms N] [-- server options]
 
 Run Rust, Lua, Deno, PHP and Gufi-ASGI applications in one Claviron Edge.
+Builds use the Claviron source checkout containing this launcher.
 Claviron resolves PENTAGLOT_LISTEN from its environment snapshot; .env overrides inherited values.
 CONFIG_DIR defaults to config/.
 FLEET defaults to penta; WORKERS defaults to 0 (one standalone serving process).
@@ -112,7 +113,21 @@ if [[ "$optimize" == true ]]; then
   PHP_INI_SCAN_DIR="$APP/config/php.d" "$PHP" "$APP/apps/php/optimize.php"
 fi
 if [[ "$skip_build" == false ]]; then
-  example_build "$native" cargo build --workspace --all-features --all-targets "${build_args[@]}"
+  local_sources="$APP/.cache/local-sources.toml"
+  local_helper="$APP/scripts/local.py"
+  local_version="$(python3 "$local_helper" --root "$ROOT" --config "$local_sources")"
+  if python3 "$local_helper" --root "$ROOT" --config "$local_sources" --verify "$APP/Cargo.toml"; then
+    :
+  else
+    source_status=$?
+    [[ "$source_status" == 1 ]] || exit "$source_status"
+    cargo --config "$local_sources" update --manifest-path "$APP/Cargo.toml" \
+      --package claviron --precise "$local_version"
+    python3 "$local_helper" --root "$ROOT" --config "$local_sources" --verify "$APP/Cargo.toml"
+  fi
+  printf 'Claviron sources: %s\n' "$ROOT" >&2
+  example_build "$native" cargo --config "$local_sources" build \
+    --workspace --all-features --all-targets "${build_args[@]}"
 fi
 
 export RUST_LOG="${RUST_LOG:-info}"
