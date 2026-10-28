@@ -59,10 +59,14 @@ declares only two routes and one controller; the existing `claviron/symfony`
 adapter owns its persistent request/terminate loop. Deno enables its standard
 Fetch and Streams implementation for request and response bodies.
 
-`--optimize` builds an authoritative Composer classmap and warms Symfony's
-production container and router cache. The kernel runs with `prod` and debug
+The PHP example selects Symfony's `8.2.x-dev` branch and locks its resolved
+revisions. `--optimize` builds an authoritative Composer classmap and runs
+`cache:clear --env=prod --no-debug`, including container and router warmup.
+The same command is available through `apps/php/bin/console`.
+The kernel runs with `prod` and debug
 off. PHP scans the demo's `config/php.d` instead of the host CLI extension
-directory: OPcache is enabled, `opcache.validate_timestamps=0`, and Xdebug is
+directory: OPcache is enabled with 256 MiB, 20,000 accelerated files,
+16 MiB for interned strings, `opcache.validate_timestamps=0`, and Xdebug is
 not loaded from that directory. The selected PHP build must provide OPcache
 as a built-in module or load it from its primary INI. The pool keeps eight
 persistent PHP instances warm and can grow to 64 under demand. `engine.warmup`
@@ -118,21 +122,21 @@ of load, followed by 120 seconds idle with the server still running.
 | Rust | 280,113 | 69.39 | 8.151 | 2,942.3 → 2,994.8 → 2,994.8 | 0 |
 | Lua | 108,810 | 198.69 | 5.072 | 2,936.6 → 3,014.9 → 3,014.9 | 0 |
 | Deno | 95,398 | 236.77 | 8.110 | 2,464.0 → 3,326.5 → 3,307.9 | 0 |
-| PHP / Symfony | 29,768 | 1007.56 | 13.659 | 2,964.6 → 3,111.4 → 3,056.4 | 0 |
+| PHP / Symfony 8.2-dev | 32,547 | 919.39 | 12.005 | 3,439.3 → 3,548.5 → 3,482.3 | 0 |
 | PHP / plain | 134,978 | 156.60 | 10.391 | 2,798.5 → 2,905.3 → 2,901.2 | 0 |
 | Python / Gufi-ASGI | 123,932 | 194.95 | 6.694 | 2,936.7 → 3,015.9 → 3,018.0 | 0 |
 
 CPU is aggregate master/worker CPU time per completed request. RSS sums those
 17 processes with all five runtimes loaded; shared pages count per process.
-The Deno row uses the updated bridge with one isolate per worker. Rust, Lua,
-Symfony and Python retain the original binary and eight Deno isolates per
-worker. PHP starts with eight warm instances throughout. Plain PHP uses the
-optimized embed bridge;
-its pool policy, entry script, PHP warmup packages and other runtime revisions
-match the [earlier plain result](public/assets/benchmark-php-plain.json).
-The Symfony result uses 8.1.9. The
-[original measurements](public/assets/benchmark.json),
-[updated plain PHP report](public/assets/benchmark-php-plain-optimized.json),
+The Deno row uses one isolate per worker. Rust, Lua and Python retain the
+original binary; both PHP rows use the optimized embed bridge and eight Deno
+isolates per worker. PHP starts with eight warm contexts in every case.
+Plain PHP retains its earlier pool and warmup packages. Symfony uses 8.2-dev,
+production cache warmup and the explicit OPcache settings above.
+The [original measurements](public/assets/benchmark.json),
+[earlier Plain PHP report](public/assets/benchmark-php-plain.json),
+[updated Plain PHP report](public/assets/benchmark-php-plain-optimized.json),
+[Symfony 8.2 report](public/assets/benchmark-symfony82.json),
 and [updated Deno report](public/assets/benchmark-deno-multiplexed.json) include
 settings, source revisions, CPU totals and idle RSS samples. See
 [BENCHMARK.md](BENCHMARK.md) for the full history.

@@ -1,0 +1,1229 @@
+{
+  "measured_at": "2026-10-28T21:15:24.528034+00:00",
+  "hardware": "2 x Intel Xeon E5-2650 v2, 16 physical cores / 32 logical CPUs, 125 GiB RAM; AlmaLinux 8.10 x86-64, Linux 5.15.223",
+  "architecture": "x86_64",
+  "source_revision": "ff25b2cb210f4277f01236f460b9f8eb36b0cb13",
+  "binary_sha256": "23172388c9f8f24ac80e9c44624e1f7f5aad989fb22f81f2fe1b239b8da2e1a7",
+  "build": "release, target-cpu=native",
+  "source_modified": true,
+  "notes": "Fresh master + 16 workers per runtime; SO_REUSEPORT; Tokio default multi_thread (no worker_threads override); Lua concurrency 1; Deno 8 isolates per worker; PHP warm floor 8, ceiling 64 per worker; Symfony prod/debug=false, authoritative Composer classmap, container/router cache and all 16 OPcaches warm; runtime log level warn, 16 startup-only OPcache completion records, access log off; timestamp checks off, Xdebug absent; Python one ASGI loop per worker. 65,536 untimed selected-runtime warmup requests; all five runtimes loaded; mimalloc release (purge delay 0 ms, decommit enabled); idle RSS at +10/+30/+60/+120 s without forced GC or purge. Client and server share the host, no CPU affinity.",
+  "idle_sample_seconds": [
+    10,
+    30,
+    60,
+    120
+  ],
+  "transport": "HTTP/1.1, loopback, persistent connections",
+  "mode": "workers",
+  "serving_processes": 16,
+  "resource_processes": 17,
+  "connections": 128,
+  "generator_threads": 8,
+  "requested_duration": "5m",
+  "generator": "wrk 4.2.0 [epoll] Copyright (C) 2012 Will Glozer",
+  "method": "GET /php JSON; persistent Symfony 8.2 development kernel, optimized PHP embed and declared production OPcache settings",
+  "measured_runtimes": [
+    "php"
+  ],
+  "preflight": "one untimed GET per runtime before measurement",
+  "access_logging": false,
+  "memory_metric": "RSS before/after each case; all five runtimes included; worker mode sums master and workers and counts shared pages per process",
+  "cpu_metric": "Cumulative process CPU-time delta divided by wall time; 100 percent equals one fully used CPU core",
+  "results": [
+    {
+      "runtime": "php",
+      "path": "/php",
+      "requests_per_second": 32546.53,
+      "successful_requests": 9767024,
+      "completed_requests": 9767024,
+      "duration_seconds": 300.094217,
+      "p99_ms": 12.005,
+      "rss_before_bytes": 3606392832,
+      "rss_after_bytes": 3720908800,
+      "rss_delta_bytes": 114515968,
+      "cpu_before_seconds": 108.51,
+      "cpu_after_seconds": 9088.2,
+      "cpu_used_seconds": 8979.69,
+      "cpu_percent": 2992.02,
+      "cpu_us_per_request": 919.3885,
+      "resource_window_seconds": 300.121181,
+      "process_usage_before": [
+        {
+          "pid": 25,
+          "start_ticks": 98604732,
+          "rss_bytes": 154296320,
+          "cpu_seconds": 0.1,
+          "role": "master"
+        },
+        {
+          "pid": 62,
+          "start_ticks": 98604742,
+          "rss_bytes": 222183424,
+          "cpu_seconds": 7.2,
+          "role": "worker"
+        },
+        {
+          "pid": 63,
+          "start_ticks": 98604742,
+          "rss_bytes": 218587136,
+          "cpu_seconds": 8.56,
+          "role": "worker"
+        },
+        {
+          "pid": 64,
+          "start_ticks": 98604742,
+          "rss_bytes": 221732864,
+          "cpu_seconds": 5.69,
+          "role": "worker"
+        },
+        {
+          "pid": 65,
+          "start_ticks": 98604742,
+          "rss_bytes": 220848128,
+          "cpu_seconds": 6.09,
+          "role": "worker"
+        },
+        {
+          "pid": 66,
+          "start_ticks": 98604742,
+          "rss_bytes": 223309824,
+          "cpu_seconds": 7.09,
+          "role": "worker"
+        },
+        {
+          "pid": 67,
+          "start_ticks": 98604742,
+          "rss_bytes": 191131648,
+          "cpu_seconds": 7.14,
+          "role": "worker"
+        },
+        {
+          "pid": 68,
+          "start_ticks": 98604742,
+          "rss_bytes": 191410176,
+          "cpu_seconds": 7.87,
+          "role": "worker"
+        },
+        {
+          "pid": 69,
+          "start_ticks": 98604742,
+          "rss_bytes": 221163520,
+          "cpu_seconds": 7.14,
+          "role": "worker"
+        },
+        {
+          "pid": 70,
+          "start_ticks": 98604742,
+          "rss_bytes": 223039488,
+          "cpu_seconds": 5.31,
+          "role": "worker"
+        },
+        {
+          "pid": 71,
+          "start_ticks": 98604742,
+          "rss_bytes": 222126080,
+          "cpu_seconds": 6.81,
+          "role": "worker"
+        },
+        {
+          "pid": 72,
+          "start_ticks": 98604742,
+          "rss_bytes": 190976000,
+          "cpu_seconds": 7.42,
+          "role": "worker"
+        },
+        {
+          "pid": 73,
+          "start_ticks": 98604742,
+          "rss_bytes": 218091520,
+          "cpu_seconds": 7.48,
+          "role": "worker"
+        },
+        {
+          "pid": 74,
+          "start_ticks": 98604742,
+          "rss_bytes": 220864512,
+          "cpu_seconds": 4.75,
+          "role": "worker"
+        },
+        {
+          "pid": 75,
+          "start_ticks": 98604742,
+          "rss_bytes": 221310976,
+          "cpu_seconds": 5.58,
+          "role": "worker"
+        },
+        {
+          "pid": 76,
+          "start_ticks": 98604742,
+          "rss_bytes": 222724096,
+          "cpu_seconds": 7.79,
+          "role": "worker"
+        },
+        {
+          "pid": 77,
+          "start_ticks": 98604742,
+          "rss_bytes": 222597120,
+          "cpu_seconds": 6.49,
+          "role": "worker"
+        }
+      ],
+      "process_usage_after": [
+        {
+          "pid": 25,
+          "start_ticks": 98604732,
+          "rss_bytes": 154296320,
+          "cpu_seconds": 0.21,
+          "role": "master"
+        },
+        {
+          "pid": 62,
+          "start_ticks": 98604742,
+          "rss_bytes": 233136128,
+          "cpu_seconds": 744.62,
+          "role": "worker"
+        },
+        {
+          "pid": 63,
+          "start_ticks": 98604742,
+          "rss_bytes": 225349632,
+          "cpu_seconds": 560.27,
+          "role": "worker"
+        },
+        {
+          "pid": 64,
+          "start_ticks": 98604742,
+          "rss_bytes": 229371904,
+          "cpu_seconds": 635.99,
+          "role": "worker"
+        },
+        {
+          "pid": 65,
+          "start_ticks": 98604742,
+          "rss_bytes": 224526336,
+          "cpu_seconds": 443.93,
+          "role": "worker"
+        },
+        {
+          "pid": 66,
+          "start_ticks": 98604742,
+          "rss_bytes": 226594816,
+          "cpu_seconds": 419.76,
+          "role": "worker"
+        },
+        {
+          "pid": 67,
+          "start_ticks": 98604742,
+          "rss_bytes": 195031040,
+          "cpu_seconds": 484.44,
+          "role": "worker"
+        },
+        {
+          "pid": 68,
+          "start_ticks": 98604742,
+          "rss_bytes": 203264000,
+          "cpu_seconds": 680.44,
+          "role": "worker"
+        },
+        {
+          "pid": 69,
+          "start_ticks": 98604742,
+          "rss_bytes": 233844736,
+          "cpu_seconds": 681.5,
+          "role": "worker"
+        },
+        {
+          "pid": 70,
+          "start_ticks": 98604742,
+          "rss_bytes": 226881536,
+          "cpu_seconds": 441.5,
+          "role": "worker"
+        },
+        {
+          "pid": 71,
+          "start_ticks": 98604742,
+          "rss_bytes": 226037760,
+          "cpu_seconds": 485.38,
+          "role": "worker"
+        },
+        {
+          "pid": 72,
+          "start_ticks": 98604742,
+          "rss_bytes": 196653056,
+          "cpu_seconds": 541.07,
+          "role": "worker"
+        },
+        {
+          "pid": 73,
+          "start_ticks": 98604742,
+          "rss_bytes": 230244352,
+          "cpu_seconds": 709.94,
+          "role": "worker"
+        },
+        {
+          "pid": 74,
+          "start_ticks": 98604742,
+          "rss_bytes": 230846464,
+          "cpu_seconds": 642.68,
+          "role": "worker"
+        },
+        {
+          "pid": 75,
+          "start_ticks": 98604742,
+          "rss_bytes": 228229120,
+          "cpu_seconds": 576.18,
+          "role": "worker"
+        },
+        {
+          "pid": 76,
+          "start_ticks": 98604742,
+          "rss_bytes": 226078720,
+          "cpu_seconds": 444.79,
+          "role": "worker"
+        },
+        {
+          "pid": 77,
+          "start_ticks": 98604742,
+          "rss_bytes": 230522880,
+          "cpu_seconds": 595.5,
+          "role": "worker"
+        }
+      ],
+      "errors": {
+        "connect": 0,
+        "read": 0,
+        "write": 0,
+        "status": 0,
+        "timeout": 0
+      },
+      "post_load_samples": [
+        {
+          "requested_seconds": 0,
+          "elapsed_seconds": 0,
+          "rss_bytes": 3720908800,
+          "cpu_seconds": 9088.2,
+          "process_usage": [
+            {
+              "pid": 25,
+              "start_ticks": 98604732,
+              "rss_bytes": 154296320,
+              "cpu_seconds": 0.21,
+              "role": "master"
+            },
+            {
+              "pid": 62,
+              "start_ticks": 98604742,
+              "rss_bytes": 233136128,
+              "cpu_seconds": 744.62,
+              "role": "worker"
+            },
+            {
+              "pid": 63,
+              "start_ticks": 98604742,
+              "rss_bytes": 225349632,
+              "cpu_seconds": 560.27,
+              "role": "worker"
+            },
+            {
+              "pid": 64,
+              "start_ticks": 98604742,
+              "rss_bytes": 229371904,
+              "cpu_seconds": 635.99,
+              "role": "worker"
+            },
+            {
+              "pid": 65,
+              "start_ticks": 98604742,
+              "rss_bytes": 224526336,
+              "cpu_seconds": 443.93,
+              "role": "worker"
+            },
+            {
+              "pid": 66,
+              "start_ticks": 98604742,
+              "rss_bytes": 226594816,
+              "cpu_seconds": 419.76,
+              "role": "worker"
+            },
+            {
+              "pid": 67,
+              "start_ticks": 98604742,
+              "rss_bytes": 195031040,
+              "cpu_seconds": 484.44,
+              "role": "worker"
+            },
+            {
+              "pid": 68,
+              "start_ticks": 98604742,
+              "rss_bytes": 203264000,
+              "cpu_seconds": 680.44,
+              "role": "worker"
+            },
+            {
+              "pid": 69,
+              "start_ticks": 98604742,
+              "rss_bytes": 233844736,
+              "cpu_seconds": 681.5,
+              "role": "worker"
+            },
+            {
+              "pid": 70,
+              "start_ticks": 98604742,
+              "rss_bytes": 226881536,
+              "cpu_seconds": 441.5,
+              "role": "worker"
+            },
+            {
+              "pid": 71,
+              "start_ticks": 98604742,
+              "rss_bytes": 226037760,
+              "cpu_seconds": 485.38,
+              "role": "worker"
+            },
+            {
+              "pid": 72,
+              "start_ticks": 98604742,
+              "rss_bytes": 196653056,
+              "cpu_seconds": 541.07,
+              "role": "worker"
+            },
+            {
+              "pid": 73,
+              "start_ticks": 98604742,
+              "rss_bytes": 230244352,
+              "cpu_seconds": 709.94,
+              "role": "worker"
+            },
+            {
+              "pid": 74,
+              "start_ticks": 98604742,
+              "rss_bytes": 230846464,
+              "cpu_seconds": 642.68,
+              "role": "worker"
+            },
+            {
+              "pid": 75,
+              "start_ticks": 98604742,
+              "rss_bytes": 228229120,
+              "cpu_seconds": 576.18,
+              "role": "worker"
+            },
+            {
+              "pid": 76,
+              "start_ticks": 98604742,
+              "rss_bytes": 226078720,
+              "cpu_seconds": 444.79,
+              "role": "worker"
+            },
+            {
+              "pid": 77,
+              "start_ticks": 98604742,
+              "rss_bytes": 230522880,
+              "cpu_seconds": 595.5,
+              "role": "worker"
+            }
+          ]
+        },
+        {
+          "requested_seconds": 10,
+          "elapsed_seconds": 10.007113,
+          "rss_bytes": 3720933376,
+          "cpu_seconds": 9088.38,
+          "process_usage": [
+            {
+              "pid": 25,
+              "start_ticks": 98604732,
+              "rss_bytes": 154296320,
+              "cpu_seconds": 0.21,
+              "role": "master"
+            },
+            {
+              "pid": 62,
+              "start_ticks": 98604742,
+              "rss_bytes": 233136128,
+              "cpu_seconds": 744.64,
+              "role": "worker"
+            },
+            {
+              "pid": 63,
+              "start_ticks": 98604742,
+              "rss_bytes": 225349632,
+              "cpu_seconds": 560.29,
+              "role": "worker"
+            },
+            {
+              "pid": 64,
+              "start_ticks": 98604742,
+              "rss_bytes": 229371904,
+              "cpu_seconds": 635.99,
+              "role": "worker"
+            },
+            {
+              "pid": 65,
+              "start_ticks": 98604742,
+              "rss_bytes": 224526336,
+              "cpu_seconds": 443.95,
+              "role": "worker"
+            },
+            {
+              "pid": 66,
+              "start_ticks": 98604742,
+              "rss_bytes": 226594816,
+              "cpu_seconds": 419.77,
+              "role": "worker"
+            },
+            {
+              "pid": 67,
+              "start_ticks": 98604742,
+              "rss_bytes": 195031040,
+              "cpu_seconds": 484.45,
+              "role": "worker"
+            },
+            {
+              "pid": 68,
+              "start_ticks": 98604742,
+              "rss_bytes": 203264000,
+              "cpu_seconds": 680.45,
+              "role": "worker"
+            },
+            {
+              "pid": 69,
+              "start_ticks": 98604742,
+              "rss_bytes": 233844736,
+              "cpu_seconds": 681.51,
+              "role": "worker"
+            },
+            {
+              "pid": 70,
+              "start_ticks": 98604742,
+              "rss_bytes": 226881536,
+              "cpu_seconds": 441.51,
+              "role": "worker"
+            },
+            {
+              "pid": 71,
+              "start_ticks": 98604742,
+              "rss_bytes": 226062336,
+              "cpu_seconds": 485.39,
+              "role": "worker"
+            },
+            {
+              "pid": 72,
+              "start_ticks": 98604742,
+              "rss_bytes": 196653056,
+              "cpu_seconds": 541.08,
+              "role": "worker"
+            },
+            {
+              "pid": 73,
+              "start_ticks": 98604742,
+              "rss_bytes": 230244352,
+              "cpu_seconds": 709.95,
+              "role": "worker"
+            },
+            {
+              "pid": 74,
+              "start_ticks": 98604742,
+              "rss_bytes": 230846464,
+              "cpu_seconds": 642.69,
+              "role": "worker"
+            },
+            {
+              "pid": 75,
+              "start_ticks": 98604742,
+              "rss_bytes": 228229120,
+              "cpu_seconds": 576.19,
+              "role": "worker"
+            },
+            {
+              "pid": 76,
+              "start_ticks": 98604742,
+              "rss_bytes": 226078720,
+              "cpu_seconds": 444.8,
+              "role": "worker"
+            },
+            {
+              "pid": 77,
+              "start_ticks": 98604742,
+              "rss_bytes": 230522880,
+              "cpu_seconds": 595.51,
+              "role": "worker"
+            }
+          ]
+        },
+        {
+          "requested_seconds": 30,
+          "elapsed_seconds": 30.007339,
+          "rss_bytes": 3720937472,
+          "cpu_seconds": 9088.84,
+          "process_usage": [
+            {
+              "pid": 25,
+              "start_ticks": 98604732,
+              "rss_bytes": 154296320,
+              "cpu_seconds": 0.21,
+              "role": "master"
+            },
+            {
+              "pid": 62,
+              "start_ticks": 98604742,
+              "rss_bytes": 233136128,
+              "cpu_seconds": 744.66,
+              "role": "worker"
+            },
+            {
+              "pid": 63,
+              "start_ticks": 98604742,
+              "rss_bytes": 225349632,
+              "cpu_seconds": 560.31,
+              "role": "worker"
+            },
+            {
+              "pid": 64,
+              "start_ticks": 98604742,
+              "rss_bytes": 229376000,
+              "cpu_seconds": 636.03,
+              "role": "worker"
+            },
+            {
+              "pid": 65,
+              "start_ticks": 98604742,
+              "rss_bytes": 224526336,
+              "cpu_seconds": 443.97,
+              "role": "worker"
+            },
+            {
+              "pid": 66,
+              "start_ticks": 98604742,
+              "rss_bytes": 226594816,
+              "cpu_seconds": 419.8,
+              "role": "worker"
+            },
+            {
+              "pid": 67,
+              "start_ticks": 98604742,
+              "rss_bytes": 195031040,
+              "cpu_seconds": 484.48,
+              "role": "worker"
+            },
+            {
+              "pid": 68,
+              "start_ticks": 98604742,
+              "rss_bytes": 203264000,
+              "cpu_seconds": 680.48,
+              "role": "worker"
+            },
+            {
+              "pid": 69,
+              "start_ticks": 98604742,
+              "rss_bytes": 233844736,
+              "cpu_seconds": 681.55,
+              "role": "worker"
+            },
+            {
+              "pid": 70,
+              "start_ticks": 98604742,
+              "rss_bytes": 226881536,
+              "cpu_seconds": 441.54,
+              "role": "worker"
+            },
+            {
+              "pid": 71,
+              "start_ticks": 98604742,
+              "rss_bytes": 226062336,
+              "cpu_seconds": 485.42,
+              "role": "worker"
+            },
+            {
+              "pid": 72,
+              "start_ticks": 98604742,
+              "rss_bytes": 196653056,
+              "cpu_seconds": 541.11,
+              "role": "worker"
+            },
+            {
+              "pid": 73,
+              "start_ticks": 98604742,
+              "rss_bytes": 230244352,
+              "cpu_seconds": 709.98,
+              "role": "worker"
+            },
+            {
+              "pid": 74,
+              "start_ticks": 98604742,
+              "rss_bytes": 230846464,
+              "cpu_seconds": 642.72,
+              "role": "worker"
+            },
+            {
+              "pid": 75,
+              "start_ticks": 98604742,
+              "rss_bytes": 228229120,
+              "cpu_seconds": 576.22,
+              "role": "worker"
+            },
+            {
+              "pid": 76,
+              "start_ticks": 98604742,
+              "rss_bytes": 226078720,
+              "cpu_seconds": 444.82,
+              "role": "worker"
+            },
+            {
+              "pid": 77,
+              "start_ticks": 98604742,
+              "rss_bytes": 230522880,
+              "cpu_seconds": 595.54,
+              "role": "worker"
+            }
+          ]
+        },
+        {
+          "requested_seconds": 60,
+          "elapsed_seconds": 60.007351,
+          "rss_bytes": 3707408384,
+          "cpu_seconds": 9089.45,
+          "process_usage": [
+            {
+              "pid": 25,
+              "start_ticks": 98604732,
+              "rss_bytes": 154296320,
+              "cpu_seconds": 0.22,
+              "role": "master"
+            },
+            {
+              "pid": 62,
+              "start_ticks": 98604742,
+              "rss_bytes": 233136128,
+              "cpu_seconds": 744.7,
+              "role": "worker"
+            },
+            {
+              "pid": 63,
+              "start_ticks": 98604742,
+              "rss_bytes": 221802496,
+              "cpu_seconds": 560.36,
+              "role": "worker"
+            },
+            {
+              "pid": 64,
+              "start_ticks": 98604742,
+              "rss_bytes": 229376000,
+              "cpu_seconds": 636.06,
+              "role": "worker"
+            },
+            {
+              "pid": 65,
+              "start_ticks": 98604742,
+              "rss_bytes": 224526336,
+              "cpu_seconds": 444.01,
+              "role": "worker"
+            },
+            {
+              "pid": 66,
+              "start_ticks": 98604742,
+              "rss_bytes": 226594816,
+              "cpu_seconds": 419.84,
+              "role": "worker"
+            },
+            {
+              "pid": 67,
+              "start_ticks": 98604742,
+              "rss_bytes": 195031040,
+              "cpu_seconds": 484.52,
+              "role": "worker"
+            },
+            {
+              "pid": 68,
+              "start_ticks": 98604742,
+              "rss_bytes": 203264000,
+              "cpu_seconds": 680.52,
+              "role": "worker"
+            },
+            {
+              "pid": 69,
+              "start_ticks": 98604742,
+              "rss_bytes": 233844736,
+              "cpu_seconds": 681.58,
+              "role": "worker"
+            },
+            {
+              "pid": 70,
+              "start_ticks": 98604742,
+              "rss_bytes": 226881536,
+              "cpu_seconds": 441.58,
+              "role": "worker"
+            },
+            {
+              "pid": 71,
+              "start_ticks": 98604742,
+              "rss_bytes": 226062336,
+              "cpu_seconds": 485.45,
+              "role": "worker"
+            },
+            {
+              "pid": 72,
+              "start_ticks": 98604742,
+              "rss_bytes": 196653056,
+              "cpu_seconds": 541.14,
+              "role": "worker"
+            },
+            {
+              "pid": 73,
+              "start_ticks": 98604742,
+              "rss_bytes": 220262400,
+              "cpu_seconds": 710.03,
+              "role": "worker"
+            },
+            {
+              "pid": 74,
+              "start_ticks": 98604742,
+              "rss_bytes": 230846464,
+              "cpu_seconds": 642.75,
+              "role": "worker"
+            },
+            {
+              "pid": 75,
+              "start_ticks": 98604742,
+              "rss_bytes": 228229120,
+              "cpu_seconds": 576.26,
+              "role": "worker"
+            },
+            {
+              "pid": 76,
+              "start_ticks": 98604742,
+              "rss_bytes": 226078720,
+              "cpu_seconds": 444.85,
+              "role": "worker"
+            },
+            {
+              "pid": 77,
+              "start_ticks": 98604742,
+              "rss_bytes": 230522880,
+              "cpu_seconds": 595.58,
+              "role": "worker"
+            }
+          ]
+        },
+        {
+          "requested_seconds": 120,
+          "elapsed_seconds": 120.00718,
+          "rss_bytes": 3651506176,
+          "cpu_seconds": 9090.67,
+          "process_usage": [
+            {
+              "pid": 25,
+              "start_ticks": 98604732,
+              "rss_bytes": 154296320,
+              "cpu_seconds": 0.24,
+              "role": "master"
+            },
+            {
+              "pid": 62,
+              "start_ticks": 98604742,
+              "rss_bytes": 219869184,
+              "cpu_seconds": 744.77,
+              "role": "worker"
+            },
+            {
+              "pid": 63,
+              "start_ticks": 98604742,
+              "rss_bytes": 221794304,
+              "cpu_seconds": 560.43,
+              "role": "worker"
+            },
+            {
+              "pid": 64,
+              "start_ticks": 98604742,
+              "rss_bytes": 221503488,
+              "cpu_seconds": 636.14,
+              "role": "worker"
+            },
+            {
+              "pid": 65,
+              "start_ticks": 98604742,
+              "rss_bytes": 224526336,
+              "cpu_seconds": 444.08,
+              "role": "worker"
+            },
+            {
+              "pid": 66,
+              "start_ticks": 98604742,
+              "rss_bytes": 226594816,
+              "cpu_seconds": 419.92,
+              "role": "worker"
+            },
+            {
+              "pid": 67,
+              "start_ticks": 98604742,
+              "rss_bytes": 195031040,
+              "cpu_seconds": 484.59,
+              "role": "worker"
+            },
+            {
+              "pid": 68,
+              "start_ticks": 98604742,
+              "rss_bytes": 194682880,
+              "cpu_seconds": 680.6,
+              "role": "worker"
+            },
+            {
+              "pid": 69,
+              "start_ticks": 98604742,
+              "rss_bytes": 225648640,
+              "cpu_seconds": 681.65,
+              "role": "worker"
+            },
+            {
+              "pid": 70,
+              "start_ticks": 98604742,
+              "rss_bytes": 226881536,
+              "cpu_seconds": 441.67,
+              "role": "worker"
+            },
+            {
+              "pid": 71,
+              "start_ticks": 98604742,
+              "rss_bytes": 226062336,
+              "cpu_seconds": 485.52,
+              "role": "worker"
+            },
+            {
+              "pid": 72,
+              "start_ticks": 98604742,
+              "rss_bytes": 194146304,
+              "cpu_seconds": 541.22,
+              "role": "worker"
+            },
+            {
+              "pid": 73,
+              "start_ticks": 98604742,
+              "rss_bytes": 220241920,
+              "cpu_seconds": 710.11,
+              "role": "worker"
+            },
+            {
+              "pid": 74,
+              "start_ticks": 98604742,
+              "rss_bytes": 224329728,
+              "cpu_seconds": 642.82,
+              "role": "worker"
+            },
+            {
+              "pid": 75,
+              "start_ticks": 98604742,
+              "rss_bytes": 223723520,
+              "cpu_seconds": 576.33,
+              "role": "worker"
+            },
+            {
+              "pid": 76,
+              "start_ticks": 98604742,
+              "rss_bytes": 226078720,
+              "cpu_seconds": 444.92,
+              "role": "worker"
+            },
+            {
+              "pid": 77,
+              "start_ticks": 98604742,
+              "rss_bytes": 226095104,
+              "cpu_seconds": 595.66,
+              "role": "worker"
+            }
+          ]
+        }
+      ],
+      "rss_after_idle_bytes": 3651506176,
+      "rss_returned_bytes": 69402624,
+      "runtime_settings": {
+        "tokio_threads_per_process": "default multi_thread; no override",
+        "lua_concurrency": 1,
+        "deno_isolates_per_worker": 8,
+        "php_min_idle": 8,
+        "php_max_idle": 8,
+        "php_max_size": 64,
+        "max_waiting": 128,
+        "python_event_loops_per_worker": 1
+      },
+      "warmup_requests": 65536,
+      "worker_listener_count": 16,
+      "php_opcache_warmups": 16,
+      "php_instance_startups_total": 160,
+      "php_instance_startups_by_worker": {
+        "62": 14,
+        "63": 10,
+        "64": 11,
+        "65": 8,
+        "66": 8,
+        "67": 8,
+        "68": 12,
+        "69": 12,
+        "70": 8,
+        "71": 8,
+        "72": 9,
+        "73": 13,
+        "74": 11,
+        "75": 10,
+        "76": 8,
+        "77": 10
+      },
+      "graceful_family_exit_verified": true
+    }
+  ],
+  "complete": true,
+  "versions": {
+    "claviron": "0.2.0-alpha.23",
+    "claviron-deno": "0.2.0-alpha.23",
+    "continuo": "0.10.1",
+    "deno_core": "0.413.0",
+    "gufi-asgi": "0.2.0-alpha.24",
+    "libmimalloc-sys": "0.1.49",
+    "lua-src": "551.0.2",
+    "mimalloc": "0.1.52",
+    "mlua": "0.12.2",
+    "orbitive": "0.6.0",
+    "pyo3": "0.30.1",
+    "tokio": "1.54.1",
+    "v8": "150.4.0"
+  },
+  "engine_versions": {
+    "php": "8.5.12 ZTS",
+    "python": "3.15.2",
+    "lua": "5.5.1",
+    "v8": "15.0.245.2"
+  },
+  "allocator": {
+    "name": "mimalloc",
+    "scope": "Rust global allocator; no C malloc interposition",
+    "policy": "release",
+    "purge_delay_ms": 0,
+    "purge_decommits": 1,
+    "native_options_verified": true
+  },
+  "socket_sharing": "SO_REUSEPORT; 16 distinct listening sockets verified per run",
+  "runtime_logging": "warn; bounded startup OPcache completion target at info",
+  "cpu_per_request_metric": "Sum of master and worker CPU-time deltas in microseconds divided by completed HTTP responses; includes background runtime work",
+  "source_revisions": {
+    "claviron": "af5864ca8ffe6cec59bb05e8d862d3bdf2c22a19",
+    "deno": "bfbe8434f7f6e0bd5e8d6308dfb2402603b140d2",
+    "gufi": "147833418398d73ba2f9603db1e32f04f8698b2d",
+    "orbitive": "bc0ebd2f0c5a2c9d953ac4f727d5dbcc50b8246a",
+    "continuo": "d9c507ae7560c279f9eae6aa085cbf1e1b948657"
+  },
+  "binary_source_revision": "af5864ca8ffe6cec59bb05e8d862d3bdf2c22a19",
+  "composer_lock_sha256": "c9dc04d1cff218b4b67fdbdf2c2517eb8ba18bc1d3039229ae535e439caf973d",
+  "php_packages": {
+    "claviron/sapi": {
+      "version": "v0.1.2",
+      "reference": "7c5d3bcba9754e75c9124df1d4e298ec9f454535"
+    },
+    "claviron/symfony": {
+      "version": "v0.1.0",
+      "reference": "853177bf34a9c47ab491bc4bcaf52ff3c3d1c1c5"
+    },
+    "monolog/monolog": {
+      "version": "3.12.1",
+      "reference": "d7059e4c691d05ea1222b5124bed0f961be46e15"
+    },
+    "psr/cache": {
+      "version": "3.0.0",
+      "reference": "aa5030cfa5405eccfdcb1083ce040c2cb8d253bf"
+    },
+    "psr/container": {
+      "version": "2.0.2",
+      "reference": "c71ecc56dfe541dbd90c5360474fbc405f8d5963"
+    },
+    "psr/event-dispatcher": {
+      "version": "1.0.0",
+      "reference": "dbefd12671e8a14ec7f180cab83036ed26714bb0"
+    },
+    "psr/log": {
+      "version": "3.0.2",
+      "reference": "f16e1d5863e37f8d8c2a01719f5b34baa2b714d3"
+    },
+    "symfony/cache": {
+      "version": "8.2.x-dev",
+      "reference": "90a121f123b4923a4f16a8bc42e3fae9d3f6618a"
+    },
+    "symfony/cache-contracts": {
+      "version": "dev-main",
+      "reference": "af26a91232085b7edd4e04be62f75e7c25159ece"
+    },
+    "symfony/config": {
+      "version": "8.2.x-dev",
+      "reference": "0d10198cc52a90373ab8723bc260127d9a0cadfe"
+    },
+    "symfony/console": {
+      "version": "8.2.x-dev",
+      "reference": "4be7080b287d3227958cd752877389e47797c295"
+    },
+    "symfony/dependency-injection": {
+      "version": "8.2.x-dev",
+      "reference": "6e2b523ea6098d0d3e9f6acb7527edd87c2670ba"
+    },
+    "symfony/deprecation-contracts": {
+      "version": "v3.7.1",
+      "reference": "f3202fa1b5097b0af062dc978b32ecf63404e31d"
+    },
+    "symfony/error-handler": {
+      "version": "v8.1.10",
+      "reference": "84c6d73f990ae22dbd45625c056d7ff99ca6810d"
+    },
+    "symfony/event-dispatcher": {
+      "version": "8.2.x-dev",
+      "reference": "61d13742ee539ae0cb4e5d559c3d2f6133c82aca"
+    },
+    "symfony/event-dispatcher-contracts": {
+      "version": "dev-main",
+      "reference": "658e29751424da3ef4758c60f769e59d1b2981eb"
+    },
+    "symfony/filesystem": {
+      "version": "v8.1.9",
+      "reference": "43d109c803d22c00bb820ed45df250b6a8792ca2"
+    },
+    "symfony/finder": {
+      "version": "v8.1.10",
+      "reference": "2f4c0f26106520d82e1b71759d2fb8d32d8b7a43"
+    },
+    "symfony/framework-bundle": {
+      "version": "8.2.x-dev",
+      "reference": "a3f9d86c409dafe2ec440134bd23df74b5c43673"
+    },
+    "symfony/http-foundation": {
+      "version": "8.2.x-dev",
+      "reference": "ca508e3e9cb01990ea59266eea18ed37f28a7cbe"
+    },
+    "symfony/http-kernel": {
+      "version": "8.2.x-dev",
+      "reference": "f87fb7e0e601d77c9ec428661403900774034134"
+    },
+    "symfony/polyfill-ctype": {
+      "version": "v1.37.0",
+      "reference": "141046a8f9477948ff284fa65be2095baafb94f2"
+    },
+    "symfony/polyfill-deepclone": {
+      "version": "v1.43.2",
+      "reference": "82274308b59f6e96f53a3fb37fc40877d843e5a5"
+    },
+    "symfony/polyfill-intl-grapheme": {
+      "version": "v1.43.3",
+      "reference": "5a8f33c87aeecffce24e721b5064fab05f4becf8"
+    },
+    "symfony/polyfill-intl-normalizer": {
+      "version": "v1.43.0",
+      "reference": "ebd57ccc7edb93d632e184efbe7693d2517bab3b"
+    },
+    "symfony/polyfill-mbstring": {
+      "version": "v1.43.3",
+      "reference": "122889ed24dc000165bcbfd77ec412f15cbdfc6a"
+    },
+    "symfony/polyfill-php85": {
+      "version": "v1.43.0",
+      "reference": "86a42cbcc07adc331481a5ab310a4024bfc227f6"
+    },
+    "symfony/routing": {
+      "version": "8.2.x-dev",
+      "reference": "e9ae55a70dff22049fecde90e3ab5c99a3afd7a7"
+    },
+    "symfony/service-contracts": {
+      "version": "dev-main",
+      "reference": "052852a96fd5e5ebdb617dba22031e41a3300fb5"
+    },
+    "symfony/string": {
+      "version": "v8.1.10",
+      "reference": "6c6110979c0150393bbb336170e286d51ab4d76c"
+    },
+    "symfony/var-dumper": {
+      "version": "8.2.x-dev",
+      "reference": "9e6a33527b3b6e7fa04ef8b1f46d0675eca1e710"
+    },
+    "symfony/var-exporter": {
+      "version": "v8.1.10",
+      "reference": "e94442cdefc1df995528d26acb40d25c2d50504d"
+    }
+  },
+  "runtime_config_sha256": {
+    "http.yaml": "c79d0b70ee353491b6a182e53c8397051be8f4025ae3ca3b2e5e925619aa34f4",
+    "js.yaml": "ca725e339b6f39ea34ab32dfe9f07bc89e3ff8f760568ecb6ffd6a2fe45538f3",
+    "lua.yaml": "ce482dc822d935c3865b743d5feeb59d26a0ea61821119cd39f9f4b73b0e06c3",
+    "php.d/99-production.ini": "3a8399c4210e65b134fcd69a0b45078a4e5fb992ac409308598e9d9238427c50",
+    "php.yaml": "65f51c0d83f04a3d301d511c6451cbc6b232e39b80b6d8a19d887947277cefc3",
+    "python.yaml": "42f2d3a1344bf53ff31fac039aab17fe665df8084f9dcceee02b634e7876f84d",
+    "supervisor.yaml": "e04a672d9ca6afc8fdb3f99331497978c6ac370600b1d1cb818397f835cdffc5",
+    "vhost.yaml": "633d398cb4a02973320a5217264383e2e5a519a451d26696dad575e095946033"
+  },
+  "measured_sources_sha256": {
+    "Cargo.toml": "e83bbbd8fbba3fe0fefa8e8195d13369a51f7fb5ae8d5f906e75f0a84736fdbb",
+    "src/main.rs": "132e8f847ee4ef1c4f40b2ae5d96ff0848c923443aa79138669bf21bafd1ffed",
+    "src/app.rs": "1ae075f40eb09c77448522ce05ab22cae8a555914f3373123cf3416285fe6563",
+    "src/app/native.rs": "e10f036c761633d5590489024eaacf59422caaea9f9631d38744002ef63c440c",
+    "src/app/asgi.rs": "27093ea19f4daadd986e15bbe8d84d0aa6f2f8b2df77ddc6c5048e8793b40d93",
+    "scripts/benchmark.py": "ff1441560f6a6f30232e934bcd2a27de9e6878646440022183ee258914e97521",
+    "apps/lua/app.lua": "a1fb71d3e7f5a628427b9b050455d933d8aace7ed2bab6b88ebbb321de5333bf",
+    "apps/deno/app.ts": "1ea132480488023d499f7deb0cdc81c7aa46fb4be4db93b5287f9a71d2601457",
+    "apps/php/app.php": "c787bbc1e849e38692709f68bab9465fe575f705194e894be9ab27c646081600",
+    "apps/php/src/Kernel.php": "eb0702d5544edb40ab78fc8cda72e67ba6090e8f48485f8e6df67a5220eeab86",
+    "apps/php/src/Controller.php": "ae977b3b828cd0f5c4b5ad5d32a487b9d75678de0676038351b43d10873ea507",
+    "apps/python/app.py": "1f65307736c537bbc885d0d2495c0834e4c77242768646be6b0f977283c56d03",
+    "apps/php/plain.php": "44098682963481128d75fbf9519260811677ea2f248b4b04ad78c767482b7f6e",
+    "apps/php/optimize.php": "cdaa8883014a581dd066c416d95c4e7e1cdca62387d4f641e1fa4a9d4e8b0bce",
+    "apps/php/bin/console": "13f9b198033f94da669585a7f68c7f179ae87b1c0f20ea19e4309b1fb54b800c",
+    "apps/php/composer.json": "3b445af3f823ac2eacfb364c48546cde07bfab7debf3aa4322dd7df31b4e2805",
+    "apps/php/composer.lock": "c9dc04d1cff218b4b67fdbdf2c2517eb8ba18bc1d3039229ae535e439caf973d",
+    "config/php.d/99-production.ini": "3a8399c4210e65b134fcd69a0b45078a4e5fb992ac409308598e9d9238427c50"
+  },
+  "production_preparation": {
+    "composer_classmap_authoritative": true,
+    "composer_no_dev": true,
+    "cache_command": "php bin/console cache:clear --env=prod --no-debug",
+    "compiled_cache_files": 111,
+    "compiled_cache_unchanged_during_load": true,
+    "opcache": {
+      "enable": true,
+      "enable_cli": true,
+      "memory_consumption_mb": 256,
+      "max_accelerated_files": 20000,
+      "validate_timestamps": false,
+      "interned_strings_buffer_mb": 16
+    },
+    "symfony_version": "8.2.0-DEV",
+    "debug": false,
+    "environment": "prod"
+  },
+  "isolation": {
+    "linux_namespaces": [
+      "mount",
+      "network",
+      "ipc",
+      "pid"
+    ],
+    "sources_read_only": true,
+    "private_php_application_and_cache": true,
+    "graceful_family_exit_verified": true,
+    "test_survivors": []
+  },
+  "comparison": {
+    "baseline_report": "benchmark.json",
+    "baseline_runtime": "php",
+    "baseline_symfony_version": "8.1.9",
+    "baseline_report_sha256": "6ee37bf72cefb2b4dbf5884978be8eaff7fccf0bacf547be917d23aad620a23d",
+    "runtime_settings_identical": true,
+    "changes": [
+      "Symfony core upgraded to locked 8.2 development revisions",
+      "Optimized PHP embed dispatch and header/body projection",
+      "Explicit OPcache 256 MiB, 20000 files, 16 MiB interned strings",
+      "Authoritative Composer classmap and Symfony production cache:clear with warmup"
+    ],
+    "framework_version_effect_not_isolated": true,
+    "shared_host_single_observation": true,
+    "baseline_php_instance_startups_total": 174,
+    "observed_changes_percent": {
+      "requests_per_second": 9.333324823124833,
+      "cpu_us_per_request": -8.750811367683053,
+      "p99_ms": -12.109232008199722,
+      "rss_before_bytes": 16.013798319482753,
+      "rss_after_bytes": 14.050241490094951,
+      "rss_after_idle_bytes": 13.938059318069707
+    }
+  }
+}

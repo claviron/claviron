@@ -518,3 +518,53 @@ survivors. Production services were not changed.
 The [optimized Plain PHP JSON report](public/assets/benchmark-php-plain-optimized.json)
 retains process samples, configuration and source fingerprints, error counters
 and the link to the unchanged [earlier Plain PHP report](public/assets/benchmark-php-plain.json).
+
+
+## Symfony 8.2 development validation
+
+Measured at `2026-10-28T21:15:24.528034+00:00`: 16 workers with SO_REUSEPORT,
+128 persistent connections, eight generator threads, five minutes of GET
+`/php`, followed by idle RSS samples at +10/+30/+60/+120 seconds. PHP pool policy
+remains eight warm contexts, max size 64 and admission 128 per worker. Tokio
+uses its default multithreaded runtime; all five language runtimes remain loaded.
+
+Symfony core components use the 8.2 development revisions recorded in
+`apps/php/composer.lock`. Composer uses an optimized authoritative classmap
+without development packages. `php bin/console cache:clear --env=prod --no-debug`
+cleared and warmed the production container and router cache before startup.
+Every PHP context reported `8.2.0-DEV`, `prod`, debug off, authoritative autoload,
+OPcache enabled and Xdebug absent. OPcache settings were 256 MiB, 20,000 files,
+16 MiB interned strings and timestamp checks off. All 16 serving OPcaches warmed.
+The compiled container and router cache files remained unchanged during load.
+The same persistent kernel handled query-path GET and UTF-8 POST checks.
+
+| Metric | Symfony 8.1.9, earlier bridge | Symfony 8.2-dev, optimized bridge |
+| --- | ---: | ---: |
+| Successful req/s | 29,768.17 | 32,546.53 |
+| CPU µs/request | 1007.5580 | 919.3885 |
+| p99 (ms) | 13.659 | 12.005 |
+| RSS start (MiB) | 2,964.58 | 3,439.32 |
+| RSS load end (MiB) | 3,111.38 | 3,548.54 |
+| RSS +120s (MiB) | 3,056.35 | 3,482.35 |
+| Request errors | 0 | 0 |
+
+This compares the combined framework upgrade, PHP bridge changes and explicit
+OPcache settings with the preserved baseline. It does not isolate the effect of
+Symfony 8.2. There is one observation per implementation on a shared host.
+The current run completed 9,767,024 responses in
+300.094217 seconds and used 8,979.69
+aggregate server CPU seconds. CPU/request and RSS include the master and all
+16 workers; RSS counts shared pages per process. PHP recorded
+160 cumulative context starts, including the
+initial 128. Logging stayed warn with access logging off; mimalloc release
+policy and other runtime revisions match the optimized Plain PHP run.
+
+The test used private Linux mount, network, IPC and PID namespaces, a private
+application tree and cache, and read-only source mounts. After the final idle
+sample, the owned master and workers exited gracefully with no survivors.
+Earlier reports were unchanged.
+
+The [Symfony 8.2 JSON report](public/assets/benchmark-symfony82.json) includes
+exact package references, binary/source fingerprints, production settings and
+all process samples. The earlier Symfony result remains in the
+[original report](public/assets/benchmark.json).

@@ -1,0 +1,11 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+require dirname(__DIR__).'/vendor/autoload.php';
+
+$input = new Symfony\Component\Console\Input\ArgvInput();
+$environment = (string) $input->getParameterOption(['--env', '-e'], 'prod');
+$debug = $environment !== 'prod' && !$input->hasParameterOption('--no-debug');
+$application = new Symfony\Bundle\FrameworkBundle\Console\Application(new Pentaglot\Php\Kernel($environment, $debug));
+$application->run($input);
