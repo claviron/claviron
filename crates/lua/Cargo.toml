@@ -52,7 +52,7 @@ mysql = ["db", "claviron-db/mysql", "sqlx/mysql"]
 
 postgres = ["db", "claviron-db/postgres", "sqlx/postgres"]
 
-sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite"]
+sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite", "dep:sqlx-core"]
 # `lua:` tasks in Claviron's task service.
 tasks = ["dep:claviron-tasks", "server"]
 
@@ -100,6 +100,9 @@ mlua = { version = "0.12", features = ["lua55", "vendored", "async", "send", "se
 
 # ── Database / cache backends ───────────────────────────────────────────
 sqlx = { workspace = true, optional = true }
+# The facade does not re-export TransactionManager. Use SQLx's own transaction
+# machinery while retaining the pool lease for error-only connection retirement.
+sqlx-core = { version = "0.9", default-features = false, optional = true }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true

@@ -538,7 +538,7 @@ enum Open {
     #[cfg(feature = "mysql")]
     MySql(sqlx::Transaction<'static, sqlx::MySql>),
     #[cfg(feature = "sqlite")]
-    Sqlite(sqlx::Transaction<'static, sqlx::Sqlite>),
+    Sqlite(sqlite::Transaction),
 }
 
 impl Open {
@@ -558,7 +558,7 @@ impl Open {
             }
             #[cfg(feature = "sqlite")]
             Self::Sqlite(transaction) => {
-                sqlite::run(transaction, sql, params).await
+                sqlite::run_transaction(transaction, sql, params).await
             }
         }
     }
@@ -616,7 +616,8 @@ impl Transaction {
                 let _ = open.rollback().await;
                 Err(error)
             }
-            (returned, None) => returned,
+            (Ok(_), None) => Err(failure("the transaction has ended")),
+            (Err(error), None) => Err(error),
         }
     }
 
@@ -629,10 +630,24 @@ impl Transaction {
         let open = state
             .as_mut()
             .ok_or_else(|| failure("the transaction has ended"))?;
-        tokio::select! {
-            outcome = open.run(sql, params) => outcome.map_err(database_failure),
-            () = self.execution.stopping().cancelled() => Err(stopped())
+        let outcome = tokio::select! {
+            outcome = open.run(sql, params) => outcome,
+            () = self.execution.stopping().cancelled() => return Err(stopped())
+        };
+        #[cfg(feature = "sqlite")]
+        if outcome.is_err() {
+            let ended = match open {
+                Open::Sqlite(transaction) => {
+                    transaction.retire_if_ended().await
+                }
+                #[cfg(any(feature = "postgres", feature = "mysql"))]
+                _ => false,
+            };
+            if ended {
+                state.take();
+            }
         }
+        outcome.map_err(database_failure)
     }
 }
 

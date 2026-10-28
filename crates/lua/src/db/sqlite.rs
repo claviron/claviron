@@ -1,18 +1,93 @@
 //! SQLite: bound parameters, runtime value types and pooled transactions.
 
+use std::ffi::{c_int, c_void};
+
 use futures_util::TryStreamExt;
+use sqlx::pool::PoolConnection;
 use sqlx::query::Query;
-use sqlx::sqlite::{SqliteArguments, SqliteConnection, SqliteRow};
-use sqlx::{
-    Column, Either, Row, Sqlite, SqlitePool, Transaction, TypeInfo, ValueRef,
+use sqlx::sqlite::{
+    SqliteArguments, SqliteConnection, SqliteRow, SqliteTransactionManager,
 };
+use sqlx::{Column, Either, Row, Sqlite, SqlitePool, TypeInfo, ValueRef};
+use sqlx_core::transaction::TransactionManager;
 
 use super::{Cell, InsertId, Outcome, Param, Settings, unsupported};
+
+// Stable SQLite C API, linked by SQLx. Its locked handle excludes concurrent
+// worker access while inspecting the native transaction state.
+unsafe extern "C" {
+    fn sqlite3_get_autocommit(connection: *mut c_void) -> c_int;
+}
+
+/// Own the pool lease so an automatically rolled-back connection can be closed
+/// instead of returning SQLx's stale transaction depth to the next borrower.
+pub(super) struct Transaction {
+    connection: PoolConnection<Sqlite>,
+    open: bool,
+}
+
+impl Transaction {
+    pub(super) async fn commit(mut self) -> Result<(), sqlx::Error> {
+        if let Err(error) =
+            SqliteTransactionManager::commit(&mut self.connection).await
+        {
+            self.connection.close_on_drop();
+            return Err(error);
+        }
+        self.open = false;
+        Ok(())
+    }
+
+    pub(super) async fn rollback(mut self) -> Result<(), sqlx::Error> {
+        if let Err(error) =
+            SqliteTransactionManager::rollback(&mut self.connection).await
+        {
+            self.connection.close_on_drop();
+            return Err(error);
+        }
+        self.open = false;
+        Ok(())
+    }
+
+    pub(super) async fn retire_if_ended(&mut self) -> bool {
+        let ended = match self.connection.lock_handle().await {
+            Ok(mut handle) => {
+                // SAFETY: the connection is live and SQLx's worker is excluded
+                // until this guard is dropped. SQLite does not mutate here.
+                unsafe {
+                    sqlite3_get_autocommit(
+                        handle.as_raw_handle().as_ptr().cast(),
+                    ) != 0
+                }
+            }
+            // A connection whose native state cannot be inspected must not be
+            // used to continue the transaction or returned to the pool.
+            Err(_) => true,
+        };
+        if ended {
+            self.connection.close_on_drop();
+            self.open = false;
+        }
+        ended
+    }
+}
+
+impl Drop for Transaction {
+    fn drop(&mut self) {
+        if self.open {
+            // Dropping the owner can race a native automatic rollback before
+            // its error reaches Lua. Queue cleanup, then discard the lease so
+            // an unobserved failure cannot leak stale depth into the pool.
+            self.connection.close_on_drop();
+            SqliteTransactionManager::start_rollback(&mut self.connection);
+        }
+    }
+}
 
 pub(super) async fn begin(
     pool: &SqlitePool,
     settings: Settings,
-) -> Result<Transaction<'static, Sqlite>, sqlx::Error> {
+) -> Result<Transaction, sqlx::Error> {
     // Do not change pooled connection PRAGMAs to imitate per-transaction
     // options: those changes would leak to the next borrower.
     if settings.read_only {
@@ -25,7 +100,20 @@ pub(super) async fn begin(
             "sqlite transactions support only serializable isolation".into(),
         ));
     }
-    pool.begin().await
+    // Arm drop cleanup before awaiting BEGIN, including cancellation while
+    // SQLx's worker is opening the transaction.
+    let mut transaction =
+        Transaction { connection: pool.acquire().await?, open: true };
+    SqliteTransactionManager::begin(&mut transaction.connection, None).await?;
+    Ok(transaction)
+}
+
+pub(super) async fn run_transaction(
+    transaction: &mut Transaction,
+    sql: &str,
+    params: Vec<Param>,
+) -> Result<Outcome, sqlx::Error> {
+    run(&mut transaction.connection, sql, params).await
 }
 
 pub(super) async fn run(

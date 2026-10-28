@@ -4,7 +4,7 @@ use std::time::Duration;
 use mlua::{Function, Lua, LuaSerdeExt, MultiValue};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 
-use super::{begin, run};
+use super::{begin, run, run_transaction};
 use crate::db::{DbExtension, Open, Param, Settings, Transaction, rows};
 use crate::{Execution, Extension};
 
@@ -93,17 +93,112 @@ async fn sqlite_callback_and_statement_errors_roll_back() {
             .unwrap();
         assert_eq!(count, 0);
     }
-    let mut open = begin(&pool, Settings::default()).await.unwrap();
-    run(&mut open, "INSERT INTO sample VALUES (2)", vec![]).await.unwrap();
-    drop(open);
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM sample")
-        .fetch_one(&pool)
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn sqlite_auto_rollback_retires_stale_transaction_connection() {
+    use sqlx::Connection;
+
+    let pool = pool().await;
+    sqlx::query("CREATE TABLE sample (id INTEGER PRIMARY KEY)")
+        .execute(&pool)
         .await
         .unwrap();
+    let mut open = begin(&pool, Settings::default()).await.unwrap();
+    run_transaction(&mut open, "INSERT INTO sample VALUES (1)", vec![])
+        .await
+        .unwrap();
+    let error = run_transaction(
+        &mut open,
+        "INSERT OR ROLLBACK INTO sample VALUES (1)",
+        vec![],
+    )
+    .await
+    .err()
+    .unwrap();
     assert_eq!(
-        count, 0,
-        "dropping an unfinished SQLx transaction must roll back"
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("1555")
     );
+    assert!(open.retire_if_ended().await);
+    drop(open);
+
+    // Capacity one requires release of the retired lease. A replacement must
+    // not inherit the driver's stale transaction depth.
+    let mut connection = pool.acquire().await.unwrap();
+    assert!(!connection.is_in_transaction());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT 42")
+            .fetch_one(&mut *connection)
+            .await
+            .unwrap(),
+        42
+    );
+    drop(connection);
+    begin(&pool, Settings::default()).await.unwrap().rollback().await.unwrap();
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn sqlite_auto_rollback_check_preserves_recoverable_constraint() {
+    let pool = pool().await;
+    sqlx::query("CREATE TABLE sample (id INTEGER PRIMARY KEY)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut open = begin(&pool, Settings::default()).await.unwrap();
+    run_transaction(&mut open, "INSERT INTO sample VALUES (1)", vec![])
+        .await
+        .unwrap();
+    assert!(
+        run_transaction(&mut open, "INSERT INTO sample VALUES (1)", vec![])
+            .await
+            .is_err()
+    );
+    assert!(!open.retire_if_ended().await);
+    run_transaction(&mut open, "INSERT INTO sample VALUES (2)", vec![])
+        .await
+        .unwrap();
+    open.rollback().await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM sample")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    pool.close().await;
+}
+
+#[tokio::test]
+async fn sqlite_auto_rollback_unfinished_owner_discards_lease() {
+    use sqlx::Connection;
+
+    let pool = pool().await;
+    sqlx::query("CREATE TEMP TABLE previous_owner (id INTEGER)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut open = begin(&pool, Settings::default()).await.unwrap();
+    run_transaction(&mut open, "INSERT INTO previous_owner VALUES (1)", vec![])
+        .await
+        .unwrap();
+    drop(open);
+
+    let mut connection = pool.acquire().await.unwrap();
+    assert!(!connection.is_in_transaction());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM sqlite_temp_master WHERE name = 'previous_owner'",
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .unwrap(),
+        0,
+        "an unfinished owner must close its connection, including session state",
+    );
+    drop(connection);
     pool.close().await;
 }
 

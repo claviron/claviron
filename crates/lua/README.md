@@ -157,6 +157,9 @@ SQLite uses `claviron.db.sqlite(name)` on the configured pools, with the same
 use `?`; result values retain SQLite's storage classes. Transactions accept
 serializable isolation; other isolation levels and per-transaction `read_only`
 are rejected rather than silently ignored.
+If SQLite automatically rolls back a transaction after an error, its Lua
+transaction handle rejects further operations and cannot report a successful
+commit. Errors that leave the native transaction active remain recoverable.
 Unsupported SQL value types fail explicitly rather than receiving guessed Lua
 representations.
 
