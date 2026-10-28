@@ -119,17 +119,20 @@ of load, followed by 120 seconds idle with the server still running.
 | Lua | 108,810 | 198.69 | 5.072 | 2,936.6 → 3,014.9 → 3,014.9 | 0 |
 | Deno | 95,398 | 236.77 | 8.110 | 2,464.0 → 3,326.5 → 3,307.9 | 0 |
 | PHP / Symfony | 29,768 | 1007.56 | 13.659 | 2,964.6 → 3,111.4 → 3,056.4 | 0 |
-| PHP / plain | 136,204 | 160.89 | 10.039 | 2,768.2 → 2,883.7 → 2,878.5 | 0 |
+| PHP / plain | 134,978 | 156.60 | 10.391 | 2,798.5 → 2,905.3 → 2,901.2 | 0 |
 | Python / Gufi-ASGI | 123,932 | 194.95 | 6.694 | 2,936.7 → 3,015.9 → 3,018.0 | 0 |
 
 CPU is aggregate master/worker CPU time per completed request. RSS sums those
 17 processes with all five runtimes loaded; shared pages count per process.
-The Deno row uses the updated bridge with one isolate per worker. Other rows
-retain the original binary and eight Deno isolates per worker. PHP starts with
-eight warm instances throughout. Plain PHP reuses the original binary and pool
-with a framework-free entry; the Symfony result uses 8.1.9. The
+The Deno row uses the updated bridge with one isolate per worker. Rust, Lua,
+Symfony and Python retain the original binary and eight Deno isolates per
+worker. PHP starts with eight warm instances throughout. Plain PHP uses the
+optimized embed bridge;
+its pool policy, entry script, PHP warmup packages and other runtime revisions
+match the [earlier plain result](public/assets/benchmark-php-plain.json).
+The Symfony result uses 8.1.9. The
 [original measurements](public/assets/benchmark.json),
-[plain PHP comparison](public/assets/benchmark-php-plain.json),
+[updated plain PHP report](public/assets/benchmark-php-plain-optimized.json),
 and [updated Deno report](public/assets/benchmark-deno-multiplexed.json) include
 settings, source revisions, CPU totals and idle RSS samples. See
 [BENCHMARK.md](BENCHMARK.md) for the full history.

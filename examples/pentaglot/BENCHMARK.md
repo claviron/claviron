@@ -434,3 +434,87 @@ The [plain PHP JSON report](public/assets/benchmark-php-plain.json) records all
 samples, configuration fingerprints and the unchanged
 [Symfony baseline](public/assets/benchmark.json). Earlier measurements were
 preserved; the Symfony and other language benchmarks were not rerun.
+
+
+## Plain PHP after embed dispatch optimizations
+
+Measured at `2026-10-28T20:56:48.247723+00:00` with the same `apps/php/plain.php`
+entry and response shape. The rebuilt release/native binary includes PHP
+changes through `af5864c`:
+
+- Request dispatch reads catalog and mailbox snapshots; lifecycle maintenance
+  owns thread creation, retirement and joins. Atomic claims retain the Zend
+  context through PHP's post-response cleanup.
+- Transport-ended GET/HEAD bypass body collection. Request bytes copy directly
+  into Zend-owned binary strings, and repeated header lists are built directly
+  in PHP arrays. Response header names are parsed from retained Zend keys.
+- Event receivers belong to the PHP execution thread and no longer require an
+  execution-subscription mutex on each receive.
+
+Both observations use 16 workers with SO_REUSEPORT, 128 persistent connections,
+eight generator threads, five minutes of GET `/php`, and the same 65,536-request
+warmup. PHP starts with eight warm contexts per worker, max idle eight, max size
+64 and admission 128. Tokio remains default multithreaded, Lua concurrency one,
+Deno eight isolates per worker, and Python one ASGI loop per worker. All five
+runtimes stay loaded. Logs remain warn, access logging is off, and mimalloc
+retains immediate unused-page purge with decommit.
+
+Runtime configuration bytes and Rust package versions match the earlier plain
+observation. Other runtime sources are held at their earlier revisions,
+including Deno `bfbe843`, so the later Deno
+bridge change is not part of this comparison. A private PHP application copy
+uses the original Composer lock and installed package revisions, including
+Symfony 8.1.9 bytecode in the unchanged application-tree warmup. The plain
+handler loads no Composer autoloader or Symfony classes. OPcache warms in all
+16 workers before load; timestamp validation is off and Xdebug is absent.
+
+New binary SHA-256:
+`23172388c9f8f24ac80e9c44624e1f7f5aad989fb22f81f2fe1b239b8da2e1a7`.
+The earlier binary and report are preserved.
+
+| Metric | Earlier Plain PHP | Optimized embed | Observed change |
+| --- | ---: | ---: | ---: |
+| Completed responses | 40,869,614 | 40,506,824 |  |
+| Load duration (s) | 300.061034 | 300.099264 |  |
+| Successful req/s | 136,204.34 | 134,978.09 | -0.90% |
+| Server CPU time (s) | 6,575.63 | 6,343.53 |  |
+| CPU µs/request | 160.8929 | 156.6040 | -2.67% |
+| p99 (ms) | 10.039 | 10.391 | +3.51% |
+| RSS before load (MiB) | 2,768.17 | 2,798.46 | +1.09% |
+| RSS end of load (MiB) | 2,883.72 | 2,905.28 | +0.75% |
+| RSS +120s (MiB) | 2,878.48 | 2,901.21 | +0.79% |
+| Released by +120s (MiB) | 5.23 | 4.07 |  |
+| Errors (all counters) | 0 | 0 |  |
+
+| Idle offset (s) | Earlier RSS (MiB) | Optimized RSS (MiB) |
+| ---: | ---: | ---: |
+| 0 | 2,883.72 | 2,905.28 |
+| 10 | 2,883.72 | 2,905.29 |
+| 30 | 2,883.72 | 2,905.29 |
+| 60 | 2,883.52 | 2,904.15 |
+| 120 | 2,878.48 | 2,901.21 |
+
+CPU/request is aggregate master/worker CPU time divided by completed responses.
+RSS sums the master and all 16 workers, includes every runtime and counts shared
+pages per process. Both runs use the same pool policy; demand-driven growth
+recorded 150 cumulative PHP instance starts
+in the earlier run and 147 in this run,
+including the initial 128 in each. These are not simultaneous instance counts.
+
+The observed CPU/request reduction is small; this pair alone cannot distinguish
+it from run-to-run variation. Throughput and post-idle RSS did not improve.
+This is one observation per implementation on a shared host, without CPU
+affinity. The comparison measures the combined PHP bridge changes; it does not
+attribute a percentage to any individual lock or allocation. Other languages
+and Symfony were not benchmarked again.
+
+All 16 worker listeners and OPcache warmups were verified. Process identities
+remained stable through load and the +10/+30/+60/+120 second idle samples. No GC
+or explicit purge was forced. The test used private Linux mount, network, IPC
+and PID namespaces, read-only source mounts and a private PHP cache. After the
+last sample, the owned master and all workers exited gracefully with no
+survivors. Production services were not changed.
+
+The [optimized Plain PHP JSON report](public/assets/benchmark-php-plain-optimized.json)
+retains process samples, configuration and source fingerprints, error counters
+and the link to the unchanged [earlier Plain PHP report](public/assets/benchmark-php-plain.json).
