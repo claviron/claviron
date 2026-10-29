@@ -46,11 +46,25 @@ and set `listeners.demo.listen` explicitly. `FLEET`, `CONFIG_DIR` and `WORKERS`
 select this instance's runtime resources. Server arguments after `--`
 can select a distinct instance name, fleet, environment or configuration.
 
-Pentaglot uses MiMalloc for Rust allocations. `--mimalloc release` sets immediate
-unused-page purging with decommit; `--mimalloc retain` disables purging.
-The default policy preserves inherited allocator settings.
+Pentaglot uses MiMalloc for Rust allocations. Cargo's `--release` selects an
+optimized binary independently of these launcher allocator profiles:
+
+- `--mimalloc default` preserves inherited allocator settings.
+- `--mimalloc release` sets `MIMALLOC_ALLOW_THP=0` and removes inherited
+  `MIMALLOC_PURGE_DELAY` / `MIMALLOC_PURGE_DECOMMITS` overrides, allowing the
+  linked allocator to select its own purge/decommit defaults. This is the
+  deploy-oriented profile; no purge interval is invented by the launcher.
+  The deprecated `MIMALLOC_RESET_DELAY` / `MIMALLOC_RESET_DECOMMITS` spellings
+  are cleared too, so they cannot silently replace the allocator defaults.
+- `--mimalloc aggressive` sets `MIMALLOC_ALLOW_THP=0`,
+  `MIMALLOC_PURGE_DELAY=0` and `MIMALLOC_PURGE_DECOMMITS=1` explicitly.
+- `--mimalloc retain` sets `MIMALLOC_PURGE_DELAY=-1` and preserves other settings.
+
 `--mimalloc-purge-delay-ms N` overrides the selected policy (`-1` disables,
-`0` purges immediately). These options take effect at process startup.
+`0` requests immediate purging when memory becomes eligible). These options
+take effect at process startup and do not call `mi_collect` themselves.
+The `release` profile previously selected 0 ms purging; use `aggressive` to
+reproduce that purge/decommit policy, now with explicit allocator THP disabled.
 
 Building requires a compatible PHP ZTS embed installation (`PHP` and
 `PHP_CONFIG`), CPython 3.15 (`PYO3_PYTHON`) and the Deno Core/V8 build

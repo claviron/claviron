@@ -6,7 +6,9 @@ APP="$ROOT/examples/pentaglot"
 cd "$APP"
 source "$ROOT/examples/scripts/lib/application.sh"
 source "$ROOT/examples/scripts/lib/build.sh"
-application_init "$APP" pentaglot "$APP/logs" "$@"
+source "$ROOT/examples/scripts/lib/mimalloc.sh"
+mimalloc_init
+application_init "$APP" pentaglot "${PENTAGLOT_LOG_DIR:-$APP/logs}" "$@"
 set -- "${APP_ARGS[@]}"
 
 profile=debug
@@ -14,9 +16,6 @@ native=false
 skip_build=false
 sync=false
 optimize=false
-mimalloc_mode=default
-mimalloc_delay_set=false
-mimalloc_delay=''
 workers="${WORKERS:-0}"
 worker_mode=''
 build_args=()
@@ -29,7 +28,7 @@ while [[ $# -gt 0 ]]; do
     --sync) sync=true ;;
     --optimize) optimize=true ;;
     --mimalloc)
-      [[ $# -gt 1 ]] || { echo '--mimalloc requires default, release or retain.' >&2; exit 2; }
+      [[ $# -gt 1 ]] || { echo '--mimalloc requires default, release, aggressive or retain.' >&2; exit 2; }
       shift; mimalloc_mode="$1" ;;
     --mimalloc=*) mimalloc_mode="${1#*=}" ;;
     --mimalloc-purge-delay-ms)
@@ -55,7 +54,8 @@ while [[ $# -gt 0 ]]; do
     --help|-h)
       cat <<'HELP'
 Usage: examples/scripts/pentaglot.sh [start|run|status|stop] [--standalone|--workers N] [--sync] [--optimize] [--release] [--native] [--no-build]
-                                  [--mimalloc default|release|retain] [--mimalloc-purge-delay-ms N] [-- server options]
+                                  [--mimalloc default|release|aggressive|retain] [--mimalloc-purge-delay-ms N]
+                                  [-- server options]
 
 Run Rust, Lua, Deno, PHP and Gufi-ASGI applications in one Claviron Edge.
 Builds use the Claviron source checkout containing this launcher.
@@ -64,14 +64,19 @@ CONFIG_DIR defaults to config/.
 FLEET defaults to penta; WORKERS defaults to 0 (one standalone serving process).
 --standalone selects one process; --workers N selects a master and N serving workers.
 --production explicitly selects Claviron's production environment.
+PENTAGLOT_LOG_DIR selects isolated launcher logs and pid files (default: logs/).
 PHP/PHP_CONFIG select the ZTS embed build; PYO3_PYTHON selects CPython 3.15.
 --sync installs the locked Symfony dependencies using the selected PHP binary.
 --optimize prepares an authoritative Composer classmap and Symfony production caches.
+--release selects Cargo's optimized build; it does not select an allocator profile.
 --mimalloc default preserves inherited allocator settings (the default policy).
---mimalloc release purges unused pages immediately with decommit enabled.
+--mimalloc release disables allocator THP and clears purge-delay/decommit overrides,
+  allowing the linked MiMalloc version to use its own purge/decommit defaults.
+--mimalloc aggressive disables allocator THP, sets purge delay to 0 and enables decommit.
 --mimalloc retain disables unused-page purging for reuse.
 --mimalloc-purge-delay-ms N overrides the policy: -1 disables purging, 0 purges immediately.
-Policies apply at process startup; they do not release live allocations or runtime caches.
+Allocator profiles apply at process startup; they do not invoke mi_collect, clear
+live allocations or reset runtime caches.
 HELP
       exit 0 ;;
     --) shift; server_args+=("$@"); break ;;
@@ -80,14 +85,7 @@ HELP
   shift
 done
 
-case "$mimalloc_mode" in
-  default|release|retain) ;;
-  *) echo '--mimalloc must be default, release or retain.' >&2; exit 2 ;;
-esac
-if [[ "$mimalloc_delay_set" == true && ! "$mimalloc_delay" =~ ^(-1|[0-9]+)$ ]]; then
-  echo '--mimalloc-purge-delay-ms requires -1 or a non-negative integer.' >&2
-  exit 2
-fi
+mimalloc_validate
 
 application_guard
 if [[ "$sync" == true ]]; then
@@ -139,15 +137,9 @@ for argument in "${server_args[@]}"; do
   case "$argument" in --fleet|--fleet=*) fleet_args=() ;; esac
   case "$argument" in --workers|--workers=*) worker_args=() ;; esac
 done
-case "$mimalloc_mode" in
-  release) export MIMALLOC_PURGE_DELAY=0 MIMALLOC_PURGE_DECOMMITS=1 ;;
-  retain) export MIMALLOC_PURGE_DELAY=-1 ;;
-esac
-if [[ "$mimalloc_delay_set" == true ]]; then
-  export MIMALLOC_PURGE_DELAY="$mimalloc_delay"
-fi
-printf 'Mimalloc: policy=%s, purge_delay_ms=%s, purge_decommits=%s\n' \
+mimalloc_apply
+printf 'MiMalloc launcher profile: %s; purge_delay_ms=%s; purge_decommits=%s; allow_thp=%s\n' \
   "$mimalloc_mode" "${MIMALLOC_PURGE_DELAY-allocator-default}" \
-  "${MIMALLOC_PURGE_DECOMMITS-allocator-default}" >&2
+  "${MIMALLOC_PURGE_DECOMMITS-allocator-default}" "${MIMALLOC_ALLOW_THP-allocator-default}" >&2
 application_exec "${CARGO_TARGET_DIR:-$APP/target}/$profile/pentaglot" \
   "${config_args[@]}" "${fleet_args[@]}" "${worker_args[@]}" "${server_args[@]}"

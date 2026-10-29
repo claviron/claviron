@@ -6,6 +6,8 @@ EXAMPLE_ROOT="$ROOT/examples/edge-server"
 cd "$EXAMPLE_ROOT"
 source "$ROOT/examples/scripts/lib/application.sh"
 source "$ROOT/examples/scripts/lib/build.sh"
+source "$ROOT/examples/scripts/lib/mimalloc.sh"
+mimalloc_init
 application_init "$EXAMPLE_ROOT" edge-server "$EXAMPLE_ROOT/logs" "$@"
 set -- "${APP_ARGS[@]}"
 
@@ -47,6 +49,7 @@ Examples:
   RUST_LOG=edge=debug,claviron=info examples/scripts/edge.sh
   WORKERS=0 examples/scripts/edge.sh --no-build
 HELP
+  mimalloc_help
 }
 
 use_sudo=false
@@ -58,6 +61,14 @@ build_args=()
 server_args=()
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
+  --mimalloc)
+    [[ $# -gt 1 ]] || { echo '--mimalloc requires default, release, aggressive or retain.' >&2; exit 2; }
+    shift; mimalloc_mode="$1" ;;
+  --mimalloc=*) mimalloc_mode="${1#*=}" ;;
+  --mimalloc-purge-delay-ms)
+    [[ $# -gt 1 ]] || { echo '--mimalloc-purge-delay-ms requires -1 or a non-negative integer.' >&2; exit 2; }
+    shift; mimalloc_delay="$1"; mimalloc_delay_set=true ;;
+  --mimalloc-purge-delay-ms=*) mimalloc_delay="${1#*=}"; mimalloc_delay_set=true ;;
   --sudo) use_sudo=true ;;
   --no-build) skip_build=true ;;
   --bench) enable_bench=true ;;
@@ -79,6 +90,8 @@ while [[ "$#" -gt 0 ]]; do
   esac
   shift
 done
+
+mimalloc_validate
 
 if [[ "$enable_bench" == true ]]; then
   build_args+=(--features claviron/bench)
@@ -116,15 +129,23 @@ if [[ "$use_sudo" == true ]]; then
 fi
 
 runtime_env=("RUST_LOG=${RUST_LOG:-info}")
-if [[ -n "${MIMALLOC_PURGE_DELAY+x}" ]]; then
-  # Preserve an explicit allocator setting even when sudo sanitizes the environment.
-  runtime_env+=("MIMALLOC_PURGE_DELAY=$MIMALLOC_PURGE_DELAY")
+mimalloc_apply
+allocator_unset_args=()
+if [[ "$mimalloc_mode" == release ]]; then
+  # Also clear sudo env_keep values when the profile delegates to native defaults.
+  for allocator_key in MIMALLOC_PURGE_DELAY MIMALLOC_PURGE_DECOMMITS MIMALLOC_RESET_DELAY MIMALLOC_RESET_DECOMMITS; do
+    [[ -n "${!allocator_key+x}" ]] || allocator_unset_args+=(-u "$allocator_key")
+  done
 fi
+# Forward allocator settings explicitly through sudo, including inherited options.
+for allocator_key in "${!MIMALLOC_@}"; do
+  runtime_env+=("$allocator_key=${!allocator_key}")
+done
 
 export "${runtime_env[@]}"
 if [[ "$use_sudo" == true ]]; then
   application_unlock
-  exec "${launcher[@]}" env "${runtime_env[@]}" \
+  exec "${launcher[@]}" env "${allocator_unset_args[@]}" "${runtime_env[@]}" \
     "${CARGO_TARGET_DIR:-$EXAMPLE_ROOT/target}/$build_profile/edge-server" \
     "${config_args[@]}" --environment "${HOSTNAME}" \
     --name edge-server "${fleet_args[@]}" "${worker_args[@]}" "${server_args[@]}"
