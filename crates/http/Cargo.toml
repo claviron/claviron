@@ -38,7 +38,6 @@ claviron-helpers.workspace = true
 claviron-macros.workspace = true
 claviron-orbit = { workspace = true, optional = true }
 claviron-runtime.workspace = true
-claviron-sys.workspace = true
 claviron-tls = { workspace = true, optional = true }
 claviron-types.workspace = true
 

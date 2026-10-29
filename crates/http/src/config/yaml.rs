@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 pub use claviron_helpers::overrides as helpers;
 pub use helpers::Override;
-use listeners::derive_max_connections;
 pub use listeners::{
     ConnectionLimits, ListenerConfig, ListenerDefinition, ListenerOverrides,
     ListenerSettings, QuicListenerConfig, TcpListenerConfig, TcpSecurity,
@@ -26,7 +25,6 @@ pub use tcp::{
 
 use crate::ListenerId;
 use crate::config::host::HostHeadersConfig;
-use crate::listener::ListenerTransport;
 #[cfg(feature = "metrics")]
 use crate::metrics::HttpMetricsConfig;
 pub use crate::policy::{
@@ -138,48 +136,11 @@ impl HttpYaml {
         }
         self.defaults.listener.validate()?;
 
-        // Accepting without a cap leaves memory as the only backpressure, so a
-        // listener that declared nothing gets one derived from what this
-        // process can actually hold open. The operator still wins both ways:
-        // a number is honoured, and an explicit `max_connections: null` stays
-        // unlimited. Counting has to happen before the loop consumes the
-        // definitions, and the budget is divided across TCP listeners only —
-        // see `derive_max_connections`.
-        let tcp_listeners = self
-            .listeners
-            .values()
-            .filter(|definition| definition.transport == ListenerTransport::Tcp)
-            .count();
-        let undeclared: Vec<ListenerId> = self
-            .listeners
-            .iter()
-            .filter(|(_, definition)| {
-                definition.transport == ListenerTransport::Tcp
-                    && !definition.declares_max_connections()
-                    && !self.defaults.listener.declares_max_connections()
-            })
-            .map(|(id, _)| id.clone())
-            .collect();
-        let derived = (!undeclared.is_empty())
-            .then(|| derive_max_connections(tcp_listeners))
-            .flatten();
-
         let mut listeners: BTreeMap<ListenerId, Arc<ListenerConfig>> =
             BTreeMap::new();
         for (id, definition) in self.listeners {
-            let mut listener =
+            let listener =
                 definition.resolve(id.clone(), &self.defaults.listener)?;
-            if let Some(derived) = derived
-                && undeclared.contains(&id)
-            {
-                listener.limits.max_connections = Some(derived);
-                tracing::info!(
-                    listener = %id,
-                    max_connections = derived.get(),
-                    tcp_listeners,
-                    "no max_connections declared; derived one from RLIMIT_NOFILE"
-                );
-            }
             // Reuse-port is a worker-family capability, not permission for two
             // logical listeners in one process to compete for the same bind.
             for previous in listeners.values() {
@@ -242,3 +203,7 @@ impl fmt::Display for ConfigError {
     }
 }
 impl std::error::Error for ConfigError {}
+
+#[cfg(test)]
+#[path = "../../tests/config/yaml.rs"]
+mod tests;

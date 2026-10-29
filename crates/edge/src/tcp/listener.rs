@@ -181,7 +181,14 @@ where
                 let permit = tokio::select! {
                     biased;
                     _ = context.cancelled() => break,
-                    entered = gate.enter() => match entered {
+                    entered = async {
+                        if config.limits.max_connections.is_some() {
+                            gate.enter().await
+                        } else {
+                            // Unlimited listeners track ownership for drain only.
+                            gate.try_enter()
+                        }
+                    } => match entered {
                         Ok(permit) => permit,
                         Err(error) => { debug!(listener = %config.id, ?error, "TCP admission rejected"); continue; }
                     }

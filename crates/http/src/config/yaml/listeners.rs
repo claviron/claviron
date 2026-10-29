@@ -91,6 +91,8 @@ pub struct ListenerDefinition {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ConnectionLimits {
+    /// Only an explicitly declared or inherited count limits admission.
+    /// None is unlimited; no operating-system limit is converted into policy.
     pub max_connections: Option<NonZeroUsize>,
     /// None is indefinite, not a default deadline.
     pub graceful_timeout: Option<Duration>,
@@ -189,54 +191,7 @@ pub struct QuicListenerConfig {
     pub quic: QuicConfig,
 }
 
-/// Reserve for everything in the process that is not an accepted connection:
-/// upstream sockets, database pools, PHP handles, log files, config reloads.
-/// Twenty percent is not a measurement, it is headroom chosen to be visibly
-/// generous, because being wrong in this direction only costs a smaller cap.
-const FD_HEADROOM_PERCENT: u64 = 20;
-
-/// Below this, a derived cap is worse than none: an `RLIMIT_NOFILE` that small
-/// means the process has a problem a connection limit cannot fix, and a cap of
-/// a dozen would turn it into an outage. Warn and leave it uncapped instead.
-const MIN_DERIVED_MAX_CONNECTIONS: u64 = 64;
-
-/// The per-listener connection cap implied by this process's file-descriptor
-/// limit, for listeners that did not declare one.
-///
-/// Only TCP listeners take part. A QUIC listener multiplexes every connection
-/// over one UDP socket, so its cost is memory and not descriptors, and a
-/// number derived from `RLIMIT_NOFILE` would mean nothing there. `tcp_share`
-/// is how many listeners divide the budget — every TCP listener, declared cap
-/// or not, because they all spend from the same process-wide pool.
-pub(crate) fn derive_max_connections(tcp_share: usize) -> Option<NonZeroUsize> {
-    let limit = claviron_sys::limits::open_files()?;
-    let share = u64::try_from(tcp_share).ok()?.max(1);
-    let usable = limit.saturating_mul(100 - FD_HEADROOM_PERCENT) / 100;
-    let per_listener = usable / share;
-
-    if per_listener < MIN_DERIVED_MAX_CONNECTIONS {
-        tracing::warn!(
-            rlimit_nofile = limit,
-            tcp_listeners = tcp_share,
-            "file-descriptor limit is too low to derive a connection cap from;              listeners will accept without one — raise RLIMIT_NOFILE or set              max_connections explicitly"
-        );
-        return None;
-    }
-
-    NonZeroUsize::new(usize::try_from(per_listener).ok()?)
-}
-
 impl ListenerOverrides {
-    /// Did anyone actually say what the connection cap should be?
-    ///
-    /// After resolution `None` is ambiguous — it is both "nobody mentioned it"
-    /// and "the operator wrote `max_connections: null` to mean unlimited". Only
-    /// the first is ours to fill in, so the question has to be asked of the
-    /// overrides, before they collapse into a value.
-    pub(crate) fn declares_max_connections(&self) -> bool {
-        !matches!(self.max_connections, Override::Inherit)
-    }
-
     fn limits(
         &self,
         base: &ConnectionLimits,
@@ -282,10 +237,6 @@ impl ListenerOverrides {
 }
 
 impl ListenerDefinition {
-    pub(crate) fn declares_max_connections(&self) -> bool {
-        !matches!(self.max_connections, Override::Inherit)
-    }
-
     fn overrides(&self) -> ListenerOverrides {
         ListenerOverrides {
             max_connections: self.max_connections,

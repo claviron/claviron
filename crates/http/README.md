@@ -106,6 +106,11 @@ Parsing resolves inheritance and validates a candidate; it opens no listeners.
 owners that consume it. Transport capability validation rejects unavailable
 drivers instead of silently discarding their declarations.
 
+Connection capacity is opt-in: without `max_connections` on a listener or in
+listener defaults, admission is unlimited. An explicit `null` removes an
+inherited cap. Positive counts are applied per listener group in each serving
+process; zero is invalid. File-descriptor limits do not create implicit caps.
+
 Each listener must declare `requests.max_body_size` and
 `requests.body_read_timeout`, directly or through listener defaults. A limit may
 explicitly be `off`; absence is not permission to invent one. Body-read timeout

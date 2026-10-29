@@ -4,7 +4,6 @@ listeners:
     tls: false
     protocols: h1
     listen: "${PENTAGLOT_LISTEN}"
-    max_connections: 256
     requests:
       max_body_size: 1 MiB
       body_read_timeout: off
