@@ -93,8 +93,6 @@ create separate lock domains. It does not detect or kill orphan processes.
   `unknown` as fallback. Configuration precedence remains with the server.
 - `rss::read_rss(None)` reports current-process RSS in bytes; `Some(pid)`
   selects another process. Missing observations return `None`, not zero.
-- `limits::open_files()` reads the soft descriptor limit without raising it.
-  `None` can mean unavailable or unlimited; callers must not treat it as zero.
 - `signal::Signal` names a bounded set of Unix signals. `ServerSignals`
   validates distinct operator mappings for reload, reopen, and restart; it
   does not install handlers or send signals by itself.
