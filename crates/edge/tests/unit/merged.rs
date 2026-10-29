@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use axum::body::{Body, to_bytes};
 use claviron_php_embed::{
-    PhpApplication, PhpApplicationService, PhpEmbedRuntime,
-    PhpScriptService, RequestPool,
+    PhpApplication, PhpApplicationService, PhpEmbedRuntime, PhpScriptService,
+    RequestPool,
 };
 use claviron_runtime::ServiceStatus;
 use claviron_runtime::registry::Registry;
@@ -111,9 +111,7 @@ async fn exercise() {
     PhpEmbedRuntime::builder()
         .request_pool(RequestPool::fixed(1))
         .application(
-            PhpApplication::new("live", &script)
-                .args(["live"])
-                .instances(1),
+            PhpApplication::new("live", &script).args(["live"]).instances(1),
         )
         .application(PhpApplication::new("admin", &script).args(["admin"]))
         .graceful_timeout(Some(Duration::from_secs(2)))
