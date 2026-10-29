@@ -216,6 +216,11 @@ impl Configurable for HeartbeatProvider {
     fn source(&self) -> ConfigFile {
         self.source.file()
     }
+    fn absent_source(&self) -> Option<Self::Config> {
+        Some(HeartbeatConfig(
+            crate::config::SupervisorConfig::default().heartbeat.interval,
+        ))
+    }
     fn as_config_observer(
         &self
     ) -> Option<&dyn ConfigObserver<Config = Self::Config>> {

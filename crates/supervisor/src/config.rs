@@ -331,9 +331,8 @@ pub trait SupervisorConfigSource: Send + Sync {
 /// The signals the operator configured, read before the listeners are
 /// installed: from a registered [`SupervisorConfigSource`], otherwise from
 /// `supervisor.yaml`. `None` when neither says — the binary's choice stands.
-/// A file that is missing here is left to the supervisor's configure phase to
-/// report; one that does not parse, or signals that do not validate, stop the
-/// start now.
+/// A missing file keeps the declared defaults. A file that does not parse,
+/// or signals that do not validate, stop the start now.
 pub fn configured_signals(
     state: &AppState
 ) -> Result<Option<claviron_sys::signal::ServerSignals>, Error> {
