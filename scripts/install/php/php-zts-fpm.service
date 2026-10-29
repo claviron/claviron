@@ -1,0 +1,25 @@
+[Unit]
+Description=Custom PHP FastCGI Process Manager
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/sysconfig/php-zts-fpm
+ExecStartPre=/usr/local/libexec/php-zts-fpm check
+ExecStart=/usr/local/libexec/php-zts-fpm start
+ExecReload=/usr/local/libexec/php-zts-fpm check
+ExecReload=/bin/kill -USR2 $MAINPID
+KillSignal=SIGQUIT
+KillMode=mixed
+TimeoutStopSec=infinity
+PrivateTmp=true
+RuntimeDirectory=php-fpm
+RuntimeDirectoryMode=0755
+LogsDirectory=php-fpm
+LimitNOFILE=1048576
+LimitNPROC=131072
+LimitSTACK=8M
+TasksMax=infinity
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+source "$SCRIPT_DIR/build-profile.sh"
+php_zts_profile_init
+php_zts_compiler_flags
+
+# Share the source-built ZIP library with the legacy PHP runtime.
+if [[ -r /usr/local/libzip/lib/pkgconfig/libzip.pc ]]; then
+  export PKG_CONFIG_PATH="/usr/local/libzip/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+fi
 
 # PECL extensions for the PHP ZTS runtime `php-zts-install.sh` provisions.
 # Linux and FreeBSD servers only: the runtime is root-owned under
@@ -11,8 +20,6 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 PHP_OWNER="${PHP_OWNER:-root}"
 PHP_GROUP="${PHP_GROUP:-root}"
-
-PHP_DIR="${PHP_INSTALL_DIR:-/opt/php-zts-embed}"
 
 SUDO_READY=0
 
@@ -283,6 +290,7 @@ check_environment() {
   require_executable "$PHP_CONFIG" "php-config"
   require_executable "$PECL" "pecl"
   check_php_build_contract
+  php_zts_require_profile
   resolve_php_ext_dir
 
   for cmd in "${REQUIRED_COMMANDS[@]}"; do
@@ -332,7 +340,7 @@ configure_freebsd_ca() {
 
   root_cmd mkdir -p "$PHP_AVAILABLE_SCAN_DIR" "$PHP_EMBED_SCAN_DIR" "$PHP_CLI_SCAN_DIR"
   if [[ -r "$private_ca" ]]; then
-    log "adding Roma authority to the PHP CA bundle"
+    log "adding the operator-supplied authority to the PHP CA bundle"
     cat "$system_ca" "$private_ca" | root_cmd tee "$ca_bundle" >/dev/null
     ca_file="$ca_bundle"
   fi
@@ -530,11 +538,6 @@ install_os_deps() {
   esac
 }
 
-clean_pecl_tmp() {
-  local name="$1"
-  rm -rf "/tmp/${name}" "/tmp/pear" "/tmp/pear-build-"* 2>/dev/null || true
-}
-
 refresh_pecl_channel() {
   if [[ "$PECL_CHANNEL_REFRESHED" == "1" ]]; then
     return 0
@@ -560,7 +563,14 @@ pecl_install_one() {
     "PHP_INI_SCAN_DIR=$PHP_EMBED_SCAN_DIR"
     "PHP_PEAR_PHP_BIN=$PHP"
     "PHP_PEAR_INSTALL_DIR=$PHP_DIR/lib/php"
+    "CFLAGS=$CFLAGS"
+    "CXXFLAGS=$CXXFLAGS"
+    "CPPFLAGS=${CPPFLAGS:-}"
+    "LDFLAGS=${LDFLAGS:-}"
+    "PKG_CONFIG_PATH=${PKG_CONFIG_PATH:-}"
   )
+  if [[ -n "${CC:-}" ]]; then pecl_env+=("CC=$CC"); fi
+  if [[ -n "${CXX:-}" ]]; then pecl_env+=("CXX=$CXX"); fi
 
   if [[ -f "$so_path" ]]; then
     log "extension already installed, enabling links: $module_name ($mode)"
@@ -580,7 +590,6 @@ pecl_install_one() {
 
   refresh_pecl_channel
   log "pecl install: $package"
-  clean_pecl_tmp "$module_name"
 
   local pecl_args=(install -f)
   if [[ -n "$configure_options" ]]; then
@@ -592,7 +601,10 @@ pecl_install_one() {
   # process, not the prompt feeder, under the script-wide pipefail setting.
   if (
     set +o pipefail
-    yes '' | root_cmd env "${pecl_env[@]}" "$PECL" "${pecl_args[@]}"
+    pecl_tmp="$(mktemp -d "${TMPDIR:-/tmp}/php-zts-pecl.XXXXXXXX")"
+    trap 'root_cmd rm -rf -- "$pecl_tmp"' EXIT
+    yes '' | root_cmd env "${pecl_env[@]}" TMPDIR="$pecl_tmp" \
+      "$PECL" -d "temp_dir=$pecl_tmp" "${pecl_args[@]}"
   ); then
     :
   else
@@ -635,6 +647,10 @@ finish_runtime_install() {
     root_cmd chown -R "$PHP_OWNER:$PHP_GROUP" "$PHP_DIR"
   fi
 
+  if [[ "$PHP_BUILD_PROFILE" == debug ]]; then
+    log 'Debug extensions stay in the private debug prefix; ldconfig is unchanged.'
+    return 0
+  fi
   case "$(detect_os)" in
   freebsd)
     # FreeBSD ldconfig rejects directories not owned by root.
@@ -790,7 +806,7 @@ info() {
 
 usage() {
   cat <<'EOF'
-Usage: scripts/php-zts-install-modules.sh [install|install-embed|install-xdebug|install-optional|verify|info|deps]
+Usage: scripts/install/php/php-zts-install-modules.sh [install|install-embed|install-xdebug|install-optional|verify|info|deps]
 
 Commands:
   install           Install required PECL extensions only
@@ -803,13 +819,18 @@ Commands:
 
 Environment:
   INSTALL_OPTIONAL=1  Also attempt optional CLI-only extensions during install
+  PHP_BUILD_PROFILE   release (default) or debug; must match the installed PHP
+  PHP_INSTALL_DIR     Explicit installation prefix, including for debug modules
+
+Xdebug is separate from PHP_DEBUG and is never installed by the default command.
 EOF
 }
 
 main() {
-  local cmd="${1:-}"
+  local cmd="${1:-help}"
 
   case "$cmd" in
+  help|-h|--help) usage ;;
   install) install_all ;;
   install-embed) install_embed ;;
   install-xdebug) install_xdebug ;;
@@ -834,4 +855,4 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi

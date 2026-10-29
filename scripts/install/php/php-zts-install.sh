@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PHP_VERSION="${PHP_VERSION:-8.5.11}"
+# Resolve companion files before source preparation changes the working directory.
+PHP_INSTALL_SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+source "$PHP_INSTALL_SCRIPT_DIR/build-profile.sh"
+php_zts_profile_init
+
+PHP_VERSION="${PHP_VERSION:-8.5.12}"
+RECONFIGURE=0
+PHP_SOURCE_CHANGED=0
 
 # This script provisions the ZTS PHP build for Linux and FreeBSD servers:
 # the developer builds, and the result is a root-owned runtime under
@@ -9,11 +16,13 @@ PHP_VERSION="${PHP_VERSION:-8.5.11}"
 # PHP_INSTALL_DIR override the defaults.
 #
 # Usage:
-#   scripts/php-zts-install.sh                # full build + install
-#   scripts/php-zts-install.sh deps           # print package deps only
-#   scripts/php-zts-install.sh dry-run        # show resolved paths
-#   scripts/php-zts-install.sh check-source   # prepare php-src release tag only
-#   scripts/php-zts-install.sh verify         # smoke-test installed php
+#   scripts/install/php/php-zts-install.sh            # show help
+#   scripts/install/php/php-zts-install.sh install    # build + install without cleaning
+#   scripts/install/php/php-zts-install.sh clean      # clean the source build tree
+#   scripts/install/php/php-zts-install.sh deps           # print package deps only
+#   scripts/install/php/php-zts-install.sh dry-run        # show resolved paths
+#   scripts/install/php/php-zts-install.sh check-source   # prepare php-src release tag only
+#   scripts/install/php/php-zts-install.sh verify         # smoke-test installed php
 if [[ "$(uname -s)" == "Darwin" ]]; then
   echo "ERROR: this script is for Linux/FreeBSD servers only." >&2
   exit 2
@@ -23,8 +32,6 @@ fi
 # libphp must not be able to rewrite it.
 PHP_OWNER="${PHP_OWNER:-root}"
 PHP_GROUP="${PHP_GROUP:-root}"
-PHP_SRC_DIR="${PHP_SRC_DIR:-$HOME/src/php-src}"
-PHP_DIR="${PHP_INSTALL_DIR:-/opt/php-zts-embed}"
 PHP_CONFIG_DIR="${PHP_CONFIG_DIR:-$PHP_DIR/etc}"
 PHP_SCAN_ROOT="${PHP_SCAN_ROOT:-$PHP_CONFIG_DIR/conf.d}"
 PHP_EMBED_SCAN_DIR="${PHP_EMBED_SCAN_DIR:-$PHP_SCAN_ROOT/embed}"
@@ -103,6 +110,17 @@ ALMALINUX_PACKAGES=(
   xz
 )
 
+# Reuse the common source-built libzip instead of installing a repository copy.
+if [[ -r /usr/local/libzip/lib/pkgconfig/libzip.pc ]]; then
+  export PKG_CONFIG_PATH="/usr/local/libzip/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+  local_zip_packages=()
+  for build_package in "${ALMALINUX_PACKAGES[@]}"; do
+    if [[ $build_package != libzip-devel ]]; then local_zip_packages+=("$build_package"); fi
+  done
+  ALMALINUX_PACKAGES=("${local_zip_packages[@]}")
+  unset local_zip_packages build_package
+fi
+
 FREEBSD_PACKAGES=(
   git
   gmake
@@ -133,9 +151,14 @@ FREEBSD_PACKAGES=(
   gmp
 )
 
-log() { printf '%s\n' "INFO: $*"; }
+FAILED() { printf '❌ \033[1;31m[FAILED]\033[0m %s\n' "$*" >&2; }
+WARNING() { printf '\033[1;33m[WARNING]\033[0m %s\n' "$*" >&2; }
+INFO() { printf '\033[1;34m[INFO]\033[0m %s\n' "$*" >&2; }
+SUCCESS() { printf '\033[1;32m[✔]\033[0m %s\n' "$*" >&2; }
+
+log() { INFO "$*"; }
 die() {
-  printf '%s\n' "ERROR: $*" >&2
+  FAILED "$*"
   exit 1
 }
 
@@ -326,6 +349,9 @@ prepare_source() {
     die "local PHP release tag $release_tag differs from origin; delete the local tag and retry"
   fi
 
+  if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/$release_tag^{commit}")" ]]; then
+    PHP_SOURCE_CHANGED=1
+  fi
   log "switching php-src to release tag $release_tag"
   git switch --detach "refs/tags/$release_tag"
 }
@@ -349,6 +375,7 @@ configure_build_env() {
   export LDFLAGS="${LDFLAGS:-}"
   export CPPFLAGS="${CPPFLAGS:-}"
   export PKG_CONFIG_PATH="${PKG_CONFIG_PATH:-}"
+  php_zts_compiler_flags
 }
 
 verify_re2c() {
@@ -421,12 +448,19 @@ verify_pkg_config() {
   fi
 }
 
-clean_tree() {
+clean_tree() (
+  [[ -d "$PHP_SRC_DIR" ]] || die "PHP source directory missing: $PHP_SRC_DIR"
+  cd "$PHP_SRC_DIR"
   if [[ -f Makefile ]]; then
-    make clean || true
-    make distclean || true
+    local make_command="${MAKE:-make}"
+    if [[ "$(detect_os)" == freebsd ]]; then make_command="${MAKE:-gmake}"; fi
+    "$make_command" clean
+    "$make_command" distclean
+    rm -f .claviron-php-build
+  else
+    log "No Makefile in $PHP_SRC_DIR; nothing to clean."
   fi
-}
+)
 
 build_php() {
   local configure_args=()
@@ -442,10 +476,10 @@ build_php() {
   sudo_cmd mkdir -p "$PHP_CONFIG_DIR" "$PHP_SCAN_ROOT" "$PHP_AVAILABLE_SCAN_DIR" "$PHP_EMBED_SCAN_DIR" "$PHP_CLI_SCAN_DIR"
   sudo_cmd chown -R "$(id -u):$(id -g)" "$PHP_DIR"
 
-  ./buildconf --force
-
   configure_args=(
     --prefix="$PHP_DIR"
+    "$PHP_DEBUG_OPTION"
+    "$PHP_ASSERTIONS_OPTION"
     --with-config-file-path="$PHP_CONFIG_DIR"
     --with-config-file-scan-dir="$PHP_SCAN_DIR"
     --enable-embed=shared
@@ -502,7 +536,37 @@ build_php() {
     configure_args+=(--enable-fpm)
   fi
 
-  ./configure "${configure_args[@]}"
+  local configured_version="" fingerprint previous=""
+  local stamp_file=.claviron-php-build
+  command -v "${CC:-cc}" >/dev/null || die 'C compiler not found; set CC.'
+  command -v "${CXX:-c++}" >/dev/null || die 'C++ compiler not found; set CXX.'
+  fingerprint="$(
+    printf '%s\n' "$PHP_BUILD_PROFILE" "$PHP_VERSION" "${configure_args[@]}" \
+      "$CFLAGS" "$CXXFLAGS" "$CPPFLAGS" "$LDFLAGS" "$PKG_CONFIG_PATH" \
+      "$(command -v "${CC:-cc}")" "$("${CC:-cc}" --version)" \
+      "$(command -v "${CXX:-c++}")" "$("${CXX:-c++}" --version)" | cksum
+  )"
+  if [[ -f "$stamp_file" ]]; then previous="$(cat "$stamp_file")"; fi
+  if [[ -f config.status ]]; then
+    configured_version="$(sh ./config.status --version 2>/dev/null | sed -n '1p')"
+  fi
+  if [[ "$RECONFIGURE" == 1 || "$PHP_SOURCE_CHANGED" == 1 ||
+        "$configured_version" != "PHP config.status $PHP_VERSION" ||
+        "$previous" != "$fingerprint" ||
+        ! -f Makefile || ! -f main/php_config.h || ! -f main/build-defs.h ]]; then
+    # A failed configure must not look reusable on the next install attempt.
+    rm -f config.status Makefile "$stamp_file"
+    if ! ./buildconf --force || ! ./configure "${configure_args[@]}"; then
+      rm -f config.status Makefile "$stamp_file"
+      return 1
+    fi
+    # Use the new Makefile even when the old one was lost but objects survived.
+    # Make does not track flags; no object from a previous profile may survive.
+    "${MAKE:-make}" clean
+    printf '%s\n' "$fingerprint" > "$stamp_file"
+  else
+    log "Reusing PHP $PHP_VERSION configuration; use install --configure to change build options."
+  fi
 
   "${MAKE:-make}" -j"$(jobs_count)"
   "${MAKE:-make}" install
@@ -522,8 +586,7 @@ write_default_ini() {
   mkdir -p "$PHP_SCAN_ROOT" "$PHP_AVAILABLE_SCAN_DIR" "$PHP_EMBED_SCAN_DIR" "$PHP_CLI_SCAN_DIR"
 
   # Ports OpenSSL has a different compiled CA path from FreeBSD base.
-  # Keep a guest-local bundle so PHP also trusts the Roma authority without
-  # depending on the p9 mount after installation.
+  # Keep an operator-supplied private authority in the installation's CA bundle.
   if [[ "$(detect_os)" == "freebsd" && -r "$ca_file" ]]; then
     if [[ -r "$private_ca" ]]; then
       cat "$ca_file" "$private_ca" >"$ca_bundle"
@@ -551,6 +614,10 @@ fix_runtime_permissions() {
 }
 
 register_runtime_library() {
+  if [[ "$PHP_BUILD_PROFILE" == debug ]]; then
+    log "Debug library stays private; select $PHP_DIR/lib explicitly when linking."
+    return 0
+  fi
   local conf="/etc/ld.so.conf.d/php-zts-embed.conf"
 
   if [[ "$(detect_os)" == "freebsd" ]]; then
@@ -579,6 +646,8 @@ verify_install() {
   [[ -x "$PHP_DIR/bin/php" ]] || die "php binary missing: $PHP_DIR/bin/php"
   [[ -x "$PHP_DIR/bin/php-config" ]] || die "php-config missing: $PHP_DIR/bin/php-config"
   [[ -f "$PHP_DIR/lib/libphp.so" ]] || die "libphp.so missing: $PHP_DIR/lib/libphp.so"
+  php_zts_require_profile
+  [[ "$("$PHP_DIR/bin/php" -n -r 'echo (int) PHP_ZTS;')" == 1 ]] || die 'Expected a ZTS PHP build.'
 
   PHPRC="$PHP_CONFIG_DIR/php.ini" PHP_INI_SCAN_DIR="$PHP_EMBED_SCAN_DIR" "$PHP_DIR/bin/php" -v
   "$PHP_DIR/bin/php-config" --php-sapis
@@ -586,27 +655,38 @@ verify_install() {
   cli_version="$(PHPRC="$PHP_CONFIG_DIR/php.ini" PHP_INI_SCAN_DIR="$PHP_EMBED_SCAN_DIR" "$PHP_DIR/bin/php" -r 'echo PHP_VERSION;')"
   config_version="$("$PHP_DIR/bin/php-config" --version)"
   if [[ "$cli_version" != "$PHP_VERSION" || "$config_version" != "$PHP_VERSION" ]]; then
-    printf 'REJECT: expected PHP %s, got cli=%s php-config=%s\n' "$PHP_VERSION" "$cli_version" "$config_version" >&2
+    FAILED "Expected PHP $PHP_VERSION, got cli=$cli_version php-config=$config_version"
     exit 1
   fi
-  printf 'OK: PHP release version verified (%s)\n' "$PHP_VERSION"
+  SUCCESS "PHP release version verified ($PHP_VERSION)"
 
   PHPRC="$PHP_CONFIG_DIR/php.ini" PHP_INI_SCAN_DIR="$PHP_EMBED_SCAN_DIR" "$PHP_DIR/bin/php" -r '
     $gd = function_exists("gd_info") ? gd_info() : [];
     foreach (["JPEG Support", "PNG Support", "WebP Support", "FreeType Support"] as $key) {
         if (empty($gd[$key])) {
-            fwrite(STDERR, "REJECT: PHP GD missing required capability: {$key}\n");
+            fwrite(STDERR, "❌ \033[1;31m[FAILED]\033[0m PHP GD missing required capability: {$key}\n");
             exit(1);
         }
     }
-    echo "OK: PHP GD JPEG/PNG/WebP/FreeType support verified\n";
+    fwrite(STDERR, "\033[1;32m[✔]\033[0m PHP GD JPEG/PNG/WebP/FreeType support verified\n");
   '
 
-  if [[ -x "$(dirname "$0")/php-zts-modules.sh" ]]; then
-    "$(dirname "$0")/php-zts-modules.sh" embed
-    "$(dirname "$0")/php-zts-modules.sh" cli
+  local config_report="$PHP_INSTALL_SCRIPT_DIR/php-zts-verify-config.php"
+  local config_failed=0
+  if ! PHPRC="$PHP_CONFIG_DIR/php.ini" PHP_INI_SCAN_DIR="$PHP_EMBED_SCAN_DIR" "$PHP_DIR/bin/php" "$config_report" embed; then
+    config_failed=1
   fi
-  log "libphp.so registered through ldconfig: $PHP_DIR/lib"
+  if [[ "$PHP_CLI_SCAN_DIR" != "$PHP_EMBED_SCAN_DIR" ]]; then
+    if ! PHPRC="$PHP_CONFIG_DIR/php.ini" PHP_INI_SCAN_DIR="$PHP_CLI_SCAN_DIR" "$PHP_DIR/bin/php" "$config_report" cli; then
+      config_failed=1
+    fi
+  fi
+  if [[ "$config_failed" == 1 ]]; then
+    FAILED "Installed PHP configuration verification failed; review the settings reported above."
+    return 1
+  fi
+  SUCCESS "Installed PHP configuration verification passed."
+  log "Verified PHP build profile: $PHP_BUILD_PROFILE"
 }
 
 dry_run() {
@@ -615,6 +695,11 @@ dry_run() {
     echo "Linux family: $(detect_linux_family)"
   fi
   echo "php version: $PHP_VERSION"
+  echo "build profile: $PHP_BUILD_PROFILE"
+  echo "C compiler: ${CC:-cc}"
+  echo "CFLAGS: ${CFLAGS:+$CFLAGS }$PHP_PROFILE_FLAGS"
+  echo "CXXFLAGS: ${CXXFLAGS:+$CXXFLAGS }$PHP_PROFILE_FLAGS"
+  echo "debug option: $PHP_DEBUG_OPTION"
   echo "php-src: $PHP_SRC_DIR"
   echo "prefix: $PHP_DIR"
   echo "local bin: $LOCAL_BIN"
@@ -636,11 +721,57 @@ dry_run() {
   esac
 }
 
+usage() {
+  cat <<EOF
+Usage: $0 [help|install [--configure]|clean|verify|dry-run|check-source|deps]
+
+  help          Show this help (default; also -h or --help).
+  install       Build and install using the existing configuration.
+  install --configure
+                Run buildconf --force and configure before building and installing.
+                Use when changing configure options, compiler or build environment.
+                Discards objects compiled with the previous settings.
+  clean         Run make clean and make distclean in the PHP source directory.
+  verify        Check the installed PHP without rebuilding.
+  dry-run       Show resolved installation paths and dependencies.
+  check-source  Prepare the PHP source release tag only.
+  deps          Print package dependencies only.
+
+First installation, a source revision change, a configured PHP version mismatch,
+or missing configuration outputs automatically runs buildconf and configure.
+Compiler, flag, profile and configure-option changes also trigger a clean
+reconfiguration. Retry a failed make with unchanged settings to reuse completed
+objects. Use install --configure to force a clean reconfiguration.
+
+PHP_BUILD_PROFILE=release (default): -O2 -g0, PHP debug and debug assertions off.
+PHP_BUILD_PROFILE=debug: -O0 -g, PHP debug enabled, separate source and prefix.
+Debug defaults to /opt/php-zts-embed-debug and is not registered with ldconfig.
+CC and CXX select the compiler; inherited include/link flags are preserved.
+Xdebug is an independent, explicitly installed CLI extension.
+
+Installation must be explicitly requested. For a clean installation build:
+  $0 clean && $0 install
+
+To check an existing installation without rebuilding:
+  $0 verify
+EOF
+}
+
 main() {
+  case "${1:-help}" in
+    help|-h|--help) usage; return 0 ;;
+  esac
+
+  if [[ "${1:-}" == install && "${2:-}" == --configure && $# == 2 ]]; then
+    RECONFIGURE=1
+  elif [[ $# -gt 1 ]]; then
+    die "usage: $0 install [--configure]; other commands take no arguments"
+  fi
+
   local os
   os="$(detect_os)"
 
-  case "${1:-install}" in
+  case "${1:-help}" in
   deps)
     case "$os" in
     linux)
@@ -665,19 +796,24 @@ main() {
     verify_install
     exit 0
     ;;
+  clean)
+    clean_tree
+    return 0
+    ;;
   install) ;;
-  *) die "usage: $0 [install|verify|dry-run|check-source|deps]" ;;
+  *) usage >&2; die "Unknown command: $1" ;;
   esac
 
   log "building PHP ZTS embed SAPI"
   log "php-src: $PHP_SRC_DIR"
   log "prefix: $PHP_DIR"
+  log "build profile: $PHP_BUILD_PROFILE ($PHP_PROFILE_FLAGS, $PHP_DEBUG_OPTION)"
+  php_zts_require_profile
 
   prepare_source
   configure_build_env "$os"
   verify_re2c
   verify_pkg_config
-  clean_tree
   build_php
   write_default_ini
   fix_runtime_permissions
@@ -685,4 +821,4 @@ main() {
   verify_install
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then main "$@"; fi

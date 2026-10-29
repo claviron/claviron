@@ -6,6 +6,7 @@ SERVICE_NAME="php-zts-fpm"
 PLIST_SRC_DEFAULT="$SCRIPT_DIR/${SERVICE_NAME}.plist"
 PLIST_DEST="$HOME/Library/LaunchAgents/${SERVICE_NAME}.plist"
 PLIST_SRC="${PLIST_SRC:-$PLIST_SRC_DEFAULT}"
+PHP_DIR="${PHP_INSTALL_DIR:-/opt/php-zts-embed}"
 LAUNCHCTL_TARGET="gui/$(id -u)/${SERVICE_NAME}"
 LAUNCHCTL_DOMAIN="gui/$(id -u)"
 
@@ -22,6 +23,8 @@ Commands:
   status     Show whether the service is loaded and running
   watch      Tail the php-fpm log file
   uninstall  Stop service and remove plist from LaunchAgents
+
+PHP_INSTALL_DIR selects the installed PHP prefix (default: /opt/php-zts-embed).
 EOF
 }
 
@@ -39,8 +42,13 @@ service_exists() {
 install_service() {
   require_plist_source
   mkdir -p "$HOME/Library/LaunchAgents"
-  plutil -lint "$PLIST_SRC" >/dev/null
   cp "$PLIST_SRC" "$PLIST_DEST"
+  plutil -replace ProgramArguments.0 -string "$PHP_DIR/sbin/php-fpm" "$PLIST_DEST"
+  plutil -replace ProgramArguments.3 -string "$PHP_DIR/etc/php-fpm.conf" "$PLIST_DEST"
+  plutil -replace StandardErrorPath -string "$PHP_DIR/var/log/php-fpm.log" "$PLIST_DEST"
+  plutil -replace StandardOutPath -string "$PHP_DIR/var/log/php-fpm.log" "$PLIST_DEST"
+  plutil -replace WorkingDirectory -string "$PHP_DIR/var" "$PLIST_DEST"
+  plutil -lint "$PLIST_DEST" >/dev/null
   launchctl bootout "$LAUNCHCTL_DOMAIN" "$PLIST_DEST" 2>/dev/null || true
   launchctl bootstrap "$LAUNCHCTL_DOMAIN" "$PLIST_DEST"
   launchctl enable "$LAUNCHCTL_TARGET" 2>/dev/null || true
@@ -110,7 +118,7 @@ status_service() {
 }
 
 watch_service() {
-  tail -f "$HOME/dev/php-zts-embed/var/log/php-fpm.log"
+  tail -f "$PHP_DIR/var/log/php-fpm.log"
 }
 
 uninstall_service() {
