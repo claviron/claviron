@@ -161,6 +161,9 @@ impl Configurable for SupervisorPolicy {
     fn source(&self) -> ConfigFile {
         self.source.file()
     }
+    fn absent_source(&self) -> Option<Self::Config> {
+        Some(SupervisorConfig::default())
+    }
     fn as_config_observer(
         &self
     ) -> Option<&dyn ConfigObserver<Config = Self::Config>> {
@@ -202,3 +205,7 @@ impl Reloadable<AppState> for SupervisorPolicy {
         self.load(state).await
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/config/provider.rs"]
+mod tests;

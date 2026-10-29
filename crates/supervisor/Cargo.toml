@@ -55,3 +55,4 @@ orbitive = { workspace = true, features = ["metrics"], optional = true }
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
 tokio = { workspace = true, features = ["test-util"] }
+tempfile = "3"

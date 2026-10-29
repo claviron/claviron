@@ -160,6 +160,9 @@ impl Configurable for WorkerSnapshotPublisher {
     fn source(&self) -> ConfigFile {
         self.source.file()
     }
+    fn absent_source(&self) -> Option<Self::Config> {
+        Some(crate::config::SupervisorConfig::default().snapshot.into())
+    }
 
     fn as_config_observer(
         &self
