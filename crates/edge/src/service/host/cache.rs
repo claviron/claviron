@@ -62,6 +62,7 @@ impl CleartextHostCache {
                 host,
                 self.ingress.clone(),
                 self.access.clone(),
+                self.listener,
             )));
         }
         HostService {
@@ -71,7 +72,6 @@ impl CleartextHostCache {
                 .as_ref()
                 .expect("host policy is prepared")
                 .clone(),
-            listener: self.listener,
         }
     }
 }

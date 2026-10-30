@@ -49,6 +49,11 @@ deny/access rules and the narrowed HTTP policy still apply. Request admission,
 head timing and response-body guards are not Axum-only facilities. Skipping the
 router must not make an application invisible to exchange accounting either.
 
+The immutable host binding prepares the listener/host request and response
+limits once. Cleartext requests reuse them while that binding matches the
+current host configuration; replacement prepares new limits without changing
+already admitted requests. ACL and redirect rules remain live per request.
+
 ## Keep the boundary useful
 
 Native transports adapt their request bodies to `RouteBody`; bypass handlers

@@ -89,26 +89,34 @@ impl Drop for Dropped {
 fn config_reload_replaces_cached_metadata_but_retains_owned_requests() {
     let access = Arc::new(VhostResolver::default());
     let first_config: Arc<HostConfig> = Arc::new(
-        serde_yaml::from_str("root: first\naliases: [alias.test]").unwrap(),
+        serde_yaml::from_str("root: first\naliases: [alias.test]\nrequests: {max_body_size: 16}\nresponses: {max_body_size: 32}").unwrap(),
     );
     access.upsert_host("app.test".parse().unwrap(), first_config.clone());
     let mut cache = cache(access.clone());
+    cache.listener.requests.max_body_size = Some(12);
+    cache.listener.responses.max_body_size = Some(48);
     let first = bind(&mut cache, &access.snapshot(), app("first"));
     let old_policy = Arc::downgrade(&first.policy);
     let dropped = Arc::new(AtomicUsize::new(0));
     let owned = first
         .prepare(request(Dropped(dropped.clone())), RequestArrival::Established)
         .unwrap();
+    assert_eq!(owned.max_body_size(), Some(12));
+    assert_eq!(owned.policy.responses.max_body_size, Some(32));
     drop(first);
 
     let next_config: Arc<HostConfig> = Arc::new(
-        serde_yaml::from_str("root: second\naliases: [alias.test]").unwrap(),
+        serde_yaml::from_str("root: second\naliases: [alias.test]\nrequests: {max_body_size: 8}\nresponses: {max_body_size: 64}").unwrap(),
     );
     access.upsert_host("app.test".parse().unwrap(), next_config.clone());
     let second = bind(&mut cache, &access.snapshot(), app("second"));
     assert!(!Arc::ptr_eq(&old_policy.upgrade().unwrap(), &second.policy));
     let next =
         second.prepare(request(()), RequestArrival::Established).unwrap();
+    assert_eq!(next.max_body_size(), Some(8));
+    assert_eq!(next.policy.responses.max_body_size, Some(48));
+    assert_eq!(owned.max_body_size(), Some(12));
+    assert_eq!(owned.policy.responses.max_body_size, Some(32));
     assert!(Arc::ptr_eq(
         owned.request().extensions().get::<Arc<crate::HostConfig>>().unwrap(),
         &first_config

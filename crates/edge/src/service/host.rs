@@ -80,6 +80,7 @@ struct HostPolicy {
     ingress: HostIngress,
     access: Arc<VhostResolver>,
     extensions: ContextExtensions,
+    http: HttpPolicy,
 }
 
 impl HostPolicy {
@@ -88,9 +89,13 @@ impl HostPolicy {
         host: VhostCtx,
         ingress: HostIngress,
         access: Arc<VhostResolver>,
+        listener: HttpPolicy,
     ) -> Self {
         let extensions = ContextExtensions::new(&connection, &host);
-        Self { connection, host, ingress, access, extensions }
+        // Both declarations belong to this immutable binding. Requests reuse
+        // their narrowed limits; live ACL/redirect policy is read separately.
+        let http = listener.narrow(&host.vhost_config.policy());
+        Self { connection, host, ingress, access, extensions, http }
     }
 }
 
@@ -105,9 +110,6 @@ impl HostPolicy {
 pub struct HostService {
     app: HostApp,
     policy: Arc<HostPolicy>,
-    /// This listener's policy, both sides, narrowed per request by the
-    /// host's own in [`HostService::prepare_context`].
-    listener: HttpPolicy,
 }
 
 impl HostService {
@@ -127,9 +129,8 @@ impl HostService {
         Self {
             app: app.into(),
             policy: Arc::new(HostPolicy::new(
-                connection, host, ingress, access,
+                connection, host, ingress, access, listener,
             )),
-            listener,
         }
     }
 
@@ -266,21 +267,11 @@ impl HostService {
             Some(quotas) => quotas.check(&request)?,
             None => None,
         };
-        // Resolved here because this is the one place a host is known and a
-        // `PreparedRequest` is made, once per request on both transports; the
-        // sites that enforce a limit then read one policy instead of choosing
-        // between two. Narrowed, never widened: the listener's values stay a
-        // guarantee. A host that needs more than its listener allows belongs on
-        // another listener that allows it; where hosts share one address and so
-        // one listener, the listener carries the largest any of them needs and
-        // the others narrow their own.
-        let policy =
-            self.listener.narrow(&self.policy.host.vhost_config.policy());
         Ok(PreparedContext {
             request,
             connection,
             access,
-            policy,
+            policy: policy.http,
             #[cfg(feature = "rate-limit")]
             quota_snapshot,
         })
@@ -348,7 +339,7 @@ pub struct PreparedRequest<B> {
     connection: Arc<ConnCtx>,
     access: PolicySnapshot,
     /// The listener's policy, both sides, already narrowed by this host.
-    /// Computed once in [`HostService::prepare_context`].
+    /// Prepared with the immutable host binding, then copied at admission.
     policy: HttpPolicy,
     #[cfg(feature = "rate-limit")]
     quota_snapshot: Option<claviron_http::rate_limit::Snapshot>,
