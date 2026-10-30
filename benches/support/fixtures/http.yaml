@@ -1,0 +1,15 @@
+defaults:
+  listener:
+    requests:
+      max_body_size: off
+      body_read_timeout: off
+listeners:
+  plain:
+    transport: tcp
+    listen: 192.0.2.2:8080
+    protocols: [h1]
+  tls:
+    transport: tcp
+    listen: 192.0.2.2:8443
+    protocols: [h1, h2]
+    tls: true

@@ -1,6 +1,7 @@
 # --- Rust / Cargo ---
 /target/
 /target-native/
+/.benchmarks/
 
 Cargo.lock
 # --- Build output ---

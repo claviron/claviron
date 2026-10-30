@@ -232,8 +232,36 @@ orbitive.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
+# ── HTTP operation benchmarks ──────────────────────────────────────────
+bytes.workspace = true
+criterion = { version = "0.8", default-features = false, features = ["async_tokio", "cargo_bench_support"] }
+futures-util.workspace = true
+http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+hyper.workspace = true
+serde = { workspace = true, features = ["derive"] }
+
+# ── TLS benchmark preparation ──────────────────────────────────────────
+rcgen.workspace = true
+rustls.workspace = true
+
 # ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"
+
+[[bench]]
+name = "dispatch-edge-bypass"
+path = "benches/dispatch/edge/bypass.rs"
+harness = false
+test = false
+required-features = ["edge"]
+
+[[bench]]
+name = "dispatch-hyper"
+path = "benches/dispatch/hyper.rs"
+harness = false
+test = false
+required-features = ["edge"]
 
 [workspace]
 members = [

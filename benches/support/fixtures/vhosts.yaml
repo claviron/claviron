@@ -1,0 +1,4 @@
+benchmark.test:
+  root: public
+  transport:
+    non_ssl: serve
