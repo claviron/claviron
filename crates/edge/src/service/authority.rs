@@ -99,15 +99,14 @@ fn resolve_request_authority_with(
     table: &VhostTable,
     identity: impl FnOnce(&Host) -> (HostName, HostKey),
 ) -> Option<VhostCtx> {
-    let record = table.resolve_record(authority.host())?;
+    let (record, application) =
+        table.resolve_with_application(authority.host())?;
     let (hostname, vhost_key) = identity(&record.canonical);
     Some(VhostCtx {
         hostname,
         vhost_key,
         vhost_config: record.config.clone(),
-        application: table
-            .prepared::<crate::pipeline::HostAppSnapshot>()
-            .and_then(|apps| apps.resolve(&record.canonical)),
+        application: application.cloned(),
     })
 }
 

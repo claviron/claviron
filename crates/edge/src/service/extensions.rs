@@ -35,16 +35,15 @@ pub fn resolve_sni_from_table(
     let sni = server_name.ok_or(HostRejection::Missing)?;
     let host = Host::from_str(sni)
         .map_err(|error| HostRejection::Invalid(sni.to_owned(), error))?;
-    match table.resolve(&host) {
-        Some((key, cfg)) => {
+    match table.resolve_with_application(&host) {
+        Some((record, application)) => {
+            let key = &record.canonical;
             debug!("resolved SNI '{}' => canonical key '{:?}'", sni, key);
             Ok(VhostCtx {
                 hostname: HostName(Arc::new(host)),
                 vhost_key: HostKey(Arc::new(key.clone())),
-                vhost_config: cfg,
-                application: table
-                    .prepared::<crate::pipeline::HostAppSnapshot>()
-                    .and_then(|apps| apps.resolve(&key)),
+                vhost_config: record.config.clone(),
+                application: application.cloned(),
             })
         }
         None => Err(HostRejection::NotHosted(sni.to_string())),

@@ -915,3 +915,7 @@ mod order_tests;
 #[cfg(all(test, feature = "server"))]
 #[path = "../../tests/loader/binding.rs"]
 mod binding_tests;
+
+#[cfg(all(test, feature = "server"))]
+#[path = "../../tests/loader/resolver/selection.rs"]
+mod selection_tests;

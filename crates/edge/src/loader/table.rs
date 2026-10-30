@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::{Arc, LazyLock};
 
@@ -15,6 +16,23 @@ pub struct VhostRecord {
     pub(crate) policy: Option<Arc<crate::service::policy::RequestPolicy>>,
 }
 
+/// One published name binding. Keep the declaration separately shareable:
+/// application factories may retain declarations, never other applications.
+#[derive(Clone)]
+struct VhostEntry {
+    record: Arc<VhostRecord>,
+    #[cfg(feature = "server")]
+    application: Option<crate::pipeline::HostApp>,
+}
+
+impl Deref for VhostEntry {
+    type Target = VhostRecord;
+
+    fn deref(&self) -> &Self::Target {
+        &self.record
+    }
+}
+
 /// The catchall key, built once rather than on every unmatched lookup.
 fn default_host() -> &'static Host {
     static DEFAULT: LazyLock<Host> =
@@ -24,7 +42,7 @@ fn default_host() -> &'static Host {
 
 #[derive(Clone, Default)]
 pub struct VhostTable {
-    inner: Arc<HashMap<Host, Arc<VhostRecord>>>,
+    inner: Arc<HashMap<Host, VhostEntry>>,
     #[cfg(feature = "server")]
     prepared: HashMap<std::any::TypeId, Arc<dyn std::any::Any + Send + Sync>>,
 }
@@ -42,13 +60,41 @@ impl VhostTable {
         id: std::any::TypeId,
         value: Arc<dyn std::any::Any + Send + Sync>,
     ) {
+        if let Some(apps) =
+            value.downcast_ref::<crate::pipeline::HostAppSnapshot>()
+        {
+            // Bind against this candidate before it publishes. Request-time
+            // selection then needs neither TypeId nor a second Host lookup.
+            for entry in Arc::make_mut(&mut self.inner).values_mut() {
+                entry.application = apps.resolve(&entry.canonical);
+            }
+        }
         self.prepared.insert(id, value);
     }
 
     /// Dependencies may retain this host view without retaining themselves.
     #[cfg(feature = "server")]
     pub fn declarations_only(&self) -> Self {
-        Self { inner: self.inner.clone(), prepared: HashMap::new() }
+        let inner =
+            if self.inner.values().any(|entry| entry.application.is_some()) {
+                Arc::new(
+                    self.inner
+                        .iter()
+                        .map(|(host, entry)| {
+                            (
+                                host.clone(),
+                                VhostEntry {
+                                    record: entry.record.clone(),
+                                    application: None,
+                                },
+                            )
+                        })
+                        .collect(),
+                )
+            } else {
+                self.inner.clone()
+            };
+        Self { inner, prepared: HashMap::new() }
     }
 
     #[cfg(feature = "server")]
@@ -61,7 +107,7 @@ impl VhostTable {
                 && old.canonical == record.canonical
                 && Arc::ptr_eq(&old.config, &record.config)
             {
-                *record = old.clone();
+                record.record = old.record.clone();
             }
         }
     }
@@ -117,10 +163,25 @@ impl VhostTable {
         &self,
         host: &Host,
     ) -> Option<&VhostRecord> {
-        self.inner
-            .get(host)
-            .or_else(|| self.inner.get(default_host()))
-            .map(Arc::as_ref)
+        self.resolve_entry(host).map(|entry| entry.record.as_ref())
+    }
+
+    /// Select config and application from the same published name binding.
+    /// Default fallback is identical to declaration-only resolution.
+    #[cfg(feature = "server")]
+    pub(crate) fn resolve_with_application(
+        &self,
+        host: &Host,
+    ) -> Option<(&VhostRecord, Option<&crate::pipeline::HostApp>)> {
+        self.resolve_entry(host)
+            .map(|entry| (entry.record.as_ref(), entry.application.as_ref()))
+    }
+
+    fn resolve_entry(
+        &self,
+        host: &Host,
+    ) -> Option<&VhostEntry> {
+        self.inner.get(host).or_else(|| self.inner.get(default_host()))
     }
 
     /// Strict resolution — exact key (canonical or alias) only, no
@@ -200,7 +261,10 @@ impl VhostTable {
     pub fn canonical_entries(
         &self
     ) -> impl Iterator<Item = (&Host, &Arc<VhostRecord>)> {
-        self.inner.iter().filter(|(key, record)| *key == &record.canonical)
+        self.inner
+            .iter()
+            .filter(|(key, record)| *key == &record.canonical)
+            .map(|(key, entry)| (key, &entry.record))
     }
 
     pub fn canonical_config(
@@ -231,7 +295,7 @@ impl VhostTable {
         &self,
         key: &Host,
     ) -> Option<&Arc<VhostRecord>> {
-        self.inner.get(key)
+        self.inner.get(key).map(|entry| &entry.record)
     }
 
     pub(crate) fn insert_canonical(
@@ -285,12 +349,16 @@ impl VhostTable {
                 false
             }
             Entry::Vacant(v) => {
-                v.insert(Arc::new(VhostRecord {
-                    canonical,
-                    config,
+                v.insert(VhostEntry {
+                    record: Arc::new(VhostRecord {
+                        canonical,
+                        config,
+                        #[cfg(feature = "server")]
+                        policy,
+                    }),
                     #[cfg(feature = "server")]
-                    policy,
-                }));
+                    application: None,
+                });
                 true
             }
         }

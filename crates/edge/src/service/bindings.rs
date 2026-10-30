@@ -34,23 +34,21 @@ impl VhostBindings {
         let host = sni
             .parse()
             .map_err(|error| HostRejection::Invalid(sni.to_owned(), error))?;
-        let (canonical, live) = self
+        let (live, application) = self
             .names
-            .resolve(&host)
+            .resolve_with_application(&host)
             .ok_or_else(|| HostRejection::NotHosted(sni.to_owned()))?;
+        let canonical = &live.canonical;
         let captured = self
             .policy
-            .canonical_config(&canonical)
-            .filter(|config| Arc::ptr_eq(config, &live))
+            .canonical_config(canonical)
+            .filter(|config| Arc::ptr_eq(config, &live.config))
             .ok_or_else(|| HostRejection::NotHosted(sni.to_owned()))?;
         Ok(VhostCtx {
             hostname: HostName(Arc::new(host)),
             vhost_key: HostKey(Arc::new(canonical.clone())),
             vhost_config: captured,
-            application: self
-                .names
-                .prepared::<crate::pipeline::HostAppSnapshot>()
-                .and_then(|apps| apps.resolve(&canonical)),
+            application: application.cloned(),
         })
     }
     /// The canonical key a handshake for `server_name` selects its TLS
