@@ -12,6 +12,8 @@ use http::{Request, StatusCode};
 #[cfg(feature = "axum")]
 use tower::ServiceExt;
 
+#[cfg(feature = "tcp")]
+use super::CleartextRequest;
 use super::extensions::{
     VhostCtx, authority_matches_sni, inject_context_and_real_ip,
 };
@@ -138,6 +140,34 @@ impl HostService {
         self.prepare_context(request)
     }
 
+    /// Reuse the authority validated for this cleartext host selection. The
+    /// receiving host still checks its binding, transport and live policy.
+    #[cfg(feature = "tcp")]
+    pub(crate) fn prepare_cleartext<B>(
+        &self,
+        request: CleartextRequest<'_, B>,
+    ) -> Result<PreparedRequest<B>, HostResponse> {
+        let protocol = self
+            .policy
+            .connection
+            .proto
+            .ok_or(RequestRejection::MissingProtocol)?;
+        self.check_validated_head(
+            request.request(),
+            RequestArrival::Established,
+            protocol,
+            Some(request.authority()),
+        )?;
+        let (request, _) = request.into_parts();
+        let request = self
+            .policy
+            .ingress
+            .deny
+            .accept_checked(request)
+            .map_err(|_| RequestRejection::PathDenied)?;
+        self.prepare_context(request)
+    }
+
     fn check_head<B>(
         &self,
         request: &Request<B>,
@@ -148,9 +178,25 @@ impl HostService {
             policy.connection.proto.ok_or(RequestRejection::MissingProtocol)?;
         let authority = RequestAuthority::from_request(request)
             .map_err(RequestRejection::InvalidAuthority)?;
+        self.check_validated_head(
+            request,
+            arrival,
+            protocol,
+            authority.as_ref(),
+        )
+    }
+
+    fn check_validated_head<B>(
+        &self,
+        request: &Request<B>,
+        arrival: RequestArrival,
+        protocol: HttpProtocol,
+        authority: Option<&RequestAuthority>,
+    ) -> Result<(), HostResponse> {
+        let policy = &self.policy;
         let host = &policy.host.vhost_config;
         if !host.allows_transport(&policy.connection.listener, protocol)
-            || !authority_matches_sni(authority.as_ref(), &policy.host)
+            || !authority_matches_sni(authority, &policy.host)
         {
             return Err(RequestRejection::Misdirected.into());
         }

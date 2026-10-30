@@ -6,8 +6,11 @@
 use std::sync::Arc;
 
 use crate::config::NonSslPolicy;
+use crate::service::CleartextRequest;
+#[cfg(feature = "acme")]
+use crate::transport::RequestAuthority;
 use crate::transport::{
-    HostAppResolver, HostIngress, HostService, RequestAuthority, VhostResolver,
+    HostAppResolver, HostIngress, HostService, VhostResolver,
     resolve_request_authority,
 };
 use claviron_http::ext::ConnCtx;
@@ -55,12 +58,13 @@ impl HttpServer {
             .deny
             .check_request(req)
             .map_err(|_| Error::Rejected("deny-drop"))?;
-        let authority = match RequestAuthority::from_cleartext(req.request()) {
-            Ok(authority) => authority,
+        let req = match CleartextRequest::new(req) {
+            Ok(request) => request,
             Err(_) => return Ok(err_status(StatusCode::BAD_REQUEST)),
         };
+        let authority = req.authority();
         let Some(vctx) =
-            resolve_request_authority(&authority, &vhosts.snapshot())
+            resolve_request_authority(authority, &vhosts.snapshot())
         else {
             return Ok(err_status(StatusCode::NOT_FOUND));
         };
@@ -71,7 +75,7 @@ impl HttpServer {
         match host.transport.non_ssl {
             NonSslPolicy::Reject => Ok(err_status(StatusCode::FORBIDDEN)),
             NonSslPolicy::Redirect => handle_redirect(
-                &authority,
+                authority,
                 req.request().uri(),
                 snapshot.redirect_port,
             ),
@@ -104,7 +108,7 @@ impl HttpServer {
                     state,
                     sessions,
                 );
-                let Ok(response) = service.call_checked(req).await;
+                let Ok(response) = service.call_cleartext(req).await;
                 Ok(response)
             }
         }

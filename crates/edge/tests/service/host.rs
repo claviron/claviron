@@ -277,34 +277,116 @@ fn head_guards_are_shared_and_do_not_require_a_pollable_body() {
 
 #[test]
 fn checked_deny_requests_keep_host_guards_and_cannot_bypass_another_matcher() {
-    let service = noop(HttpProtocol::H1, "acl: {'/private': {policy: deny}}");
-    let matcher = service.policy.ingress.deny.clone();
-    let empty = DenyService::empty();
-    let checked = empty.check_request(request("/blocked")).ok().unwrap();
+    for cleartext in [false, true] {
+        #[cfg(not(feature = "tcp"))]
+        if cleartext {
+            continue;
+        }
+        let service =
+            noop(HttpProtocol::H1, "acl: {'/private': {policy: deny}}");
+        let prepare = |checked| {
+            #[cfg(feature = "tcp")]
+            if cleartext {
+                return service.prepare_cleartext(
+                    CleartextRequest::new(checked).unwrap(),
+                );
+            }
+            service.prepare_checked(checked, RequestArrival::Established)
+        };
+        let matcher = service.policy.ingress.deny.clone();
+        let empty = DenyService::empty();
+        let checked = empty.check_request(request("/blocked")).ok().unwrap();
+        assert!(matches!(
+            prepare(checked),
+            Err(HostResponse::Rejected(RequestRejection::PathDenied))
+        ));
+        let checked = matcher.check_request(request("/private")).ok().unwrap();
+        assert!(matches!(
+            prepare(checked),
+            Err(HostResponse::Rejected(RequestRejection::AccessDenied))
+        ));
+        let mismatched = Request::builder()
+            .uri("http://other.test/ok")
+            .header(header::HOST, "other.test")
+            .body(())
+            .unwrap();
+        let checked = matcher.check_request(mismatched).ok().unwrap();
+        assert!(matches!(
+            prepare(checked),
+            Err(HostResponse::Rejected(RequestRejection::Misdirected))
+        ));
+        let checked =
+            matcher.check_request(request("/ok?raw=%2F")).ok().unwrap();
+        let prepared = prepare(checked).unwrap();
+        assert_eq!(prepared.request().uri(), "/ok?raw=%2F");
+        assert!(
+            prepared.request().extensions().get::<Arc<ConnCtx>>().is_some()
+        );
+    }
+}
+
+#[cfg(feature = "tcp")]
+#[test]
+fn cleartext_authority_handoff_keeps_transport_and_upgrade_guards() {
+    for (config, upgrade, expected) in [
+        ("listeners: []", false, RequestRejection::Misdirected),
+        ("transport: {protocols: [h2]}", false, RequestRejection::Misdirected),
+        ("", true, RequestRejection::UpgradeForbidden),
+    ] {
+        let service = noop(HttpProtocol::H1, config);
+        let mut request = request("/socket");
+        if upgrade {
+            request
+                .headers_mut()
+                .insert(header::UPGRADE, "websocket".parse().unwrap());
+        }
+        let checked =
+            service.policy.ingress.deny.check_request(request).ok().unwrap();
+        let validated = CleartextRequest::new(checked).unwrap();
+        assert!(matches!(
+            service.prepare_cleartext(validated),
+            Err(HostResponse::Rejected(reason)) if reason == expected
+        ));
+    }
+}
+
+#[cfg(feature = "tcp")]
+#[test]
+fn cleartext_authority_handoff_keeps_live_acl_redirect_and_removal() {
+    let service = noop(HttpProtocol::H1, "");
+    let key = service.policy.host.vhost_key.0.as_ref().clone();
+    let prepare = || {
+        let checked = service
+            .policy
+            .ingress
+            .deny
+            .check_request(request("/original?q=%2F"))
+            .ok()
+            .unwrap();
+        service.prepare_cleartext(CleartextRequest::new(checked).unwrap())
+    };
+    assert!(prepare().is_ok());
+    for (config, expected) in [
+        ("acl: {'/': {policy: deny}}", StatusCode::FORBIDDEN),
+        (
+            "redirect: {path: /original, to: /elsewhere}",
+            StatusCode::TEMPORARY_REDIRECT,
+        ),
+    ] {
+        service.policy.access.upsert_host(
+            key.clone(),
+            Arc::new(
+                serde_yaml::from_str(&format!("root: public\n{config}"))
+                    .unwrap(),
+            ),
+        );
+        assert_eq!(prepare().err().unwrap().into_response().status(), expected);
+    }
+    service.policy.access.delete_host(&key);
     assert!(matches!(
-        service.prepare_checked(checked, RequestArrival::Established),
-        Err(HostResponse::Rejected(RequestRejection::PathDenied))
+        prepare(),
+        Err(HostResponse::Rejected(RequestRejection::HostRemoved))
     ));
-    let checked = matcher.check_request(request("/private")).ok().unwrap();
-    assert!(matches!(
-        service.prepare_checked(checked, RequestArrival::Established),
-        Err(HostResponse::Rejected(RequestRejection::AccessDenied))
-    ));
-    let mismatched = Request::builder()
-        .uri("https://other.test/ok")
-        .header(header::HOST, "other.test")
-        .body(())
-        .unwrap();
-    let checked = matcher.check_request(mismatched).ok().unwrap();
-    assert!(matches!(
-        service.prepare_checked(checked, RequestArrival::Established),
-        Err(HostResponse::Rejected(RequestRejection::Misdirected))
-    ));
-    let checked = matcher.check_request(request("/ok?raw=%2F")).ok().unwrap();
-    let prepared =
-        service.prepare_checked(checked, RequestArrival::Established).unwrap();
-    assert_eq!(prepared.request().uri(), "/ok?raw=%2F");
-    assert!(prepared.request().extensions().get::<Arc<ConnCtx>>().is_some());
 }
 
 #[test]

@@ -3,7 +3,7 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use crate::deny::DenyCheckedRequest;
+use crate::service::CleartextRequest;
 use crate::transport::{
     AuthContext, H2ConnectBinding, H2ConnectRegistry, HostResponse,
     HostService, PreparedRequest, RequestArrival,
@@ -38,13 +38,11 @@ impl RequestService {
         let h2_connect = state.registry_ref().resolve::<H2ConnectRegistry>();
         Self { host, state, sessions, h2_connect }
     }
-    pub(crate) fn call_checked(
+    pub(crate) fn call_cleartext(
         &self,
-        request: DenyCheckedRequest<'_, Incoming>,
+        request: CleartextRequest<'_, Incoming>,
     ) -> RouteFuture {
-        self.dispatch(
-            self.host.prepare_checked(request, RequestArrival::Established),
-        )
+        self.dispatch(self.host.prepare_cleartext(request))
     }
 
     fn dispatch(
