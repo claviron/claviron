@@ -14,14 +14,17 @@ use tower::ServiceExt;
 
 #[cfg(feature = "tcp")]
 use super::CleartextRequest;
-use super::extensions::{
-    VhostCtx, authority_matches_sni, inject_context_and_real_ip,
-};
+use super::extensions::{ContextExtensions, VhostCtx, authority_matches_sni};
 use super::policy::PolicySnapshot;
 use super::{AuthorityError, HostResponse, RequestAuthority};
 use crate::VhostResolver;
 use crate::deny::{DenyCheckedRequest, DenyService};
 use crate::pipeline::{AppKind, AuthContext, HostApp};
+
+#[cfg(feature = "tcp")]
+mod cache;
+#[cfg(feature = "tcp")]
+pub(crate) use cache::CleartextHostCache;
 
 /// Accepted listener policy, not selected from an untrusted Host header.
 #[derive(Clone)]
@@ -78,11 +81,28 @@ struct HostPolicy {
     host: VhostCtx,
     ingress: HostIngress,
     access: Arc<VhostResolver>,
+    extensions: ContextExtensions,
+}
+
+impl HostPolicy {
+    fn new(
+        connection: Arc<ConnCtx>,
+        host: VhostCtx,
+        ingress: HostIngress,
+        access: Arc<VhostResolver>,
+    ) -> Self {
+        let extensions = ContextExtensions::new(&connection, &host);
+        Self { connection, host, ingress, access, extensions }
+    }
 }
 
 /// A pinned host binding for TLS, or one selected cleartext request. It has no
 /// socket/body driver. ACL and early host replies read live policy per request;
 /// accepted transport/authentication and application policy remain pinned.
+/// Immutable extension values are prepared with the binding; each admitted
+/// request receives its own map. Cleartext connections reuse only the last
+/// matching metadata binding, selecting the application from the current
+/// publication for every request.
 #[derive(Clone)]
 pub struct HostService {
     app: HostApp,
@@ -108,7 +128,9 @@ impl HostService {
     ) -> Self {
         Self {
             app: app.into(),
-            policy: Arc::new(HostPolicy { connection, host, ingress, access }),
+            policy: Arc::new(HostPolicy::new(
+                connection, host, ingress, access,
+            )),
             listener,
         }
     }
@@ -147,8 +169,9 @@ impl HostService {
 
     /// Reuse the authority validated for this cleartext host selection. The
     /// receiving host still checks its binding, transport and live policy.
-    /// Cleartext selects an owned binding per request, which moves into the
-    /// admitted request rather than being cloned or retained by the connection.
+    /// Cleartext selects an owned application per request, which moves into the
+    /// admitted request. Its immutable metadata binding may be shared with the
+    /// connection cache; neither that cache nor another request owns this body.
     #[cfg(feature = "tcp")]
     pub(crate) fn prepare_cleartext<B>(
         self,
@@ -228,7 +251,7 @@ impl HostService {
     ) -> Result<PreparedContext<B>, HostResponse> {
         let policy = &self.policy;
         let access = policy.access.request_policy(&policy.host.vhost_key.0);
-        let connection = inject_context_and_real_ip(
+        let connection = policy.extensions.inject(
             &mut request,
             &policy.connection,
             &policy.host,

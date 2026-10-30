@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "extensions/template.rs"]
+mod template;
+
 #[test]
 fn sni_authority_guard_preserves_ipv6_and_rejects_different_hosts() {
     let table: VhostTable =
@@ -40,13 +43,14 @@ fn listener_identity_survives_per_request_proxy_resolution() {
         trusted: vec!["10.0.0.0/8".parse().unwrap()],
         headers: vec![http::HeaderName::from_static("x-real-ip")],
     });
+    let template = ContextExtensions::new(&ctx, &vctx);
     for ip in ["203.0.113.1", "203.0.113.2"] {
         let mut request = Request::builder()
             .uri("https://app.test/")
             .header("x-real-ip", ip)
             .body(())
             .unwrap();
-        inject_context_and_real_ip(&mut request, &ctx, &vctx, proxy.as_ref());
+        template.inject(&mut request, &ctx, &vctx, proxy.as_ref());
         assert_eq!(
             request.extensions().get::<http::uri::Scheme>(),
             Some(&http::uri::Scheme::HTTP)
@@ -65,7 +69,7 @@ fn listener_identity_survives_per_request_proxy_resolution() {
     );
     let mut direct =
         Request::builder().header("x-real-ip", "203.0.113.1").body(()).unwrap();
-    inject_context_and_real_ip(&mut direct, &ctx, &vctx, None);
+    template.inject(&mut direct, &ctx, &vctx, None);
     assert_eq!(
         direct.extensions().get::<Arc<ConnCtx>>().unwrap().real_ip,
         Some(ctx.remote.ip())
@@ -114,6 +118,7 @@ fn a_direct_connection_shares_its_context_instead_of_copying_it() {
         country_code: None,
         tls: None,
     });
+    let template = ContextExtensions::new(&ctx, &vctx);
     for _ in 0..2 {
         // A forwarding header from a direct client is not trusted.
         let mut request = Request::builder()
@@ -121,8 +126,7 @@ fn a_direct_connection_shares_its_context_instead_of_copying_it() {
             .header("x-real-ip", "203.0.113.1")
             .body(())
             .unwrap();
-        let shared =
-            inject_context_and_real_ip(&mut request, &ctx, &vctx, None);
+        let shared = template.inject(&mut request, &ctx, &vctx, None);
         assert!(Arc::ptr_eq(&shared, &ctx), "no per-request copy");
         assert_eq!(
             request.extensions().get::<RealIpExt>().map(|ext| ext.0),

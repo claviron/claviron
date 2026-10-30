@@ -7,12 +7,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::NonSslPolicy;
-use crate::service::{CleartextRequest, HostIdentityCache};
+use crate::service::{CleartextHostCache, CleartextRequest};
 #[cfg(feature = "acme")]
 use crate::transport::RequestAuthority;
-use crate::transport::{
-    HostAppResolver, HostIngress, HostService, VhostResolver,
-};
+use crate::transport::{HostAppResolver, HostIngress, VhostResolver};
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;
 use claviron_http::session::SessionSpawner;
@@ -32,9 +30,8 @@ use crate::tcp::service::RequestDispatch;
 pub(super) struct H1Service {
     snapshot: Arc<ServerSnapshot>,
     vhosts: Arc<VhostResolver>,
-    ctx: Arc<ConnCtx>,
     dispatch: RequestDispatch,
-    host_identity: RefCell<HostIdentityCache>,
+    host_cache: RefCell<CleartextHostCache>,
 }
 
 enum ResponseSource {
@@ -55,16 +52,24 @@ impl H1Service {
         ctx: Arc<ConnCtx>,
         sessions: SessionSpawner,
     ) -> Self {
+        let host_cache = CleartextHostCache::new(
+            ctx,
+            HostIngress {
+                proxy: snapshot.listener.proxy.clone(),
+                deny: snapshot.deny.clone(),
+            },
+            vhosts.clone(),
+            snapshot.listener.policy(),
+        );
         Self {
             snapshot,
             vhosts,
-            ctx,
             dispatch: RequestDispatch::new(
                 Some(HttpProtocol::H1),
                 state,
                 sessions,
             ),
-            host_identity: RefCell::default(),
+            host_cache: RefCell::new(host_cache),
         }
     }
 
@@ -126,9 +131,8 @@ impl H1Service {
         };
         let authority = req.authority();
         let table = self.vhosts.snapshot();
-        let Some(mut vctx) =
-            self.host_identity.borrow_mut().resolve(authority, &table)
-        else {
+        let mut host_cache = self.host_cache.borrow_mut();
+        let Some(mut vctx) = host_cache.resolve(authority, &table) else {
             return Ok(ResponseSource::Ready(err_status(
                 StatusCode::NOT_FOUND,
             )));
@@ -168,17 +172,8 @@ impl H1Service {
                         StatusCode::SERVICE_UNAVAILABLE,
                     )));
                 };
-                let host = HostService::new(
-                    app,
-                    self.ctx.clone(),
-                    vctx,
-                    HostIngress {
-                        proxy: snapshot.listener.proxy.clone(),
-                        deny: snapshot.deny.clone(),
-                    },
-                    self.vhosts.clone(),
-                    snapshot.listener.policy(),
-                );
+                let host = host_cache.bind(app, vctx);
+                drop(host_cache);
                 let response = self.dispatch.call_cleartext(host, req);
                 Ok(ResponseSource::Application(response))
             }

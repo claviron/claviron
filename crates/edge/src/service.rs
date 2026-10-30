@@ -17,6 +17,8 @@ pub(crate) use authority::{CleartextRequest, HostIdentityCache};
 pub use bindings::VhostBindings;
 pub use claviron_http::authority::{AuthorityError, RequestAuthority};
 pub use extensions::{HostRejection, VhostCtx, resolve_sni_from_table};
+#[cfg(feature = "tcp")]
+pub(crate) use host::CleartextHostCache;
 pub use host::{
     HostIngress, HostService, PreparedRequest, RequestArrival, RequestRejection,
 };
