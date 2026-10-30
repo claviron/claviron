@@ -11,9 +11,9 @@ pub(crate) mod policy;
 pub(crate) mod quota;
 mod response;
 
-#[cfg(feature = "tcp")]
-pub(crate) use authority::CleartextRequest;
 pub use authority::resolve_request_authority;
+#[cfg(feature = "tcp")]
+pub(crate) use authority::{CleartextRequest, HostIdentityCache};
 pub use bindings::VhostBindings;
 pub use claviron_http::authority::{AuthorityError, RequestAuthority};
 pub use extensions::{HostRejection, VhostCtx, resolve_sni_from_table};

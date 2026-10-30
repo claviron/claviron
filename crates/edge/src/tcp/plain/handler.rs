@@ -1,17 +1,17 @@
 //! Cleartext host admission with connection-owned native dispatch.
 
+use std::cell::RefCell;
 use std::future::Future;
 #[cfg(feature = "acme")]
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::NonSslPolicy;
-use crate::service::CleartextRequest;
+use crate::service::{CleartextRequest, HostIdentityCache};
 #[cfg(feature = "acme")]
 use crate::transport::RequestAuthority;
 use crate::transport::{
     HostAppResolver, HostIngress, HostService, VhostResolver,
-    resolve_request_authority,
 };
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;
@@ -34,6 +34,7 @@ pub(super) struct H1Service {
     vhosts: Arc<VhostResolver>,
     ctx: Arc<ConnCtx>,
     dispatch: RequestDispatch,
+    host_identity: RefCell<HostIdentityCache>,
 }
 
 enum ResponseSource {
@@ -63,6 +64,7 @@ impl H1Service {
                 state,
                 sessions,
             ),
+            host_identity: RefCell::default(),
         }
     }
 
@@ -124,7 +126,8 @@ impl H1Service {
         };
         let authority = req.authority();
         let table = self.vhosts.snapshot();
-        let Some(mut vctx) = resolve_request_authority(authority, &table)
+        let Some(mut vctx) =
+            self.host_identity.borrow_mut().resolve(authority, &table)
         else {
             return Ok(ResponseSource::Ready(err_status(
                 StatusCode::NOT_FOUND,

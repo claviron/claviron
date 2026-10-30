@@ -4,6 +4,7 @@ use std::sync::Arc;
 use claviron_http::authority::AuthorityError;
 use claviron_http::authority::RequestAuthority;
 use claviron_http::ext::{HostKey, HostName};
+use claviron_types::Host;
 #[cfg(feature = "tcp")]
 use http::Request;
 
@@ -44,20 +45,69 @@ impl<'a, B> CleartextRequest<'a, B> {
     }
 }
 
+/// One connection's last immutable requested and canonical host values.
+/// It retains no configuration, application or access policy, and never
+/// records a failed host lookup.
+#[cfg(feature = "tcp")]
+#[derive(Default)]
+pub(crate) struct HostIdentityCache {
+    hostname: Option<HostName>,
+    vhost_key: Option<HostKey>,
+}
+
+#[cfg(feature = "tcp")]
+impl HostIdentityCache {
+    pub(crate) fn resolve(
+        &mut self,
+        authority: &RequestAuthority,
+        table: &VhostTable,
+    ) -> Option<VhostCtx> {
+        resolve_request_authority_with(authority, table, |canonical| {
+            let name = self.hostname.get_or_insert_with(|| {
+                HostName(Arc::new(authority.host().clone()))
+            });
+            if name.0.as_ref() != authority.host() {
+                *name = HostName(Arc::new(authority.host().clone()));
+            }
+            let key = self
+                .vhost_key
+                .get_or_insert_with(|| HostKey(Arc::new(canonical.clone())));
+            if key.0.as_ref() != canonical {
+                *key = HostKey(Arc::new(canonical.clone()));
+            }
+            (name.clone(), key.clone())
+        })
+    }
+}
+
 /// Resolve an already validated wire authority against the configured table.
 /// Preserve the requested host separately from its canonical binding.
 pub fn resolve_request_authority(
     authority: &RequestAuthority,
     table: &VhostTable,
 ) -> Option<VhostCtx> {
-    let (key, config) = table.resolve(authority.host())?;
+    resolve_request_authority_with(authority, table, |canonical| {
+        (
+            HostName(Arc::new(authority.host().clone())),
+            HostKey(Arc::new(canonical.clone())),
+        )
+    })
+}
+
+fn resolve_request_authority_with(
+    authority: &RequestAuthority,
+    table: &VhostTable,
+    identity: impl FnOnce(&Host) -> (HostName, HostKey),
+) -> Option<VhostCtx> {
+    let record = table.resolve_record(authority.host())?;
+    let (hostname, vhost_key) = identity(&record.canonical);
     Some(VhostCtx {
-        hostname: HostName(Arc::new(authority.host().clone())),
-        vhost_key: HostKey(Arc::new(key.clone())),
-        vhost_config: config,
+        hostname,
+        vhost_key,
+        vhost_config: record.config.clone(),
         application: table
             .prepared::<crate::pipeline::HostAppSnapshot>()
-            .and_then(|apps| apps.resolve(&key)),
+            .and_then(|apps| apps.resolve(&record.canonical)),
     })
 }
 
