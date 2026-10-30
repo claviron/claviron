@@ -53,6 +53,9 @@ pub trait BypassHandler: Send + Sync + 'static {
 /// [`RouteFuture`]. Dispatch returns that future directly; a large backend's
 /// state never becomes part of another backend's concrete dispatch future.
 /// Use [`Self::new`] for built-in adapters or application-owned handlers.
+/// Native TCP carries the surrounding host future inline, so the handler's
+/// erasure is the only future boxing boundary on an ordinary Bypass request.
+/// Admission and head timing still own and cancel that same handler future.
 ///
 /// There is no implicit static-file or `try_files` pass. A handler may compose
 /// the public `claviron_files` APIs itself. The upstream adapter owns its

@@ -6,6 +6,8 @@ use claviron_http::RouteFuture;
 use claviron_http::boxed_body;
 #[cfg(any(feature = "tcp", feature = "axum"))]
 use futures_util::FutureExt;
+#[cfg(feature = "tcp")]
+use http_body::Body;
 use http_body_util::BodyExt;
 use std::convert::Infallible;
 use std::pin::Pin;
@@ -100,7 +102,7 @@ fn dispatch(
 ) -> impl Future<Output = RouteResponse> {
     #[cfg(feature = "tcp")]
     {
-        prepared.into_route_future().map(Result::unwrap)
+        prepared.into_tcp_future().map(Result::unwrap)
     }
     #[cfg(not(feature = "tcp"))]
     {
@@ -121,7 +123,7 @@ fn host_dispatch_cancellation_before_poll_never_calls_the_owner() {
     for app in apps(&state) {
         let prepared = prepared(app, RequestPolicy::unlimited());
         let generation = Arc::downgrade(&prepared.service.policy);
-        let answering = prepared.dispatch();
+        let answering = dispatch(prepared);
         assert!(generation.upgrade().is_some());
         drop(answering);
         assert!(generation.upgrade().is_none());
@@ -217,11 +219,12 @@ async fn host_dispatch_transfers_response_payload_and_retains_generation() {
 
 #[cfg(feature = "tcp")]
 #[test]
-fn host_dispatch_tcp_boxes_only_the_selected_concrete_future() {
+fn host_dispatch_tcp_keeps_bypass_inline_and_boxes_only_axum() {
     let state = Arc::new(State::default());
     for app in apps(&state) {
         let pending = prepared(app.clone(), RequestPolicy::unlimited());
         let (owner, request) = pending.into_dispatch();
+        let bypass = matches!(owner, AppKind::Bypass(_));
         let expected = match owner {
             #[cfg(feature = "axum")]
             AppKind::Axum(owner) => std::mem::size_of_val(
@@ -233,10 +236,150 @@ fn host_dispatch_tcp_boxes_only_the_selected_concrete_future() {
         };
         let prepared = prepared(app, RequestPolicy::unlimited());
         let generation = Arc::downgrade(&prepared.service.policy);
-        let future = prepared.into_route_future();
-        assert_eq!(std::mem::size_of_val(future.as_ref().get_ref()), expected);
+        let future = prepared.into_tcp_future();
+        match &future {
+            Either::Left(answering) => {
+                assert!(!bypass);
+                assert_eq!(
+                    std::mem::size_of_val(answering.as_ref().get_ref()),
+                    expected
+                );
+            }
+            Either::Right(answering) => {
+                assert!(bypass);
+                assert_eq!(std::mem::size_of_val(answering), expected);
+            }
+        }
         drop(future);
         assert!(generation.upgrade().is_none());
     }
     assert_eq!(state.entered.load(Ordering::Relaxed), 0);
+}
+
+#[cfg(feature = "tcp")]
+struct BodyDrop(Arc<AtomicUsize>);
+
+#[cfg(feature = "tcp")]
+static STREAM_PAYLOAD: [u8; 6] = *b"stream";
+
+#[cfg(feature = "tcp")]
+impl Drop for BodyDrop {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[cfg(feature = "tcp")]
+fn streaming_body(
+    ready: Arc<AtomicBool>,
+    polls: Arc<AtomicUsize>,
+    dropped: Arc<AtomicUsize>,
+) -> RouteBody {
+    let owner = BodyDrop(dropped);
+    let mut frame = 0;
+    let stream = futures_util::stream::poll_fn(move |_| {
+        let _owner = &owner;
+        polls.fetch_add(1, Ordering::Relaxed);
+        if !ready.load(Ordering::Relaxed) {
+            return Poll::Pending;
+        }
+        let next = match frame {
+            0 => Some(http_body::Frame::data(bytes::Bytes::from_static(
+                &STREAM_PAYLOAD,
+            ))),
+            1 => {
+                let mut trailers = http::HeaderMap::new();
+                trailers.insert(
+                    "x-finished",
+                    http::HeaderValue::from_static("yes"),
+                );
+                Some(http_body::Frame::trailers(trailers))
+            }
+            _ => None,
+        };
+        frame += 1;
+        Poll::Ready(next.map(Ok::<_, Infallible>))
+    });
+    boxed_body(http_body_util::StreamBody::new(stream))
+}
+
+#[cfg(feature = "tcp")]
+#[test]
+fn host_dispatch_tcp_preserves_streaming_body_after_head_completion() {
+    let state = Arc::new(State::default());
+    let mut cx = Context::from_waker(Waker::noop());
+    for app in apps(&state) {
+        state.ready.store(true, Ordering::Relaxed);
+        let ready = Arc::new(AtomicBool::new(false));
+        let polls = Arc::new(AtomicUsize::new(0));
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let body =
+            streaming_body(ready.clone(), polls.clone(), dropped.clone());
+        let prepared =
+            prepared(app, RequestPolicy::unlimited()).map_body(|_| body);
+        let mut answering = Box::pin(dispatch(prepared));
+        let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
+            panic!("the head must not wait for body frames");
+        };
+        drop(answering);
+        assert_eq!(polls.load(Ordering::Relaxed), 0);
+        assert_eq!(dropped.load(Ordering::Relaxed), 0);
+        let mut body = response.into_body();
+        assert!(Pin::new(&mut body).poll_frame(&mut cx).is_pending());
+        ready.store(true, Ordering::Relaxed);
+        let Poll::Ready(Some(Ok(frame))) =
+            Pin::new(&mut body).poll_frame(&mut cx)
+        else {
+            panic!("the released data frame must be forwarded");
+        };
+        let bytes = frame.into_data().unwrap();
+        assert_eq!(bytes.as_ptr(), STREAM_PAYLOAD.as_ptr());
+        let Poll::Ready(Some(Ok(frame))) =
+            Pin::new(&mut body).poll_frame(&mut cx)
+        else {
+            panic!("the trailers must be forwarded");
+        };
+        assert_eq!(frame.into_trailers().unwrap()["x-finished"], "yes");
+        assert!(matches!(
+            Pin::new(&mut body).poll_frame(&mut cx),
+            Poll::Ready(None)
+        ));
+        drop(body);
+        assert_eq!(dropped.load(Ordering::Relaxed), 1);
+    }
+}
+
+#[cfg(feature = "tcp")]
+#[test]
+fn host_dispatch_tcp_cancellation_drops_pending_body_collection() {
+    struct CollectBody;
+    impl BypassHandler for CollectBody {
+        fn call(
+            &self,
+            request: Request<RouteBody>,
+        ) -> RouteFuture {
+            Box::pin(async move {
+                let body =
+                    request.into_body().collect().await.unwrap().to_bytes();
+                Ok(http::Response::new(claviron_http::bytes_body(body)))
+            })
+        }
+    }
+
+    let ready = Arc::new(AtomicBool::new(false));
+    let polls = Arc::new(AtomicUsize::new(0));
+    let dropped = Arc::new(AtomicUsize::new(0));
+    let body = streaming_body(ready, polls.clone(), dropped.clone());
+    let prepared = prepared(
+        AppKind::Bypass(BypassService::new(CollectBody)),
+        RequestPolicy::unlimited(),
+    )
+    .map_body(|_| body);
+    let mut answering = Box::pin(dispatch(prepared));
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(answering.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(polls.load(Ordering::Relaxed), 1);
+    assert_eq!(dropped.load(Ordering::Relaxed), 0);
+    drop(answering);
+    assert_eq!(dropped.load(Ordering::Relaxed), 1);
 }

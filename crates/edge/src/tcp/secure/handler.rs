@@ -111,13 +111,15 @@ impl HttpsServer {
 
         // HostService checks the request head before this transport hands off
         // an H2 CONNECT or adapts Incoming for ordinary application dispatch.
-        let vhost_service = vhost_conn.create_service(
-            &self.state,
-            proto,
-            &snapshot.listener,
-            snapshot.deny.clone(),
-            scope.sessions(),
-        )?;
+        let vhost_service = vhost_conn
+            .create_service(
+                &self.state,
+                proto,
+                &snapshot.listener,
+                snapshot.deny.clone(),
+                scope.sessions(),
+            )?
+            .into_service();
         let errors = tls_stream.get_ref().0.clone();
         let stream = TokioIo::new(tls_stream);
 

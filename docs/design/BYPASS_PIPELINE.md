@@ -55,6 +55,13 @@ Native transports adapt their request bodies to `RouteBody`; bypass handlers
 return `RouteResponse`. The bypass dispatch chain does not require Axum types.
 That lets a backend participate without pretending to be a router middleware.
 
+On native TCP, the host-dispatch future stays inline for bypass requests. The
+handler returns its erased `RouteFuture`; the transport does not add a second
+future box. Axum erases its own selected dispatch future separately, so its
+concrete state cannot enlarge bypass dispatch. Admission and head timing retain
+the same handler future until completion or cancellation, while response bodies
+keep their independent streaming lifetime.
+
 Conversely, middleware attached only to a router does not run merely because a
 bypass handler serves the same host. Framework-specific validation, CSRF and
 response formatting belong to the application/framework composition, not an

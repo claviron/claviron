@@ -1,6 +1,7 @@
 //! Hyper body adaptation and native H2 CONNECT hand-off.
 
 use std::convert::Infallible;
+use std::future::{Future, ready};
 use std::sync::Arc;
 
 use crate::service::CleartextRequest;
@@ -17,6 +18,7 @@ use claviron_http::{
     RouteFuture, RouteResponse, boxed_body, empty_body, err_status,
 };
 use claviron_runtime::AppState;
+use futures_util::future::Either;
 use http::{Method, Request, StatusCode};
 use hyper::body::Incoming;
 #[cfg(any(feature = "tls", test))]
@@ -51,6 +53,21 @@ impl RequestService {
         let dispatch = RequestDispatch::new(host.protocol(), state, sessions);
         Self { host, dispatch }
     }
+
+    pub(crate) fn into_service(
+        self
+    ) -> impl Service<
+        Request<Incoming>,
+        Response = RouteResponse,
+        Error = Infallible,
+        Future: Send,
+    > {
+        hyper::service::service_fn(move |request| {
+            self.dispatch.dispatch(
+                self.host.prepare(request, RequestArrival::Established),
+            )
+        })
+    }
 }
 
 impl RequestDispatch {
@@ -74,20 +91,22 @@ impl RequestDispatch {
         &self,
         host: HostService,
         request: CleartextRequest<'_, Incoming>,
-    ) -> RouteFuture {
+    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
+    {
         self.dispatch(host.prepare_cleartext(request))
     }
 
     fn dispatch(
         &self,
         prepared: Result<PreparedRequest<Incoming>, HostResponse>,
-    ) -> RouteFuture {
+    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
+    {
         let mut prepared = match prepared {
             Ok(prepared) => prepared,
             Err(reply) => {
-                return Box::pin(async move {
-                    Ok(reply.into_response().map(|()| empty_body()))
-                });
+                return Either::Left(ready(Ok(reply
+                    .into_response()
+                    .map(|()| empty_body()))));
             }
         };
         let tunnelling = prepared.request().method() == Method::CONNECT
@@ -107,9 +126,9 @@ impl RequestDispatch {
             )
             .is_err()
         {
-            return Box::pin(async move {
-                Ok(err_status(StatusCode::PAYLOAD_TOO_LARGE))
-            });
+            return Either::Left(ready(Ok(err_status(
+                StatusCode::PAYLOAD_TOO_LARGE,
+            ))));
         }
         if prepared.connection().proto == Some(HttpProtocol::H2)
             && prepared.request().method() == Method::CONNECT
@@ -127,7 +146,7 @@ impl RequestDispatch {
             let request = prepared.map_body(boxed_body).into_request();
             let accepting =
                 handle_h2_connect(binding, self.state.clone(), auth, request);
-            return Box::pin(async move {
+            let accepting: RouteFuture = Box::pin(async move {
                 let response = accepting.await?;
                 #[cfg(feature = "rate-limit")]
                 let response = {
@@ -140,6 +159,7 @@ impl RequestDispatch {
                 };
                 Ok(response)
             });
+            return Either::Right(Either::Left(accepting));
         }
         let prepared = if tunnelling {
             // The native body carries the tunnel, even when it currently
@@ -152,22 +172,7 @@ impl RequestDispatch {
                 body::adapt(incoming, max_body_size, body_read_timeout)
             })
         };
-        prepared.into_route_future()
-    }
-}
-
-#[cfg(any(feature = "tls", test))]
-impl Service<Request<Incoming>> for RequestService {
-    type Response = RouteResponse;
-    type Error = Infallible;
-    type Future = RouteFuture;
-
-    fn call(
-        &self,
-        request: Request<Incoming>,
-    ) -> Self::Future {
-        self.dispatch
-            .dispatch(self.host.prepare(request, RequestArrival::Established))
+        Either::Right(Either::Right(prepared.into_tcp_future()))
     }
 }
 

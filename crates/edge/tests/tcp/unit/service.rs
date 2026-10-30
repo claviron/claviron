@@ -133,7 +133,7 @@ async fn h2_connect_keeps_native_body_and_runs_shared_guards_before_auth() {
                 .enable_connect_protocol()
                 .serve_connection(
                     TokioIo::new(server_io),
-                    RequestService::new(host, state, scope.sessions())
+                    RequestService::new(host, state, scope.sessions()).into_service()
                 )
                 .await
         });

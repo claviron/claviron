@@ -1,7 +1,8 @@
 //! Cleartext host admission with connection-owned native dispatch.
 
 use std::cell::RefCell;
-use std::future::Future;
+use std::convert::Infallible;
+use std::future::{Future, ready};
 #[cfg(feature = "acme")]
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,8 +15,10 @@ use crate::transport::{HostAppResolver, HostIngress, VhostResolver};
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;
 use claviron_http::session::SessionSpawner;
-use claviron_http::{RouteFuture, RouteResponse, err_status};
+use claviron_http::{RouteResponse, err_status};
 use claviron_runtime::AppState;
+use futures_util::FutureExt;
+use futures_util::future::Either;
 use hyper::body::Incoming;
 use hyper::{Request, StatusCode};
 use tracing::warn;
@@ -34,9 +37,9 @@ pub(super) struct H1Service {
     host_cache: RefCell<CleartextHostCache>,
 }
 
-enum ResponseSource {
+enum ResponseSource<F> {
     Ready(RouteResponse),
-    Application(RouteFuture),
+    Application(F),
     #[cfg(feature = "acme")]
     Challenge {
         request: Request<Incoming>,
@@ -77,20 +80,29 @@ impl H1Service {
         &self,
         request: Request<Incoming>,
     ) -> impl Future<Output = Result<RouteResponse>> + Send + use<> {
-        let source = self.prepare(request);
-        async move {
-            match source? {
-                ResponseSource::Ready(response) => Ok(response),
-                ResponseSource::Application(answering) => {
-                    let Ok(response) = answering.await;
-                    Ok(response)
-                }
+        match self.prepare(request) {
+            Err(error) => Either::Left(ready(Err(error))),
+            Ok(ResponseSource::Ready(response)) => {
+                Either::Left(ready(Ok(response)))
+            }
+            Ok(ResponseSource::Application(answering)) => {
+                let answering = answering.map(|Ok(response)| Ok(response));
                 #[cfg(feature = "acme")]
-                ResponseSource::Challenge { request, directory } => {
+                {
+                    Either::Right(Either::Left(answering))
+                }
+                #[cfg(not(feature = "acme"))]
+                {
+                    Either::Right(answering)
+                }
+            }
+            #[cfg(feature = "acme")]
+            Ok(ResponseSource::Challenge { request, directory }) => {
+                Either::Right(Either::Right(async move {
                     Ok(acme::serve_acme_challenge(&request, &directory)
                         .await
                         .map(claviron_http::boxed_body))
-                }
+                }))
             }
         }
     }
@@ -98,7 +110,13 @@ impl H1Service {
     fn prepare(
         &self,
         req: Request<Incoming>,
-    ) -> Result<ResponseSource> {
+    ) -> Result<
+        ResponseSource<
+            impl Future<Output = std::result::Result<RouteResponse, Infallible>>
+            + Send
+            + use<>,
+        >,
+    > {
         let snapshot = &self.snapshot;
         // A configured HTTP-01 handler short-circuits ordinary host/deny policy.
         #[cfg(feature = "acme")]
