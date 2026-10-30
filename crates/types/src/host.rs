@@ -119,18 +119,8 @@ impl FromStr for Host {
             c.is_ascii_whitespace() || c.is_ascii_control()
         });
 
-        // Normalize once: lowercase + strip trailing dot
-        let lowered = raw.to_ascii_lowercase();
-        let s = lowered.trim_end_matches('.');
-        if s.is_empty() {
-            return Err("invalid host alias: <empty>".to_string());
-        }
-
-        if Sni::validate(s) {
-            return Ok(Host::Dns(Sni(Arc::from(s.to_string()))));
-        }
-
-        // check  if  string
+        // IP parsing uses the original spelling: stripping DNS root dots here
+        // would admit IP forms that this parser previously rejected.
         let inner = if let Some(i) =
             raw.strip_prefix('[').and_then(|t| t.strip_suffix(']'))
         {
@@ -142,6 +132,22 @@ impl FromStr for Host {
             && let Ok(ip) = inner.parse::<IpAddr>()
         {
             return Ok(Host::Ip(ip));
+        }
+
+        // Borrow names that need no case conversion; only uppercase input
+        // needs a temporary normalization buffer.
+        let lowered = if raw.bytes().any(|byte| byte.is_ascii_uppercase()) {
+            Cow::Owned(raw.to_ascii_lowercase())
+        } else {
+            Cow::Borrowed(raw)
+        };
+        let s = lowered.trim_end_matches('.');
+        if s.is_empty() {
+            return Err("invalid host alias: <empty>".to_string());
+        }
+
+        if Sni::validate(s) {
+            return Ok(Host::Dns(Sni(Arc::from(s))));
         }
 
         // Single Name.

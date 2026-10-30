@@ -53,3 +53,7 @@ time = { workspace = true, optional = true }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror = { workspace = true, optional = true }
+
+[[test]]
+name = "host_parse"
+path = "tests/host.rs"
