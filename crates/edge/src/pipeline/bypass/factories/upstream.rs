@@ -34,7 +34,5 @@ pub(crate) fn bypass_fn(
         allow_h1_upgrade: host_cfg.transport.h1.upgrade,
         allow_connect_protocol: host_cfg.transport.h2.connect_protocol,
     };
-    Ok(BypassService::Upstream(UpstreamBypass::new(
-        app, state, host_cfg, policy,
-    )))
+    Ok(BypassService::new(UpstreamBypass::new(app, state, host_cfg, policy)))
 }

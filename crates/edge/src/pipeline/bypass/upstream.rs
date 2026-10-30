@@ -6,7 +6,8 @@
 use claviron_files::{FileSite, try_handle_files};
 use claviron_http::ext::RealIpExt;
 use claviron_http::{
-    RequestContext, RouteBody, RouteResponse, ServiceResult, err_status,
+    RequestContext, RouteBody, RouteFuture, RouteResponse, ServiceResult,
+    err_status,
 };
 use claviron_runtime::AppState;
 use claviron_upstream::binding::UpstreamApp;
@@ -17,12 +18,28 @@ use http::{Request, StatusCode};
 use std::convert::Infallible;
 use std::sync::Arc;
 
+use super::BypassHandler;
+
 #[derive(Clone)]
 pub struct UpstreamBypass {
     app: UpstreamApp,
     state: AppState,
     files: Arc<dyn FileSite>,
     policy: UpstreamRequestPolicy,
+}
+
+impl BypassHandler for UpstreamBypass {
+    fn times_its_head(&self) -> bool {
+        true
+    }
+
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> RouteFuture {
+        let adapter = self.clone();
+        Box::pin(async move { adapter.handle(request).await })
+    }
 }
 
 impl UpstreamBypass {

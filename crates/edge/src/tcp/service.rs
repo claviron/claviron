@@ -152,8 +152,10 @@ impl RequestDispatch {
                 body::adapt(incoming, max_body_size, body_read_timeout)
             })
         };
-        // Adapt before constructing the future, so it need not retain both
-        // the native request and the dispatch state across its await.
+        // TODO(bypass): this async forwarding wrapper retains both its
+        // captured dispatch future and an await-state slot of that size.
+        // Replace the forwarding representation without changing body or
+        // cancellation ownership; adapting earlier alone did not shrink it.
         let answering = prepared.dispatch();
         Box::pin(async move { Ok(answering.await) })
     }

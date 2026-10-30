@@ -66,10 +66,9 @@ use crate::pipeline::routable::{HostBindingProvider, RouteBinding};
 /// * **`Bypass`** — direct dispatch on a [`BypassService`] with no axum
 ///   router and no middleware stack. Used when the host has a single
 ///   dominant protocol that doesn't need the standard pipeline: PHP
-///   FCGI proxy, in-process PHP SAPI, Pusher WebSocket upgrade, or a
-///   user-registered asset handler wrapped via `ResourceAdapter`
-///   (file-first probe + custom fallback, e.g. DB-backed images,
-///   cache-backed blobs, or free app-generated resources).
+///   FCGI proxy, in-process PHP SAPI, Pusher WebSocket upgrade, or
+///   an application-owned handler. A handler may explicitly compose the
+///   public file service before its own response logic.
 ///
 /// # Why only two variants?
 ///
@@ -769,14 +768,11 @@ impl HostAppRegistry {
     ///   route matching at the Rust layer.
     /// - **WebSocket pusher** — single endpoint, persistent upgrade,
     ///   different hot path than HTTP requests.
-    /// - **Asset/resource host** — file-first probe (handled by
-    ///   `ResourceAdapter`) followed by a custom handler (e.g.
-    ///   DB-backed image lookup, cache-backed blobs, free app-generated
-    ///   resources); no axum router
-    ///   needed because the dispatch is "static disk OR my fn", not
-    ///   "match a route table".
+    /// - **Application-owned handler** — direct request ownership through
+    ///   `BypassHandler`. File handling, when wanted, is explicitly composed
+    ///   by that handler using the public file-service APIs.
     /// - **Custom edge protocol** — anything that wants the bare
-    ///   `tower::Service<Request<RouteBody>>` shape.
+    ///   `Request<RouteBody>` to `RouteFuture` shape.
     ///
     /// # When not to use
     ///
@@ -1691,7 +1687,7 @@ fn build_config_upstream_bypass(
         allow_h1_upgrade: host_cfg.transport.h1.upgrade,
         allow_connect_protocol: host_cfg.transport.h2.connect_protocol,
     };
-    Some(BypassService::Upstream(UpstreamBypass::new(
+    Some(BypassService::new(UpstreamBypass::new(
         app,
         state.clone(),
         host_cfg,

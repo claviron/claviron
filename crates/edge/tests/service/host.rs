@@ -14,6 +14,7 @@ use claviron_http::{RouteFuture, boxed_body};
 use http::Method;
 use http::{Response, header};
 use http_body_util::{BodyExt, Full};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
 use crate::pipeline::bypass::{BypassHandler, BypassService};
@@ -879,6 +880,50 @@ impl BypassHandler for Hold {
             release.notified().await;
             Ok(Response::new(claviron_http::empty_body()))
         })
+    }
+}
+
+struct HeadTimingProbe(Arc<AtomicUsize>);
+
+impl BypassHandler for HeadTimingProbe {
+    fn times_its_head(&self) -> bool {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        false
+    }
+
+    fn call(
+        &self,
+        _: Request<RouteBody>,
+    ) -> RouteFuture {
+        Box::pin(async { Ok(Response::new(claviron_http::empty_body())) })
+    }
+}
+
+#[tokio::test]
+async fn bypass_without_head_timeout_does_not_query_backend_timing() {
+    for (timeout, expected) in
+        [(None, 0), (Some(std::time::Duration::from_secs(1)), 1)]
+    {
+        let queried = Arc::new(AtomicUsize::new(0));
+        let service = service_with_limits(
+            HttpProtocol::H1,
+            "",
+            AppKind::Bypass(BypassService::new(HeadTimingProbe(
+                queried.clone(),
+            ))),
+            RequestPolicy {
+                head_timeout: timeout,
+                ..RequestPolicy::unlimited()
+            },
+        );
+        let response = service
+            .prepare(request("/"), RequestArrival::Established)
+            .unwrap()
+            .map_body(|()| claviron_http::empty_body())
+            .dispatch()
+            .await;
+        assert_eq!(response.status(), http::StatusCode::OK);
+        assert_eq!(queried.load(Ordering::SeqCst), expected);
     }
 }
 

@@ -474,7 +474,10 @@ impl PreparedRequest<RouteBody> {
         if let Some(access) = access.as_mut() {
             access.admitted();
         }
-        let timed_elsewhere = matches!(&self.service.app.app, AppKind::Bypass(service) if service.times_its_head());
+        // Head-timing ownership is irrelevant when no timeout was declared.
+        let head_timeout = requests.head_timeout.filter(|_| {
+            !matches!(&self.service.app.app, AppKind::Bypass(service) if service.times_its_head())
+        });
         let answering = async move {
             if let Some(response) = early_reply {
                 return response;
@@ -499,11 +502,12 @@ impl PreparedRequest<RouteBody> {
         };
         // Late here is the server's, not the client's: 504, as a runner's
         // own head timeout answers.
-        let Some(response) = claviron_http::admission::head_within(
-            requests.head_timeout.filter(|_| !timed_elsewhere),
-            answering,
-        )
-        .await
+        // TODO(bypass): head_within(None, ...) starts no timer, but its
+        // generic async layout still reserves the timeout branch's state.
+        // Separate that representation while preserving configured deadlines.
+        let Some(response) =
+            claviron_http::admission::head_within(head_timeout, answering)
+                .await
         else {
             #[cfg(feature = "access-log")]
             if let Some(access) = access {

@@ -31,7 +31,7 @@ pub(crate) fn bypass_fn(
                 .resolve::<PhpFcgiService>()
                 .ok_or_else(|| Error::msg("PhpFcgiService not registered"))?;
 
-            Ok(BypassService::Fpm(PhpFpmAdapter::new(
+            Ok(BypassService::new(PhpFpmAdapter::new(
                 php_service.clone(),
                 runtime,
             )))
@@ -45,7 +45,7 @@ pub(crate) fn bypass_fn(
                 .resolve::<PhpScriptService>()
                 .ok_or_else(|| Error::msg("PhpScriptService not registered"))?;
 
-            Ok(BypassService::PhpScript(PhpScriptAdapter::new(
+            Ok(BypassService::new(PhpScriptAdapter::new(
                 php_service.clone(),
                 runtime,
             )))
@@ -74,7 +74,7 @@ pub(crate) fn bypass_fn(
                     requests: runtime.requests,
                     responses: runtime.responses,
                 });
-            Ok(BypassService::PhpApplication(adapter))
+            Ok(BypassService::new(adapter))
         }
     }
 }

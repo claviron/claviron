@@ -3,31 +3,42 @@ pub mod factories;
 #[cfg(feature = "upstream")]
 pub mod upstream;
 
-use std::convert::Infallible;
+#[cfg(any(feature = "php_fcgi", feature = "php_embed", feature = "broadcast"))]
+mod adapters;
+
 use std::sync::Arc;
 
-use claviron_files::ResourceAdapter;
-use claviron_http::{RouteBody, RouteFuture, RouteResponse};
-#[cfg(feature = "php_embed")]
-use claviron_php_embed::{PhpApplicationAdapter, PhpScriptAdapter};
-#[cfg(feature = "php_fcgi")]
-use claviron_php_fcgi::PhpFpmAdapter;
-#[cfg(feature = "broadcast")]
-use claviron_pusher::PusherAdapter;
+use claviron_http::{RouteBody, RouteFuture};
 use http::{Request, Response};
 
-#[cfg(feature = "upstream")]
-use self::upstream::UpstreamBypass;
-
-/// Application-owned bypass endpoint.
+/// Low-level HTTP extension point without owning a listener.
 ///
-/// This is the generic escape hatch for code that wants the vhost
-/// dispatcher and connection context, but not the Axum router stack.
-/// Implementations receive the request after transport bodies are erased
-/// to [`RouteBody`] and return the canonical bypass response type.
+/// The transport and host boundary hand over a request with an erased body
+/// and typed context. An implementation owns the response: a Rust handler,
+/// another runtime's adapter, or an alternative router can use this contract
+/// without depending on the Axum router or middleware stack.
+///
+/// # Hot-path contract
+///
+/// An unselected backend or inactive configuration must not impose its own
+/// lookup, allocation, copying, synchronization, timer, task or polling work
+/// on this path. Backend-specific future state belongs behind its own
+/// `RouteFuture` boundary, never in a shared async match. Capabilities that
+/// add no request-path cost need not be removed or hidden behind new features.
+/// Active transport and host-policy contracts still apply.
 pub trait BypassHandler: Send + Sync + 'static {
     fn name(&self) -> &'static str {
         "bypass_handler"
+    }
+
+    /// Whether this handler enforces the request policy's head timeout itself.
+    ///
+    /// The default leaves head timing to the edge. A handler returning `true`
+    /// owns enforcement of `HttpPolicy.requests.head_timeout`, including the
+    /// timeout response and cancellation; the edge does not start a second
+    /// head timer. This does not change admission or request/response limits.
+    fn times_its_head(&self) -> bool {
+        false
     }
 
     fn call(
@@ -36,11 +47,16 @@ pub trait BypassHandler: Send + Sync + 'static {
     ) -> RouteFuture;
 }
 
-/// Variants that bypass the Axum router. Each variant owns an adapter
-/// that handles a `Request<RouteBody>` directly — no Axum, no Tower,
-/// no generics. Hyper-stack only: the request body comes in already
-/// erased to [`RouteBody`] (the bypass-pipeline body type), so adapters
-/// stay non-generic and the dispatch chain has zero `axum::*` types.
+/// Direct request ownership outside the Axum router and middleware stack.
+///
+/// Every backend implements [`BypassHandler`] and returns its own erased
+/// [`RouteFuture`]. Dispatch returns that future directly; a large backend's
+/// state never becomes part of another backend's concrete dispatch future.
+/// Use [`Self::new`] for built-in adapters or application-owned handlers.
+///
+/// There is no implicit static-file or `try_files` pass. A handler may compose
+/// the public `claviron_files` APIs itself. The upstream adapter owns its
+/// explicitly configured file fallback independently of this dispatcher.
 ///
 /// Transport boundaries box their native body into `RouteBody` before
 /// calling `handle`:
@@ -50,39 +66,20 @@ pub trait BypassHandler: Send + Sync + 'static {
 ///   (buffered) or `StreamBody` (streaming).
 #[derive(Clone)]
 pub enum BypassService {
-    #[cfg(feature = "php_fcgi")]
-    Fpm(PhpFpmAdapter),
-    #[cfg(feature = "php_embed")]
-    PhpScript(PhpScriptAdapter),
-    #[cfg(feature = "php_embed")]
-    PhpApplication(PhpApplicationAdapter),
-    #[cfg(feature = "broadcast")]
-    Pusher(PusherAdapter),
-    #[cfg(feature = "upstream")]
-    Upstream(UpstreamBypass),
-    Asset(ResourceAdapter),
     Handler(Arc<dyn BypassHandler>),
-    /// Default no-upstream variant kept so the enum compiles even when no
-    /// upstream features are enabled.
+    /// An empty response without an application handler.
     Noop,
 }
 
 impl BypassService {
-    /// Whether this backend times the wait for the reply's head itself,
-    /// against the same `requests.head_timeout` the edge hands it — the
-    /// listener's, narrowed by the host and by the backend's own block. The
-    /// edge then sets no clock of its own for that wait: the limit still
-    /// holds, measured once.
-    ///
-    /// Only a backend of this crate says so. Bypass leaves the router's
-    /// layers behind, not the limits a server needs to stay well, so a
-    /// handler an application wrote ([`Self::Handler`]) is timed by the edge
-    /// whatever it does inside.
+    pub fn new(handler: impl BypassHandler) -> Self {
+        Self::Handler(Arc::new(handler))
+    }
+
     pub(crate) fn times_its_head(&self) -> bool {
         match self {
-            #[cfg(feature = "upstream")]
-            Self::Upstream(_) => true,
-            _ => false,
+            Self::Handler(handler) => handler.times_its_head(),
+            Self::Noop => false,
         }
     }
 
@@ -92,27 +89,20 @@ impl BypassService {
     /// native body into `RouteBody` (via `boxed_body`) before reaching
     /// this point. See type docs on `BypassService` for the boundary
     /// list.
-    pub async fn handle(
+    pub fn handle(
         &self,
         req: Request<RouteBody>,
-    ) -> Result<RouteResponse, Infallible> {
+    ) -> RouteFuture {
         match self {
-            #[cfg(feature = "php_fcgi")]
-            Self::Fpm(svc) => svc.handle(req).await,
-            #[cfg(feature = "broadcast")]
-            Self::Pusher(svc) => svc.handle(req).await,
-            #[cfg(feature = "php_embed")]
-            Self::PhpScript(svc) => svc.handle(req).await,
-            #[cfg(feature = "php_embed")]
-            Self::PhpApplication(svc) => svc.handle(req).await,
-            #[cfg(feature = "upstream")]
-            Self::Upstream(svc) => svc.handle(req).await,
-            Self::Asset(svc) => svc.handle(req).await,
-            Self::Handler(handler) => handler.call(req).await,
-            Self::Noop => {
-                let _ = req;
+            Self::Handler(handler) => handler.call(req),
+            Self::Noop => Box::pin(async move {
+                drop(req);
                 Ok(Response::new(claviron_http::empty_body()))
-            }
+            }),
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/pipeline/bypass.rs"]
+mod tests;
