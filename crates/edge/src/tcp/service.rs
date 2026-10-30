@@ -4,9 +4,11 @@ use std::convert::Infallible;
 use std::sync::Arc;
 
 use crate::service::CleartextRequest;
+#[cfg(any(feature = "tls", test))]
+use crate::transport::RequestArrival;
 use crate::transport::{
     AuthContext, H2ConnectBinding, H2ConnectRegistry, HostResponse,
-    HostService, PreparedRequest, RequestArrival,
+    HostService, PreparedRequest,
 };
 use claviron_http::body::{GuardedBody, declared_length_within};
 use claviron_http::listener::HttpProtocol;
@@ -18,31 +20,61 @@ use claviron_runtime::AppState;
 use http::{Method, Request, StatusCode};
 use http_body_util::BodyExt;
 use hyper::body::Incoming;
+#[cfg(any(feature = "tls", test))]
 use hyper::service::Service;
 use tracing::{debug, error};
 
 #[derive(Clone)]
+#[cfg(any(feature = "tls", test))]
 pub(crate) struct RequestService {
     host: HostService,
+    dispatch: RequestDispatch,
+}
+
+/// Native capabilities retained by one accepted connection, independently of
+/// the host selected for an individual cleartext request.
+#[derive(Clone)]
+pub(crate) struct RequestDispatch {
     state: AppState,
     sessions: SessionSpawner,
     h2_connect: Option<Arc<H2ConnectRegistry>>,
 }
 
+#[cfg(any(feature = "tls", test))]
 impl RequestService {
     pub(crate) fn new(
         host: HostService,
         state: AppState,
         sessions: SessionSpawner,
     ) -> Self {
-        let h2_connect = state.registry_ref().resolve::<H2ConnectRegistry>();
-        Self { host, state, sessions, h2_connect }
+        let dispatch = RequestDispatch::new(host.protocol(), state, sessions);
+        Self { host, dispatch }
+    }
+}
+
+impl RequestDispatch {
+    pub(crate) fn state(&self) -> &AppState {
+        &self.state
+    }
+
+    pub(crate) fn new(
+        protocol: Option<HttpProtocol>,
+        state: AppState,
+        sessions: SessionSpawner,
+    ) -> Self {
+        let h2_connect = if protocol == Some(HttpProtocol::H2) {
+            state.registry_ref().resolve::<H2ConnectRegistry>()
+        } else {
+            None
+        };
+        Self { state, sessions, h2_connect }
     }
     pub(crate) fn call_cleartext(
         &self,
+        host: HostService,
         request: CleartextRequest<'_, Incoming>,
     ) -> RouteFuture {
-        self.dispatch(self.host.prepare_cleartext(request))
+        self.dispatch(host.prepare_cleartext(request))
     }
 
     fn dispatch(
@@ -133,6 +165,7 @@ impl RequestService {
     }
 }
 
+#[cfg(any(feature = "tls", test))]
 impl Service<Request<Incoming>> for RequestService {
     type Response = RouteResponse;
     type Error = Infallible;
@@ -142,7 +175,8 @@ impl Service<Request<Incoming>> for RequestService {
         &self,
         request: Request<Incoming>,
     ) -> Self::Future {
-        self.dispatch(self.host.prepare(request, RequestArrival::Established))
+        self.dispatch
+            .dispatch(self.host.prepare(request, RequestArrival::Established))
     }
 }
 

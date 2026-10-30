@@ -17,6 +17,7 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 use tracing::{debug, warn};
 
+use super::handler::H1Service;
 use super::server::{HttpServer, ServerSnapshot};
 
 impl HttpServer {
@@ -53,18 +54,14 @@ impl HttpServer {
             country_code: crate::tcp::geo::country_code(peer.ip()),
             tls: None,
         });
-        let request_snapshot = snapshot.clone();
-        let sessions = scope.sessions();
-        let service = service_fn(move |req| {
-            Self::handle_request(
-                req,
-                request_snapshot.clone(),
-                vhosts.clone(),
-                state.clone(),
-                ctx.clone(),
-                sessions.clone(),
-            )
-        });
+        let service = H1Service::new(
+            snapshot.clone(),
+            vhosts,
+            state,
+            ctx,
+            scope.sessions(),
+        );
+        let service = service_fn(move |req| service.call(req));
         let stream = crate::tcp::io::TcpIo::new(stream);
         let errors = stream.clone();
         let connection = crate::tcp::protocol::h1(&snapshot.h1)

@@ -1,8 +1,8 @@
-//! What a cleartext request is allowed to do.
-//!
-//! The mirror of `secure/handler.rs`: HTTP-01 first, then deny, authority,
-//! host admission and the host's non-SSL policy — reject, redirect, or serve.
+//! Cleartext host admission with connection-owned native dispatch.
 
+use std::future::Future;
+#[cfg(feature = "acme")]
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::config::NonSslPolicy;
@@ -16,7 +16,7 @@ use crate::transport::{
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;
 use claviron_http::session::SessionSpawner;
-use claviron_http::{RouteResponse, err_status};
+use claviron_http::{RouteFuture, RouteResponse, err_status};
 use claviron_runtime::AppState;
 use hyper::body::Incoming;
 use hyper::{Request, StatusCode};
@@ -26,90 +26,158 @@ use tracing::warn;
 use super::acme;
 use super::error::{Error, Result};
 use super::redirect::handle_redirect;
-use super::server::{HttpServer, ServerSnapshot};
-use crate::tcp::service::RequestService;
+use super::server::ServerSnapshot;
+use crate::tcp::service::RequestDispatch;
 
-impl HttpServer {
-    pub(super) async fn handle_request(
-        req: Request<Incoming>,
+pub(super) struct H1Service {
+    snapshot: Arc<ServerSnapshot>,
+    vhosts: Arc<VhostResolver>,
+    ctx: Arc<ConnCtx>,
+    dispatch: RequestDispatch,
+}
+
+enum ResponseSource {
+    Ready(RouteResponse),
+    Application(RouteFuture),
+    #[cfg(feature = "acme")]
+    Challenge {
+        request: Request<Incoming>,
+        directory: Arc<PathBuf>,
+    },
+}
+
+impl H1Service {
+    pub(super) fn new(
         snapshot: Arc<ServerSnapshot>,
         vhosts: Arc<VhostResolver>,
         state: AppState,
         ctx: Arc<ConnCtx>,
         sessions: SessionSpawner,
-    ) -> Result<RouteResponse> {
+    ) -> Self {
+        Self {
+            snapshot,
+            vhosts,
+            ctx,
+            dispatch: RequestDispatch::new(
+                Some(HttpProtocol::H1),
+                state,
+                sessions,
+            ),
+        }
+    }
+
+    pub(super) fn call(
+        &self,
+        request: Request<Incoming>,
+    ) -> impl Future<Output = Result<RouteResponse>> + Send + use<> {
+        let source = self.prepare(request);
+        async move {
+            match source? {
+                ResponseSource::Ready(response) => Ok(response),
+                ResponseSource::Application(answering) => {
+                    let Ok(response) = answering.await;
+                    Ok(response)
+                }
+                #[cfg(feature = "acme")]
+                ResponseSource::Challenge { request, directory } => {
+                    Ok(acme::serve_acme_challenge(&request, &directory)
+                        .await
+                        .map(claviron_http::boxed_body))
+                }
+            }
+        }
+    }
+
+    fn prepare(
+        &self,
+        req: Request<Incoming>,
+    ) -> Result<ResponseSource> {
+        let snapshot = &self.snapshot;
         // A configured HTTP-01 handler short-circuits ordinary host/deny policy.
         #[cfg(feature = "acme")]
         if let Some(challenges_dir) = &snapshot.http01_directory
             && req.uri().path().starts_with(acme::ACME_PREFIX)
         {
             if RequestAuthority::from_cleartext(&req).is_err() {
-                return Ok(err_status(StatusCode::BAD_REQUEST));
+                return Ok(ResponseSource::Ready(err_status(
+                    StatusCode::BAD_REQUEST,
+                )));
             }
-            return Ok(acme::serve_acme_challenge(&req, challenges_dir)
-                .await
-                .map(claviron_http::boxed_body));
+            return Ok(ResponseSource::Challenge {
+                request: req,
+                directory: challenges_dir.clone(),
+            });
         }
         #[cfg(not(feature = "acme"))]
         let _ = &snapshot.http01_directory;
-        // Drop blocked traffic before resolving a host, then carry the checked
-        // request so shared host admission does not run this matcher again.
         let req = snapshot
             .deny
             .check_request(req)
             .map_err(|_| Error::Rejected("deny-drop"))?;
         let req = match CleartextRequest::new(req) {
             Ok(request) => request,
-            Err(_) => return Ok(err_status(StatusCode::BAD_REQUEST)),
+            Err(_) => {
+                return Ok(ResponseSource::Ready(err_status(
+                    StatusCode::BAD_REQUEST,
+                )));
+            }
         };
         let authority = req.authority();
-        let Some(vctx) =
-            resolve_request_authority(authority, &vhosts.snapshot())
+        let table = self.vhosts.snapshot();
+        let Some(mut vctx) = resolve_request_authority(authority, &table)
         else {
-            return Ok(err_status(StatusCode::NOT_FOUND));
+            return Ok(ResponseSource::Ready(err_status(
+                StatusCode::NOT_FOUND,
+            )));
         };
         let host = &vctx.vhost_config;
         if !host.allows_transport(&snapshot.listener.id, HttpProtocol::H1) {
-            return Ok(err_status(StatusCode::MISDIRECTED_REQUEST));
+            return Ok(ResponseSource::Ready(err_status(
+                StatusCode::MISDIRECTED_REQUEST,
+            )));
         }
         match host.transport.non_ssl {
-            NonSslPolicy::Reject => Ok(err_status(StatusCode::FORBIDDEN)),
+            NonSslPolicy::Reject => {
+                Ok(ResponseSource::Ready(err_status(StatusCode::FORBIDDEN)))
+            }
             NonSslPolicy::Redirect => handle_redirect(
                 authority,
                 req.request().uri(),
                 snapshot.redirect_port,
-            ),
+            )
+            .map(ResponseSource::Ready),
             NonSslPolicy::Serve => {
                 // Cleartext cannot satisfy a TLS client certificate policy.
                 if host.tls.client_auth.is_required() {
-                    return Ok(err_status(StatusCode::FORBIDDEN));
+                    return Ok(ResponseSource::Ready(err_status(
+                        StatusCode::FORBIDDEN,
+                    )));
                 }
-                let Some(app) = vctx.application.clone().or_else(|| {
-                    state
+                let Some(app) = vctx.application.take().or_else(|| {
+                    self.dispatch
+                        .state()
                         .registry_ref()
                         .resolve::<HostAppResolver>()
                         .and_then(|resolver| resolver.resolve(&vctx.vhost_key))
                 }) else {
                     warn!(listener = %snapshot.listener.id, host = %authority.authority(), "H1 host application unavailable");
-                    return Ok(err_status(StatusCode::SERVICE_UNAVAILABLE));
+                    return Ok(ResponseSource::Ready(err_status(
+                        StatusCode::SERVICE_UNAVAILABLE,
+                    )));
                 };
-                let service = RequestService::new(
-                    HostService::new(
-                        app,
-                        ctx,
-                        vctx,
-                        HostIngress {
-                            proxy: snapshot.listener.proxy.clone(),
-                            deny: snapshot.deny.clone(),
-                        },
-                        vhosts,
-                        snapshot.listener.policy(),
-                    ),
-                    state,
-                    sessions,
+                let host = HostService::new(
+                    app,
+                    self.ctx.clone(),
+                    vctx,
+                    HostIngress {
+                        proxy: snapshot.listener.proxy.clone(),
+                        deny: snapshot.deny.clone(),
+                    },
+                    self.vhosts.clone(),
+                    snapshot.listener.policy(),
                 );
-                let Ok(response) = service.call_cleartext(req).await;
-                Ok(response)
+                let response = self.dispatch.call_cleartext(host, req);
+                Ok(ResponseSource::Application(response))
             }
         }
     }

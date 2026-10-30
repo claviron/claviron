@@ -93,6 +93,11 @@ pub struct HostService {
 }
 
 impl HostService {
+    #[cfg(all(feature = "tcp", any(feature = "tls", test)))]
+    pub(crate) fn protocol(&self) -> Option<HttpProtocol> {
+        self.policy.connection.proto
+    }
+
     pub fn new(
         app: impl Into<HostApp>,
         connection: Arc<ConnCtx>,
@@ -120,7 +125,7 @@ impl HostService {
         if self.policy.ingress.deny.is_blocked(request.uri().path()) {
             return Err(RequestRejection::PathDenied.into());
         }
-        self.prepare_context(request)
+        Ok(self.prepare_context(request)?.with_service(self.clone()))
     }
 
     /// Preserve an early transport deny check without evaluating the same
@@ -137,14 +142,16 @@ impl HostService {
             .deny
             .accept_checked(request)
             .map_err(|_| RequestRejection::PathDenied)?;
-        self.prepare_context(request)
+        Ok(self.prepare_context(request)?.with_service(self.clone()))
     }
 
     /// Reuse the authority validated for this cleartext host selection. The
     /// receiving host still checks its binding, transport and live policy.
+    /// Cleartext selects an owned binding per request, which moves into the
+    /// admitted request rather than being cloned or retained by the connection.
     #[cfg(feature = "tcp")]
     pub(crate) fn prepare_cleartext<B>(
-        &self,
+        self,
         request: CleartextRequest<'_, B>,
     ) -> Result<PreparedRequest<B>, HostResponse> {
         let protocol = self
@@ -165,7 +172,7 @@ impl HostService {
             .deny
             .accept_checked(request)
             .map_err(|_| RequestRejection::PathDenied)?;
-        self.prepare_context(request)
+        Ok(self.prepare_context(request)?.with_service(self))
     }
 
     fn check_head<B>(
@@ -218,7 +225,7 @@ impl HostService {
     fn prepare_context<B>(
         &self,
         mut request: Request<B>,
-    ) -> Result<PreparedRequest<B>, HostResponse> {
+    ) -> Result<PreparedContext<B>, HostResponse> {
         let policy = &self.policy;
         let access = policy.access.request_policy(&policy.host.vhost_key.0);
         let connection = inject_context_and_real_ip(
@@ -248,15 +255,40 @@ impl HostService {
         // the others narrow their own.
         let policy =
             self.listener.narrow(&self.policy.host.vhost_config.policy());
-        Ok(PreparedRequest {
+        Ok(PreparedContext {
             request,
-            service: self.clone(),
             connection,
             access,
             policy,
             #[cfg(feature = "rate-limit")]
             quota_snapshot,
         })
+    }
+}
+
+struct PreparedContext<B> {
+    request: Request<B>,
+    connection: Arc<ConnCtx>,
+    access: PolicySnapshot,
+    policy: HttpPolicy,
+    #[cfg(feature = "rate-limit")]
+    quota_snapshot: Option<claviron_http::rate_limit::Snapshot>,
+}
+
+impl<B> PreparedContext<B> {
+    fn with_service(
+        self,
+        service: HostService,
+    ) -> PreparedRequest<B> {
+        PreparedRequest {
+            request: self.request,
+            service,
+            connection: self.connection,
+            access: self.access,
+            policy: self.policy,
+            #[cfg(feature = "rate-limit")]
+            quota_snapshot: self.quota_snapshot,
+        }
     }
 }
 

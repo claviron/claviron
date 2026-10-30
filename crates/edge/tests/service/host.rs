@@ -287,7 +287,7 @@ fn checked_deny_requests_keep_host_guards_and_cannot_bypass_another_matcher() {
         let prepare = |checked| {
             #[cfg(feature = "tcp")]
             if cleartext {
-                return service.prepare_cleartext(
+                return service.clone().prepare_cleartext(
                     CleartextRequest::new(checked).unwrap(),
                 );
             }
@@ -340,8 +340,8 @@ fn cleartext_authority_handoff_keeps_transport_and_upgrade_guards() {
                 .headers_mut()
                 .insert(header::UPGRADE, "websocket".parse().unwrap());
         }
-        let checked =
-            service.policy.ingress.deny.check_request(request).ok().unwrap();
+        let deny = service.policy.ingress.deny.clone();
+        let checked = deny.check_request(request).ok().unwrap();
         let validated = CleartextRequest::new(checked).unwrap();
         assert!(matches!(
             service.prepare_cleartext(validated),
@@ -363,7 +363,9 @@ fn cleartext_authority_handoff_keeps_live_acl_redirect_and_removal() {
             .check_request(request("/original?q=%2F"))
             .ok()
             .unwrap();
-        service.prepare_cleartext(CleartextRequest::new(checked).unwrap())
+        service
+            .clone()
+            .prepare_cleartext(CleartextRequest::new(checked).unwrap())
     };
     assert!(prepare().is_ok());
     for (config, expected) in [
