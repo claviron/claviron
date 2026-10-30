@@ -28,7 +28,7 @@ fn service(
     service_with_limits(protocol, config, app, RequestPolicy::unlimited())
 }
 
-fn service_with_limits(
+pub(super) fn service_with_limits(
     protocol: HttpProtocol,
     config: &str,
     app: impl Into<crate::pipeline::HostApp>,
@@ -87,7 +87,7 @@ fn noop(
     service(protocol, config, AppKind::Bypass(BypassService::Noop))
 }
 
-fn request(path: &str) -> Request<()> {
+pub(super) fn request(path: &str) -> Request<()> {
     Request::builder()
         .uri(path)
         .header(header::HOST, "app.test")

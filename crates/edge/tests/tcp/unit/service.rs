@@ -21,9 +21,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
 
-#[path = "service/response_future.rs"]
-mod response_future;
-
 struct EchoConnect {
     calls: Arc<AtomicUsize>,
     accepts: Arc<AtomicUsize>,

@@ -19,6 +19,7 @@ rate-limit = ["server", "claviron-http/rate-limit", "dep:claviron-orbit", "clavi
 acme = ["claviron-http/acme"]
 server = [
     "claviron-http/server",
+    "dep:futures-util",
 ]
 # The router side of hosting. Off, a host can still be pinned to a bypass
 # adapter — one .php, a static root, an upstream — because that path never had

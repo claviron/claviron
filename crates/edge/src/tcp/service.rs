@@ -17,7 +17,6 @@ use claviron_http::{
     RouteFuture, RouteResponse, boxed_body, empty_body, err_status,
 };
 use claviron_runtime::AppState;
-use futures_util::FutureExt;
 use http::{Method, Request, StatusCode};
 use hyper::body::Incoming;
 #[cfg(any(feature = "tls", test))]
@@ -153,16 +152,8 @@ impl RequestDispatch {
                 body::adapt(incoming, max_body_size, body_read_timeout)
             })
         };
-        Box::pin(response_future(prepared.dispatch()))
+        prepared.into_route_future()
     }
-}
-
-/// Change only the output type; keep one pinned dispatch future in the
-/// existing allocation instead of capturing it in another async state machine.
-fn response_future(
-    answering: impl std::future::Future<Output = RouteResponse>
-) -> impl std::future::Future<Output = Result<RouteResponse, Infallible>> {
-    answering.map(Ok)
 }
 
 #[cfg(any(feature = "tls", test))]
