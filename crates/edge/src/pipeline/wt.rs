@@ -19,6 +19,25 @@ type NativeSession = WebTransportSession<h3_quinn::Connection, Bytes>;
 pub type H3WebTransportBiStream =
     h3_webtransport::stream::BidiStream<h3_quinn::BidiStream<Bytes>, Bytes>;
 
+// WebTransport's protocol-defined WT_SESSION_GONE code identifies streams
+// whose parent session has ended; changing it would break wire compatibility.
+const WT_SESSION_GONE: u64 = 0x170d7b68;
+
+/// Whether a data-stream I/O error reports that its WT session has ended.
+///
+/// Inspect the typed transport cause rather than its display text or I/O kind.
+/// Other stream reset codes, connection errors and unrelated I/O errors return
+/// false, so consumers can retain their normal error reporting for failures.
+pub fn webtransport_session_ended(error: &std::io::Error) -> bool {
+    error
+        .get_ref()
+        .and_then(|cause| {
+            cause.downcast_ref::<h3_webtransport::error::StreamError>()
+        })
+        .and_then(|error| error.http3_code())
+        == Some(WT_SESSION_GONE)
+}
+
 /// One application session, with input routed by the native connection owner.
 ///
 /// The H3 connection, ordinary HTTP requests and other sessions stay with the

@@ -33,5 +33,5 @@ pub use routable::{Routable, RouteLayerContext};
 pub use wt::{
     H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,
     WebTransportBinding, WebTransportHandler, WebTransportRegistry,
-    WebTransportReject, WebTransportResult,
+    WebTransportReject, WebTransportResult, webtransport_session_ended,
 };
