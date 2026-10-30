@@ -10,7 +10,7 @@ use crate::transport::{
     AuthContext, H2ConnectBinding, H2ConnectRegistry, HostResponse,
     HostService, PreparedRequest,
 };
-use claviron_http::body::{GuardedBody, declared_length_within};
+use claviron_http::body::declared_length_within;
 use claviron_http::listener::HttpProtocol;
 use claviron_http::session::SessionSpawner;
 use claviron_http::{
@@ -18,11 +18,12 @@ use claviron_http::{
 };
 use claviron_runtime::AppState;
 use http::{Method, Request, StatusCode};
-use http_body_util::BodyExt;
 use hyper::body::Incoming;
 #[cfg(any(feature = "tls", test))]
 use hyper::service::Service;
 use tracing::{debug, error};
+
+mod body;
 
 #[derive(Clone)]
 #[cfg(any(feature = "tls", test))]
@@ -140,28 +141,21 @@ impl RequestDispatch {
                 Ok(response)
             });
         }
-        // Not on a tunnel: after CONNECT or an upgrade the body is the tunnel
-        // itself, and a size cap on it would end the connection it exists to
-        // carry.
-        if tunnelling {
-            return Box::pin(async move {
-                Ok(prepared.map_body(boxed_body).dispatch().await)
-            });
-        }
-
-        // Both from the listener's policy as this host narrowed it; the read
-        // gap is each request body's, not the connection's.
-        Box::pin(async move {
+        let prepared = if tunnelling {
+            // The native body carries the tunnel, even when it currently
+            // reports no data. Do not apply ordinary request-body policy.
+            prepared.map_body(boxed_body)
+        } else {
             let max_body_size = prepared.max_body_size();
             let body_read_timeout = prepared.requests().body_read_timeout;
-            Ok(prepared
-                .map_body(|body| {
-                    GuardedBody::new(body, max_body_size, body_read_timeout)
-                        .boxed_unsync()
-                })
-                .dispatch()
-                .await)
-        })
+            prepared.map_body(|incoming| {
+                body::adapt(incoming, max_body_size, body_read_timeout)
+            })
+        };
+        // Adapt before constructing the future, so it need not retain both
+        // the native request and the dispatch state across its await.
+        let answering = prepared.dispatch();
+        Box::pin(async move { Ok(answering.await) })
     }
 }
 
