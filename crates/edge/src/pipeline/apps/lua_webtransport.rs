@@ -136,7 +136,7 @@ impl WebTransportHandler for Handler {
                 () = ctx.wait_graceful_shutdown() => SessionEnd::ServerStopping,
                 () = state.on_shutdown() => SessionEnd::ServerStopping,
                 closed = session.closed() => match closed {
-                    Ok(()) => SessionEnd::PeerClosed,
+                    Ok(_) => SessionEnd::PeerClosed,
                     Err(error) => {
                         tracing::debug!(%error, "Lua WebTransport CONNECT ended");
                         SessionEnd::TransportLost
