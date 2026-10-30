@@ -93,6 +93,7 @@ orbitive = { workspace = true, optional = true }
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
 futures-util.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true

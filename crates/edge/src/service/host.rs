@@ -502,9 +502,6 @@ impl PreparedRequest<RouteBody> {
         };
         // Late here is the server's, not the client's: 504, as a runner's
         // own head timeout answers.
-        // TODO(bypass): head_within(None, ...) starts no timer, but its
-        // generic async layout still reserves the timeout branch's state.
-        // Separate that representation while preserving configured deadlines.
         let Some(response) =
             claviron_http::admission::head_within(head_timeout, answering)
                 .await

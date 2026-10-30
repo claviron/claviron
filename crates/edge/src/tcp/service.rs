@@ -17,6 +17,7 @@ use claviron_http::{
     RouteFuture, RouteResponse, boxed_body, empty_body, err_status,
 };
 use claviron_runtime::AppState;
+use futures_util::FutureExt;
 use http::{Method, Request, StatusCode};
 use hyper::body::Incoming;
 #[cfg(any(feature = "tls", test))]
@@ -152,13 +153,16 @@ impl RequestDispatch {
                 body::adapt(incoming, max_body_size, body_read_timeout)
             })
         };
-        // TODO(bypass): this async forwarding wrapper retains both its
-        // captured dispatch future and an await-state slot of that size.
-        // Replace the forwarding representation without changing body or
-        // cancellation ownership; adapting earlier alone did not shrink it.
-        let answering = prepared.dispatch();
-        Box::pin(async move { Ok(answering.await) })
+        Box::pin(response_future(prepared.dispatch()))
     }
+}
+
+/// Change only the output type; keep one pinned dispatch future in the
+/// existing allocation instead of capturing it in another async state machine.
+fn response_future(
+    answering: impl std::future::Future<Output = RouteResponse>
+) -> impl std::future::Future<Output = Result<RouteResponse, Infallible>> {
+    answering.map(Ok)
 }
 
 #[cfg(any(feature = "tls", test))]
