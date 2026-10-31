@@ -1,5 +1,24 @@
 use super::*;
 
+#[test]
+fn file_routes_apply_default_root_before_normalizing_any_route_shape() {
+    for source in [
+        "{}",
+        "routes: {'/': {}}",
+        "routes: {'/': {}, '/api': {}}",
+        "routes: {path: /api, ajax_only: true}",
+    ] {
+        let config: HostConfig = serde_yaml::from_str(source).unwrap();
+        assert_eq!(config.files.root, std::path::Path::new("."), "{source}");
+        for (_, route) in config.routes.iter() {
+            assert_eq!(route.files.root, std::path::Path::new("."), "{source}");
+        }
+        if let Some(fallback) = config.fallback.as_ref() {
+            assert_eq!(fallback.files.root, std::path::Path::new("."), "{source}");
+        }
+    }
+}
+
 #[cfg(all(feature = "lua", any(feature = "websocket", feature = "webtransport")))]
 #[test]
 fn lua_socket_declarations_include_scopes_without_duplicating_the_root() {

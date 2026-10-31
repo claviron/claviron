@@ -83,6 +83,8 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     for name in source.keys().filter_map(Value::as_str) {
         validate_feature(&root, name)?;
     }
+    // Every leaf, including an explicit `/`, needs the same host default.
+    source.entry(key("root")).or_insert_with(|| Value::String(".".into()));
     let routes = source.remove(key("routes"));
     // Keep the initial rule-only schema readable while deployments migrate.
     if routes.as_ref().is_some_and(|value| value.is_sequence())
@@ -297,7 +299,6 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
         entries.push((prefix.clone(), Arc::new(config)));
         entry_rules.push(prefix.clone());
     }
-    source.entry(key("root")).or_insert_with(|| Value::String(".".into()));
     let mut host = leaf(source.clone(), entry_rules)?;
     // File-only consumers, including axum-free Other, receive the same mounts
     // compiled from route keys. This is not a second configuration surface.
