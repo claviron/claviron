@@ -93,6 +93,12 @@ and rejection for `config::HostConfigExt`.
 - [`identity/extensions.rs`](src/pipeline/host/identity/extensions.rs) — Prepare
   typed metadata and populate each request's independently owned extension map.
 
+#### `embed/`
+
+- [`lua.rs`](src/pipeline/embed/lua.rs) — Prepared Lua mount selection.
+  Nonmatching requests return synchronously with the unread body; only a
+  selected adapter creates an asynchronous call. Engine execution belongs to Lua.
+
 ## `tests/`
 
 ### [`provider.rs`](tests/provider.rs)

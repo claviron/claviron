@@ -92,12 +92,12 @@ impl DispatchStep for LuaBackend {
         &self,
         request: Request<RouteBody>,
     ) -> DispatchFuture {
-        let backend = self.clone();
+        let Some(mount) = self.select(request.uri().path()) else {
+            return DispatchFuture::ready(ServiceResult::Unhandled(request));
+        };
+        let adapter = mount.adapter.clone();
         DispatchFuture::new(async move {
-            let Some(mount) = backend.select(request.uri().path()) else {
-                return ServiceResult::Unhandled(request);
-            };
-            ServiceResult::Handled(mount.adapter.handle(request).await)
+            ServiceResult::Handled(adapter.handle(request).await)
         })
     }
 }
