@@ -54,6 +54,19 @@ limits once. Cleartext requests reuse them while that binding matches the
 current host configuration; replacement prepares new limits without changing
 already admitted requests. ACL and redirect rules remain live per request.
 
+## Prepared host actions
+
+`HostPipeline` prepares active `HostLayer` actions with the host binding.
+Requests execute the prepared head actions in order with their own typed state;
+an unhandled request keeps its original body until a terminal handler claims it.
+Response actions run in reverse order, within the scope reached by the request.
+
+`IngressPolicy` is the first migrated layer: authority/binding, early-data,
+H1 upgrade and deny checks retain their existing order and typed rejections.
+Inactive upgrade/deny gates add no action. Accepted connections keep their plan;
+replacing a cleartext host binding prepares a new one. Identity, live ACL,
+redirects, quotas and application dispatch still belong to `HostService`.
+
 ## Keep the boundary useful
 
 Native transports adapt their request bodies to `RouteBody`; bypass handlers
@@ -81,6 +94,7 @@ always faster or should replace routing everywhere.
 - [Routable bindings](../../crates/edge/src/pipeline/routable.rs).
 - [Host application registry](../../crates/edge/src/pipeline/apps.rs).
 - [Native bypass dispatch](../../crates/edge/src/pipeline/bypass.rs).
+- [Prepared host pipeline and ingress](../../crates/edge/src/pipeline/host.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 
 Use `BYPASS_PIPELINE` as the search key for this application-first composition.

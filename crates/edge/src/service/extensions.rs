@@ -9,7 +9,6 @@ use claviron_types::Host;
 use http::{Extensions, Request};
 use tracing::debug;
 
-use super::RequestAuthority;
 use crate::config::HostConfig;
 use crate::loader::table::VhostTable;
 
@@ -148,17 +147,6 @@ fn resolve_request_context<B>(
             (Arc::new(conn_ctx), real_ip)
         }
     }
-}
-
-/// Compare a validated host identity with the accepted SNI binding. Ports do
-/// not alter this host-only policy. Invalid messages must be rejected before
-/// this check; `None` is only the legal HTTP/1.0 missing-authority case.
-pub fn authority_matches_sni(
-    authority: Option<&RequestAuthority>,
-    vctx: &VhostCtx,
-) -> bool {
-    authority
-        .is_none_or(|authority| authority.host() == vctx.hostname.0.as_ref())
 }
 
 /// Result of SNI/vhost resolution at connection time

@@ -14,6 +14,34 @@ fn request(
 }
 
 #[test]
+fn detached_head_uses_the_same_authority_rules_without_a_body() {
+    for (version, uri, hosts) in [
+        (Version::HTTP_10, "/", vec![]),
+        (Version::HTTP_11, "/", vec![]),
+        (Version::HTTP_11, "http://app.test/", vec!["other.test"]),
+        (Version::HTTP_2, "https://app.test/", vec!["other.test"]),
+        (Version::HTTP_3, "https://app.test/", vec!["app.test:443"]),
+        (Version::HTTP_11, "/", vec!["app.test", "app.test"]),
+    ] {
+        let request = request(version, uri, &hosts);
+        let expected = RequestAuthority::from_request(&request);
+        let (head, ()) = request.into_parts();
+        let actual = RequestAuthority::from_parts(&head);
+        assert_eq!(actual.as_ref().err(), expected.as_ref().err());
+        assert_eq!(
+            actual.ok().flatten().map(|authority| (
+                authority.authority().clone(),
+                authority.host().clone()
+            )),
+            expected.ok().flatten().map(|authority| (
+                authority.authority().clone(),
+                authority.host().clone()
+            )),
+        );
+    }
+}
+
+#[test]
 fn errors_implement_the_standard_error_contract_without_losing_the_variant() {
     for (error, message) in [
         (AuthorityError::Missing, "request authority is missing"),

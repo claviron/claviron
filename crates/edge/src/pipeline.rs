@@ -1,6 +1,7 @@
 pub(crate) mod apps;
 pub mod bypass;
 mod connect;
+pub mod host;
 #[cfg(feature = "axum")]
 pub mod merged;
 #[cfg(feature = "orbit")]
@@ -23,6 +24,10 @@ pub use claviron_http::upgrade::{
 pub use connect::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
+};
+pub use host::{
+    HostLayer, HostLayerBuilder, HostPipeline, HostPipelineBuilder,
+    IngressPolicy, IngressState,
 };
 #[cfg(feature = "orbit")]
 pub use orbit::build_application_router as build_orbit_application_router;

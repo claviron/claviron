@@ -1,4 +1,6 @@
 use super::*;
+use crate::pipeline::host::ingress::authority_matches_sni;
+use crate::service::RequestAuthority;
 
 #[path = "extensions/template.rs"]
 mod template;
@@ -12,13 +14,13 @@ fn sni_authority_guard_preserves_ipv6_and_rejects_different_hosts() {
         let request =
             Request::builder().header("host", authority).body(()).unwrap();
         let authority = RequestAuthority::from_request(&request).unwrap();
-        assert!(authority_matches_sni(authority.as_ref(), &vctx));
+        assert!(authority_matches_sni(authority.as_ref(), &vctx.hostname));
     }
     for authority in ["[::2]:443", "app.test"] {
         let request =
             Request::builder().header("host", authority).body(()).unwrap();
         let authority = RequestAuthority::from_request(&request).unwrap();
-        assert!(!authority_matches_sni(authority.as_ref(), &vctx));
+        assert!(!authority_matches_sni(authority.as_ref(), &vctx.hostname));
     }
 }
 
@@ -96,7 +98,7 @@ fn captured_host_table_and_authority_guard_survive_a_later_table() {
         let request = Request::builder().header("host", host).body(()).unwrap();
         let authority = RequestAuthority::from_request(&request).unwrap();
         assert_eq!(
-            authority_matches_sni(authority.as_ref(), &accepted),
+            authority_matches_sni(authority.as_ref(), &accepted.hostname),
             expected
         );
     }

@@ -394,12 +394,20 @@ fn cleartext_authority_handoff_keeps_live_acl_redirect_and_removal() {
 
 #[test]
 fn missing_protocol_is_not_inferred_from_request_version_or_uri() {
-    let mut service = noop(HttpProtocol::H1, "");
-    Arc::get_mut(&mut Arc::get_mut(&mut service.policy).unwrap().connection)
-        .unwrap()
-        .proto = None;
+    let binding = noop(HttpProtocol::H1, "");
+    let service = HostService::new(
+        binding.app.clone(),
+        Arc::new(ConnCtx {
+            proto: None,
+            ..(*binding.policy.connection).clone()
+        }),
+        binding.policy.host.clone(),
+        binding.policy.ingress.clone(),
+        binding.policy.access.clone(),
+        HttpPolicy::unlimited(),
+    );
     assert!(matches!(
-        service.prepare(request("/"), RequestArrival::Established),
+        service.prepare(Request::new(()), RequestArrival::EarlyData),
         Err(HostResponse::Rejected(RequestRejection::MissingProtocol))
     ));
 }
@@ -801,14 +809,22 @@ async fn acl_reload_reaches_existing_bindings_before_axum_or_bypass_dispatch() {
 fn acl_uses_this_requests_trusted_ip_and_never_polls_a_body() {
     struct Unpollable;
     for protocol in [HttpProtocol::H1, HttpProtocol::H2, HttpProtocol::H3] {
-        let mut service = noop(
+        let binding = noop(
             protocol,
             "aliases: [alias.test], acl: {'/admin': {policy: deny, allowed: ['203.0.113.1/32']}}",
         );
         // The connection arrived via the alias; authority must still match
         // that exact SNI. ACL lookup uses the canonical app.test key.
-        Arc::get_mut(&mut service.policy).unwrap().host.hostname =
-            HostName(Arc::new("alias.test".parse().unwrap()));
+        let mut host = binding.policy.host.clone();
+        host.hostname = HostName(Arc::new("alias.test".parse().unwrap()));
+        let service = HostService::new(
+            binding.app.clone(),
+            binding.policy.connection.clone(),
+            host,
+            binding.policy.ingress.clone(),
+            binding.policy.access.clone(),
+            HttpPolicy::unlimited(),
+        );
         for (ip, allowed) in [
             ("203.0.113.1", true),
             ("203.0.113.2", false),
@@ -829,7 +845,17 @@ fn acl_uses_this_requests_trusted_ip_and_never_polls_a_body() {
                 ));
             }
         }
-        Arc::get_mut(&mut service.policy).unwrap().ingress.proxy = None;
+        let service = HostService::new(
+            service.app,
+            service.policy.connection.clone(),
+            service.policy.host.clone(),
+            HostIngress {
+                proxy: None,
+                deny: service.policy.ingress.deny.clone(),
+            },
+            service.policy.access.clone(),
+            HttpPolicy::unlimited(),
+        );
         let forged = Request::builder()
             .uri("/admin")
             .header(header::HOST, "alias.test")

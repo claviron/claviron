@@ -23,9 +23,21 @@ impl<B> DenyCheckedRequest<'_, B> {
     pub fn request(&self) -> &Request<B> {
         &self.request
     }
+
+    /// Consume the immutable proof inside native ingress. No mutable head is
+    /// exposed between this identity check and the receiving pipeline's deny gate.
+    pub(crate) fn into_ingress(
+        self,
+        deny: &DenyService,
+    ) -> (Request<B>, bool) {
+        (self.request, std::ptr::eq(self.matcher, deny.set.as_ref()))
+    }
 }
 
 impl DenyService {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.set.is_empty()
+    }
     /// Retain the already-compiled request deny matcher for an ingress snapshot.
     pub fn from_set(set: &RegexSet) -> Self {
         Self { set: Arc::new(set.clone()) }

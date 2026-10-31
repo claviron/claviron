@@ -2,7 +2,7 @@
 
 use claviron_types::Host;
 use http::uri::{Authority, Scheme};
-use http::{Request, Version, header};
+use http::{HeaderMap, Request, Uri, Version, header, request::Parts};
 
 /// The selected wire authority and its normalized host identity.
 ///
@@ -93,7 +93,20 @@ impl RequestAuthority {
     pub fn from_request<B>(
         request: &Request<B>
     ) -> Result<Option<Self>, AuthorityError> {
-        let version = request.version();
+        Self::from_fields(request.version(), request.uri(), request.headers())
+    }
+
+    /// Validate an owned request head without reconstructing or cloning it.
+    /// Uses exactly the same authority rules as [`Self::from_request`].
+    pub fn from_parts(parts: &Parts) -> Result<Option<Self>, AuthorityError> {
+        Self::from_fields(parts.version, &parts.uri, &parts.headers)
+    }
+
+    fn from_fields(
+        version: Version,
+        uri: &Uri,
+        headers: &HeaderMap,
+    ) -> Result<Option<Self>, AuthorityError> {
         if !matches!(
             version,
             Version::HTTP_10
@@ -104,7 +117,7 @@ impl RequestAuthority {
             return Err(AuthorityError::Invalid);
         }
 
-        let mut values = request.headers().get_all(header::HOST).iter();
+        let mut values = headers.get_all(header::HOST).iter();
         let first = values.next();
         if values.next().is_some() {
             return Err(AuthorityError::Conflicting);
@@ -119,15 +132,14 @@ impl RequestAuthority {
         if version == Version::HTTP_11 && host.is_none() {
             return Err(AuthorityError::Missing);
         }
-        let target = request
-            .uri()
+        let target = uri
             .authority()
             .map(|authority| Self::parse(authority.as_str()))
             .transpose()?;
 
         if matches!(version, Version::HTTP_2 | Version::HTTP_3)
             && let (Some(target), Some(host)) = (&target, &host)
-            && !target.equivalent(host, request.uri().scheme())
+            && !target.equivalent(host, uri.scheme())
         {
             return Err(AuthorityError::Conflicting);
         }

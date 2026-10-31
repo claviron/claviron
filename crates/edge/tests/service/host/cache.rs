@@ -132,6 +132,37 @@ fn config_reload_replaces_cached_metadata_but_retains_owned_requests() {
 }
 
 #[test]
+fn ingress_plan_reloads_for_a_new_binding_without_changing_the_pinned_one() {
+    let access = Arc::new(VhostResolver::default());
+    let mut cache = cache(access.clone());
+    let mut bindings = Vec::new();
+    for upgrade in [false, true] {
+        let config = format!(
+            "root: public\naliases: [alias.test]\ntransport: {{h1: {{upgrade: {upgrade}}}}}"
+        );
+        access.upsert_host(
+            "app.test".parse().unwrap(),
+            Arc::new(serde_yaml::from_str(&config).unwrap()),
+        );
+        bindings.push(bind(&mut cache, &access.snapshot(), app("test")));
+    }
+    assert!(!Arc::ptr_eq(&bindings[0].policy, &bindings[1].policy));
+    for (binding, allowed) in bindings.iter().zip([false, true]) {
+        let mut upgrade = request(());
+        upgrade
+            .headers_mut()
+            .insert(header::UPGRADE, "websocket".parse().unwrap());
+        match binding.prepare(upgrade, RequestArrival::Established) {
+            Ok(_) => assert!(allowed),
+            Err(crate::service::HostResponse::Rejected(
+                RequestRejection::UpgradeForbidden,
+            )) => assert!(!allowed),
+            Err(_) => panic!("only the pinned upgrade policy may reject"),
+        }
+    }
+}
+
+#[test]
 fn alias_remap_and_host_removal_cannot_reuse_an_old_policy() {
     let config: Arc<HostConfig> = Arc::new(
         serde_yaml::from_str("root: public\naliases: [alias.test]").unwrap(),

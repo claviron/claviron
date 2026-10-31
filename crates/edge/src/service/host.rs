@@ -4,17 +4,19 @@ use std::sync::Arc;
 
 use claviron_http::config::{HttpPolicy, ProxyConfig, RequestPolicy};
 use claviron_http::ext::ConnCtx;
+#[cfg(any(test, all(feature = "tcp", feature = "tls")))]
 use claviron_http::listener::HttpProtocol;
 use claviron_http::{RouteBody, RouteResponse};
 use http::{Request, StatusCode};
 
-#[cfg(feature = "tcp")]
-use super::CleartextRequest;
-use super::extensions::{ContextExtensions, VhostCtx, authority_matches_sni};
+use super::extensions::{ContextExtensions, VhostCtx};
 use super::policy::PolicySnapshot;
-use super::{AuthorityError, HostResponse, RequestAuthority};
+use super::{AuthorityError, HostResponse};
+#[cfg(feature = "tcp")]
+use super::{CleartextRequest, RequestAuthority};
 use crate::VhostResolver;
 use crate::deny::{DenyCheckedRequest, DenyService};
+use crate::pipeline::host::{HostPipeline, IngressPolicy, IngressState};
 use crate::pipeline::{AppKind, AuthContext, HostApp};
 
 mod dispatch;
@@ -81,6 +83,7 @@ struct HostPolicy {
     access: Arc<VhostResolver>,
     extensions: ContextExtensions,
     http: HttpPolicy,
+    pipeline: HostPipeline<IngressState, RequestRejection>,
 }
 
 impl HostPolicy {
@@ -95,7 +98,10 @@ impl HostPolicy {
         // Both declarations belong to this immutable binding. Requests reuse
         // their narrowed limits; live ACL/redirect policy is read separately.
         let http = listener.narrow(&host.vhost_config.policy());
-        Self { connection, host, ingress, access, extensions, http }
+        let pipeline =
+            IngressPolicy::new(&connection, &host, ingress.deny.clone())
+                .into_pipeline();
+        Self { connection, host, ingress, access, extensions, http, pipeline }
     }
 }
 
@@ -142,10 +148,8 @@ impl HostService {
         request: Request<B>,
         arrival: RequestArrival,
     ) -> Result<PreparedRequest<B>, HostResponse> {
-        self.check_head(&request, arrival)?;
-        if self.policy.ingress.deny.is_blocked(request.uri().path()) {
-            return Err(RequestRejection::PathDenied.into());
-        }
+        let request =
+            self.policy.pipeline.admit(request, IngressState::new(arrival))?;
         Ok(self.prepare_context(request)?.with_service(self.clone()))
     }
 
@@ -156,13 +160,12 @@ impl HostService {
         request: DenyCheckedRequest<'_, B>,
         arrival: RequestArrival,
     ) -> Result<PreparedRequest<B>, HostResponse> {
-        self.check_head(request.request(), arrival)?;
-        let request = self
-            .policy
-            .ingress
-            .deny
-            .accept_checked(request)
-            .map_err(|_| RequestRejection::PathDenied)?;
+        let request = self.policy.pipeline.admit_checked(
+            request,
+            &self.policy.ingress.deny,
+            arrival,
+            None,
+        )?;
         Ok(self.prepare_context(request)?.with_service(self.clone()))
     }
 
@@ -176,72 +179,14 @@ impl HostService {
         self,
         request: CleartextRequest<'_, B>,
     ) -> Result<PreparedRequest<B>, HostResponse> {
-        let protocol = self
-            .policy
-            .connection
-            .proto
-            .ok_or(RequestRejection::MissingProtocol)?;
-        self.check_validated_head(
-            request.request(),
-            RequestArrival::Established,
-            protocol,
-            Some(request.authority()),
-        )?;
-        let (request, _) = request.into_parts();
-        let request = self
-            .policy
-            .ingress
-            .deny
-            .accept_checked(request)
-            .map_err(|_| RequestRejection::PathDenied)?;
-        Ok(self.prepare_context(request)?.with_service(self))
-    }
-
-    fn check_head<B>(
-        &self,
-        request: &Request<B>,
-        arrival: RequestArrival,
-    ) -> Result<(), HostResponse> {
-        let policy = &self.policy;
-        let protocol =
-            policy.connection.proto.ok_or(RequestRejection::MissingProtocol)?;
-        let authority = RequestAuthority::from_request(request)
-            .map_err(RequestRejection::InvalidAuthority)?;
-        self.check_validated_head(
+        let (request, authority) = request.into_parts();
+        let request = self.policy.pipeline.admit_checked(
             request,
-            arrival,
-            protocol,
-            authority.as_ref(),
-        )
-    }
-
-    fn check_validated_head<B>(
-        &self,
-        request: &Request<B>,
-        arrival: RequestArrival,
-        protocol: HttpProtocol,
-        authority: Option<&RequestAuthority>,
-    ) -> Result<(), HostResponse> {
-        let policy = &self.policy;
-        let host = &policy.host.vhost_config;
-        if !host.allows_transport(&policy.connection.listener, protocol)
-            || !authority_matches_sni(authority, &policy.host)
-        {
-            return Err(RequestRejection::Misdirected.into());
-        }
-        if arrival == RequestArrival::EarlyData
-            && (protocol != HttpProtocol::H3
-                || !allows_early_data(host, request.method()))
-        {
-            return Err(RequestRejection::TooEarly.into());
-        }
-        if protocol == HttpProtocol::H1
-            && request.headers().contains_key(http::header::UPGRADE)
-            && !host.transport.h1.upgrade
-        {
-            return Err(RequestRejection::UpgradeForbidden.into());
-        }
-        Ok(())
+            &self.policy.ingress.deny,
+            RequestArrival::Established,
+            Some(authority),
+        )?;
+        Ok(self.prepare_context(request)?.with_service(self))
     }
 
     fn prepare_context<B>(
@@ -301,33 +246,6 @@ impl<B> PreparedContext<B> {
             #[cfg(feature = "rate-limit")]
             quota_snapshot: self.quota_snapshot,
         }
-    }
-}
-
-fn allows_early_data(
-    host: &crate::config::HostConfig,
-    method: &http::Method,
-) -> bool {
-    #[cfg(feature = "http3")]
-    {
-        use crate::config::EarlyDataPolicy;
-        match host.transport.h3.early_data {
-            EarlyDataPolicy::DenyAll => false,
-            EarlyDataPolicy::AllowIdempotent => {
-                matches!(
-                    *method,
-                    http::Method::GET
-                        | http::Method::HEAD
-                        | http::Method::OPTIONS
-                )
-            }
-            EarlyDataPolicy::AllowAll => true,
-        }
-    }
-    #[cfg(not(feature = "http3"))]
-    {
-        let _ = (host, method);
-        false
     }
 }
 
