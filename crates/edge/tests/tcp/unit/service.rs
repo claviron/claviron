@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::deny::DenyService;
 use crate::transport::{
-    AnyAuthenticated, AppKind, BypassService, H2ConnectAccept,
+    AnyAuthenticated, RustRouter, OtherService, H2ConnectAccept,
     H2ConnectHandler, H2ConnectReject, H2ConnectResult, HostIngress,
     resolve_sni_from_table,
 };
@@ -111,7 +111,7 @@ async fn h2_connect_keeps_native_body_and_runs_shared_guards_before_auth() {
         });
         let config: RouterConfig = serde_yaml::from_str("deny: ['^/blocked']").unwrap();
         let host = HostService::new(
-            AppKind::Bypass(BypassService::Noop),
+            RustRouter::Other(OtherService::Noop),
             connection,
             host,
             HostIngress {

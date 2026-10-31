@@ -250,8 +250,8 @@ rustls.workspace = true
 tempfile = "3"
 
 [[bench]]
-name = "dispatch-edge-bypass"
-path = "benches/dispatch/edge/bypass.rs"
+name = "dispatch-edge-other"
+path = "benches/dispatch/edge/other.rs"
 harness = false
 test = false
 required-features = ["edge"]

@@ -25,7 +25,7 @@ pub mod deny;
 pub(crate) mod loader;
 #[cfg(feature = "server")]
 pub mod pipeline;
-#[cfg(feature = "axum")]
+#[cfg(feature = "server")]
 pub use pipeline::ext as extension;
 #[cfg(feature = "server")]
 mod provider;
@@ -226,12 +226,12 @@ where
 pub use claviron_types::Host;
 pub use config::HostConfig;
 #[cfg(feature = "server")]
-pub use pipeline::bypass::{BypassHandler, BypassService};
+pub use pipeline::other::{OtherHandler, OtherService};
 #[cfg(feature = "server")]
 pub use pipeline::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
-    HostAppRegistry, HostBindingProvider, RouteBinding,
+    HostAppRegistry, HostBindingProvider, RouteBinding, RustRouter,
 };
 #[cfg(all(feature = "server", feature = "websocket"))]
 pub use pipeline::{

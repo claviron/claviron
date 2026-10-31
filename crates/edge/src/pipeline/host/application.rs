@@ -5,10 +5,8 @@ use std::future::Future;
 use claviron_http::{RouteBody, RouteResponse};
 use futures_util::FutureExt;
 use http::Request;
-#[cfg(feature = "axum")]
-use tower::ServiceExt;
 
-use crate::pipeline::bypass::BypassService;
+use crate::pipeline::other::OtherService;
 
 /// One selected application's consuming request call.
 ///
@@ -18,7 +16,7 @@ use crate::pipeline::bypass::BypassService;
 /// that call and releases whatever request/backend state it still owns.
 ///
 /// Each implementation keeps its concrete future. This contract adds no
-/// service clone, task, readiness wait or future box. Bypass retains its
+/// service clone, task, readiness wait or future box. Other retains its
 /// existing handler erasure; Axum retains its native oneshot future. Hosts
 /// choose their owner before constructing either future, so an unused backend
 /// cannot enlarge the selected backend's state.
@@ -39,9 +37,9 @@ pub trait ApplicationHandler<B = RouteBody>: Send {
     ) -> impl Future<Output = RouteResponse> + Send;
 }
 
-impl ApplicationHandler for BypassService {
+impl ApplicationHandler for OtherService {
     fn times_its_head(&self) -> bool {
-        BypassService::times_its_head(self)
+        OtherService::times_its_head(self)
     }
 
     fn call(
@@ -57,21 +55,6 @@ impl ApplicationHandler for BypassService {
                 Err(never) => match never {},
             }
         })
-    }
-}
-
-#[cfg(feature = "axum")]
-impl ApplicationHandler for axum::Router {
-    fn call(
-        self,
-        request: Request<RouteBody>,
-    ) -> impl Future<Output = RouteResponse> + Send {
-        self.oneshot(request.map(axum::body::Body::new)).map(
-            |reply| match reply {
-                Ok(response) => claviron_http::from_axum_response(response),
-                Err(never) => match never {},
-            },
-        )
     }
 }
 

@@ -284,7 +284,6 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
         config.extensions.extend(extensions);
         config.owns_handler = owns_handler
             || (prefix.as_str() == "/" && has_application(&source));
-        config.selected_static = selected_static;
         config.files.mapping = Some(mapping);
         config.route_acl = route_acl;
         #[cfg(feature = "rate-limit")]
@@ -296,7 +295,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     }
     source.entry(key("root")).or_insert_with(|| Value::String(".".into()));
     let mut host = leaf(source.clone(), entry_rules)?;
-    // File-only consumers, including axum-free bypass, receive the same mounts
+    // File-only consumers, including axum-free Other, receive the same mounts
     // compiled from route keys. This is not a second configuration surface.
     let mounts: Vec<_> = entries
         .iter()
@@ -323,7 +322,6 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
                 .directory()
                 .to_path_buf();
             config.files.statics = Some(vec![mount]);
-            config.selected_static = true;
         }
     }
     if !mounts.is_empty() {
@@ -413,7 +411,6 @@ fn leaf(
         fallback: None,
         extensions,
         owns_handler: false,
-        selected_static: false,
         route_acl: None,
         #[cfg(feature = "rate-limit")]
         route_rate_limit: None,

@@ -217,7 +217,7 @@ impl H3Server {
         info!(listener = %listener.id, "🔸 QUIC listener stopped");
     }
 
-    /// Drive a single QUIC connection: SNI → vhost → AppKind dispatch.
+    /// Drive a single QUIC connection: SNI → vhost → RustRouter dispatch.
     /// Snapshot, dependencies and bound address are captured at admission.
     async fn handle_connection(
         state: claviron_runtime::AppState,

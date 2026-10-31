@@ -63,7 +63,7 @@ async fn spa_ajax_rejection_is_json_not_the_html_shell() {
 /// 500 on every directory request: `has_static_index()` admitted the list
 /// because `index.html` is static, then the loop hit `index.php` first and
 /// treated `DynamicFile` as a logic error. The file service runs ahead of
-/// PHP in the bypass chain, so that `Err` ended the request.
+/// PHP in the native dispatch chain, so that `Err` ended the request.
 ///
 /// Pinned because the fix is a name-only `continue` that nothing would
 /// fail to compile without.

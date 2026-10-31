@@ -19,7 +19,7 @@ use crate::deny::{DenyCheckedRequest, DenyService};
 use crate::pipeline::host::{
     HostPolicy, HostRequestState, IdentifiedRequest,
 };
-use crate::pipeline::{AppKind, AuthContext, HostApp};
+use crate::pipeline::{RustRouter, AuthContext, HostApp};
 
 mod dispatch;
 

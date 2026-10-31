@@ -3,10 +3,10 @@
 use claviron_http::{RouteBody, RouteFuture};
 use http::Request;
 
-use super::BypassHandler;
+use super::OtherHandler;
 
 #[cfg(feature = "php_fcgi")]
-impl BypassHandler for claviron_php_fcgi::PhpFpmAdapter {
+impl OtherHandler for claviron_php_fcgi::PhpFpmAdapter {
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -17,7 +17,7 @@ impl BypassHandler for claviron_php_fcgi::PhpFpmAdapter {
 }
 
 #[cfg(feature = "php_embed")]
-impl BypassHandler for claviron_php_embed::PhpScriptAdapter {
+impl OtherHandler for claviron_php_embed::PhpScriptAdapter {
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -28,7 +28,7 @@ impl BypassHandler for claviron_php_embed::PhpScriptAdapter {
 }
 
 #[cfg(feature = "php_embed")]
-impl BypassHandler for claviron_php_embed::PhpApplicationAdapter {
+impl OtherHandler for claviron_php_embed::PhpApplicationAdapter {
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -39,7 +39,7 @@ impl BypassHandler for claviron_php_embed::PhpApplicationAdapter {
 }
 
 #[cfg(feature = "broadcast")]
-impl BypassHandler for claviron_pusher::PusherAdapter {
+impl OtherHandler for claviron_pusher::PusherAdapter {
     fn call(
         &self,
         request: Request<RouteBody>,

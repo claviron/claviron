@@ -34,7 +34,7 @@ pub const DEFAULT_SERVER_HEADER: &str = "claviron";
 ///
 /// Scope note: Edge's common exchange applies this policy outside application
 /// routing, whenever explicitly configured, regardless of whether the owner
-/// is configured/Merged Axum, bypass or Standalone.
+/// is a configured host plan, Axum or another Rust handler.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct HostHeadersConfig {
     /// Override the `Server:` response header for this vhost. When unset,

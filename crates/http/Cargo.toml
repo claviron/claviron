@@ -26,7 +26,7 @@ server = ["dep:arc-swap", "dep:claviron-tls", "dep:rustls", "dep:futures-util"]
 metrics = ["axum", "claviron-runtime/metrics", "dep:claviron-orbit", "dep:orbitive", "orbitive/metrics"]
 cache = ["axum", "dep:claviron-cache"]
 axum = ["dep:axum", "dep:headers", "dep:serde_json"]
-routing = ["axum", "dep:serde_yaml"]
+routing = ["axum"]
 websocket = ["server", "dep:hyper", "dep:sha1"]
 
 [dependencies]
@@ -53,7 +53,6 @@ serde.workspace = true
 serde_json = { workspace = true, optional = true }
 # Regex patterns in static-route caching configuration.
 serde_regex.workspace = true
-serde_yaml = { workspace = true, optional = true }
 
 # ── HTTP core ───────────────────────────────────────────────────────────
 headers = { workspace = true, optional = true }

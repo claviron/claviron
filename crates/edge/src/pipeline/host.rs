@@ -56,10 +56,11 @@ pub(crate) mod compile;
 mod builder;
 mod dispatch;
 mod exchange;
+mod extension;
 mod execution;
 mod files;
 mod identity;
-mod intercept;
+mod handler;
 pub(crate) mod ingress;
 #[cfg(feature = "rate-limit")]
 mod quota;
@@ -74,7 +75,7 @@ pub use access_log::{AccessLogLayer, AccessLogState};
 pub use admission::AdmissionPolicy;
 pub use application::ApplicationHandler;
 pub use dispatch::{DispatchChain, DispatchFuture, DispatchResult, DispatchStep};
-pub(crate) use dispatch::compose_dispatch_bypass;
+pub(crate) use dispatch::compose_dispatch_other;
 #[cfg(feature = "axum")]
 pub(crate) use dispatch::dispatch_router;
 pub(crate) use binding::HostPolicy;
@@ -83,13 +84,11 @@ pub(crate) use execution::HostExecution;
 pub use files::{StaticStage, TryFilesStage};
 pub(crate) use files::fallback_config;
 pub use identity::{IdentityPolicy, IdentityState};
-pub use intercept::{
-    ApplicationInterceptor, ApplicationStage, InterceptFuture,
-    InterceptRequest, InterceptResult,
+pub use handler::{
+    HostHandler, ApplicationStage, HostHandlerFuture,
+    HostRequest, HostHandlerResult,
 };
-pub(crate) use intercept::compose_bypass;
-#[cfg(feature = "axum")]
-pub(crate) use intercept::compose_router;
+pub(crate) use handler::compose_other;
 pub use ingress::{IngressPolicy, IngressState};
 #[cfg(feature = "rate-limit")]
 pub use quota::{QuotaPolicy, QuotaState};
@@ -99,7 +98,7 @@ pub(crate) use state::IdentifiedRequest;
 #[cfg(feature = "websocket")]
 pub use websocket::WebSocketStage;
 #[cfg(feature = "websocket")]
-pub(crate) use websocket::compose_websocket_bypass;
+pub(crate) use websocket::compose_websocket_other;
 #[cfg(all(feature = "websocket", feature = "axum"))]
 pub(crate) use websocket::compose_websocket_router;
 mod request;

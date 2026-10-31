@@ -7,7 +7,7 @@ use super::*;
 async fn malformed_headers_never_enter_cleartext_application() {
     tokio::time::timeout(TIMEOUT, async {
         let fixture = Fixture::new().await;
-        for host in ["app.test", "bypass.test"] {
+        for host in ["app.test", "other.test"] {
             for headers in INVALID_HEADERS {
                 let mut wire = fixture.raw().await;
                 wire.stream
@@ -33,7 +33,7 @@ async fn valid_framing_preserves_cleartext_keepalive() {
         let fixture = Fixture::new().await;
         let mut wire = fixture.raw().await;
         wire.stream
-            .write_all(valid_keepalive("bypass.test").as_bytes())
+            .write_all(valid_keepalive("other.test").as_bytes())
             .await
             .unwrap();
         let response = read_closed(&mut wire.stream).await;
@@ -53,7 +53,7 @@ async fn mixed_content_length_and_chunked_cannot_reuse_cleartext_connection() {
         let fixture = Fixture::new().await;
         let mut wire = fixture.raw().await;
         wire.stream
-            .write_all(ambiguous_framing("bypass.test").as_bytes())
+            .write_all(ambiguous_framing("other.test").as_bytes())
             .await
             .unwrap();
         let response = read_closed(&mut wire.stream).await;

@@ -50,7 +50,7 @@ async fn an_empty_child_scope_does_not_inherit_the_root_file_probe() {
 #[tokio::test]
 async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body() {
     use axum::{Router, routing::any};
-    use claviron_http::routing::{RouteCondition, RouteEffect};
+    use crate::pipeline::ext::{RouteCondition, RouteEffect};
     struct Reject;
     impl RouteCondition for Reject {
         fn accepts(&self, _: &RuleContext<'_>) -> bool { false }

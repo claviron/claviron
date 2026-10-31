@@ -1,4 +1,6 @@
 use super::*;
+#[cfg(feature = "axum")]
+use crate::pipeline::app::compose_router;
 use bytes::Bytes;
 use http::{HeaderValue, Response, StatusCode};
 use http_body::{Body, Frame};
@@ -66,8 +68,8 @@ impl ApplicationHandler for Backend {
 
 struct Pass(Arc<AtomicUsize>);
 
-impl ApplicationInterceptor for Pass {
-    fn call(&self, mut request: InterceptRequest) -> InterceptFuture {
+impl HostHandler for Pass {
+    fn call(&self, mut request: HostRequest) -> HostHandlerFuture {
         self.0.fetch_add(1, Ordering::Relaxed);
         request.head_mut().headers.append("x-example-pass", HeaderValue::from_static("yes"));
         Box::pin(std::future::ready(ServiceResult::Unhandled(request)))
@@ -109,8 +111,8 @@ fn unhandled_contributions_pass_original_data_and_trailers_without_reading() {
 
 struct Claim;
 
-impl ApplicationInterceptor for Claim {
-    fn call(&self, request: InterceptRequest) -> InterceptFuture {
+impl HostHandler for Claim {
+    fn call(&self, request: HostRequest) -> HostHandlerFuture {
         let request = request.into_request();
         let mut response = Response::new(request.into_body());
         *response.status_mut() = StatusCode::NOT_FOUND;
@@ -143,8 +145,8 @@ fn handled_404_does_not_run_later_contributions_or_clone_the_backend() {
 
 struct Pending(Arc<AtomicUsize>);
 
-impl ApplicationInterceptor for Pending {
-    fn call(&self, request: InterceptRequest) -> InterceptFuture {
+impl HostHandler for Pending {
+    fn call(&self, request: HostRequest) -> HostHandlerFuture {
         self.0.fetch_add(1, Ordering::Relaxed);
         Box::pin(futures_util::future::poll_fn(move |_| {
             let _owned = &request;
@@ -181,18 +183,18 @@ fn cancellation_releases_the_unread_body_before_and_during_interception() {
 #[test]
 fn absent_contributions_keep_the_original_direct_handler() {
     struct MustNotRun;
-    impl BypassHandler for MustNotRun {
+    impl OtherHandler for MustNotRun {
         fn call(&self, _: Request<RouteBody>) -> RouteFuture { panic!("cold preparation") }
     }
-    let original: Arc<dyn BypassHandler> = Arc::new(MustNotRun);
-    let prepared = compose_bypass(BypassService::Handler(original.clone()), &[]);
-    let BypassService::Handler(prepared) = prepared else { panic!("the direct owner must remain") };
+    let original: Arc<dyn OtherHandler> = Arc::new(MustNotRun);
+    let prepared = compose_other(OtherService::Handler(original.clone()), &[]);
+    let OtherService::Handler(prepared) = prepared else { panic!("the direct owner must remain") };
     assert!(Arc::ptr_eq(&original, &prepared));
 }
 
 #[cfg(feature = "axum")]
 #[test]
-fn axum_bridge_passes_unhandled_payload_without_buffering() {
+fn axum_adapter_passes_unhandled_payload_without_buffering() {
     let counts = Arc::new(Counts::default());
     let calls = Arc::new(AtomicUsize::new(0));
     let backend = ::axum::Router::new().fallback(
@@ -205,7 +207,7 @@ fn axum_bridge_passes_unhandled_payload_without_buffering() {
     let mut answering = Box::pin(ApplicationHandler::call(router, request));
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
-        panic!("the compatibility bridge must not collect the body");
+        panic!("the Axum adapter must not collect the body");
     };
     drop(answering);
     assert_eq!(calls.load(Ordering::Relaxed), 1);

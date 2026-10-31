@@ -20,7 +20,6 @@ fn file_routes_flat_root_directives_keep_file_fields_out_of_extensions() {
         config.routes.find("/assets").unwrap().statics.as_ref().unwrap()[0].dir,
         std::env::current_dir().unwrap().join("assets")
     );
-    assert!(!root.selected_static);
 }
 
 #[test]
@@ -83,16 +82,16 @@ fn file_routes_policy_child_keeps_the_parent_policy_and_mapped_subdirectory() {
 
 #[cfg(feature = "upstream")]
 #[test]
-fn file_routes_static_declarations_preserve_upstream_bypass() {
+fn file_routes_static_declarations_preserve_upstream_owners() {
     let config: HostConfig = serde_yaml::from_str(
         "root: public\nupstream: backend\nroutes:\n  /assets:\n    path: build\n    static: {}\n  /assets/private:\n    cors: disabled\n",
     ).unwrap();
-    assert!(config.can_bypass_axum_for_upstream());
+    assert_eq!(config.upstream_name(), Some("backend"));
     assert_eq!(config.statics.as_ref().unwrap()[0].path.as_str(), "/assets");
     let config: HostConfig = serde_yaml::from_str(
         "root: public\nupstream: backend\nroutes:\n  /other:\n    upstream: other-backend\n",
     ).unwrap();
-    assert!(!config.can_bypass_axum_for_upstream());
+    assert_eq!(config.routes.find("/other").unwrap().upstream_name(), Some("other-backend"));
 }
 
 #[test]

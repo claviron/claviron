@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::transport::BypassHandler;
+use crate::transport::OtherHandler;
 use bytes::Bytes;
 use claviron_http::{RouteBody, RouteFuture, boxed_body, bytes_body};
 use claviron_runtime::gate::GateDrainOutcome;
@@ -65,7 +65,7 @@ struct ControlledApp {
     download: Mutex<Option<mpsc::Receiver<Bytes>>>,
 }
 
-impl BypassHandler for ControlledApp {
+impl OtherHandler for ControlledApp {
     fn call(
         &self,
         request: Request<RouteBody>,

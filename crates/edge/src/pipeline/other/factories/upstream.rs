@@ -4,15 +4,15 @@ use claviron_runtime::{AppState, Error, Result};
 use claviron_types::Host;
 use claviron_upstream::UpstreamProvider;
 
-use crate::BypassService;
+use crate::OtherService;
 use crate::config::HostConfig;
-use crate::pipeline::bypass::upstream::UpstreamBypass;
+use crate::pipeline::other::upstream::UpstreamRouter;
 
-pub(crate) fn bypass_fn(
+pub(crate) fn build(
     state: AppState,
     canonical: Host,
     host_cfg: Arc<HostConfig>,
-) -> Result<BypassService> {
+) -> Result<OtherService> {
     let upstream_name = host_cfg.upstream_name().ok_or_else(|| {
         Error::msg(format!("Missing upstream config for host {}", canonical))
     })?;
@@ -34,5 +34,5 @@ pub(crate) fn bypass_fn(
         allow_h1_upgrade: host_cfg.transport.h1.upgrade,
         allow_connect_protocol: host_cfg.transport.h2.connect_protocol,
     };
-    Ok(BypassService::new(UpstreamBypass::new(app, state, host_cfg, policy)))
+    Ok(OtherService::new(UpstreamRouter::new(app, state, host_cfg, policy)))
 }

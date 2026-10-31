@@ -2,7 +2,7 @@
 //! `logging.yaml` names in `access_log`.
 //!
 //! Made in [`HostService::dispatch`](crate::service::HostService), where every
-//! request passes exactly once — bypass paths included. A guard is created
+//! request passes exactly once — Other paths included. A guard is created
 //! there, learns the status from the reply head, and moves into the reply
 //! body; it counts what the body sends and writes the record when the body
 //! ends or is dropped. A streamed reply, an event stream ended at shutdown

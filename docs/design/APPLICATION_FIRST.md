@@ -32,7 +32,7 @@ selects their exposure. Adding another hostname does not inherently require
 another implementation of the application or another copy of its state.
 
 [HOST_PIPELINE](HOST_PIPELINE.md) describes the serving choices: a native
-host pipeline, an application-owned router or direct bypass dispatch. Those are ways
+host pipeline, an application-owned router or direct Other dispatch. Those are ways
 to present application behavior through the edge.
 
 ## Routable contributions and interception
@@ -51,7 +51,7 @@ re-entering the Rust routes or selecting the prefix again.
 
 This supports applications built from several cooperating parts, including
 gradual replacement of individual handlers. Route ownership and delegation are
-explicit. Standalone and bypass bindings select their own dispatch composition;
+explicit. Standalone and Other bindings select their own dispatch composition;
 router-specific middleware runs where that composition installs it.
 
 ## Compose before serving
@@ -135,8 +135,8 @@ controls cross-origin interaction and response access. Origin and CORS are
 distinct from credential authentication; a native client can supply its own
 Origin header.
 
-Configured edge exchange policy applies at shared host dispatch, including
-bypass. Security implemented only in a particular router or application guard
+Configured edge exchange policy applies to both RustRouter variants.
+Security implemented only in a particular router or application guard
 remains part of that selected composition. Sharing an application does not
 silently remove either boundary.
 
@@ -152,7 +152,7 @@ without implicitly changing the owners of application work or shared state.
 - [Prepared host applications](../../crates/edge/src/pipeline/apps.rs).
 - [Shared host admission](../../crates/edge/src/service/host.rs).
 - [Configured exchange policies](../../crates/edge/src/service/exchange.rs) and
-  [CORS handling](../../crates/edge/src/service/cors.rs).
+  [CORS handling](../../crates/edge/src/pipeline/host/exchange/cors.rs).
 - [Runner application composition](../../crates/runner/src/routing.rs).
 - [Session handles](../../crates/auth/src/session.rs) and
   [token authentication](../../crates/auth/src/session/token.rs).

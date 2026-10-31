@@ -8,10 +8,10 @@ use claviron_runtime::AppState;
 use claviron_runtime::registry::{AnyComponent, Result};
 use claviron_types::Host;
 
-use super::apps::BypassFactory;
-use super::host::ApplicationInterceptor;
+use super::apps::OtherFactory;
+use super::host::HostHandler;
 #[cfg(feature = "axum")]
-use super::apps::StandaloneRouterFactory;
+use super::apps::AxumRouterFactory;
 use crate::config::HostConfig;
 
 /// Boot-time inputs for an optional Rust application layer.
@@ -31,10 +31,10 @@ pub struct RouteLayerContext<'a> {
 pub trait Routable: AnyComponent<AppState> {
     /// Directive codecs and compilers owned by this provider. Enumerated only
     /// while preparing a host snapshot; never consulted during dispatch.
-    #[cfg(feature = "axum")]
+    /// Native host extensions do not require the Axum application capability.
     fn route_extensions(
         &self
-    ) -> Vec<Arc<dyn claviron_http::routing::RouteExtension<HostConfig>>> {
+    ) -> Vec<Arc<dyn super::ext::RouteExtension>> {
         Vec::new()
     }
 
@@ -56,7 +56,7 @@ pub trait Routable: AnyComponent<AppState> {
         _state: &AppState,
         _key: &Host,
         _host: Arc<HostConfig>,
-    ) -> Result<Option<Arc<dyn ApplicationInterceptor>>> {
+    ) -> Result<Option<Arc<dyn HostHandler>>> {
         Ok(None)
     }
 
@@ -77,7 +77,7 @@ pub trait Routable: AnyComponent<AppState> {
     /// native downstream. Return None when inactive: no Axum invocation remains.
     /// Host security, CORS and response policy are outside this application.
     /// Preparation runs per selected scope at boot/reload. Exclusive standalone
-    /// and Bypass bindings retain their own application composition.
+    /// and Other bindings retain their own application composition.
     #[cfg(feature = "axum")]
     fn layer_routes(
         &self,
@@ -117,6 +117,6 @@ pub trait HostBindingProvider: AnyComponent<AppState> {
 #[derive(Clone)]
 pub enum RouteBinding {
     #[cfg(feature = "axum")]
-    Standalone(Arc<StandaloneRouterFactory>),
-    Bypass(Arc<BypassFactory>),
+    Axum(Arc<AxumRouterFactory>),
+    Other(Arc<OtherFactory>),
 }

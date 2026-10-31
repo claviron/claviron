@@ -12,11 +12,11 @@ use http::{Request, StatusCode};
 
 use super::{DispatchStep, fallback_config};
 use crate::HostConfig;
-use crate::pipeline::bypass::{BypassHandler, BypassService};
+use crate::pipeline::other::{OtherHandler, OtherService};
 
 #[derive(Clone)]
 pub(super) struct BackendPlan {
-    pub terminal: BypassService,
+    pub terminal: OtherService,
     pub steps: Vec<Arc<dyn DispatchStep>>,
 }
 
@@ -24,9 +24,9 @@ impl BackendPlan {
     pub(super) fn prepare(state: &AppState, host: &Host, config: &HostConfig) -> Self {
         let files = Arc::new(fallback_config(config));
         let terminal = if files.spa.is_none() && !files.has_static_index() {
-            BypassService::new(NotFound)
+            OtherService::new(NotFound)
         } else {
-            BypassService::new(FileFallback { state: state.clone(), files })
+            OtherService::new(FileFallback { state: state.clone(), files })
         };
         let steps = std::iter::empty::<Arc<dyn DispatchStep>>();
         #[cfg(feature = "orbit")]
@@ -55,7 +55,7 @@ impl BackendPlan {
 
 struct NotFound;
 
-impl BypassHandler for NotFound {
+impl OtherHandler for NotFound {
     fn call(&self, request: Request<RouteBody>) -> RouteFuture {
         drop(request);
         Box::pin(std::future::ready(Ok(err_status(StatusCode::NOT_FOUND))))
@@ -68,7 +68,7 @@ struct FileFallback {
     files: Arc<FilesConfig>,
 }
 
-impl BypassHandler for FileFallback {
+impl OtherHandler for FileFallback {
     fn call(&self, request: Request<RouteBody>) -> RouteFuture {
         let owner = self.clone();
         Box::pin(async move {

@@ -11,7 +11,7 @@
 //! The important bridge lives in `listener.rs` + `request.rs`: Quinn/H3 streams
 //! are resolved directly into Claviron's shared request shape, injected with
 //! vhost/connection extensions, and admitted by the shared HostService before dispatch to the Axum/Tower router
-//! or the axum-free bypass chain. There is no sidecar proxy between QUIC and
+//! or the axum-free native dispatch chain. There is no sidecar proxy between QUIC and
 //! the application pipeline.
 
 mod error;

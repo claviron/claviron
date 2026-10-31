@@ -26,9 +26,9 @@ use http::{Request, Response};
 /// `RouteFuture` boundary, never in a shared async match. Capabilities that
 /// add no request-path cost need not be removed or hidden behind new features.
 /// Active transport and host-policy contracts still apply.
-pub trait BypassHandler: Send + Sync + 'static {
+pub trait OtherHandler: Send + Sync + 'static {
     fn name(&self) -> &'static str {
-        "bypass_handler"
+        "other_handler"
     }
 
     /// Whether this handler enforces the request policy's head timeout itself.
@@ -49,12 +49,12 @@ pub trait BypassHandler: Send + Sync + 'static {
 
 /// Direct request ownership outside the Axum router and middleware stack.
 ///
-/// Every backend implements [`BypassHandler`] and returns its own erased
+/// Every backend implements [`OtherHandler`] and returns its own erased
 /// [`RouteFuture`]. Dispatch returns that future directly; a large backend's
 /// state never becomes part of another backend's concrete dispatch future.
 /// Use [`Self::new`] for built-in adapters or application-owned handlers.
 /// Native TCP carries the surrounding host future inline, so the handler's
-/// erasure is the only future boxing boundary on an ordinary Bypass request.
+/// erasure is the only future boxing boundary on an ordinary Other request.
 /// Admission and head timing still own and cancel that same handler future.
 ///
 /// There is no implicit static-file or `try_files` pass. A handler may compose
@@ -68,14 +68,14 @@ pub trait BypassHandler: Send + Sync + 'static {
 /// * h3: `claviron_edge::quic` boxes `Full`
 ///   (buffered) or `StreamBody` (streaming).
 #[derive(Clone)]
-pub enum BypassService {
-    Handler(Arc<dyn BypassHandler>),
+pub enum OtherService {
+    Handler(Arc<dyn OtherHandler>),
     /// An empty response without an application handler.
     Noop,
 }
 
-impl BypassService {
-    pub fn new(handler: impl BypassHandler) -> Self {
+impl OtherService {
+    pub fn new(handler: impl OtherHandler) -> Self {
         Self::Handler(Arc::new(handler))
     }
 
@@ -90,7 +90,7 @@ impl BypassService {
     ///
     /// `req` already carries [`RouteBody`]; transports must box their
     /// native body into `RouteBody` (via `boxed_body`) before reaching
-    /// this point. See type docs on `BypassService` for the boundary
+    /// this point. See type docs on `OtherService` for the boundary
     /// list.
     pub fn handle(
         &self,
@@ -107,5 +107,5 @@ impl BypassService {
 }
 
 #[cfg(test)]
-#[path = "../../tests/pipeline/bypass.rs"]
+#[path = "../../tests/pipeline/other.rs"]
 mod tests;

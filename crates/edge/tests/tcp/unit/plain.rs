@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::config::HostConfig;
 use crate::transport::{
-    BypassHandler, BypassService, HostAppRegistry, HostAppResolver,
+    OtherHandler, OtherService, HostAppRegistry, HostAppResolver,
 };
 use axum::Router;
 use axum::routing::any;
@@ -61,7 +61,7 @@ fn describe<B>(request: &Request<B>) -> String {
 }
 
 struct Echo(Arc<AtomicUsize>);
-impl BypassHandler for Echo {
+impl OtherHandler for Echo {
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -98,7 +98,7 @@ impl Fixture {
                 "app.test",
                 "root: public\naliases: [alias.test]\ntransport: {non_ssl: serve}",
             ),
-            ("bypass.test", "root: public\ntransport: {non_ssl: serve}"),
+            ("other.test", "root: public\ntransport: {non_ssl: serve}"),
         ] {
             vhosts.upsert_host(
                 name.parse().unwrap(),
@@ -128,10 +128,10 @@ impl Fixture {
         let count = builds.clone();
         let host_count = Arc::clone(&host_builds[1]);
         let entries = calls.clone();
-        factories.register_bypass("bypass.test", move |_, _, _| {
+        factories.register_other("other.test", move |_, _, _| {
             count.fetch_add(1, Ordering::SeqCst);
             host_count.fetch_add(1, Ordering::SeqCst);
-            Ok(BypassService::Handler(Arc::new(Echo(entries.clone()))))
+            Ok(OtherService::Handler(Arc::new(Echo(entries.clone()))))
         });
         state.registry_ref().insert(factories).unwrap();
         let apps = Arc::new(HostAppResolver::default());
@@ -180,7 +180,7 @@ impl Fixture {
                 .each_ref()
                 .map(|count| count.load(Ordering::SeqCst)),
             expected,
-            "factory counts for [app.test, bypass.test]"
+            "factory counts for [app.test, other.test]"
         );
         assert_eq!(
             self.builds.load(Ordering::SeqCst),
@@ -322,7 +322,7 @@ async fn unknown_host_churn_returns_empty_404_without_application_dispatch() {
             Arc::ptr_eq(&table, &fixture.vhosts.snapshot()),
             "request names cannot publish host state"
         );
-        for host in ["app.test", "bypass.test"] {
+        for host in ["app.test", "other.test"] {
             let response = wire.send(request(host, "/")).await;
             assert_eq!(response.status(), StatusCode::OK);
             response.into_body().collect().await.unwrap();
@@ -342,7 +342,7 @@ async fn early_deny_allows_both_apps_and_keeps_other_host_guards() {
     Arc::get_mut(&mut fixture.snapshot).unwrap().deny =
         Arc::new(DenyService::from_set(router.deny_set()));
     let mut wire = fixture.connect().await;
-    for host in ["app.test", "bypass.test"] {
+    for host in ["app.test", "other.test"] {
         for _ in 0..2 {
             let response =
                 wire.send(request(host, "/blocked-other?raw=%2F")).await;
@@ -381,7 +381,7 @@ async fn early_deny_drops_before_host_resolution_and_non_ssl_actions() {
     fixture.host("reject.test", "transport: {non_ssl: reject}");
     for host in [
         "app.test",
-        "bypass.test",
+        "other.test",
         "unknown.test",
         "user@app.test",
         "redirect.test",
@@ -410,13 +410,13 @@ async fn early_deny_drops_before_host_resolution_and_non_ssl_actions() {
 }
 
 #[tokio::test]
-async fn path_acl_reload_covers_axum_and_bypass_on_the_same_keepalive_connection()
+async fn path_acl_reload_covers_axum_and_other_on_the_same_keepalive_connection()
  {
     let fixture = Fixture::new().await;
     let mut builds = [1, 1];
     fixture.assert_builds(builds);
     let mut wire = fixture.connect().await;
-    for (index, host) in ["app.test", "bypass.test"].into_iter().enumerate() {
+    for (index, host) in ["app.test", "other.test"].into_iter().enumerate() {
         let before = wire.send(request(host, "/admin")).await;
         assert_eq!(before.status(), StatusCode::OK);
         before.into_body().collect().await.unwrap();
@@ -446,7 +446,7 @@ async fn host_replies_reach_both_apps_before_their_routes_on_keepalive() {
     let mut builds = [1, 1];
     fixture.assert_builds(builds);
     let mut wire = fixture.connect().await;
-    for (index, host) in ["app.test", "bypass.test"].into_iter().enumerate() {
+    for (index, host) in ["app.test", "other.test"].into_iter().enumerate() {
         let calls = fixture.calls.load(Ordering::SeqCst);
         fixture.host(host, "transport: {non_ssl: serve}\nredirect: {path: /old, code: 308, to: 'https://new.test$uri?$args'}");
         builds[index] += 1;
@@ -484,18 +484,18 @@ async fn host_replies_reach_both_apps_before_their_routes_on_keepalive() {
 }
 
 #[tokio::test]
-async fn keepalive_selects_each_host_and_reuses_built_axum_and_bypass_apps() {
+async fn keepalive_selects_each_host_and_reuses_built_axum_and_other_apps() {
     let fixture = Fixture::new().await;
     let mut wire = fixture.connect().await;
     for (host, canonical, ip, suffix) in [
         ("alias.test", "app.test", "203.0.113.1", ""),
-        ("bypass.test", "bypass.test", "203.0.113.2", "|payload"),
+        ("other.test", "other.test", "203.0.113.2", "|payload"),
         ("app.test", "app.test", "203.0.113.3", ""),
     ] {
         let mut req = request(host, "/original?q=1");
         req.headers_mut().insert("x-real-ip", ip.parse().unwrap());
         req.headers_mut().insert("x-forwarded-proto", "https".parse().unwrap());
-        if host == "bypass.test" {
+        if host == "other.test" {
             *req.method_mut() = http::Method::POST;
             *req.body_mut() = Full::new(Bytes::from_static(b"payload"));
         }
@@ -588,13 +588,13 @@ async fn plaintext_policy_and_client_auth_fail_closed() {
 async fn upgrade_permission_is_checked_for_each_keepalive_host() {
     let fixture = Fixture::new().await;
     fixture.host(
-        "bypass.test",
+        "other.test",
         "transport: {non_ssl: serve, h1: {upgrade: true}}",
     );
     let mut wire = fixture.connect().await;
     for (host, expected) in [
         ("app.test", StatusCode::FORBIDDEN),
-        ("bypass.test", StatusCode::OK),
+        ("other.test", StatusCode::OK),
         ("app.test", StatusCode::FORBIDDEN),
     ] {
         let mut req = request(host, "/");

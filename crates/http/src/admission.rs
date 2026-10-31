@@ -3,7 +3,7 @@
 //! it may take to its reply's head.
 //!
 //! These are a server's health, not a pipeline's: they hold on every path to
-//! a host — a router, a bypass, a relay — and so they live here rather than in
+//! a host — a router, a handler, a relay — and so they live here rather than in
 //! the edge, for any server to apply at its own door. The edge applies them in
 //! `HostService::dispatch`; a runner with a listener of its own, and no edge
 //! in front, applies the same.

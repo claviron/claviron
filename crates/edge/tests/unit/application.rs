@@ -64,7 +64,7 @@ async fn wait_for(mut predicate: impl FnMut() -> bool) {
 }
 
 async fn call(
-    owner: &BypassService,
+    owner: &OtherService,
     method: &str,
     uri: &str,
     body: &str,

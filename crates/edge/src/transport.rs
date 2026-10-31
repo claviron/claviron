@@ -18,12 +18,12 @@
 //! purpose in a file named for the boundary, rather than a deeper path that
 //! reads like an ordinary import in review. `pipeline` stays public because it
 //! is the *other* door — what an application author builds a `Routable` or a
-//! bypass handler against — and a transport reaches its handful of names from
+//! Other handler against — and a transport reaches its handful of names from
 //! here so that it still has one import path rather than three.
 //!
 //! The names here are re-exports, not a second set of types — a transport and
-//! an application author looking at `BypassService` are looking at the same
-//! `BypassService`. What differs is which of them has to know where it lives.
+//! an application author looking at `OtherService` are looking at the same
+//! `OtherService`. What differs is which of them has to know where it lives.
 
 /// A single host's configuration, read by the TLS layer for its certificate
 /// and protocol policy.
@@ -33,11 +33,11 @@ pub use crate::loader::resolver::{HostBinding, VhostResolver};
 /// The set of hosts a listener serves, as SNI and authority resolution read it.
 pub use crate::loader::table::VhostTable;
 /// The axum-free dispatch door: a host pinned straight to one adapter.
-pub use crate::pipeline::bypass::{BypassHandler, BypassService};
+pub use crate::pipeline::other::{OtherHandler, OtherService};
 /// Applications mounted on a host, and the connection-level handlers a
 /// transport dispatches to before routing: CONNECT and WebTransport.
 pub use crate::pipeline::{
-    AnyAuthenticated, AppKind, AuthContext, H2ConnectAccept, H2ConnectBinding,
+    AnyAuthenticated, RustRouter, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
     HostAppRegistry, HostAppResolver,
 };

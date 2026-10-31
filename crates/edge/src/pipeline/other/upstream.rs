@@ -18,17 +18,17 @@ use http::{Request, StatusCode};
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use super::BypassHandler;
+use super::OtherHandler;
 
 #[derive(Clone)]
-pub struct UpstreamBypass {
+pub struct UpstreamRouter {
     app: UpstreamApp,
     state: AppState,
     files: Arc<dyn FileSite>,
     policy: UpstreamRequestPolicy,
 }
 
-impl BypassHandler for UpstreamBypass {
+impl OtherHandler for UpstreamRouter {
     fn times_its_head(&self) -> bool {
         true
     }
@@ -42,7 +42,7 @@ impl BypassHandler for UpstreamBypass {
     }
 }
 
-impl UpstreamBypass {
+impl UpstreamRouter {
     pub fn new(
         app: UpstreamApp,
         state: AppState,
@@ -65,7 +65,7 @@ impl UpstreamBypass {
     ) -> RouteResponse {
         let path = req.uri().path();
         if let Some(service) = self.app.select_explicit(path) {
-            return call_bypass_service(
+            return call_service(
                 service,
                 req,
                 self.policy.allow_h1_upgrade,
@@ -95,7 +95,7 @@ impl UpstreamBypass {
             return err_status(StatusCode::NOT_FOUND);
         };
 
-        call_bypass_service(
+        call_service(
             service,
             req,
             self.policy.allow_h1_upgrade,
@@ -105,7 +105,7 @@ impl UpstreamBypass {
     }
 }
 
-async fn call_bypass_service(
+async fn call_service(
     service: UpstreamService,
     req: Request<RouteBody>,
     allow_h1_upgrade: bool,
@@ -121,7 +121,7 @@ async fn call_bypass_service(
         )
         .await;
         response.headers_mut().insert(
-            http::HeaderName::from_static("x-claviron-bypass"),
+            http::HeaderName::from_static("x-claviron-router"),
             http::HeaderValue::from_static("http-upstream"),
         );
         response

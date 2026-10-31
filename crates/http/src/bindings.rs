@@ -35,7 +35,7 @@ pub fn into_axum_response(resp: RouteResponse) -> axum::response::Response {
 }
 
 /// Reverse of `into_axum_response`. Used by the vhost dispatcher when
-/// the `AppKind::Axum` branch yields an axum-shaped response that
+/// the `RustRouter::Axum` branch yields an axum-shaped response that
 /// has to flow through the pipeline as a `RouteResponse`.
 #[inline]
 pub fn from_axum_response(resp: axum::response::Response) -> RouteResponse {

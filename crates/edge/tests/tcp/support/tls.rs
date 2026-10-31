@@ -8,7 +8,7 @@ use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::transport::{
-    BypassHandler, BypassService, HostAppRegistry, HostAppResolver,
+    OtherHandler, OtherService, HostAppRegistry, HostAppResolver,
 };
 use bytes::Bytes;
 use claviron_http::session::SessionOwner;
@@ -28,10 +28,10 @@ pub(super) const TEST_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct CountRequests {
     count: Arc<AtomicUsize>,
-    handler: Option<Arc<dyn BypassHandler>>,
+    handler: Option<Arc<dyn OtherHandler>>,
 }
 
-impl BypassHandler for CountRequests {
+impl OtherHandler for CountRequests {
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -77,13 +77,13 @@ impl TlsFixture {
         Self::with_host("default", None).await
     }
 
-    pub(super) async fn with_handler(handler: Arc<dyn BypassHandler>) -> Self {
+    pub(super) async fn with_handler(handler: Arc<dyn OtherHandler>) -> Self {
         Self::with_host("app.test", Some(handler)).await
     }
 
     async fn with_host(
         host: &'static str,
-        handler: Option<Arc<dyn BypassHandler>>,
+        handler: Option<Arc<dyn OtherHandler>>,
     ) -> Self {
         let state = AppState::standalone("tls-wire-test", ".");
         let live = Arc::new(VhostResolver::default());
@@ -96,8 +96,8 @@ impl TlsFixture {
         let calls = Arc::new(AtomicUsize::new(0));
         let factories = Arc::new(HostAppRegistry::default());
         let handler = Arc::new(CountRequests { count: calls.clone(), handler });
-        factories.register_bypass(host, move |_, _, _| {
-            Ok(BypassService::Handler(handler.clone()))
+        factories.register_other(host, move |_, _, _| {
+            Ok(OtherService::Handler(handler.clone()))
         });
         state.registry_ref().insert(factories).unwrap();
         let apps = Arc::new(HostAppResolver::default());

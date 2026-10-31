@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use claviron_edge::VhostResolver;
 use claviron_edge::deny::DenyService;
 use claviron_edge::transport::{
-    AppKind, BypassHandler, BypassService, HostIngress, HostResponse,
+    RustRouter, OtherHandler, OtherService, HostIngress, HostResponse,
     HostService, RequestArrival, RequestAuthority, RequestRejection,
     VhostTable, resolve_request_authority, resolve_sni_from_table,
 };
@@ -16,7 +16,7 @@ use claviron_http::{RouteBody, RouteFuture, empty_body};
 use http::{Method, Request, Response, StatusCode, Version, header};
 
 struct Count(Arc<AtomicUsize>);
-impl BypassHandler for Count {
+impl OtherHandler for Count {
     fn call(
         &self,
         _: Request<RouteBody>,
@@ -28,7 +28,7 @@ impl BypassHandler for Count {
 
 fn service(
     protocol: HttpProtocol,
-    app: AppKind,
+    app: RustRouter,
 ) -> HostService {
     let table: VhostTable =
         serde_yaml::from_str("app.test: {root: public}").unwrap();
@@ -96,8 +96,8 @@ async fn authority_rejection_precedes_body_auth_and_both_dispatch_modes() {
             async { "ok" }
         });
         for app in [
-            AppKind::Axum(router),
-            AppKind::Bypass(BypassService::Handler(Arc::new(Count(
+            RustRouter::Axum(router),
+            RustRouter::Other(OtherService::Handler(Arc::new(Count(
                 entries.clone(),
             )))),
         ] {
@@ -168,7 +168,7 @@ async fn authority_rejection_precedes_body_auth_and_both_dispatch_modes() {
 #[test]
 fn legacy_head_and_h2_authority_only_preserve_wire_metadata() {
     let h2_service =
-        service(HttpProtocol::H2, AppKind::Bypass(BypassService::Noop));
+        service(HttpProtocol::H2, RustRouter::Other(OtherService::Noop));
     let request = Request::builder()
         .version(Version::HTTP_2)
         .uri("https://APP.test:443/original?raw=%2f")
@@ -182,7 +182,7 @@ fn legacy_head_and_h2_authority_only_preserve_wire_metadata() {
     );
     assert!(!prepared.request().headers().contains_key(header::HOST));
     let service =
-        service(HttpProtocol::H1, AppKind::Bypass(BypassService::Noop));
+        service(HttpProtocol::H1, RustRouter::Other(OtherService::Noop));
     assert!(
         service
             .prepare(

@@ -11,7 +11,7 @@ use http::Request;
 
 use super::{DispatchChain, DispatchFuture, DispatchStep};
 use crate::HostConfig;
-use crate::pipeline::bypass::BypassService;
+use crate::pipeline::other::OtherService;
 
 /// One host generation's exact HTTP/1 WebSocket endpoints.
 ///
@@ -60,12 +60,12 @@ impl DispatchStep for WebSocketStage {
     }
 }
 
-pub(crate) fn compose_websocket_bypass(
-    owner: BypassService,
+pub(crate) fn compose_websocket_other(
+    owner: OtherService,
     websocket: Option<Arc<WebSocketStage>>,
-) -> BypassService {
+) -> OtherService {
     match websocket {
-        Some(websocket) => BypassService::new(DispatchChain::new(owner, vec![websocket])),
+        Some(websocket) => OtherService::new(DispatchChain::new(owner, vec![websocket])),
         None => owner,
     }
 }

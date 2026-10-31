@@ -1,8 +1,8 @@
 use super::*;
 use crate::HostConfig;
 use crate::deny::DenyService;
-use crate::pipeline::bypass::BypassHandler;
-use crate::pipeline::bypass::BypassService;
+use crate::pipeline::other::OtherHandler;
+use crate::pipeline::other::OtherService;
 use claviron_http::ext::HostKey;
 use claviron_http::{RouteBody, RouteFuture};
 use http::header;
@@ -46,7 +46,7 @@ fn bind(
 }
 
 fn app(header: &'static str) -> HostApp {
-    let mut app: HostApp = AppKind::Bypass(BypassService::Noop).into();
+    let mut app: HostApp = RustRouter::Other(OtherService::Noop).into();
     app.server_header = Some(http::HeaderValue::from_static(header));
     app
 }
@@ -225,7 +225,7 @@ fn cached_policy_still_checks_current_acl_for_each_request() {
 
 struct Backend;
 
-impl BypassHandler for Backend {
+impl OtherHandler for Backend {
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -247,7 +247,7 @@ fn cached_policy_does_not_retain_a_retired_backend() {
     let mut host = cache.resolve(&authority, &table).unwrap();
     let backend = Arc::new(Backend);
     let weak = Arc::downgrade(&backend);
-    let app: HostApp = AppKind::Bypass(BypassService::Handler(backend)).into();
+    let app: HostApp = RustRouter::Other(OtherService::Handler(backend)).into();
     host.application = Some(app.clone());
     let service = cache.bind(app, host);
     assert!(cache.current.is_some());

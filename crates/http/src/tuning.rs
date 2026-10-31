@@ -19,7 +19,7 @@ use crate::policy::Limit;
 )]
 pub struct RouterConfig {
     /// Requests one host serves at once in a worker, across every path to
-    /// it — router, bypass, a relay. Capacity, not policy: a request past it
+    /// it — router, handler, relay. Capacity, not policy: a request past it
     /// waits for a place up to its `requests.queue_timeout`, then is refused
     /// with 503. Unwritten is no limit, and nothing is kept for it.
     #[serde(default, deserialize_with = "optional_count")]

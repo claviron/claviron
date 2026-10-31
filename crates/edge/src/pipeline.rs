@@ -1,11 +1,10 @@
 pub(crate) mod apps;
-pub mod bypass;
+pub mod other;
 pub mod embed;
 mod connect;
 pub mod host;
 #[cfg(feature = "axum")]
 pub mod app;
-#[cfg(feature = "axum")]
 pub mod ext;
 pub mod routing;
 #[cfg(feature = "orbit")]
@@ -17,7 +16,7 @@ mod routable;
 mod wt;
 
 pub use apps::{
-    Admission, AppKind, HostApp, HostAppRegistry, HostAppResolver,
+    Admission, RustRouter, HostApp, HostAppRegistry, HostAppResolver,
     HostAppSnapshot,
 };
 #[cfg(feature = "websocket")]
@@ -33,8 +32,8 @@ pub use connect::{
 };
 pub use host::{
     AccessPolicy, AccessState, AdmissionPolicy, ApplicationHandler,
-    ApplicationInterceptor, ApplicationStage, InterceptFuture,
-    InterceptRequest, InterceptResult,
+    HostHandler, ApplicationStage, HostHandlerFuture,
+    HostRequest, HostHandlerResult,
     DispatchChain, DispatchFuture, DispatchResult, DispatchStep,
     StaticStage, TryFilesStage,
     ExchangeLayer, ExchangeState,

@@ -46,7 +46,7 @@ fn reply() -> RouteResponse {
 
 This needs only the facade's `http` feature. An Axum application uses its usual
 body type inside the router; `into_axum_response` and `from_axum_response`
-convert at the framework boundary. The bypass path remains Axum-free.
+convert at the framework boundary. The shared request/body types remain Axum-free.
 
 `ServiceResult::Handled` claims a request; `Unhandled` passes its request or
 context onward. A routing miss is not encoded as a magic response status.

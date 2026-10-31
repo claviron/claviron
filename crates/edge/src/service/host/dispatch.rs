@@ -13,7 +13,7 @@ use std::convert::Infallible;
 use std::future::Future;
 
 impl PreparedRequest<RouteBody> {
-    fn into_dispatch(self) -> (AppKind, HostExecution) {
+    fn into_dispatch(self) -> (RustRouter, HostExecution) {
         let HostApp {
             app,
             admission,
@@ -45,15 +45,15 @@ impl PreparedRequest<RouteBody> {
     ///
     /// Each owner has its own concrete future. The unboxed sum returned here
     /// supports drivers that await inline; TCP uses `into_tcp_future` to keep
-    /// its Bypass state independent of Axum without boxing it a second time.
+    /// its Other state independent of Axum without boxing it a second time.
     /// The activity and admission guards remain owned until the reply's head,
     /// including when the caller cancels or the handler panics.
     pub fn dispatch(self) -> impl Future<Output = RouteResponse> + Send {
         let (app, request) = self.into_dispatch();
         match app {
             #[cfg(feature = "axum")]
-            AppKind::Axum(router) => Either::Left(request.dispatch(router)),
-            AppKind::Bypass(service) => {
+            RustRouter::Axum(router) => Either::Left(request.dispatch(router)),
+            RustRouter::Other(service) => {
                 let answering = request.dispatch(service);
                 #[cfg(feature = "axum")]
                 {
@@ -67,8 +67,8 @@ impl PreparedRequest<RouteBody> {
         }
     }
 
-    /// Keep Bypass dispatch inline through the native TCP service boundary.
-    /// Only Axum is erased here; its concrete state must not enlarge Bypass.
+    /// Keep Other dispatch inline through the TCP service boundary.
+    /// Only Axum is erased here; its concrete state must not enlarge Other.
     #[cfg(all(feature = "tcp", feature = "axum"))]
     pub(crate) fn into_tcp_future(
         self
@@ -78,12 +78,12 @@ impl PreparedRequest<RouteBody> {
     > {
         let (app, request) = self.into_dispatch();
         match app {
-            AppKind::Axum(router) => {
+            RustRouter::Axum(router) => {
                 let answering: RouteFuture =
                     Box::pin(request.dispatch(router).map(Ok));
                 Either::Left(answering)
             }
-            AppKind::Bypass(service) => {
+            RustRouter::Other(service) => {
                 Either::Right(request.dispatch(service).map(Ok))
             }
         }
@@ -95,7 +95,7 @@ impl PreparedRequest<RouteBody> {
     pub(crate) fn into_tcp_future(
         self,
     ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send {
-        let (AppKind::Bypass(service), request) = self.into_dispatch();
+        let (RustRouter::Other(service), request) = self.into_dispatch();
         request.dispatch(service).map(Ok)
     }
 }

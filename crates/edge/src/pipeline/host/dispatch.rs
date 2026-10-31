@@ -9,8 +9,8 @@ use claviron_http::{RouteBody, RouteFuture, RouteResponse, ServiceResult};
 use futures_util::FutureExt;
 use http::Request;
 
-use super::{ApplicationHandler, ApplicationInterceptor, ApplicationStage};
-use crate::pipeline::bypass::{BypassHandler, BypassService};
+use super::{ApplicationHandler, HostHandler, ApplicationStage};
+use crate::pipeline::other::{OtherHandler, OtherService};
 
 pub type DispatchResult = ServiceResult<RouteResponse, Request<RouteBody>>;
 
@@ -90,7 +90,7 @@ impl<H: ApplicationHandler + Clone + Sync + 'static> ApplicationHandler for Disp
     }
 }
 
-impl<H: ApplicationHandler + Clone + Sync + 'static> BypassHandler for DispatchChain<H> {
+impl<H: ApplicationHandler + Clone + Sync + 'static> OtherHandler for DispatchChain<H> {
     fn call(&self, request: Request<RouteBody>) -> RouteFuture {
         Box::pin(self.clone().handle(request).map(Ok))
     }
@@ -98,19 +98,19 @@ impl<H: ApplicationHandler + Clone + Sync + 'static> BypassHandler for DispatchC
 
 /// Keep Rust interception outside native dispatch without another erased call
 /// boundary. Empty optional plans retain their original direct owner.
-pub(crate) fn compose_dispatch_bypass(
-    terminal: BypassService,
+pub(crate) fn compose_dispatch_other(
+    terminal: OtherService,
     steps: Vec<Arc<dyn DispatchStep>>,
-    applications: &[Arc<dyn ApplicationInterceptor>],
-) -> BypassService {
+    applications: &[Arc<dyn HostHandler>],
+) -> OtherService {
     if steps.is_empty() {
-        return super::compose_bypass(terminal, applications);
+        return super::compose_other(terminal, applications);
     }
     let dispatch = DispatchChain::new(terminal, steps);
     if applications.is_empty() {
-        BypassService::new(dispatch)
+        OtherService::new(dispatch)
     } else {
-        BypassService::new(ApplicationStage::new(dispatch, applications.to_vec()))
+        OtherService::new(ApplicationStage::new(dispatch, applications.to_vec()))
     }
 }
 

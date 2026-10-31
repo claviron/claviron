@@ -10,7 +10,7 @@
 //! receive a [`RequestContext`] (uri + headers + real_ip) — the body is
 //! deliberately not exposed because this adapter is intended for
 //! resource lookup (db-backed assets, computed responses, redirects).
-//! The adapter itself takes the bypass-pipeline body type
+//! The adapter itself takes the native-pipeline body type
 //! (`Request<RouteBody>`) for uniform dispatch alongside FCGI / SAPI /
 //! Pusher, then drops the body before invoking the handler.
 //!

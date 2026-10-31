@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 HISTORY = ROOT / ".benchmarks" / "http"
 BENCHMARKS = {
     "dispatch-hyper": "dispatch/hyper/request",
-    "dispatch-edge-bypass": "dispatch/edge/bypass/request",
+    "dispatch-edge-other": "dispatch/edge/other/request",
 }
 
 
@@ -152,7 +152,7 @@ def main():
             "schema": 2,
             "boundary": "decoded-request-to-consumed-response",
             "workload_sha256": {name: file_digest(ROOT / name) for name in (
-                "benches/dispatch/hyper.rs", "benches/dispatch/edge/bypass.rs",
+                "benches/dispatch/hyper.rs", "benches/dispatch/edge/other.rs",
                 "benches/support/mod.rs",
                 "benches/support/json.rs", "benches/support/decoded.rs",
                 "benches/support/setup.rs", "benches/support/certificate.rs",

@@ -59,7 +59,7 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
             )
             .unwrap()
     };
-    let mut app: HostApp = AppKind::Bypass(BypassService::Noop).into();
+    let mut app: HostApp = RustRouter::Other(OtherService::Noop).into();
     app.quotas = quotas;
     let mut snapshot = HostAppSnapshot::default();
     for key in table.host_keys_for_canonical(&host) {

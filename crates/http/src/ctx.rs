@@ -34,16 +34,16 @@ pub type RouteBodyError = Box<dyn StdError + Send + Sync>;
 /// `http_body::Body` from `http_body_util`. "Unsync" = `Send` only,
 /// no `Sync` requirement (per-task ownership is fine).
 ///
-/// **Why:** unifies request and response bodies for the bypass dispatch
+/// **Why:** unifies request and response bodies for the Other dispatch
 /// chain (PHP FCGI / PHP SAPI / Pusher / CDN file probe). Each transport
 /// (h1/h2 `Incoming`, h3 buffered `Full<Bytes>`, h3 streaming
 /// `StreamBody<…>`) boxes its native body into this single type via
 /// [`boxed_body`], so adapters and handlers downstream are non-generic.
-/// Hyper-stack only — **deliberately axum-free** so bypass paths don't
+/// Hyper-stack only — **deliberately axum-free** so Other paths don't
 /// pull axum into their dependency graph.
 ///
-/// **Use when:** declaring a body slot anywhere in bypass adapters,
-/// `BypassService`, the `Handler` trait, or response builders that feed
+/// **Use when:** declaring a body slot anywhere in Other adapters,
+/// `OtherService`, the `Handler` trait, or response builders that feed
 /// the dispatch chain.
 ///
 /// **Don't use when:** you're inside the axum/Tower router pipeline —
@@ -53,7 +53,7 @@ pub type RouteBodyError = Box<dyn StdError + Send + Sync>;
 pub type RouteBody = UnsyncBoxBody<Bytes, RouteBodyError>;
 
 /// HTTP response with an erased body — the canonical response type
-/// returned by every bypass adapter.
+/// returned by every Other adapter.
 ///
 /// **What:** `Response<RouteBody>`.
 ///
@@ -61,7 +61,7 @@ pub type RouteBody = UnsyncBoxBody<Bytes, RouteBodyError>;
 /// `send_response_body`) without caring about the original body type.
 /// Errors are uniformly carried as `RouteBodyError`.
 ///
-/// **Use when:** writing a function that returns from the bypass
+/// **Use when:** writing a function that returns from the native
 /// pipeline (any `*Adapter::handle`, [`err_status`], any helper that
 /// constructs an end-of-pipeline response).
 ///
@@ -73,16 +73,16 @@ pub type RouteResponse = Response<RouteBody>;
 ///
 /// **What:** `Pin<Box<dyn Future<Output = Result<RouteResponse, Infallible>> + Send>>`.
 ///
-/// **Why:** lets bypass `tower::Service` impls declare a single
+/// **Why:** lets Other `tower::Service` impls declare a single
 /// `Service::Future` associated type without each adapter exposing its
 /// own concrete async future shape. `Infallible` because adapters
 /// already convert all internal errors into a `RouteResponse` (5xx
 /// fallback) — there is no error path back to the caller.
 ///
-/// **Use when:** declaring `type Future = RouteFuture` on a bypass
+/// **Use when:** declaring `type Future = RouteFuture` on an Other
 /// `Service` impl.
 ///
-/// **Don't use when:** you're not on the bypass dispatch path. Tower
+/// **Don't use when:** you're not on the Other dispatch path. Tower
 /// middleware uses its own future types.
 pub type RouteFuture = Pin<
     Box<dyn Future<Output = Result<Response<RouteBody>, Infallible>> + Send>,
@@ -162,11 +162,11 @@ pub struct RequestContext<'a> {
 /// converting its error type via `Box::new`.
 ///
 /// **Why:** transports produce different concrete bodies (`Incoming`,
-/// `Full<Bytes>`, `StreamBody<…>`); the bypass dispatch chain only
+/// `Full<Bytes>`, `StreamBody<…>`); the Other dispatch chain only
 /// understands one. This helper is the single boundary where erasure
 /// happens.
 ///
-/// **Use when:** crossing into the bypass pipeline — h1/h2
+/// **Use when:** crossing into the native pipeline — h1/h2
 /// `Service<Request<Incoming>>` impl, h3 dispatch `serve_h3_upstream`,
 /// any place that constructs a `RouteBody` from a transport-native body.
 ///

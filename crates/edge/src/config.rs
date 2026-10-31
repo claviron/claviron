@@ -70,7 +70,6 @@ pub struct HostConfig {
     pub(crate) extensions:
         std::collections::BTreeMap<String, serde_yaml::Value>,
     pub(crate) owns_handler: bool,
-    pub(crate) selected_static: bool,
     pub(crate) route_acl: Option<acl::AccessLimiter>,
     #[cfg(feature = "rate-limit")]
     pub(crate) route_rate_limit: Option<quota::RateLimitConfig>,
@@ -133,7 +132,7 @@ pub struct HostFields {
     /// Opt-in segment-prefix ACL. `/` is the default; longest match wins.
     /// Runtime compilation and live admission belong to claviron-edge.
     acl: Option<acl::AclConfig>,
-    /// Bounded IP admission before native sessions, routing and bypass dispatch.
+    /// Bounded IP admission before native sessions, routing and Other dispatch.
     #[cfg(feature = "rate-limit")]
     pub rate_limit: Option<quota::RateLimitConfig>,
     /// TLS handshake policy, separate from HTTP transport/request policy.
@@ -248,7 +247,6 @@ impl HostConfig {
             fallback: None,
             extensions: Default::default(),
             owns_handler: false,
-            selected_static: false,
             route_acl: None,
             #[cfg(feature = "rate-limit")]
             route_rate_limit: None,
@@ -407,30 +405,6 @@ impl HostConfig {
 
     pub fn upstream_name(&self) -> Option<&str> {
         self.upstream.as_ref().map(HostUpstreamConfig::name)
-    }
-
-    /// Whether this config-only host can use the axum-free HTTP
-    /// upstream bypass binding.
-    ///
-    /// File policy remains in the adapter; ACL, redirects, CORS and response
-    /// headers belong to the shared host exchange, not Axum. Application
-    /// composition such as PHP or Pusher still requires its owning router.
-    pub fn can_bypass_axum_for_upstream(&self) -> bool {
-        let ok = self.upstream.is_some()
-            && self.routes.iter().all(|(prefix, route)| {
-                route.extensions.is_empty()
-                    && (!route.owns_handler
-                        || route.selected_static
-                        || (prefix.as_str() == "/" && route.upstream.is_some()))
-            });
-
-        #[cfg(feature = "php")]
-        let ok = ok && self.php.as_ref().is_none_or(Vec::is_empty);
-
-        #[cfg(feature = "broadcast")]
-        let ok = ok && self.broadcast.is_none();
-
-        ok
     }
 
     /// Effective per-host transport policy (falls back to defaults if not configured).

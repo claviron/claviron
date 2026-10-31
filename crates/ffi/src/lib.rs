@@ -1,6 +1,6 @@
 //! Foreign handler primitives for Claviron routes.
 //!
-//! This crate does not add a new vhost `AppKind` and does not own routing.
+//! This crate does not add a new vhost `RustRouter` and does not own routing.
 //! A normal Rust route handler can use these types to call a foreign
 //! implementation and turn the result back into a Claviron/Axum response.
 //!

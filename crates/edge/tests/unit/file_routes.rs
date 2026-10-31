@@ -113,7 +113,7 @@ async fn file_routes_reach_native_intercepts_with_the_selected_file_policy() {
 async fn file_routes_feed_axum_free_resource_adapters() {
     let directory = tempfile::tempdir().unwrap();
     std::fs::create_dir(directory.path().join("build")).unwrap();
-    std::fs::write(directory.path().join("build/app.js"), "bypass").unwrap();
+    std::fs::write(directory.path().join("build/app.js"), "other").unwrap();
     let config: HostConfig = serde_yaml::from_str(&format!(
         "root: {}\nroutes:\n  /assets:\n    path: build\n    static: {{}}\n  /storage:\n    path: uploaded\n    static: {{none_found: true}}\n",
         serde_yaml::to_string(directory.path()).unwrap().trim(),
@@ -121,11 +121,11 @@ async fn file_routes_feed_axum_free_resource_adapters() {
     .unwrap();
     let adapter = ResourceAdapter::from_handler(
         Fallback,
-        AppState::standalone("file-bypass", directory.path()),
+        AppState::standalone("file-other", directory.path()),
         Arc::new(config),
     );
     for (uri, status, body) in [
-        ("/assets/app.js", StatusCode::OK, "bypass"),
+        ("/assets/app.js", StatusCode::OK, "other"),
         ("/assets/missing.js", StatusCode::NOT_FOUND, ""),
         ("/storage/missing.png", StatusCode::OK, "resource fallback"),
     ] {

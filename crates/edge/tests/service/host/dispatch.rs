@@ -1,6 +1,6 @@
 use super::super::tests::{request, service_with_limits};
 use super::*;
-use crate::pipeline::bypass::{BypassHandler, BypassService};
+use crate::pipeline::other::{OtherHandler, OtherService};
 use claviron_http::RouteFuture;
 use claviron_http::admission::Admission;
 #[cfg(feature = "axum")]
@@ -52,7 +52,7 @@ impl Drop for Reply {
     }
 }
 
-impl BypassHandler for Handler {
+impl OtherHandler for Handler {
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -62,14 +62,14 @@ impl BypassHandler for Handler {
     }
 }
 
-fn apps(state: &Arc<State>) -> Vec<AppKind> {
+fn apps(state: &Arc<State>) -> Vec<RustRouter> {
     let apps =
-        vec![AppKind::Bypass(BypassService::new(Handler(state.clone())))];
+        vec![RustRouter::Other(OtherService::new(Handler(state.clone())))];
     #[cfg(feature = "axum")]
     let apps = {
         let mut apps = apps;
         let state = state.clone();
-        apps.push(AppKind::Axum(axum::Router::new().fallback(
+        apps.push(RustRouter::Axum(axum::Router::new().fallback(
             move |request: Request<axum::body::Body>| {
                 state.entered.fetch_add(1, Ordering::Relaxed);
                 Reply {
@@ -85,7 +85,7 @@ fn apps(state: &Arc<State>) -> Vec<AppKind> {
 }
 
 fn prepared(
-    app: AppKind,
+    app: RustRouter,
     policy: RequestPolicy,
 ) -> PreparedRequest<RouteBody> {
     let service = service_with_limits(
@@ -306,18 +306,18 @@ async fn host_dispatch_transfers_response_payload_and_retains_generation() {
 
 #[cfg(feature = "tcp")]
 #[test]
-fn host_dispatch_tcp_keeps_bypass_inline_and_boxes_only_axum() {
+fn host_dispatch_tcp_keeps_other_inline_and_boxes_only_axum() {
     let state = Arc::new(State::default());
     for app in apps(&state) {
         let pending = prepared(app.clone(), RequestPolicy::unlimited());
         let (owner, request) = pending.into_dispatch();
-        let bypass = matches!(owner, AppKind::Bypass(_));
+        let other = matches!(owner, RustRouter::Other(_));
         let expected = match owner {
             #[cfg(feature = "axum")]
-            AppKind::Axum(owner) => std::mem::size_of_val(
+            RustRouter::Axum(owner) => std::mem::size_of_val(
                 &request.dispatch(owner).map(Ok::<_, Infallible>),
             ),
-            AppKind::Bypass(owner) => std::mem::size_of_val(
+            RustRouter::Other(owner) => std::mem::size_of_val(
                 &request.dispatch(owner).map(Ok::<_, Infallible>),
             ),
         };
@@ -327,20 +327,20 @@ fn host_dispatch_tcp_keeps_bypass_inline_and_boxes_only_axum() {
         #[cfg(feature = "axum")]
         match &future {
             Either::Left(answering) => {
-                assert!(!bypass);
+                assert!(!other);
                 assert_eq!(
                     std::mem::size_of_val(answering.as_ref().get_ref()),
                     expected
                 );
             }
             Either::Right(answering) => {
-                assert!(bypass);
+                assert!(other);
                 assert_eq!(std::mem::size_of_val(answering), expected);
             }
         }
         #[cfg(not(feature = "axum"))]
         {
-            assert!(bypass);
+            assert!(other);
             assert_eq!(std::mem::size_of_val(&future), expected);
         }
         drop(future);
@@ -446,7 +446,7 @@ fn host_dispatch_tcp_preserves_streaming_body_after_head_completion() {
 #[test]
 fn host_dispatch_tcp_cancellation_drops_pending_body_collection() {
     struct CollectBody;
-    impl BypassHandler for CollectBody {
+    impl OtherHandler for CollectBody {
         fn call(
             &self,
             request: Request<RouteBody>,
@@ -464,7 +464,7 @@ fn host_dispatch_tcp_cancellation_drops_pending_body_collection() {
     let dropped = Arc::new(AtomicUsize::new(0));
     let body = streaming_body(ready, polls.clone(), dropped.clone());
     let prepared = prepared(
-        AppKind::Bypass(BypassService::new(CollectBody)),
+        RustRouter::Other(OtherService::new(CollectBody)),
         RequestPolicy::unlimited(),
     )
     .map_body(|_| body);

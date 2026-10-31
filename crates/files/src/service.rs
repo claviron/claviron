@@ -182,7 +182,7 @@ pub async fn try_files_probe(
 }
 
 /// Probe the selected route's directory using the path below its URL prefix.
-/// Both merged and bypass callers use this without rewriting the request URI.
+/// Both merged and native callers use this without rewriting the request URI.
 pub async fn try_files_for_site(
     site: &dyn FileSite,
     uri: &Uri,
@@ -245,7 +245,7 @@ async fn serve_index(
         // `has_static_index()` admits a list as soon as *one* entry is static,
         // so the ordinary `index: [index.php, index.html]` reached here, hit
         // `index.php` first, and 500'd every directory request on the host —
-        // the file service runs ahead of PHP in the bypass chain and its `Err`
+        // the file service runs ahead of PHP in the native dispatch chain and its `Err`
         // ends the request there.
         if is_dynamic_file_path(Path::new(rel)) {
             continue;

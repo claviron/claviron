@@ -35,7 +35,7 @@ struct Handler {
     dropped: Arc<AtomicUsize>,
 }
 
-impl BypassHandler for Handler {
+impl OtherHandler for Handler {
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -59,7 +59,7 @@ impl BypassHandler for Handler {
 fn large_backend_future_is_forwarded_without_a_dispatch_wrapper() {
     let allocated = Arc::new(AtomicUsize::new(0));
     let dropped = Arc::new(AtomicUsize::new(0));
-    let service = BypassService::new(Handler {
+    let service = OtherService::new(Handler {
         allocated: allocated.clone(),
         dropped: dropped.clone(),
     });
@@ -84,7 +84,7 @@ fn large_backend_future_is_forwarded_without_a_dispatch_wrapper() {
 
 struct SelfTimed;
 
-impl BypassHandler for SelfTimed {
+impl OtherHandler for SelfTimed {
     fn times_its_head(&self) -> bool {
         true
     }
@@ -99,15 +99,15 @@ impl BypassHandler for SelfTimed {
 
 #[test]
 fn handler_head_timing_ownership_is_preserved() {
-    assert!(BypassService::new(SelfTimed).times_its_head());
-    assert!(!BypassService::Noop.times_its_head());
+    assert!(OtherService::new(SelfTimed).times_its_head());
+    assert!(!OtherService::Noop.times_its_head());
 }
 
 #[test]
 fn noop_keeps_its_empty_success_response() {
     use http_body_util::BodyExt;
 
-    let mut future = BypassService::Noop.handle(Request::new(empty_body()));
+    let mut future = OtherService::Noop.handle(Request::new(empty_body()));
     let mut context = Context::from_waker(Waker::noop());
     let Poll::Ready(Ok(response)) = future.as_mut().poll(&mut context) else {
         panic!("the empty handler must be ready immediately");

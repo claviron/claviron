@@ -4,14 +4,14 @@ use claviron_php::PhpRunner;
 use claviron_runtime::{AppState, Error};
 use claviron_types::Host;
 
-use crate::BypassService;
+use crate::OtherService;
 use crate::config::HostConfig;
 
-pub(crate) fn bypass_fn(
+pub(crate) fn build(
     state: AppState,
     canonical: Host,
     host_cfg: Arc<HostConfig>,
-) -> claviron_runtime::Result<BypassService> {
+) -> claviron_runtime::Result<OtherService> {
     let runtime = host_cfg
         .build_runtimes(&state)
         .into_iter()
@@ -31,7 +31,7 @@ pub(crate) fn bypass_fn(
                 .resolve::<PhpFcgiService>()
                 .ok_or_else(|| Error::msg("PhpFcgiService not registered"))?;
 
-            Ok(BypassService::new(PhpFpmAdapter::new(
+            Ok(OtherService::new(PhpFpmAdapter::new(
                 php_service.clone(),
                 runtime,
             )))
@@ -45,7 +45,7 @@ pub(crate) fn bypass_fn(
                 .resolve::<PhpScriptService>()
                 .ok_or_else(|| Error::msg("PhpScriptService not registered"))?;
 
-            Ok(BypassService::new(PhpScriptAdapter::new(
+            Ok(OtherService::new(PhpScriptAdapter::new(
                 php_service.clone(),
                 runtime,
             )))
@@ -74,7 +74,7 @@ pub(crate) fn bypass_fn(
                     requests: runtime.requests,
                     responses: runtime.responses,
                 });
-            Ok(BypassService::new(adapter))
+            Ok(OtherService::new(adapter))
         }
     }
 }

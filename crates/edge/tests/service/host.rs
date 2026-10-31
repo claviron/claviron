@@ -17,13 +17,13 @@ use http_body_util::{BodyExt, Full};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::*;
-use crate::pipeline::bypass::{BypassHandler, BypassService};
+use crate::pipeline::other::{OtherHandler, OtherService};
 use crate::service::resolve_sni_from_table;
 
 fn service(
     protocol: HttpProtocol,
     config: &str,
-    app: AppKind,
+    app: RustRouter,
 ) -> HostService {
     service_with_limits(protocol, config, app, RequestPolicy::unlimited())
 }
@@ -94,11 +94,11 @@ fn noop(
     protocol: HttpProtocol,
     config: &str,
 ) -> HostService {
-    service(protocol, config, AppKind::Bypass(BypassService::Noop))
+    service(protocol, config, RustRouter::Other(OtherService::Noop))
 }
 
 fn noop_with_access(protocol: HttpProtocol, config: &str) -> (HostService, Arc<VhostResolver>) {
-    service_with_limits_and_access(protocol, config, AppKind::Bypass(BypassService::Noop), RequestPolicy::unlimited())
+    service_with_limits_and_access(protocol, config, RustRouter::Other(OtherService::Noop), RequestPolicy::unlimited())
 }
 
 pub(super) fn request(path: &str) -> Request<()> {
@@ -151,7 +151,7 @@ fn quota_admission_is_shared_by_native_protocols_and_precedes_body_dispatch() {
     let quotas = registrations
         .prepare(false, &"app.test".parse().unwrap(), &host, None)
         .unwrap();
-    let mut app: HostApp = AppKind::Bypass(BypassService::Noop).into();
+    let mut app: HostApp = RustRouter::Other(OtherService::Noop).into();
     app.quotas = quotas;
     let protocols = [HttpProtocol::H1, HttpProtocol::H2];
     for (index, protocol) in protocols.into_iter().enumerate() {
@@ -217,7 +217,7 @@ fn a_host_narrows_the_listener_body_ceiling_and_cannot_widen_it() {
         service_with_limits(
             HttpProtocol::H1,
             config,
-            AppKind::Bypass(BypassService::Noop),
+            RustRouter::Other(OtherService::Noop),
             listener,
         )
         .prepare(request("/"), RequestArrival::Established)
@@ -614,7 +614,7 @@ fn early_data_cannot_bypass_missing_host_capability() {
 }
 
 struct Echo;
-impl BypassHandler for Echo {
+impl OtherHandler for Echo {
     fn call(
         &self,
         req: Request<RouteBody>,
@@ -643,7 +643,7 @@ async fn quota_response_headers_are_opt_in_and_survive_native_body_mapping() {
                 "root: public\nrate_limit:\n  namespace: test\n  cost: 1\n  headers: {headers}\n  quota:\n    units: 1\n    period: 1h\n    burst: 2\n    table: {{slots: 8, shards: 1, key_bytes: 64, probes: 8}}\n    cas_attempts: 64\n    store: {{mode: local_guard}}\n"
             )).unwrap();
             let mut app: HostApp =
-                AppKind::Bypass(BypassService::Handler(Arc::new(Echo))).into();
+                RustRouter::Other(OtherService::Handler(Arc::new(Echo))).into();
             app.quotas = QuotaRegistrations::default()
                 .prepare(false, &"app.test".parse().unwrap(), &config, None)
                 .unwrap();
@@ -709,8 +709,8 @@ async fn both_apps_use_one_dispatch_and_keep_the_admitted_generation() {
             },
         );
         for app in [
-            AppKind::Axum(router),
-            AppKind::Bypass(BypassService::Handler(Arc::new(Echo))),
+            RustRouter::Axum(router),
+            RustRouter::Other(OtherService::Handler(Arc::new(Echo))),
         ] {
             let service = service(protocol, "", app);
             let admitted = service
@@ -740,12 +740,12 @@ async fn both_apps_use_one_dispatch_and_keep_the_admitted_generation() {
 
 #[cfg(feature = "axum")]
 #[tokio::test]
-async fn acl_reload_reaches_existing_bindings_before_axum_or_bypass_dispatch() {
+async fn acl_reload_reaches_existing_bindings_before_axum_or_other_dispatch() {
     for protocol in [HttpProtocol::H1, HttpProtocol::H2, HttpProtocol::H3] {
         let router = axum::Router::new().fallback(|| async { "axum" });
         for app in [
-            AppKind::Axum(router),
-            AppKind::Bypass(BypassService::Handler(Arc::new(Echo))),
+            RustRouter::Axum(router),
+            RustRouter::Other(OtherService::Handler(Arc::new(Echo))),
         ] {
             let (service, resolver) = service_with_limits_and_access(protocol, "", app, RequestPolicy::unlimited());
             let old = service
@@ -906,9 +906,9 @@ async fn invalid_reload_retains_the_enforced_acl() {
     }
 }
 
-/// A bypass handler that answers once it is let go.
+/// A Other handler that answers once it is let go.
 struct Hold(Arc<tokio::sync::Notify>);
-impl BypassHandler for Hold {
+impl OtherHandler for Hold {
     fn call(
         &self,
         _: Request<RouteBody>,
@@ -923,7 +923,7 @@ impl BypassHandler for Hold {
 
 struct HeadTimingProbe(Arc<AtomicUsize>);
 
-impl BypassHandler for HeadTimingProbe {
+impl OtherHandler for HeadTimingProbe {
     fn times_its_head(&self) -> bool {
         self.0.fetch_add(1, Ordering::SeqCst);
         false
@@ -938,7 +938,7 @@ impl BypassHandler for HeadTimingProbe {
 }
 
 #[tokio::test]
-async fn bypass_without_head_timeout_does_not_query_backend_timing() {
+async fn other_without_head_timeout_does_not_query_backend_timing() {
     for (timeout, expected) in
         [(None, 0), (Some(std::time::Duration::from_secs(1)), 1)]
     {
@@ -946,7 +946,7 @@ async fn bypass_without_head_timeout_does_not_query_backend_timing() {
         let service = service_with_limits(
             HttpProtocol::H1,
             "",
-            AppKind::Bypass(BypassService::new(HeadTimingProbe(
+            RustRouter::Other(OtherService::new(HeadTimingProbe(
                 queried.clone(),
             ))),
             RequestPolicy {
@@ -965,19 +965,19 @@ async fn bypass_without_head_timeout_does_not_query_backend_timing() {
     }
 }
 
-/// Admission holds on every path to a host, the bypass one too, which a
+/// Admission holds on every path to a host, the Other path too, which a
 /// layer on the router never saw: a request past the host's limit waits its
 /// `queue_timeout` and is refused with 503, and one whose head is late past
 /// `head_timeout` is answered 504.
 #[tokio::test]
-async fn admission_holds_on_the_bypass_path() {
+async fn admission_holds_on_the_other_path() {
     use crate::pipeline::{Admission, HostApp};
     let exchange_config: crate::HostConfig = serde_yaml::from_str(
         "root: public\ncors: permissive\nheaders: {set: {x-policy: edge}}",
     ).unwrap();
     let release = Arc::new(tokio::sync::Notify::new());
     let app = HostApp {
-        app: AppKind::Bypass(BypassService::Handler(Arc::new(Hold(
+        app: RustRouter::Other(OtherService::Handler(Arc::new(Hold(
             Arc::clone(&release),
         )))),
         admission: Admission::limited(Some(1)),

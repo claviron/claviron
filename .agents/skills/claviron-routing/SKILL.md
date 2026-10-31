@@ -19,7 +19,7 @@ a route implementation alone does not mean the route is exposed.
 | Host-independent application routes | `claviron::http::routing::Routable` |
 
 For Edge, `register_app` and matched routables merge Rust contributions with the
-configured pipeline. `register_router` and `register_bypass` install exclusive
+configured pipeline. `register_router` and `register_other` install exclusive
 owners; they are not interchangeable ways to add an intercept.
 
 ## Intercept without changing ownership accidentally
@@ -42,8 +42,7 @@ hide a broken native handler.
 
 ## Preserve policy
 
-Host admission applies to merged, standalone, and bypass paths. Bypass means
-outside Axum, not outside access controls. Authentication, CSRF, and application
+Host admission applies to configured plans and both RustRouter variants. Authentication, CSRF, and application
 permissions must be composed for intercepted routes; an external framework's
 middleware is not inherited automatically.
 
@@ -58,6 +57,6 @@ the host snapshot rather than interpreting configuration on each request.
 
 Start with `crates/edge/README.md`, `crates/runner/README.md`, and
 `crates/http/README.md`. For exact contracts inspect
-`crates/edge/src/pipeline/routable.rs` and the relevant merged/bypass or Runner
+`crates/edge/src/pipeline/routable.rs` and the relevant configured/Other or Runner
 implementation. Use local architecture documents when present; public usage
 must also be understandable from the exported API and README.

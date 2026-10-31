@@ -1,4 +1,4 @@
-//! Prepared Rust application interception before one configured owner.
+//! Prepared Rust host handlers before the configured files/backend chain.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -9,19 +9,19 @@ use futures_util::FutureExt;
 use http::{Request, request::Parts};
 
 use super::ApplicationHandler;
-use crate::pipeline::bypass::{BypassHandler, BypassService};
+use crate::pipeline::other::{OtherHandler, OtherService};
 
 /// An unclaimed request with its original body still inaccessible.
 ///
 /// Head inspection/changes do not expose or poll the body. To handle the body,
 /// consume this value with `into_request`; it cannot then be returned as
 /// Unhandled. Only the pipeline constructs this capability.
-pub struct InterceptRequest {
+pub struct HostRequest {
     head: Parts,
     body: RouteBody,
 }
 
-impl InterceptRequest {
+impl HostRequest {
     fn new(request: Request<RouteBody>) -> Self {
         let (head, body) = request.into_parts();
         Self { head, body }
@@ -41,21 +41,21 @@ impl InterceptRequest {
     }
 }
 
-pub type InterceptResult = ServiceResult<RouteResponse, InterceptRequest>;
-pub type InterceptFuture = Pin<Box<dyn Future<Output = InterceptResult> + Send>>;
+pub type HostHandlerResult = ServiceResult<RouteResponse, HostRequest>;
+pub type HostHandlerFuture = Pin<Box<dyn Future<Output = HostHandlerResult> + Send>>;
 
-/// A prepared Rust application's request entry point.
+/// A prepared Rust host handler.
 ///
 /// Return Handled even for an error response. Return Unhandled with the supplied
 /// capability to continue with the same unread body. Status codes never select
 /// another application. Runtime heterogeneous registration erases each active
 /// application's future here; absent contributions install no stage.
-pub trait ApplicationInterceptor: Send + Sync + 'static {
-    fn call(&self, request: InterceptRequest) -> InterceptFuture;
+pub trait HostHandler: Send + Sync + 'static {
+    fn call(&self, request: HostRequest) -> HostHandlerFuture;
 }
 
 struct Composition<H> {
-    applications: Box<[Arc<dyn ApplicationInterceptor>]>,
+    applications: Box<[Arc<dyn HostHandler>]>,
     backend: H,
 }
 
@@ -82,7 +82,7 @@ impl<H> Clone for ApplicationStage<H> {
 }
 
 impl<H> ApplicationStage<H> {
-    pub fn new(backend: H, applications: Vec<Arc<dyn ApplicationInterceptor>>) -> Self {
+    pub fn new(backend: H, applications: Vec<Arc<dyn HostHandler>>) -> Self {
         Self { inner: Arc::new(Composition {
             applications: applications.into_boxed_slice(), backend,
         }) }
@@ -94,7 +94,7 @@ where
     H: ApplicationHandler + Clone + Sync + 'static,
 {
     pub async fn handle(self, request: Request<RouteBody>) -> RouteResponse {
-        let mut request = InterceptRequest::new(request);
+        let mut request = HostRequest::new(request);
         for application in &self.inner.applications {
             request = match application.call(request).await {
                 ServiceResult::Handled(response) => return response,
@@ -114,7 +114,7 @@ where
     }
 }
 
-impl<H> BypassHandler for ApplicationStage<H>
+impl<H> OtherHandler for ApplicationStage<H>
 where
     H: ApplicationHandler + Clone + Sync + 'static,
 {
@@ -123,22 +123,17 @@ where
     }
 }
 
-pub(crate) fn compose_bypass(
-    backend: BypassService,
-    applications: &[Arc<dyn ApplicationInterceptor>],
-) -> BypassService {
+pub(crate) fn compose_other(
+    backend: OtherService,
+    applications: &[Arc<dyn HostHandler>],
+) -> OtherService {
     if applications.is_empty() {
         backend
     } else {
-        BypassService::new(ApplicationStage::new(backend, applications.to_vec()))
+        OtherService::new(ApplicationStage::new(backend, applications.to_vec()))
     }
 }
 
-#[cfg(feature = "axum")]
-mod axum;
-#[cfg(feature = "axum")]
-pub(crate) use self::axum::compose_router;
-
 #[cfg(test)]
-#[path = "../../../tests/pipeline/host/intercept.rs"]
+#[path = "../../../tests/pipeline/host/handler.rs"]
 mod tests;

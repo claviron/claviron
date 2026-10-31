@@ -61,7 +61,7 @@ bridge their native receive stream into `RouteBody` with backpressure and
 trailers rather than collecting the stream first. Declared and observed body
 sizes are checked against the accepted listener policy.
 
-The prepared application determines Axum versus bypass dispatch; this transport
+The prepared application determines Axum versus Other dispatch; this transport
 does not maintain two application-routing implementations. Responses are written
 as native H3 headers, data, trailers, and stream completion. Body or transport
 errors are surfaced instead of being turned into a fake successful response.

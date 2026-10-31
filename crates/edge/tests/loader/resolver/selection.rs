@@ -1,6 +1,6 @@
 use super::*;
-use crate::pipeline::bypass::{BypassHandler, BypassService};
-use crate::pipeline::{Admission, AppKind, HostApp, HostAppSnapshot};
+use crate::pipeline::other::{OtherHandler, OtherService};
+use crate::pipeline::{Admission, RustRouter, HostApp, HostAppSnapshot};
 use crate::service::{
     VhostBindings, VhostCtx, resolve_request_authority, resolve_sni_from_table,
 };
@@ -38,7 +38,7 @@ fn applications(
         let app = HostApp {
             admission: Admission::limited(Some(1)),
             server_header: Some(HeaderValue::from_str(name).unwrap()),
-            ..AppKind::Bypass(BypassService::Noop).into()
+            ..RustRouter::Other(OtherService::Noop).into()
         };
         apps.insert(canonical.clone(), app).unwrap();
     }
@@ -243,7 +243,7 @@ struct KeepsDeclarations {
     _generation: Arc<()>,
 }
 
-impl BypassHandler for KeepsDeclarations {
+impl OtherHandler for KeepsDeclarations {
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -272,7 +272,7 @@ fn install_owned(
                 );
                 apps.insert(
                     canonical.clone(),
-                    AppKind::Bypass(BypassService::new(KeepsDeclarations {
+                    RustRouter::Other(OtherService::new(KeepsDeclarations {
                         _declarations: table.clone(),
                         _generation: generation.clone(),
                     })),

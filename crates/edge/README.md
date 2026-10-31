@@ -158,7 +158,7 @@ An explicit route may declare its own `rate_limit`. The longest matching
 declaration selects one store; otherwise the host declaration applies. Aliases
 share their canonical host's prepared limiter. No declaration means no quota
 processing. Limits run after trusted IP/ACL admission and host replies, before
-body adaptation, native session acceptance, static files and the Axum/bypass fork.
+body adaptation, native session acceptance, static files and Rust router dispatch.
 This limits HTTP requests and socket handshakes, not messages inside an accepted
 WS/WT session or the earlier TLS/QUIC handshake.
 
@@ -259,22 +259,25 @@ rather than perform their own file I/O.
 
 ## Application shapes
 
+`RustRouter` selects `Axum` or `Other`. `Axum` holds an application-owned Axum
+router; `Other` holds another Rust handler/router or the compiled host plan.
+Both retain host admission, response policy and request ownership.
+
 `HostAppRegistry` supports distinct ownership arrangements:
 
 - `register_app` adds an Axum Rust application before the selected native
   file/backend chain.
 - `register_router` installs a complete Axum router whose application middleware
   is owned by the caller. Host admission still applies.
-- `register_bypass` installs a native handler without requiring an Axum router.
-  Here “bypass” refers to the router shape, not to host access controls.
+- `register_other` installs a native handler without requiring an Axum router.
 
 Services can implement the host-aware `Routable` contract and register the same
 shared service instance with `register_routable`. This connects component
 lifecycle to per-host route construction. It is distinct from the host-free
 `claviron::http::routing::Routable` contract used by single-application routing.
 
-`Routable::application` prepares a native `ApplicationInterceptor` without Axum.
-It receives an `InterceptRequest` whose head can be inspected or changed while
+`Routable::application` prepares a native `HostHandler` without Axum.
+It receives a `HostRequest` whose head can be inspected or changed while
 the body remains private. Return `Unhandled` with that capability to continue;
 consume it with `into_request` when handling the body. A handled error response,
 including 404, does not fall through. Only registered contributions execute,
@@ -314,7 +317,7 @@ contracts no longer supply Axum bindings.
 `pipeline::upstream::UpstreamStage` selects an upstream profile and calls its
 native request boundary. It retains live profile replacement and the service's
 existing streaming, lease and cancellation behavior. Static/TryFiles belong to
-the preceding host steps; the explicit `UpstreamBypass` file composition remains
+the preceding host steps; the explicit `UpstreamRouter` file composition remains
 available separately.
 
 `pipeline::link::LinkBackend` prepares segment-safe application mounts and their
@@ -355,9 +358,8 @@ unavailable directives fail preparation rather than being silently ignored.
 Request handling uses the prepared route layers, not a per-request extension
 registry lookup.
 
-`claviron::edge::extension` exposes the generic directive, condition and layer
-contracts with the ordinary Axum routing surface; no separate extension feature
-is required. Applications and frameworks own concrete directives such as AJAX
+`claviron::edge::extension` exposes host-owned directive, condition and layer
+contracts without requiring Axum. Applications and frameworks own directives such as AJAX
 admission and CSRF, including their errors and response policy. Built-in rate
 admission uses the separate host quota boundary described above.
 Register them through `Server::with_edge_extension`, `HostAppRegistry` or a
@@ -379,6 +381,13 @@ The framework owns their types, validation, request behavior and failure
 responses. Claviron supplies the configuration extension points and prepares
 their effects with the host's routes. Host-level layer inheritance is explicit
 through `RouteExtension::inherit_from_host`, not automatic for every custom key.
+
+`RouteEffect::Handler` installs a Rust `HostHandler` at the selected
+path. `Handled` ends dispatch; `Unhandled` returns the same unread body to the
+configured files/backend chain. `RouteEffect::Layer` prepares native
+`HostPipeline` head and response actions at boot/reload. An inactive layer
+leaves no request-time wrapper. Axum routers can be supplied explicitly through
+`pipeline::app::application`; their responses, including 404, are handled.
 
 ## Reload and connection lifetime
 

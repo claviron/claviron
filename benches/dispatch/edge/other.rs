@@ -1,7 +1,7 @@
-//! Prepared Edge host admission and Bypass dispatch, without transport I/O.
+//! Prepared Edge host admission and Other dispatch, without transport I/O.
 
 use claviron::edge::transport::{
-    AppKind, BypassHandler, BypassService, RequestArrival,
+    RustRouter, OtherHandler, OtherService, RequestArrival,
 };
 use claviron::http::{RouteBody, RouteFuture, boxed_body};
 use criterion::{Criterion, criterion_group, criterion_main};
@@ -14,7 +14,7 @@ pub mod support;
 
 struct Json;
 
-impl BypassHandler for Json {
+impl OtherHandler for Json {
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -27,7 +27,7 @@ impl BypassHandler for Json {
 
 fn benchmark(criterion: &mut Criterion) {
     let setup = support::setup::Hosts::load();
-    let host = setup.plain_host(AppKind::Bypass(BypassService::new(Json)));
+    let host = setup.plain_host(RustRouter::Other(OtherService::new(Json)));
     let service =
         hyper::service::service_fn(move |request: support::json::Input| {
             let prepared = host
@@ -36,7 +36,7 @@ fn benchmark(criterion: &mut Criterion) {
                 .map_body(boxed_body);
             prepared.dispatch().map(Ok::<_, Infallible>)
         });
-    support::decoded::run(criterion, "dispatch/edge/bypass", service);
+    support::decoded::run(criterion, "dispatch/edge/other", service);
 }
 
 criterion_group!(benches, benchmark);

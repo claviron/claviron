@@ -10,7 +10,7 @@ async fn invalid_host_rejects_before_cleartext_dispatch() {
         for headers in [
             "",
             "Host: app.test\r\nHost: app.test\r\n",
-            "Host: bypass.test\r\nHost: wrong.test\r\n",
+            "Host: other.test\r\nHost: wrong.test\r\n",
             "Host: app.test:invalid\r\n",
             "Host: user@app.test\r\n",
         ] {
@@ -44,12 +44,12 @@ async fn absolute_target_selects_cleartext_host_without_rewriting_uri() {
         let fixture = Fixture::new().await;
         let mut wire = fixture.raw().await;
         wire.stream
-            .write_all(b"GET http://bypass.test/original?q=1 HTTP/1.1\r\nHost: app.test\r\nConnection: close\r\n\r\n")
+            .write_all(b"GET http://other.test/original?q=1 HTTP/1.1\r\nHost: app.test\r\nConnection: close\r\n\r\n")
             .await
             .unwrap();
         let response = read_closed(&mut wire.stream).await;
         assert!(response.starts_with("HTTP/1.1 200 "));
-        assert!(response.contains("bypass.test|bypass.test|http://bypass.test/original?q=1|"));
+        assert!(response.contains("other.test|other.test|http://other.test/original?q=1|"));
         assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
         wire.finish().await;
     })

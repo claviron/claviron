@@ -18,50 +18,50 @@ use tracing::error;
 
 use crate::VhostResolver;
 use crate::config::HostConfig;
-use crate::pipeline::bypass::BypassService;
+use crate::pipeline::other::OtherService;
 use crate::pipeline::routable::Routable;
-use crate::pipeline::host::{ApplicationInterceptor, compose_bypass};
+use crate::pipeline::host::{HostHandler, compose_other};
 use crate::pipeline::routable::{HostBindingProvider, RouteBinding};
 
-/// Prepared ordinary-request owner for one host publication.
+/// Rust request execution selected for one host publication.
 ///
-/// Configured host pipelines use the native BypassService call boundary.
-/// Axum remains an explicit standalone Rust application shape. Both retain
-/// shared host admission, exchange policy, body guards and accounting.
+/// Axum keeps its concrete router call. Other accepts a low-level handler or
+/// a compiled host plan through OtherService. Both
+/// retain shared host admission, response policy and request ownership.
 #[derive(Clone)]
-pub enum AppKind {
+pub enum RustRouter {
     #[cfg(feature = "axum")]
+    /// An application-owned Axum router.
     Axum(Router),
-    Bypass(BypassService),
+    /// Another Rust handler or a compiled configured-host plan.
+    Other(OtherService),
 }
 
-impl AppKind {
+impl RustRouter {
     pub fn kind(&self) -> &'static str {
         match self {
             #[cfg(feature = "axum")]
             Self::Axum(_) => "axum",
-            Self::Bypass(_) => "bypass",
+            Self::Other(_) => "other",
         }
     }
 }
 
-#[cfg(feature = "axum")]
-use crate::pipeline::routing::RouteContext;
+use crate::pipeline::ext::{RouteContext, RouteEffect, RouteExtension, RouteLayer};
 pub use claviron_http::admission::Admission;
 
 /// Prepared route-extension effects, resolved once during host composition.
-#[cfg(feature = "axum")]
 #[derive(Default)]
 pub(crate) struct ResolvedRouteExtensions {
-    pub(crate) handler: Option<Router<AppState>>,
-    pub(crate) conditions: Vec<Arc<dyn claviron_http::routing::RouteCondition>>,
-    pub(crate) layers: Vec<Arc<dyn claviron_http::routing::RouteLayer>>,
+    pub(crate) handler: Option<Arc<dyn HostHandler>>,
+    pub(crate) conditions: Vec<Arc<dyn claviron_http::dispatch::RouteCondition>>,
+    pub(crate) layers: Vec<Arc<dyn RouteLayer>>,
 }
 
 /// A host's application and what its requests are admitted under.
 #[derive(Clone)]
 pub struct HostApp {
-    pub app: AppKind,
+    pub app: RustRouter,
     pub admission: Admission,
     /// Optional, explicitly configured edge HTTP policy, independent of owner.
     pub exchange_policy: Option<Arc<crate::service::ExchangePolicy>>,
@@ -73,8 +73,8 @@ pub struct HostApp {
 
 /// An application with no admission limit — a host built outside a
 /// snapshot, as tests and embedders do.
-impl From<AppKind> for HostApp {
-    fn from(app: AppKind) -> Self {
+impl From<RustRouter> for HostApp {
+    fn from(app: RustRouter) -> Self {
         Self {
             app,
             admission: Admission::default(),
@@ -86,12 +86,12 @@ impl From<AppKind> for HostApp {
     }
 }
 
-/// Immutable snapshot of `host → AppKind` for a single boot/reload
+/// Immutable snapshot of `host → RustRouter` for a single boot/reload
 /// generation.
 ///
 /// # Why immutable?
 ///
-/// The connection-handling hot path resolves an [`AppKind`] for every
+/// The connection-handling hot path resolves an [`RustRouter`] for every
 /// incoming request via [`HostAppResolver::resolve`]. To avoid locks on
 /// the hot path, the application snapshot is carried by `VhostResolver`'s
 /// atomically published table. Changed hosts are prepared before that swap.
@@ -105,7 +105,7 @@ impl From<AppKind> for HostApp {
 /// every alias so that resolution is a single `HashMap` lookup
 /// — no two-step canonical resolution per request.
 ///
-/// `AppKind` is `Clone`, and the heavy bits (`Router`, `BypassService`)
+/// `RustRouter` is `Clone`, and the heavy bits (`Router`, `OtherService`)
 /// are `Arc`-backed internally, so duplicating the value across alias
 /// keys is cheap.
 ///
@@ -121,7 +121,7 @@ pub struct HostAppSnapshot {
 }
 
 impl HostAppSnapshot {
-    /// Look up the resolved [`AppKind`] for an exact host key.
+    /// Look up the resolved [`RustRouter`] for an exact host key.
     ///
     /// Returns `None` if no vhost matches. The connection layer treats
     /// `None` as "unknown host" and replies with a default 404 (or
@@ -144,10 +144,10 @@ impl HostAppSnapshot {
         app
     }
 
-    /// Insert a `host → AppKind` mapping during snapshot build.
+    /// Insert a `host → RustRouter` mapping during snapshot build.
     ///
     /// Returns an error on duplicate keys — the registry must never
-    /// stamp two `AppKind`s onto the same host alias, since dispatch
+    /// stamp two `RustRouter`s onto the same host alias, since dispatch
     /// would be ambiguous. [`HostAppRegistry::build`] is the only
     /// caller; it walks the alias graph once per canonical host so
     /// duplicates only happen on misconfiguration.
@@ -304,32 +304,20 @@ impl Reloadable<AppState> for HostAppResolver {
 pub type ApplicationRouterFactory =
     dyn Fn(AppState) -> Router<AppState> + Send + Sync + 'static;
 
-/// Factory for [`register_router`]: produces a fully-formed
-/// `Router` that is used **as-is**, with no claviron middleware.
-///
-/// `Router<()>` (state already applied internally) is what `axum`
-/// expects from a finished router. You take full responsibility for
-/// any application middleware you want — file serving, CORS, etc.
-/// HostService still applies ACL and early host replies before entering this router.
+/// Cold factory for an application-owned Axum router.
+/// The caller owns its application layers; shared host policy still applies.
 ///
 /// [`register_router`]: HostAppRegistry::register_router
 #[cfg(feature = "axum")]
-pub type StandaloneRouterFactory =
+pub type AxumRouterFactory =
     dyn Fn(AppState) -> Router<()> + Send + Sync + 'static;
 
-/// Factory for [`register_bypass`]: produces a [`BypassService`] that
-/// dispatches **outside the axum pipeline** entirely.
+/// Cold factory for another Rust request owner.
+/// It receives the canonical host and effective config. Factory errors prevent
+/// publication instead of waiting for the first request.
 ///
-/// Unlike the router factories, this one receives the canonical
-/// [`Host`] and the resolved [`HostConfig`] — bypass services often
-/// need to read host-level config (TLS aliases, prefix paths, db name,
-/// pusher socket, …) at build time. `Result` is returned because
-/// resolution can legitimately fail (missing dependency in the
-/// registry), and the registry surfaces that on boot rather than
-/// blowing up at request time.
-///
-/// [`register_bypass`]: HostAppRegistry::register_bypass
-pub type BypassFactory = dyn Fn(AppState, Host, Arc<HostConfig>) -> Result<BypassService>
+/// [`register_other`]: HostAppRegistry::register_other
+pub type OtherFactory = dyn Fn(AppState, Host, Arc<HostConfig>) -> Result<OtherService>
     + Send
     + Sync
     + 'static;
@@ -339,7 +327,7 @@ pub type BypassFactory = dyn Fn(AppState, Host, Arc<HostConfig>) -> Result<Bypas
 ///
 /// Three variants because the `register_*` methods accept three
 /// different function shapes. [`HostAppRegistry::build`] dispatches on
-/// this enum to know how to invoke each factory and which [`AppKind`]
+/// this enum to know how to invoke each factory and which [`RustRouter`]
 /// to wrap the result in. Not exposed publicly because callers don't
 /// need to construct this directly — they go through the typed
 /// `register_*` methods.
@@ -348,16 +336,16 @@ enum Binding {
     #[cfg(feature = "axum")]
     Application(Vec<Arc<ApplicationRouterFactory>>),
     #[cfg(feature = "axum")]
-    Standalone(Arc<StandaloneRouterFactory>),
-    Bypass(Arc<BypassFactory>),
+    Axum(Arc<AxumRouterFactory>),
+    Other(Arc<OtherFactory>),
 }
 
 impl Binding {
     fn from_route_binding(binding: RouteBinding) -> Self {
         match binding {
             #[cfg(feature = "axum")]
-            RouteBinding::Standalone(factory) => Self::Standalone(factory),
-            RouteBinding::Bypass(factory) => Self::Bypass(factory),
+            RouteBinding::Axum(factory) => Self::Axum(factory),
+            RouteBinding::Other(factory) => Self::Other(factory),
         }
     }
 
@@ -366,9 +354,9 @@ impl Binding {
         state: &AppState,
         canonical: &Host,
         host_cfg: Arc<HostConfig>,
-        applications: &[Arc<dyn ApplicationInterceptor>],
+        applications: &[Arc<dyn HostHandler>],
         #[cfg(feature = "websocket")] h1_upgrades: Vec<H1UpgradeRoute>,
-    ) -> Result<AppKind> {
+    ) -> Result<RustRouter> {
         match self {
             #[cfg(feature = "axum")]
             Self::Application(factories) => {
@@ -384,30 +372,30 @@ impl Binding {
                     #[cfg(feature = "websocket")]
                     h1_upgrade_registry,
                 )?;
-                Ok(AppKind::Bypass(owner))
+                Ok(RustRouter::Other(owner))
             }
-            Self::Bypass(factory) => {
+            Self::Other(factory) => {
                 let svc = factory(
                     state.clone(),
                     canonical.clone(),
                     Arc::clone(&host_cfg),
                 )?;
-                let svc = compose_bypass(svc, applications);
+                let svc = compose_other(svc, applications);
                 #[cfg(feature = "websocket")]
-                let svc = super::host::compose_websocket_bypass(svc,
+                let svc = super::host::compose_websocket_other(svc,
                     super::host::WebSocketStage::prepare(state, canonical, &host_cfg,
                         build_h1_upgrade_registry(canonical, h1_upgrades)?));
-                Ok(AppKind::Bypass(svc))
+                Ok(RustRouter::Other(svc))
             }
             #[cfg(feature = "axum")]
-            Self::Standalone(factory) => {
+            Self::Axum(factory) => {
                 let router = factory(state.clone());
-                let router = super::host::compose_router(router, applications);
+                let router = super::app::compose_router(router, applications);
                 #[cfg(feature = "websocket")]
                 let router = super::host::compose_websocket_router(router,
                     super::host::WebSocketStage::prepare(state, canonical, &host_cfg,
                         build_h1_upgrade_registry(canonical, h1_upgrades)?).as_ref());
-                Ok(AppKind::Axum(router))
+                Ok(RustRouter::Axum(router))
             }
         }
     }
@@ -416,7 +404,7 @@ impl Binding {
 #[derive(Default)]
 struct RoutableHostBinding {
     app: Option<Binding>,
-    applications: Vec<Arc<dyn ApplicationInterceptor>>,
+    applications: Vec<Arc<dyn HostHandler>>,
     #[cfg(feature = "websocket")]
     h1_upgrades: Vec<H1UpgradeRoute>,
 }
@@ -429,11 +417,11 @@ struct RoutableHostBinding {
 ///
 /// 1. **Config-driven** — `config/*.yaml` declares hosts, TLS aliases,
 ///    upstreams, statics, ACL, etc. These hosts compile a native
-///    pipeline behind `AppKind::Bypass`. Axum is entered only when
+///    pipeline behind `RustRouter::Other`. Axum is entered only when
 ///    Rust application routes or layers opt into it.
 ///
 /// 2. **Code-driven** — the binary calls `register_app` /
-///    `register_router` / `register_bypass` on this registry during
+///    `register_router` / `register_other` on this registry during
 ///    bootstrap to attach handwritten Rust handlers to specific
 ///    hostnames. This is what lets the same binary serve as both an
 ///    edge server (TLS, h2/h3, statics, ACL — config) and an app
@@ -477,15 +465,15 @@ struct RoutableHostBinding {
 /// // Standalone API host: your router, your middleware
 /// registry.register_router("api.example.com", routes::build_api_router);
 ///
-/// // Resource host: bypass (file-first probe + custom handler, no axum)
-/// registry.register_bypass("assets.example.com", crate::app::resources::build_bypass);
+/// // Resource host: custom Rust handler with explicit file handling
+/// registry.register_other("assets.example.com", crate::app::resources::build_other);
 ///
-/// // WebSocket pusher: bypass; host name from env so ops can override
+/// // WebSocket publisher: custom Rust handler; host selected at boot
 /// #[cfg(feature = "broadcast")]
 /// {
 ///     if let Ok(host) = std::env::var("PUSHER_HOST") {
 ///         let host: &'static str = Box::leak(host.into_boxed_str());
-///         registry.register_bypass(host, crate::app::pusher::build_pusher_bypass);
+///         registry.register_other(host, crate::app::pusher::build_pusher_router);
 ///     }
 /// }
 ///
@@ -497,10 +485,7 @@ struct RoutableHostBinding {
 pub struct HostAppRegistry {
     inner: RwLock<HashMap<String, Binding>>,
     routables: RwLock<Vec<Arc<dyn Routable>>>,
-    #[cfg(feature = "axum")]
-    route_extensions: RwLock<
-        Vec<Arc<dyn claviron_http::routing::RouteExtension<HostConfig>>>,
-    >,
+    route_extensions: RwLock<Vec<Arc<dyn RouteExtension>>>,
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
     #[cfg(feature = "rate-limit")]
     quotas: RwLock<crate::service::quota::QuotaRegistrations>,
@@ -508,7 +493,7 @@ pub struct HostAppRegistry {
 
 impl HostAppRegistry {
     /// Bind a prepared limiter to this canonical host/prefix. It runs at the
-    /// same head-admission point as config, before Axum, bypass or sessions.
+    /// same head-admission point as config, before Axum, Other or sessions.
     /// Register before the first host preparation; duplicate config/Rust
     /// definitions are errors. The limiter retains its own KeyProvider.
     #[cfg(feature = "rate-limit")]
@@ -526,10 +511,9 @@ impl HostAppRegistry {
             .register(host, prefix, limiter)
     }
     /// Register a host-independent directive compiler before snapshot build.
-    #[cfg(feature = "axum")]
     pub fn register_route_extension(
         &self,
-        extension: Arc<dyn claviron_http::routing::RouteExtension<HostConfig>>,
+        extension: Arc<dyn RouteExtension>,
     ) -> Result<()> {
         let mut extensions = self
             .route_extensions
@@ -552,7 +536,7 @@ impl HostAppRegistry {
     /// chain. AxumPipeline delegates directly to that chain without re-entering
     /// the Rust router. Host security and response policy remain outside it.
     /// A host without Rust routes needs no registration or Axum invocation.
-    /// Use register_router to own the complete Rust router, or register_bypass
+    /// Use register_router to own the complete Rust router, or register_other
     /// for a native application handler. Factories run only at boot/reload.
     #[cfg(feature = "axum")]
     pub fn register_app<F>(
@@ -571,38 +555,11 @@ impl HostAppRegistry {
             .insert(vhost_key.to_string(), Binding::Application(vec![router]));
     }
 
-    /// Register a fully-formed router that **bypasses claviron
-    /// middleware but still uses axum**.
+    /// Register a complete Axum router for this host.
     ///
-    /// # When to use
-    ///
-    /// You want the routing ergonomics of axum (path params,
-    /// extractors, `Router::nest`, …) but you do **not** want
-    /// claviron's static handler, PHP layers, CORS — because
-    /// you'll provide them yourself or you don't need them. Typical
-    /// uses: a pure JSON API host where statics are irrelevant; a
-    /// streaming endpoint where you control buffering; a webhook
-    /// receiver with bespoke auth. This does not bypass host ACL admission.
-    ///
-    /// # When not to use
-    ///
-    /// - You want claviron middleware around your routes →
-    ///   [`Self::register_app`].
-    /// - You want to skip axum entirely (e.g. raw `tower::Service`,
-    ///   custom protocol, no router overhead) → [`Self::register_bypass`].
-    /// - The host is config-only → don't register.
-    ///
-    /// # Lifecycle
-    ///
-    /// Same as `register_app`: `&'static str` host key, no rebuild
-    /// across reloads. Skipped with an error log if the key has no
-    /// canonical entry in `vhosts.yaml`.
-    ///
-    /// # Where it lands
-    ///
-    /// Wraps to [`AppKind::Axum`] without configured file/backend composition.
-    /// The factory's output goes through the connection layer as-is;
-    /// shared host admission and response policy still apply.
+    /// The factory runs at boot/reload. The caller owns application routing
+    /// and layers; host admission, response policy and accounting still apply.
+    /// Configured file/backend steps are not installed inside this router.
     #[cfg(feature = "axum")]
     pub fn register_router<F>(
         &self,
@@ -611,73 +568,32 @@ impl HostAppRegistry {
     ) where
         F: Fn(AppState) -> Router + Send + Sync + 'static,
     {
-        let router: Arc<StandaloneRouterFactory> =
+        let router: Arc<AxumRouterFactory> =
             Arc::new(move |state: AppState| factory(state));
 
         self.inner
             .write()
             .expect("host app registry lock poisoned")
-            .insert(vhost_key.to_string(), Binding::Standalone(router));
+            .insert(vhost_key.to_string(), Binding::Axum(router));
     }
 
-    /// Register a [`BypassService`] that **skips axum and the
-    /// middleware stack entirely**.
+    /// Register another Rust request owner for this host.
     ///
-    /// # When to use
-    ///
-    /// The host has a single dominant protocol that doesn't need
-    /// router-style dispatch:
-    ///
-    /// - **PHP FCGI / SAPI proxy** — every request goes to PHP, no
-    ///   route matching at the Rust layer.
-    /// - **WebSocket pusher** — single endpoint, persistent upgrade,
-    ///   different hot path than HTTP requests.
-    /// - **Application-owned handler** — direct request ownership through
-    ///   `BypassHandler`. File handling, when wanted, is explicitly composed
-    ///   by that handler using the public file-service APIs.
-    /// - **Custom edge protocol** — anything that wants the bare
-    ///   `Request<RouteBody>` to `RouteFuture` shape.
-    ///
-    /// # When not to use
-    ///
-    /// - You want path-based routing → [`Self::register_router`] gives you
-    ///   axum without the claviron layers.
-    /// - You want claviron's standard pipeline → [`Self::register_app`].
-    ///
-    /// # Why the factory takes `AppState`, `Host`, `Arc<HostConfig>`
-    ///
-    /// Bypass services frequently need to read host-level config:
-    /// the canonical host (TLS / SNI), the resolved `HostConfig` (db
-    /// name, prefix paths, pusher socket, …), and the runtime
-    /// registry (to resolve dependencies like `DbService`). Passing
-    /// these to the factory at build time avoids re-resolving on
-    /// every request.
-    ///
-    /// `Result<BypassService>` is returned so missing dependencies
-    /// surface at boot, not on first request.
-    ///
-    /// # Lifecycle
-    ///
-    /// Same as the other two: `&'static str` host key. Skipped with
-    /// an error log if the key has no canonical entry in
-    /// `vhosts.yaml`.
-    ///
-    /// # Where it lands
-    ///
-    /// Wraps to [`AppKind::Bypass`]. The connection layer dispatches
-    /// directly to `BypassService::handle` — no axum, no Tower
-    /// middleware around it.
-    pub fn register_bypass<F>(
+    /// The factory receives the canonical host and config at boot/reload.
+    /// Its handler owns the reply; file handling can be composed explicitly
+    /// with the files API. Host admission, response policy and accounting
+    /// still apply. Factory errors prevent host publication.
+    pub fn register_other<F>(
         &self,
         vhost_key: &'static str,
         factory: F,
     ) where
-        F: Fn(AppState, Host, Arc<HostConfig>) -> Result<BypassService>
+        F: Fn(AppState, Host, Arc<HostConfig>) -> Result<OtherService>
             + Send
             + Sync
             + 'static,
     {
-        let f: Arc<BypassFactory> = Arc::new(
+        let f: Arc<OtherFactory> = Arc::new(
             move |state: AppState, canonical: Host, cfg: Arc<HostConfig>| {
                 factory(state, canonical, cfg)
             },
@@ -686,44 +602,44 @@ impl HostAppRegistry {
         self.inner
             .write()
             .expect("host app registry lock poisoned")
-            .insert(vhost_key.to_string(), Binding::Bypass(f));
+            .insert(vhost_key.to_string(), Binding::Other(f));
     }
 
     #[cfg(feature = "upstream")]
-    pub fn register_upstream_bypass_for_host(
+    pub fn register_upstream_for_host(
         &self,
         vhost_key: impl Into<String>,
     ) {
-        use crate::pipeline::bypass::factories::upstream::bypass_fn;
-        let f: Arc<BypassFactory> = Arc::new(
+        use crate::pipeline::other::factories::upstream::build;
+        let f: Arc<OtherFactory> = Arc::new(
             move |state: AppState, canonical: Host, cfg: Arc<HostConfig>| {
-                bypass_fn(state, canonical, cfg)
+                build(state, canonical, cfg)
             },
         );
 
         self.inner
             .write()
             .expect("host app registry lock poisoned")
-            .insert(vhost_key.into(), Binding::Bypass(f));
+            .insert(vhost_key.into(), Binding::Other(f));
     }
 
     #[cfg(any(feature = "php_fcgi", feature = "php_embed"))]
-    pub fn register_php_bypass_for_host(
+    pub fn register_php_for_host(
         &self,
         vhost_key: impl Into<String>,
     ) {
-        use crate::pipeline::bypass::factories::php::bypass_fn;
+        use crate::pipeline::other::factories::php::build;
 
-        let f: Arc<BypassFactory> = Arc::new(
+        let f: Arc<OtherFactory> = Arc::new(
             move |state: AppState, canonical: Host, cfg: Arc<HostConfig>| {
-                bypass_fn(state, canonical, cfg)
+                build(state, canonical, cfg)
             },
         );
 
         self.inner
             .write()
             .expect("host app registry lock poisoned")
-            .insert(vhost_key.into(), Binding::Bypass(f));
+            .insert(vhost_key.into(), Binding::Other(f));
     }
 
     /// Register a provider-shaped route contributor.
@@ -732,7 +648,7 @@ impl HostAppRegistry {
     /// registration doors. `Routable` providers are evaluated during
     /// [`build`](Self::build), and the resulting binding is frozen into the
     /// `HostAppSnapshot`. The request hot path remains a plain
-    /// `Host -> AppKind` lookup.
+    /// `Host -> RustRouter` lookup.
     pub fn register_routable<R>(
         &self,
         routable: Arc<R>,
@@ -791,21 +707,18 @@ impl HostAppRegistry {
             .push(provider);
     }
 
-    #[cfg(feature = "axum")]
     pub(crate) fn resolve_host_layers(
         &self,
         context: &RouteContext<'_>,
-    ) -> Result<Vec<Arc<dyn claviron_http::routing::RouteLayer>>> {
+    ) -> Result<Vec<Arc<dyn RouteLayer>>> {
         self.resolve_extensions(context, true).map(|resolved| resolved.layers)
     }
 
-    #[cfg(feature = "axum")]
     pub(crate) fn resolve_extensions(
         &self,
         context: &RouteContext<'_>,
         inherited_only: bool,
     ) -> Result<ResolvedRouteExtensions> {
-        use claviron_http::routing::RouteEffect;
         let providers = self
             .routables
             .read()
@@ -878,14 +791,14 @@ impl HostAppRegistry {
                 )));
             }
             match effect {
-                RouteEffect::Handler(router) => {
-                    if config.owns_handler || handler.is_some() {
+                RouteEffect::Handler(application) => {
+                    if handler.is_some() {
                         return Err(Error::msg(format!(
-                            "route '{}' has multiple application owners",
+                            "route '{}' has multiple Rust handler directives",
                             context.prefix
                         )));
                     }
-                    handler = Some(router);
+                    handler = Some(application);
                 }
                 RouteEffect::Condition(condition) => conditions.push(condition),
                 RouteEffect::Layer(layer) => layers.push(layer),
@@ -1036,7 +949,7 @@ impl HostAppRegistry {
     ///      matching application owner.
     ///    - Otherwise, compile a native configured host pipeline; no Axum
     ///      application is installed unless Rust routes/layers opt into it.
-    /// 4. Stamp the resulting `AppKind` against **every alias** for
+    /// 4. Stamp the resulting `RustRouter` against **every alias** for
     ///    the canonical host so per-request lookup is one hash hit.
     ///
     /// # When it runs
@@ -1169,7 +1082,7 @@ impl HostAppRegistry {
                                 factories.append(&mut routable_factories);
                                 Some(Binding::Application(factories))
                             }
-                            Binding::Standalone(_) | Binding::Bypass(_) => {
+                            Binding::Axum(_) | Binding::Other(_) => {
                                 return Err(Error::msg(format!(
                                     "host '{}' has manual Rust application routes and an exclusive routable binding",
                                     canonical
@@ -1201,7 +1114,7 @@ impl HostAppRegistry {
             };
 
             #[cfg(feature = "axum")]
-            let standalone = matches!(&binding, Some(Binding::Standalone(_)));
+            let standalone = matches!(&binding, Some(Binding::Axum(_)));
             #[cfg(not(feature = "axum"))]
             let standalone = false;
             let exchange_policy = crate::service::ExchangePolicy::compile(
@@ -1268,9 +1181,9 @@ fn build_default_app(
     state: &AppState,
     canonical: &Host,
     host_cfg: Arc<HostConfig>,
-    applications: &[Arc<dyn ApplicationInterceptor>],
+    applications: &[Arc<dyn HostHandler>],
     #[cfg(feature = "websocket")] h1_upgrades: Vec<H1UpgradeRoute>,
-) -> Result<AppKind> {
+) -> Result<RustRouter> {
     #[cfg(feature = "websocket")]
     let websocket = build_h1_upgrade_registry(canonical, h1_upgrades)?;
     super::host::compile::prepare(
@@ -1279,7 +1192,7 @@ fn build_default_app(
         Vec::new(),
         #[cfg(feature = "websocket")]
         websocket,
-    ).map(AppKind::Bypass)
+    ).map(RustRouter::Other)
 }
 
 #[cfg(feature = "websocket")]

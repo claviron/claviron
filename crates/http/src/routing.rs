@@ -1,13 +1,9 @@
 //! Axum route capabilities shared by standalone runners and edge consumers.
 
 pub mod dispatch;
-pub mod extensions;
 pub use crate::config::routes::RouteTable;
 pub use dispatch::{ConfiguredRoute, RouteDispatch};
-pub use extensions::{
-    RouteCondition, RouteContext, RouteEffect, RouteExtension, RouteLayer,
-    RuleContext, directive,
-};
+pub use crate::dispatch::{RouteCondition, RuleContext};
 
 use std::sync::{Arc, RwLock};
 

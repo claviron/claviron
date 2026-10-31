@@ -18,7 +18,7 @@ pub struct StaticConfig {
     /// Filesystem directory, relative to the site's root unless absolute.
     pub dir: PathBuf,
     /// (default false), when true, if file does not exist, server does NOT
-    /// respond 404/Not-Found while trying files and bypasses to next.
+    /// answer 404 while trying files; otherwise return the request to the next step.
     /// Must be `true` when dynamic files and assets are in same directory.
     /// `statics` attributes (with paths) are handled before catch-all dynamic/entry handlers.
     #[serde(default)]

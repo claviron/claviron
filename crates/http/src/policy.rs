@@ -33,7 +33,7 @@ use serde::Deserialize;
 ///
 /// These are transport concerns, not routing ones: a body that never stops
 /// arriving and a body that stops arriving halfway cost the process the same
-/// whether the request would have gone to the axum router, a bypass adapter,
+/// whether the request would have gone to the Axum router, another Rust adapter,
 /// an embedded PHP application or an H3 handler.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RequestPolicy {
