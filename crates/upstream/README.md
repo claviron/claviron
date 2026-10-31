@@ -184,8 +184,8 @@ Public entry points are organized by responsibility: `UpstreamProvider`,
 `binding::UpstreamApp`, `binding::call_upstream_service`,
 `proxy::service::UpstreamService`, and the `origin`, `resolve`, `config`, and
 `metrics` modules. Host router construction belongs to Edge. The implementation
-has no default features; optional `metrics` adds instrumentation, while `axum`
-is an integration dependency selection, not another listener or proxy engine.
+has no default features; optional `metrics` adds instrumentation. It has no Axum
+feature, dependency or route binding. Edge prepares its native dispatch owner.
 
 ## Related crates
 

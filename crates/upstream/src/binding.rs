@@ -1,6 +1,5 @@
 //! How a caller reaches this crate: pick a service from an application and
-//! send it a request. Binding it to a host — the merged router, the bypass
-//! adapter, the file fallback — is the edge's, which owns hosts.
+//! send it a request. Host dispatch and file fallback belong to Edge.
 use claviron_http::{RouteBody, RouteResponse};
 use http::Request;
 

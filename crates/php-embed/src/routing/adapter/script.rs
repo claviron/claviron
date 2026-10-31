@@ -1,12 +1,12 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use claviron_http::{HttpExchange, RouteBody, RouteResponse};
+use claviron_http::{HttpExchange, RouteBody, RouteResponse, ServiceResult};
 use claviron_php::PhpRuntime;
 use http::Request;
 use tokio::sync::mpsc::Sender;
 
-use crate::PhpScriptService;
+use crate::{PhpScriptService, SapiGatewayError};
 use crate::routing::proxy::upstream_sapi_gateway;
 
 #[derive(Clone)]
@@ -43,5 +43,19 @@ impl PhpScriptAdapter {
             self.exchange_tx.clone(),
         )
         .await)
+    }
+
+    /// Resolve one already-matched runtime without claiming a non-PHP body.
+    /// On Unhandled the original request is returned without polling, decoding,
+    /// collecting or replacing its body. Prefix selection belongs to the caller.
+    /// Consumes this handle so dispatch transfers its existing service/runtime
+    /// references instead of cloning them again inside the call.
+    pub async fn try_handle(
+        self,
+        req: Request<RouteBody>,
+    ) -> Result<ServiceResult<RouteResponse, Request<RouteBody>>, SapiGatewayError> {
+        crate::routing::proxy::try_php_proxy(
+            self.php, self.runtime, req, self.exchange_tx,
+        ).await
     }
 }

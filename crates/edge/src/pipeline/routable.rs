@@ -9,6 +9,7 @@ use claviron_runtime::registry::{AnyComponent, Result};
 use claviron_types::Host;
 
 use super::apps::BypassFactory;
+use super::host::ApplicationInterceptor;
 #[cfg(feature = "axum")]
 use super::apps::StandaloneRouterFactory;
 use crate::config::HostConfig;
@@ -27,11 +28,13 @@ pub struct RouteLayerContext<'a> {
     pub downstream: claviron_http::routing::AxumPipeline,
 }
 
-/// Provider-owned Rust routes bound to selected edge hosts.
-#[cfg(feature = "axum")]
+/// Provider-owned Rust applications bound to selected edge hosts at preparation.
+/// Native `application` contributions require no Axum. The optional `routes`
+/// and `layer_routes` hooks retain their existing Axum composition contract.
 pub trait Routable: AnyComponent<AppState> {
     /// Directive codecs and compilers owned by this provider. Enumerated only
     /// while preparing a host snapshot; never consulted during dispatch.
+    #[cfg(feature = "axum")]
     fn route_extensions(
         &self
     ) -> Vec<Arc<dyn claviron_http::routing::RouteExtension<HostConfig>>> {
@@ -47,9 +50,23 @@ pub trait Routable: AnyComponent<AppState> {
         host: &HostConfig,
     ) -> bool;
 
+    /// Prepare this provider's native Rust request contribution at boot/reload.
+    /// Unhandled returns the supplied request capability to the next contribution
+    /// and ultimately the configured owner. Only changed host preparation calls
+    /// this factory; request dispatch calls the returned capability directly.
+    fn application(
+        self: Arc<Self>,
+        _state: &AppState,
+        _key: &Host,
+        _host: Arc<HostConfig>,
+    ) -> Result<Option<Arc<dyn ApplicationInterceptor>>> {
+        Ok(None)
+    }
+
     /// Build routes from the registered shared instance at host preparation.
     /// Handlers may capture this Arc directly; host selection stays here,
     /// rather than being repeated on each request.
+    #[cfg(feature = "axum")]
     fn routes(
         self: Arc<Self>,
         _state: &AppState,
@@ -68,6 +85,7 @@ pub trait Routable: AnyComponent<AppState> {
     /// `downstream` bypasses merged Rust contributions and calls the configured
     /// owner directly. Capture it at boot for navigation delegation;
     /// unlike request extensions, it is available before inner routes run.
+    #[cfg(feature = "axum")]
     fn layer_routes(
         &self,
         _context: RouteLayerContext<'_>,

@@ -1,9 +1,7 @@
 //! Dispatch to an application process over Orbit shared memory.
 //!
-//! The same prefix-layer shape PHP and JavaScript routes use, and the same
-//! host pipeline around it — what differs is only where the application is.
-//! PHP runs in this worker, JavaScript runs in this worker, and this one runs
-//! in a process of its own that the edge reaches by name.
+//! Prepared native mount dispatch. The request body crosses one Link exchange;
+//! no router, middleware state or Axum body is involved.
 //!
 //! ## What the edge knows
 //!
@@ -22,10 +20,11 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Request, State};
-use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
-use axum::{Router, middleware};
+use claviron_http::{RouteBody, RouteResponse, ServiceResult, boxed_body, err_status};
+use futures_util::StreamExt;
+use http::Request;
+
+use super::host::{DispatchFuture, DispatchStep};
 use claviron_http::ext::{ConnCtx, PathPrefix};
 use claviron_http::policy::{
     BodyNeed, HttpPolicy, RequestPolicy, RequestPolicyOverride,
@@ -36,15 +35,14 @@ use claviron_orbit::transport::{
 };
 use claviron_runtime::{AppState, FleetName};
 use http::StatusCode;
-use http_body_util::BodyExt;
-use tokio::io::AsyncWriteExt;
 
+mod body;
 mod websocket;
 #[cfg(feature = "webtransport")]
 pub(super) mod webtransport;
 
 #[derive(Clone)]
-struct OrbitRoute {
+struct LinkRoute {
     path: Option<PathPrefix>,
     target: Option<TransportTarget>,
     requests: RequestPolicyOverride,
@@ -53,26 +51,71 @@ struct OrbitRoute {
     shutdown: tokio_util::sync::CancellationToken,
 }
 
-async fn dispatch(
-    State(route): State<OrbitRoute>,
-    request: Request,
-    next: Next,
-) -> Response {
-    if route
-        .path
-        .as_ref()
-        .is_some_and(|prefix| !prefix.has_path_segment(request.uri().path()))
-    {
-        return next.run(request).await;
+/// Prepared segment-safe application mounts reached through Link.
+/// No declarations means no step. Only a matching mount claims the body;
+/// an unavailable matched target returns 503 rather than falling through.
+#[derive(Clone)]
+pub struct LinkBackend {
+    routes: Arc<[LinkRoute]>,
+}
+
+impl LinkBackend {
+    pub fn new(
+        state: &AppState,
+        routes: &[claviron_http::config::routes::OrbitRouteConfig],
+    ) -> Option<Self> {
+        if routes.is_empty() { return None; }
+        let mut routes: Vec<_> = routes.iter().map(|route| LinkRoute {
+            path: route.path.clone(),
+            target: prepare_target(state, route.fleet_name, route.application.clone().into()),
+            requests: route.requests,
+            shutdown: state.shutdown_token(),
+        }).collect();
+        // Preserve stable ascending mount insertion followed by LIFO dispatch.
+        routes.sort_by(|a, b| match (&a.path, &b.path) {
+            (None, None) => std::cmp::Ordering::Equal,
+            (None, Some(_)) => std::cmp::Ordering::Less,
+            (Some(_), None) => std::cmp::Ordering::Greater,
+            (Some(a), Some(b)) => a.as_str().len().cmp(&b.as_str().len()),
+        });
+        routes.reverse();
+        Some(Self { routes: routes.into() })
     }
 
-    let Some(target) = route.target.as_ref() else {
-        return unavailable("the Orbit route has no prepared destination");
-    };
+    fn select(&self, path: &str) -> Option<&LinkRoute> {
+        self.routes.iter().find(|route| {
+            route.path.as_ref().is_none_or(|prefix| prefix.has_path_segment(path))
+        })
+    }
+}
 
+impl DispatchStep for LinkBackend {
+    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+        let Some(route) = self.select(request.uri().path()) else {
+            return DispatchFuture::ready(ServiceResult::Unhandled(request));
+        };
+        let Some(target) = route.target.clone() else {
+            return DispatchFuture::ready(ServiceResult::Handled(
+                unavailable("the Link route has no prepared destination"),
+            ));
+        };
+        let requests = route.requests;
+        let shutdown = route.shutdown.clone();
+        DispatchFuture::new(async move {
+            ServiceResult::Handled(dispatch(target, requests, shutdown, request).await)
+        })
+    }
+}
+
+async fn dispatch(
+    target: TransportTarget,
+    requests: RequestPolicyOverride,
+    shutdown: tokio_util::sync::CancellationToken,
+    request: Request<RouteBody>,
+) -> RouteResponse {
     let handshake = match websocket::Handshake::from_request(&request) {
         Ok(handshake) => handshake,
-        Err(status) => return status.into_response(),
+        Err(status) => return err_status(status),
     };
     let websocket = handshake.is_some();
     let (mut parts, body) = request.into_parts();
@@ -82,7 +125,7 @@ async fn dispatch(
         .get::<HttpPolicy>()
         .map(|policy| policy.requests)
         .unwrap_or(RequestPolicy::unlimited())
-        .narrow(&route.requests);
+        .narrow(&requests);
     // `Arc<ConnCtx>` is what the transports insert; asked for bare, it was
     // never there and the application saw no addresses.
     let connection = parts.extensions.get::<Arc<ConnCtx>>().cloned();
@@ -147,56 +190,20 @@ async fn dispatch(
     // that starts before the body finishes is a feature of the slot, not a
     // case to handle.
     let correlation = pending.correlation;
-    let (mut request_body, response_body, reply) = pending.split();
-    let mut to_application = None;
-    if websocket {
-        to_application = Some(websocket::Input::new(request_body));
+    let (request_body, response_body, reply) = pending.split();
+    let (to_application, upload) = if websocket {
+        (Some(websocket::Input::new(request_body)), None)
     } else if body_follows {
-        // The application takes pieces as they come; the policy may still
-        // say to take the body whole first — the direction then carries it in
-        // one write.
         let declared = http_body::Body::size_hint(&body).exact();
-        let whole = policy
-            .delivery(BodyNeed::Stream, declared, false)
-            .takes_whole(declared);
-        tokio::spawn(async move {
-            let mut body = body;
-            if whole {
-                match body.collect().await {
-                    Ok(collected) => {
-                        if request_body
-                            .write_all(&collected.to_bytes())
-                            .await
-                            .is_ok()
-                        {
-                            let _ = request_body.shutdown().await;
-                        }
-                    }
-                    Err(_) => request_body.reset(),
-                }
-                return;
-            }
-            while let Some(frame) = body.frame().await {
-                // A read that fails — too large, stalled, the client gone —
-                // cuts the body short, and a short body must not end the way
-                // a whole one does.
-                let Ok(frame) = frame else {
-                    request_body.reset();
-                    return;
-                };
-                let Ok(chunk) = frame.into_data() else { continue };
-                if request_body.write_all(&chunk).await.is_err() {
-                    return;
-                }
-            }
-            // Ending the direction is how the application learns the body is
-            // complete.
-            let _ = request_body.shutdown().await;
-        });
+        let whole = policy.delivery(BodyNeed::Stream, declared, false).takes_whole(declared);
+        // The task retains independent upload backpressure. Its abort-on-drop
+        // owner stays with this head wait, then with the response body.
+        (None, Some(body::upload(body, request_body, whole)))
     } else {
-        // Already ended by `send`; the half goes straight back to its slot.
+        // Already ended by send; return the unused half immediately.
         drop(request_body);
-    }
+        (None, None)
+    };
 
     let head = match reply.head().await {
         Ok(head) => head,
@@ -204,11 +211,7 @@ async fn dispatch(
         // gone. That is a gateway failure, not a refusal to admit.
         Err(error) => {
             tracing::debug!(correlation, "no reply: {error}");
-            return (
-                StatusCode::BAD_GATEWAY,
-                [(http::header::CONNECTION, "close")],
-            )
-                .into_response();
+            return gateway_failure();
         }
     };
 
@@ -225,7 +228,7 @@ async fn dispatch(
         );
     }
 
-    let mut response = Response::builder().status(head.status);
+    let mut response = http::Response::builder().status(head.status);
     for (name, value) in &head.headers {
         let (Ok(name), Ok(value)) = (
             http::HeaderName::from_bytes(name),
@@ -254,23 +257,23 @@ async fn dispatch(
         .map_or(TRANSPORT_BUFFER_BYTES, |length| {
             length.clamp(1, TRANSPORT_BUFFER_BYTES)
         });
-    let body = axum::body::Body::from_stream(
-        tokio_util::io::ReaderStream::with_capacity(response_body, piece),
-    );
+    let body = boxed_body(http_body_util::StreamBody::new(
+        tokio_util::io::ReaderStream::with_capacity(response_body, piece)
+            .map(|chunk| chunk.map(http_body::Frame::data)),
+    ));
+    let body = body::with_upload(body, upload);
     match response.body(body) {
         // An event stream never ends on its own, so the drain would wait out
         // its whole bound. The application process is not ours to stop, so
         // the edge ends its side, as it does for an upstream origin; the
         // application learns it as a client that left.
         Ok(response) => claviron_http::body::ends_at_shutdown(
-            response.map(|body| body.map_err(Into::into).boxed_unsync()),
-            route.shutdown.clone().cancelled_owned(),
-        )
-        .map(axum::body::Body::new),
+            response,
+            shutdown.cancelled_owned(),
+        ),
         Err(error) => {
             tracing::debug!(correlation, "reply could not be rebuilt: {error}");
-            (StatusCode::BAD_GATEWAY, [(http::header::CONNECTION, "close")])
-                .into_response()
+            gateway_failure()
         }
     }
 }
@@ -309,32 +312,22 @@ fn exchange_headers(
     result
 }
 
-fn unavailable(reason: &str) -> Response {
-    tracing::debug!("orbit dispatch unavailable: {reason}");
-    (StatusCode::SERVICE_UNAVAILABLE, [(http::header::RETRY_AFTER, "1")])
-        .into_response()
+fn unavailable(reason: &str) -> RouteResponse {
+    tracing::debug!("Link dispatch unavailable: {reason}");
+    let mut response = err_status(StatusCode::SERVICE_UNAVAILABLE);
+    response.headers_mut().insert(http::header::RETRY_AFTER, http::HeaderValue::from_static("1"));
+    response
+}
+
+fn gateway_failure() -> RouteResponse {
+    let mut response = err_status(StatusCode::BAD_GATEWAY);
+    response.headers_mut().insert(http::header::CONNECTION, http::HeaderValue::from_static("close"));
+    response
 }
 
 #[cfg(test)]
-#[path = "../../tests/pipeline/orbit.rs"]
+#[path = "../../tests/pipeline/link.rs"]
 mod tests;
-
-/// Mount one application, reached over shared memory, at a segment-safe
-/// prefix.
-pub fn build_application_router(
-    base: Router,
-    state: &AppState,
-    path: Option<PathPrefix>,
-    fleet_name: FleetName,
-    application: impl Into<Arc<str>>,
-    requests: RequestPolicyOverride,
-) -> Router {
-    let target = prepare_target(state, fleet_name, application.into());
-    base.layer(middleware::from_fn_with_state(
-        OrbitRoute { path, target, requests, shutdown: state.shutdown_token() },
-        dispatch,
-    ))
-}
 
 fn prepare_target(
     state: &AppState,
@@ -347,7 +340,7 @@ fn prepare_target(
             tracing::error!(
                 fleet_name = %fleet_name,
                 application = %application,
-                "an Orbit route is configured but the transport is not registered in this build"
+                "a Link route is configured but the transport is not registered in this build"
             );
             None
         }
@@ -366,7 +359,7 @@ fn prepare_target(
                     tracing::error!(
                         fleet_name = %fleet_name,
                         application = %application,
-                        "an Orbit route is configured but its fleet cannot be joined: {error}"
+                        "a Link route is configured but its fleet cannot be joined: {error}"
                     );
                     None
                 }

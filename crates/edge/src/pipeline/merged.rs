@@ -1,9 +1,4 @@
-#[cfg(feature = "orbit")]
-mod orbit;
 pub mod prepare;
-
-#[cfg(feature = "upstream")]
-mod upstream;
 
 pub mod extensions;
 
@@ -11,14 +6,13 @@ pub mod routing;
 use std::sync::Arc;
 
 use axum::Router;
-#[cfg(feature = "websocket")]
-use axum::middleware;
 
 use claviron_http::routing::AxumPipeline;
 use claviron_runtime::AppState;
 use claviron_types::Host;
 
 use super::apps::ResolvedRouteExtensions;
+use super::host::{ApplicationInterceptor, compose_configured_router};
 use crate::config::HostConfig;
 
 #[cfg(feature = "websocket")]
@@ -30,6 +24,22 @@ pub fn create_router(
     host_key: &Host,
     host_cfg: Arc<HostConfig>,
     app_routers: Vec<Router<AppState>>,
+    #[cfg(feature = "websocket")] h1_upgrade_registry: H1UpgradeRegistryRef,
+) -> claviron_runtime::registry::Result<Router> {
+    create_router_with_applications(
+        state, host_key, host_cfg, app_routers, &[],
+        #[cfg(feature = "websocket")]
+        h1_upgrade_registry,
+    )
+}
+
+/// Compatibility composition until configured backends leave the Axum compiler.
+pub(crate) fn create_router_with_applications(
+    state: AppState,
+    host_key: &Host,
+    host_cfg: Arc<HostConfig>,
+    app_routers: Vec<Router<AppState>>,
+    applications: &[Arc<dyn ApplicationInterceptor>],
     #[cfg(feature = "websocket")] h1_upgrade_registry: H1UpgradeRegistryRef,
 ) -> claviron_runtime::registry::Result<Router> {
     let fallback =
@@ -52,26 +62,22 @@ pub fn create_router(
     };
     let selected_policies =
         !host_layers.is_empty() || !host_cfg.routes.is_empty();
-    let host_downstream = AxumPipeline::new(router.clone());
+    let intercepted = compose_configured_router(
+        router.clone(), fallback.as_ref(), applications,
+    );
+    // Rejected conditions skip Rust contributions but retain the fallback's
+    // own prepared file steps. They never enter the rejected route's mounts.
+    let rejected = compose_configured_router(router, fallback.as_ref(), &[]);
+    let host_downstream = AxumPipeline::new(intercepted.clone());
     let wrap_default = |router| {
         host_layers.iter().fold(router, |router, layer| layer.apply(router))
     };
     // Native H1 admission belongs inside the selected route's policy layers,
     // not outside them. H2 CONNECT/WebTransport retain their own admission.
     #[cfg(feature = "websocket")]
-    let h1_upgrade_registry = h1_upgrade_registry.or_else(|| {
-        state.registry_ref().resolve::<crate::pipeline::H1UpgradeRegistry>()
-    });
-    #[cfg(feature = "websocket")]
-    let upgrade_state = h1_upgrade_registry
-        .filter(|registry| {
-            host_cfg.transport.h1.upgrade && registry.has_host(host_key)
-        })
-        .map(|registry| claviron_http::upgrade::H1UpgradeMiddlewareState {
-            app_state: state.clone(),
-            registry,
-            host: host_key.clone(),
-        });
+    let websocket = super::host::WebSocketStage::prepare(
+        &state, host_key, &host_cfg, h1_upgrade_registry,
+    );
     let app_router = app_routers
         .into_iter()
         .fold(Router::new(), |router, contribution| router.merge(contribution));
@@ -84,17 +90,7 @@ pub fn create_router(
             .layer(axum::Extension(AxumPipeline::new(downstream.clone())))
             .with_state(state.clone())
             .merge(downstream);
-        #[cfg(feature = "websocket")]
-        let router = match (&upgrade_state, selected_policies) {
-            (Some(upgrade_state), true) => {
-                router.layer(middleware::from_fn_with_state(
-                    upgrade_state.clone(),
-                    claviron_http::upgrade::h1_upgrade_middleware,
-                ))
-            }
-            _ => router,
-        };
-        match (&registry, selected_policies) {
+        let router = match (&registry, selected_policies) {
             (Some(registry), true) => registry.layer_routable_routes(
                 &state,
                 host_key,
@@ -103,9 +99,16 @@ pub fn create_router(
                 router,
             ),
             _ => router,
-        }
+        };
+        #[cfg(feature = "websocket")]
+        let router = if selected_policies {
+            super::host::compose_websocket_router(router, websocket.as_ref())
+        } else {
+            router
+        };
+        router
     };
-    let default = wrap_default(merge(router.clone()));
+    let default = wrap_default(merge(intercepted));
     let default = if selected_policies {
         default.layer(axum::Extension(crate::config::SelectedRoute(
             fallback.clone(),
@@ -156,6 +159,9 @@ pub fn create_router(
                         config.clone(),
                     ),
                 };
+                let downstream = compose_configured_router(
+                    downstream, config.as_ref(), applications,
+                );
                 layers
                     .into_iter()
                     .fold(merge(downstream), |router, layer| {
@@ -198,10 +204,10 @@ pub fn create_router(
                                     &state,
                                     host_key,
                                     host_cfg.clone(),
-                                    AxumPipeline::new(router.clone()),
-                                    router,
+                                    AxumPipeline::new(rejected.clone()),
+                                    rejected,
                                 ),
-                            _ => router,
+                            _ => rejected,
                         })
                         .layer(axum::Extension(
                             crate::config::SelectedRoute(fallback.clone()),
@@ -218,16 +224,6 @@ pub fn create_router(
     // Unconfigured hosts retain their original once-per-host intercept stack.
     // Opt-in inherited policies instead surround the selected route, including
     // native H1 admission and direct delegation by a Rust intercept.
-    #[cfg(feature = "websocket")]
-    let router = match (&upgrade_state, selected_policies) {
-        (Some(upgrade_state), false) => {
-            router.layer(middleware::from_fn_with_state(
-                upgrade_state.clone(),
-                claviron_http::upgrade::h1_upgrade_middleware,
-            ))
-        }
-        _ => router,
-    };
     let router = match (&registry, selected_policies) {
         (Some(registry), false) => registry.layer_routable_routes(
             &state,
@@ -237,6 +233,12 @@ pub fn create_router(
             router,
         ),
         _ => router,
+    };
+    #[cfg(feature = "websocket")]
+    let router = if selected_policies {
+        router
+    } else {
+        super::host::compose_websocket_router(router, websocket.as_ref())
     };
     let router = if selected_policies {
         router

@@ -1,11 +1,14 @@
 pub(crate) mod apps;
 pub mod bypass;
+pub mod embed;
 mod connect;
 pub mod host;
 #[cfg(feature = "axum")]
 pub mod merged;
 #[cfg(feature = "orbit")]
-mod orbit;
+pub mod link;
+#[cfg(feature = "upstream")]
+pub mod upstream;
 mod routable;
 #[cfg(feature = "webtransport")]
 mod wt;
@@ -27,20 +30,24 @@ pub use connect::{
 };
 pub use host::{
     AccessPolicy, AccessState, AdmissionPolicy, ApplicationHandler,
+    ApplicationInterceptor, ApplicationStage, InterceptFuture,
+    InterceptRequest, InterceptResult,
+    DispatchChain, DispatchFuture, DispatchResult, DispatchStep,
+    StaticStage, TryFilesStage,
     ExchangeLayer, ExchangeState,
     HostLayer, HostLayerBuilder, HostPipeline, HostPipelineBuilder,
     HostRequestState, IdentityPolicy, IdentityState, IngressPolicy, ReplyPolicy,
     IngressState,
 };
+#[cfg(feature = "websocket")]
+pub use host::WebSocketStage;
 #[cfg(feature = "access-log")]
 pub use host::{AccessLogLayer, AccessLogState};
 #[cfg(feature = "rate-limit")]
 pub use host::{QuotaPolicy, QuotaState};
-#[cfg(feature = "orbit")]
-pub use orbit::build_application_router as build_orbit_application_router;
-pub use routable::{HostBindingProvider, RouteBinding};
+pub use routable::{HostBindingProvider, RouteBinding, Routable};
 #[cfg(feature = "axum")]
-pub use routable::{Routable, RouteLayerContext};
+pub use routable::RouteLayerContext;
 #[cfg(feature = "webtransport")]
 pub use wt::{
     H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,

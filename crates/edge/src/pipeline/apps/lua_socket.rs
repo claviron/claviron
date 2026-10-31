@@ -115,10 +115,11 @@ fn same_host(
     }
 }
 
-/// Edge-owned admission around the engine's existing H1 transport adapter.
+/// Edge-owned HTTP/1 handshake and admission for the native Lua socket engine.
 #[cfg(feature = "websocket")]
 pub(super) struct WebSocketUpgrade {
-    pub(super) inner: claviron_lua::websocket::LuaWebSocketUpgradeHandler,
+    pub(super) service: std::sync::Arc<claviron_lua::serve::LuaApplications>,
+    pub(super) application: std::sync::Arc<str>,
     pub(super) origin: LuaSocketOriginPolicy,
 }
 
@@ -126,19 +127,19 @@ pub(super) struct WebSocketUpgrade {
 #[async_trait::async_trait]
 impl H1UpgradeHandler for WebSocketUpgrade {
     fn name(&self) -> &'static str {
-        self.inner.name()
+        "lua_websocket"
     }
 
     fn is_upgrade(
         &self,
-        request: &http::Request<axum::body::Body>,
+        request: &http::Request<claviron_http::RouteBody>,
     ) -> bool {
-        self.inner.is_upgrade(request)
+        claviron_http::upgrade::is_h1_header_upgrade(request, "websocket")
     }
 
     async fn accept(
         &self,
-        state: &claviron_runtime::AppState,
+        _state: &claviron_runtime::AppState,
         ctx: &crate::pipeline::H1UpgradeContext,
     ) -> crate::pipeline::H1UpgradeResult {
         if !allows_origin(
@@ -152,17 +153,33 @@ impl H1UpgradeHandler for WebSocketUpgrade {
                 None,
             ));
         }
-        self.inner.accept(state, ctx).await
+        let headers = claviron_http::upgrade::websocket_response_headers(ctx, None)
+            .map_err(|error| crate::pipeline::H1UpgradeReject::bad_request(error.to_string()))?;
+        let application = claviron_lua::websocket::prepare(&self.service, &self.application)
+            .map_err(|error| crate::pipeline::H1UpgradeReject::service_unavailable(error.to_string()))?;
+        Ok(crate::pipeline::H1UpgradeAccept::with_state(headers, application))
     }
 
     async fn handle_upgraded(
         &self,
-        state: claviron_runtime::AppState,
+        _state: claviron_runtime::AppState,
         ctx: crate::pipeline::H1UpgradeContext,
         accepted: Option<crate::pipeline::H1UpgradeState>,
         upgraded: hyper::upgrade::Upgraded,
     ) -> claviron_runtime::registry::Result<()> {
-        self.inner.handle_upgraded(state, ctx, accepted, upgraded).await
+        let application = accepted.ok_or_else(|| {
+            claviron_runtime::registry::Error::msg("Lua WebSocket application missing")
+        })?.take::<std::sync::Arc<claviron_lua::app::LuaApplication>>()?;
+        let host = ctx.headers.get(http::header::HOST)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+            .unwrap_or_else(|| ctx.host.to_string());
+        claviron_lua::websocket::serve_websocket(
+            upgraded, format!("wss://{host}{}", ctx.uri),
+            claviron_lua::websocket::header_pairs(&ctx.headers),
+            application, "HTTP/1.1",
+        ).await;
+        Ok(())
     }
 }
 

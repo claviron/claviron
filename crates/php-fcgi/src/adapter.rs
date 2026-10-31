@@ -1,7 +1,7 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use claviron_http::{HttpExchange, RouteBody, RouteResponse};
+use claviron_http::{HttpExchange, RouteBody, RouteResponse, ServiceResult};
 use claviron_php::PhpRuntime;
 use http::Request;
 use tokio::sync::mpsc::Sender;
@@ -42,5 +42,18 @@ impl PhpFpmAdapter {
             self.exchange_tx.clone(),
         )
         .await)
+    }
+
+    /// Try a runtime whose prefix the caller already selected. An unclaimed
+    /// request retains its original, unread body; no FPM connection is acquired
+    /// until script resolution claims the request. Consumes the handle rather
+    /// than cloning its service/runtime references again during dispatch.
+    pub async fn try_handle(
+        self,
+        req: Request<RouteBody>,
+    ) -> Result<ServiceResult<RouteResponse, Request<RouteBody>>, crate::GatewayError> {
+        crate::proxy::try_fcgi_proxy(
+            self.php, self.runtime, req, self.exchange_tx,
+        ).await
     }
 }

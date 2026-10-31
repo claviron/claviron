@@ -27,7 +27,7 @@ metrics = ["axum", "claviron-runtime/metrics", "dep:claviron-orbit", "dep:orbiti
 cache = ["axum", "dep:claviron-cache"]
 axum = ["dep:axum", "dep:headers", "dep:serde_json"]
 routing = ["axum", "dep:serde_yaml"]
-websocket = ["server", "axum", "dep:hyper", "dep:sha1"]
+websocket = ["server", "dep:hyper", "dep:sha1"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
@@ -118,4 +118,4 @@ required-features = ["server"]
 [[test]]
 name = "upgrade_lifecycle"
 path = "tests/upgrade/lifecycle.rs"
-required-features = ["websocket"]
+required-features = ["websocket", "axum"]

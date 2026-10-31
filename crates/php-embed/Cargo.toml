@@ -29,7 +29,6 @@ default = ["opcache-intercept"]
 apcu-intercept = []
 opcache-intercept = []
 metrics = ["claviron-runtime/metrics", "orbitive/metrics"]
-axum = ["dep:axum", "claviron-http/axum"]
 tasks = ["dep:claviron-tasks"]
 cache = ["dep:claviron-cache"]
 auth = ["dep:claviron-auth", "dep:uuid"]
@@ -82,9 +81,6 @@ serde_yaml.workspace = true
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
-
-# ── Web framework (axum + tower) ────────────────────────────────────────
-axum = { workspace = true, optional = true }
 
 # ── PHP / FFI ───────────────────────────────────────────────────────────
 # Embedded PHP lifecycle, Zend value conversion and native registrations.

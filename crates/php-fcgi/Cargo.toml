@@ -15,14 +15,13 @@ categories = ["web-programming::http-server", "network-programming", "asynchrono
 
 [features]
 default = []
-axum = ["dep:axum"]
 metrics = ["claviron-runtime/metrics", "dep:serde_json", "orbitive/metrics"]
 tasks = ["dep:claviron-tasks", "dep:futures"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-helpers.workspace = true
-claviron-http = { workspace = true, features = ["axum", "server"] }
+claviron-http = { workspace = true, features = ["server"] }
 claviron-orbit.workspace = true
 claviron-php = { workspace = true, features = ["php_fcgi"] }
 claviron-runtime.workspace = true
@@ -44,9 +43,6 @@ serde_json = { workspace = true, optional = true }
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
-
-# ── Web framework (axum + tower) ────────────────────────────────────────
-axum = { workspace = true, optional = true }
 
 # ── PHP / FFI ───────────────────────────────────────────────────────────
 # FastCGI wire requests, response streams and persistent backend connections.

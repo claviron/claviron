@@ -1,5 +1,5 @@
 //! Axum-free upstream dispatch with prepared file and tunnel policy.
-//! The merged-router adapter lives under `merged/routing/upstream`.
+//! Configured pipeline dispatch lives under `pipeline/upstream`.
 //! The upstream itself — pools, balancing, health — is
 //! `claviron-upstream`, which knows nothing of hosts.
 

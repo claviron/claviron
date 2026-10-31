@@ -48,8 +48,6 @@ pub use manager::{
 pub use metrics::PhpEmbedMetricsConfig;
 pub use routing::adapter::application::PhpApplicationAdapter;
 pub use routing::adapter::script::PhpScriptAdapter;
-#[cfg(feature = "axum")]
-pub use routing::bindings::{build_application_router, build_script_router};
 pub use service::{
     PhpApplicationHandle, PhpApplicationLifecycle, PhpApplicationService,
     PhpApplicationStatus, PhpEmbedRuntime, PhpEmbedRuntimeBuilder,

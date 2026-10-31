@@ -2,8 +2,8 @@
 //!
 //! The crate owns the outbound upstream pool contract: admission, lifecycle,
 //! dirty-drop safety, generation, and availability metrics. It does not own transport
-//! listeners or vhost resolution. The optional `axum` feature exposes the
-//! merged-router binding consumed by `claviron-edge`.
+//! listeners, vhost resolution or router bindings. Edge calls the native
+//! request boundary with its prepared application and transport policy.
 
 // What a consumer never names: the compiler that turns the file into
 // profiles, the process-local slot state, and the health machinery that keeps

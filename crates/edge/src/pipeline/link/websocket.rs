@@ -2,7 +2,8 @@
 
 use std::future::Future;
 
-use axum::response::{IntoResponse, Response};
+use claviron_http::{RouteResponse, empty_body, err_status};
+use http::Response;
 use claviron_orbit::transport::client::{LentRead, LentWrite};
 use claviron_orbit::transport::{
     ExchangeReply, Message, MessageReader, write_message,
@@ -162,7 +163,7 @@ pub(super) fn accept_websocket(
     upgrade: Upgrade,
     mut to_application: Input,
     from_application: LentRead,
-) -> Response {
+) -> RouteResponse {
     let (Some(on_upgrade), Some(sessions)) =
         (upgrade.on_upgrade, upgrade.sessions)
     else {
@@ -171,7 +172,7 @@ pub(super) fn accept_websocket(
             "accepted a WebSocket this connection cannot upgrade"
         );
         to_application.reset();
-        return StatusCode::BAD_REQUEST.into_response();
+        return err_status(StatusCode::BAD_REQUEST);
     };
     let response = upgrade.handshake.response(&head.headers);
     let shutdown = sessions.clone();
@@ -205,11 +206,11 @@ pub(super) fn accept_websocket(
             correlation,
             "WebSocket session was not started: {error}"
         );
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        return err_status(StatusCode::SERVICE_UNAVAILABLE);
     }
-    response.body(axum::body::Body::empty()).unwrap_or_else(|error| {
+    response.body(empty_body()).unwrap_or_else(|error| {
         tracing::debug!(correlation, "101 could not be built: {error}");
-        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        err_status(StatusCode::INTERNAL_SERVER_ERROR)
     })
 }
 

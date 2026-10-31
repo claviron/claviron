@@ -160,6 +160,121 @@ native oneshot. Application selection happens before those futures are built,
 and the host execution boundary still owns capacity, head timing and accounting.
 This step does not replace host registration, merged routing or engine adapters.
 
+`Routable::application` now prepares the native Rust contribution through the
+existing host registry. It returns an `ApplicationInterceptor`; no parallel
+exclusive route registry is introduced. The contribution is compiled once per
+changed host alongside the existing route/upgrade capabilities, and remains
+pinned with that host's application publication.
+
+`ApplicationStage<H>` visits only those contributions before its configured
+owner. An `InterceptRequest` exposes the parsed head but keeps its original body
+private. `Unhandled` carries that same capability onward. Claiming the body
+consumes it through `into_request`, after which it cannot be reconstructed for
+fallthrough. A handled 404 or other error remains a handled response. No body
+buffer, replay, decode, lock, timer or task is introduced by this handoff.
+
+Absent contributions keep the original direct owner at preparation. Active
+heterogeneous contributions have an explicit erased-future boundary; the outer
+pipeline future stays concrete until its existing application adapter boundary.
+The combined Rust/backend call keeps Edge's declared whole-head deadline;
+backend-specific narrowed deadlines remain with their execution owner.
+
+The current compatibility compiler installs this stage inside the selected route's policy
+scope. Existing Rust Axum routes retain precedence; their delegation handle
+reaches the native stage and then the configured owner without re-entering those
+Rust routes. A rejected entry uses the original backend fallback and never runs
+the rejected native contribution. The compatibility bridge only adapts body
+types and is absent when neither native contributions nor file steps exist.
+The remaining host compiler still supplies an Axum application adapter.
+Its backend steps are native; they no longer have separate Axum bindings.
+Removing that outer compiler is subsequent work. Axum's target
+boundary is the Rust Application itself. Once it yields, Static, TryFiles and
+the Embed, upstream or Link backend are native pipeline owners, not Axum
+middleware or routers. The pipeline calls the SHM application transport Link;
+existing Orbit configuration and transport APIs retain their names.
+
+Configured file dispatch prepares **Routable → Static → TryFiles → backend**.
+Static and TryFiles are separate asynchronous steps using `claviron-files`,
+never implementations of cache, traversal checks or file delivery in Edge.
+Each static mount prepares its URL/disk mapping once. A selected route supplies
+only its own steps; disabled declarations produce no step. Missing files obey
+`none_found`, and dynamic extensions yield without disk work. Each miss returns
+the original `Request<RouteBody>`; no request body is polled or collected.
+
+The residual backend file view omits both Static and TryFiles, retaining only
+directory-index/SPA fallback. The automatic upstream binding shares a prepared
+scope table with that fallback and preserves empty child scopes. Direct public
+`UpstreamBypass` callers keep their explicit file composition. The migration
+adapter invokes native backend steps through one shared application bridge;
+engines and transport backends do not supply Axum builders.
+
+The local runtime category is named Embed. `pipeline/embed` owns its native
+backend adapters; it is not an Axum application category. Lua is the first
+migrated backend. Its prepared mounts preserve segment boundaries, specificity
+and the former equal-prefix precedence. Only a nonmatching mount yields the
+unchanged request; a matching unavailable application owns its 503 response.
+`LuaApplicationAdapter` retains the existing live generation, policy and execution
+path. Lua no longer provides an Axum feature or router binding. HTTP/1 WebSocket
+handshake/admission belongs to Edge; the engine receives the upgraded transport.
+The existing compiler still bridges
+the native Lua stage at its former position so other backend precedence is
+unchanged while their migration proceeds. It no longer calls Lua's Axum builder.
+
+PHP is the next native Embed backend. pipeline/embed/php.rs prepares mounts
+from resolved PhpRuntime values; its only runner match is at preparation.
+Script, Application and FCGI each own a separate request future. Application
+execution therefore carries no script resolver, filesystem probe or Script
+future state. It retains PhpApplicationHandle's live generation semantics and
+always owns a matched response, including unavailability. Script and FCGI use
+consuming native try_handle calls whose Unhandled contract returns the original
+unread request. Native DispatchStep owners pass Request<RouteBody> directly;
+only Rust application interception uses InterceptRequest. A backend does not
+construct or restore an interception capability. Dropping the call retains the engine's existing cancellation path.
+
+The PHP contract, embed and FCGI crates no longer contain an Axum feature,
+dependency or binding. The current host compiler temporarily bridges the native
+PHP owner at its former position, as for Lua. Upstream and Link also use native
+DispatchStep owners through the same bridge. Existing script/application engine capacity, INI, environment and
+lifecycle contracts are unchanged.
+
+UpstreamStage selects the existing live UpstreamApp profile, then transfers
+Request<RouteBody> directly to call_upstream_service. Explicit/root selection,
+request forwarding, response lease ownership and profile retirement remain with
+Upstream. Static and TryFiles are not repeated inside this stage. A selected
+upstream with no matching service retains its final 404 rather than entering
+another backend. The separately exposed UpstreamBypass retains its file-first
+composition contract.
+
+LinkBackend prepares destination targets and segment-safe mounts at boot/reload.
+It retains specificity and equal-prefix precedence. An unmatched mount returns
+the untouched request synchronously; an unavailable matched target owns its 503.
+Exchange metadata retains the existing Link wire encoding; body chunks are not
+JSON-decoded or routed through an Axum Body. The response is a native StreamBody
+bounded by the existing Link window. Body delivery policy can still request
+buffering explicitly.
+
+A nonempty upload keeps its existing independently driven task and backpressure.
+The pending head owns its abort-on-drop handle, then transfers it into the
+response body. Cancellation, head failure, body drop, EOF or response error
+releases that owner; an unfinished upload resets its own input direction.
+Empty requests create neither an upload task nor its response wrapper. Native
+WebSocket session handoff and WebTransport streams retain their existing owners
+and shutdown signals. No retry, deadline, polling or SHM ABI change is added.
+
+When declared, WebSocket is the first dispatch step before Rust applications.
+Its preparation requires a registered exact path, permission for HTTP/1 and an
+enabled H1 handshake in the host transport policy. Otherwise no WebSocket step
+is installed. Preparation captures an immutable host endpoint map, so ordinary
+requests require neither a registry lock nor an allocated future for a miss.
+The protocol boundary owns acceptance and listener session hand-off independently
+of Axum. Required security/admission/CORS precede it; response actions still
+finish the handshake response before it is sent.
+
+Native built-ins use `DispatchStep`, distinct from `ApplicationInterceptor`.
+`DispatchFuture` keeps synchronous decisions inline and erases only asynchronous
+work. `Unhandled` transfers the same Request<RouteBody>, without body polling,
+collection or decoding. Cancellation drops the currently owned request/future.
+
 Native execution now lives in `pipeline::host`: `HostPolicy` prepares the
 immutable binding and `HostExecution` owns one ordinary exchange. `HostService`
 still selects/adapts the admitted application for the transport. It returns the
@@ -221,6 +336,7 @@ always faster or should replace routing everywhere.
 - [Prepared admission timing](../../crates/edge/src/pipeline/host/admission.rs).
 - [Access-record layer](../../crates/edge/src/pipeline/host/access_log.rs).
 - [Typed application call](../../crates/edge/src/pipeline/host/application.rs).
+- [Native application interception](../../crates/edge/src/pipeline/host/intercept.rs).
 - [Native host execution](../../crates/edge/src/pipeline/host/execution.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 

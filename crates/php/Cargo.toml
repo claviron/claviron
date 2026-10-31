@@ -15,7 +15,6 @@ categories = ["web-programming::http-server", "config", "asynchronous"]
 
 [features]
 default = []
-axum = ["dep:axum"]
 php_embed = []
 php_fcgi = []
 
@@ -31,9 +30,6 @@ serde.workspace = true
 
 # ── HTTP core ───────────────────────────────────────────────────────────
 http.workspace = true
-
-# ── Web framework (axum + tower) ────────────────────────────────────────
-axum = { workspace = true, optional = true }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 tracing.workspace = true

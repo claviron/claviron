@@ -34,11 +34,7 @@ axum = [
     "dep:tower-http",
     "claviron-http/routing",
     "claviron-files/axum",
-    "claviron-php?/axum",
-    "claviron-php-embed?/axum",
-    "claviron-php-fcgi?/axum",
     "claviron-pusher?/axum",
-    "claviron-upstream?/axum",
 ]
 upstream = ["server", "dep:claviron-upstream"]
 # One access record per request, to the log channel logging.yaml names.
@@ -56,17 +52,15 @@ broadcast = ["server", "dep:claviron-pusher", "websocket", "dep:claviron-broadca
 php = ["dep:claviron-php"]
 php_fcgi = ["server", "php", "dep:claviron-php-fcgi", "claviron-php?/php_fcgi"]
 php_embed = ["server", "php", "dep:claviron-php-embed", "claviron-php?/php_embed"]
-# A JS host is a router host; there is no bypass shape for it.
-lua = ["server", "axum", "dep:claviron-lua", "claviron-lua/axum"]
-# Reaching an application process over Orbit shared memory. A router host too:
-# the route is a prefix layer like PHP's and JavaScript's, and what differs is
-# only where the application is.
+# The host compiler remains an Axum adapter during migration; Lua dispatch is native.
+lua = ["server", "axum", "dep:claviron-lua", "claviron-http/lua"]
+# Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
     "claviron-http/orbit",
     "server",
-    "axum",
     "dep:claviron-orbit",
     "dep:http-body-util",
+    "dep:http-body",
     "dep:percent-encoding",
     "dep:tokio-util",
     # Edge owns the upgrade and protocol; Link carries whole messages.
@@ -125,7 +119,7 @@ async-trait.workspace = true
 futures-util = { workspace = true, optional = true }
 pin-project-lite = { workspace = true, optional = true }
 tokio.workspace = true
-tokio-util = { workspace = true, optional = true }
+tokio-util = { workspace = true, features = ["rt"], optional = true }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true

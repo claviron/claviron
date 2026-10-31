@@ -101,7 +101,7 @@ fn reject_spa_ajax() -> RouteResponse {
 /// One mount already selected by the caller's routing table. The request URI
 /// is unchanged: prefix removal, decoding and traversal protection stay here.
 pub struct StaticMount {
-    root: PathBuf,
+    mapping: claviron_http::config::mapping::RouteMapping,
     config: StaticConfig,
 }
 
@@ -110,15 +110,18 @@ impl StaticMount {
         root: PathBuf,
         config: StaticConfig,
     ) -> Self {
-        Self { root, config }
+        let mapping = claviron_http::config::mapping::RouteMapping::new(
+            config.path.clone(), root.join(&config.dir),
+        );
+        Self { mapping, config }
     }
 
     pub async fn try_handle(
         &self,
         req: RequestContext<'_>,
     ) -> ServiceResult<RouteResponse> {
-        match serve_static(
-            &self.root,
+        match serve_prepared_static(
+            &self.mapping,
             req.uri.path(),
             &self.config,
             req.headers,
@@ -271,6 +274,15 @@ async fn serve_static(
         config.path.clone(),
         root.join(&config.dir),
     );
+    serve_prepared_static(&mapping, req_path, config, headers).await
+}
+
+async fn serve_prepared_static(
+    mapping: &claviron_http::config::mapping::RouteMapping,
+    req_path: &str,
+    config: &StaticConfig,
+    headers: &HeaderMap,
+) -> Option<RouteResponse> {
     let rel = mapping.relative_path(req_path)?;
 
     if rel.is_empty() {

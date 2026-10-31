@@ -1,13 +1,8 @@
 use claviron_runtime::AppState;
 
-// Axum middleware adapter for the "intercept-after-rust-routes" mode.
-// The upstream middleware (vhost or other) is responsible for picking the
-// matching `PhpRuntime` and inserting it as `Extension<Arc<PhpRuntime>>`
-// before this handler runs — this crate stays HostConfig-free.
+// Native adapters consume a caller-selected runtime; the engine stays host-free.
 pub mod adapter;
 mod balancer;
-#[cfg(feature = "axum")]
-mod bindings;
 pub mod config;
 pub(crate) mod connection;
 pub(crate) mod error;
@@ -22,8 +17,7 @@ pub mod service;
 mod tasks;
 
 pub use adapter::PhpFpmAdapter;
-#[cfg(feature = "axum")]
-pub use bindings::build_fcgi_router;
+pub use error::GatewayError;
 pub use service::PhpFcgiService;
 
 pub fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {

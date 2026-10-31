@@ -42,7 +42,7 @@ struct Handler {
 impl H1UpgradeHandler for Handler {
     fn is_upgrade(
         &self,
-        request: &Request<Body>,
+        request: &Request<claviron_http::RouteBody>,
     ) -> bool {
         is_h1_header_upgrade(request, "websocket")
     }

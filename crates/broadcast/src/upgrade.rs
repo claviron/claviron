@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use axum::body::Body;
+use claviron_http::RouteBody;
 use claviron_http::upgrade::{
     H1UpgradeAccept, H1UpgradeContext, H1UpgradeHandler, H1UpgradeReject,
     H1UpgradeResult, H1UpgradeState, is_h1_header_upgrade,
@@ -31,7 +31,7 @@ impl H1UpgradeHandler for BroadcastUpgradeHandler {
 
     fn is_upgrade(
         &self,
-        request: &Request<Body>,
+        request: &Request<RouteBody>,
     ) -> bool {
         is_h1_header_upgrade(request, "websocket")
     }

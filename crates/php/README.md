@@ -66,9 +66,9 @@ use the front controller, while dotted non-PHP paths need explicit
 `entry_extensions` when falling back after a static miss. Missing assets should
 not become PHP pages accidentally.
 
-The optional `routing` module, enabled by the implementation's `axum` feature,
-composes resolved mounts with a caller-supplied backend builder. It constructs
-routers during composition, not per request, and contains no execution engine.
+Edge prepares native PHP mounts under `pipeline::embed::php`. It selects the
+runner at boot/reload; each runner owns its call independently. This shared
+contract crate contains no router binding or Axum dependency.
 
 ## HTTP policy and trusted metadata
 

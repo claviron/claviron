@@ -30,6 +30,10 @@
 //! With `access-log`, `AccessLogLayer` retains the producer/host declaration
 //! while channel selection and each record's lifetime remain request-local.
 //! [`ApplicationHandler`] owns the terminal call with a concrete future.
+//! With `websocket`, `WebSocketStage` precedes applications only when H1 and
+//! its handshake are allowed and exact endpoints were prepared for that host.
+//! [`StaticStage`] and [`TryFilesStage`] prepare distinct native file steps
+//! after Rust interception. Their misses retain the unread body capability.
 //! Native execution composes the prepared policies around that call;
 //! `HostService` remains the admission/transport handoff and owner selector.
 
@@ -48,30 +52,59 @@ mod admission;
 mod application;
 mod binding;
 mod builder;
+mod dispatch;
 mod exchange;
 mod execution;
+mod files;
 mod identity;
+mod intercept;
 pub(crate) mod ingress;
 #[cfg(feature = "rate-limit")]
 mod quota;
 mod reply;
 mod state;
+#[cfg(feature = "websocket")]
+mod websocket;
 
 pub use access::{AccessPolicy, AccessState};
 #[cfg(feature = "access-log")]
 pub use access_log::{AccessLogLayer, AccessLogState};
 pub use admission::AdmissionPolicy;
 pub use application::ApplicationHandler;
+pub use dispatch::{DispatchChain, DispatchFuture, DispatchResult, DispatchStep};
+pub(crate) use dispatch::compose_dispatch_bypass;
+#[cfg(feature = "axum")]
+pub(crate) use dispatch::{compose_dispatch_router, dispatch_router};
 pub(crate) use binding::HostPolicy;
 pub use exchange::{ExchangeLayer, ExchangeState};
 pub(crate) use execution::HostExecution;
+pub use files::{StaticStage, TryFilesStage};
+#[cfg(feature = "axum")]
+pub(crate) use files::compose_configured_router;
+#[cfg(feature = "axum")]
+pub(crate) use files::fallback_config;
+#[cfg(feature = "upstream")]
+pub(crate) use files::prepare_upstream_files;
 pub use identity::{IdentityPolicy, IdentityState};
+pub use intercept::{
+    ApplicationInterceptor, ApplicationStage, InterceptFuture,
+    InterceptRequest, InterceptResult,
+};
+pub(crate) use intercept::compose_bypass;
+#[cfg(feature = "axum")]
+pub(crate) use intercept::compose_router;
 pub use ingress::{IngressPolicy, IngressState};
 #[cfg(feature = "rate-limit")]
 pub use quota::{QuotaPolicy, QuotaState};
 pub use reply::ReplyPolicy;
 pub use state::HostRequestState;
 pub(crate) use state::IdentifiedRequest;
+#[cfg(feature = "websocket")]
+pub use websocket::WebSocketStage;
+#[cfg(feature = "websocket")]
+pub(crate) use websocket::compose_websocket_bypass;
+#[cfg(all(feature = "websocket", feature = "axum"))]
+pub(crate) use websocket::compose_websocket_router;
 mod request;
 mod response;
 

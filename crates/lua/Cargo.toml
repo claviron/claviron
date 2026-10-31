@@ -38,11 +38,9 @@ log = ["dep:claviron-logging", "claviron-logging/pipeline"]
 fetch = ["dep:reqwest", "server"]
 # Applications: `lua.yaml`'s `applications:`, loaded once per worker.
 app = ["server", "dep:bytes", "dep:claviron-app", "dep:claviron-helpers", "dep:claviron-http", "dep:http", "dep:http-body", "dep:http-body-util"]
-# Optional Axum mounting over the application's raw HTTP handler.
-axum = ["app", "dep:axum", "claviron-http/axum", "claviron-http/lua"]
 # WebSockets for applications: `websocket:` on a `lua:` route, over an
 # HTTP/1.1 Upgrade or an HTTP/2 extended CONNECT.
-websocket = ["axum", "claviron-http/websocket", "dep:fastwebsockets", "dep:hyper", "dep:hyper-util"]
+websocket = ["app", "dep:fastwebsockets", "dep:hyper", "dep:hyper-util"]
 # Reliable WebTransport streams reuse the fleet's bounded message codec.
 webtransport = ["app", "dep:claviron-orbit", "dep:futures-util"]
 # Shared SQL dependencies; adapters require `postgres`, `mysql` or `sqlite`.
@@ -89,9 +87,6 @@ hyper-util = { workspace = true, optional = true }
 matchit = "0.9"
 # Outbound claviron.fetch requests under the configured host policy.
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "http2"], optional = true }
-
-# ── Web framework (axum + tower) ────────────────────────────────────────
-axum = { workspace = true, optional = true }
 
 # ── PHP / FFI ───────────────────────────────────────────────────────────
 # Pinned by minor: every minor release so far has changed the API. `vendored`

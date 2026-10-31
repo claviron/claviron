@@ -20,88 +20,40 @@ pub(crate) fn prepare(
     // stacked on top — axum 0.8 only wraps a fallback with `.layer()`
     // when the fallback was already present at the time the layer is added.
     //
-    // Layer order (request flow = outermost → innermost):
-    //   1. Explicit static mounts (when configured)
-    //   2. PHP gateway
-    //   3. General file handler / fallback (404)
+    // The caller composes Routable → Static → TryFiles ahead of this owner.
+    // Only directory-index/SPA fallback remains behind script/backend owners.
     //
     use axum::Extension;
-    let mut files = host_cfg.files.clone();
-    files.root = host_cfg.root();
-    // Explicit route normalization permits one owner. Only that shape has
-    // already selected its static mount; legacy flat/runner mounts still scan.
-    let selected_mount = if host_cfg.selected_static {
-        files
-            .statics
-            .as_ref()
-            .filter(|mounts| mounts.len() == 1)
-            .map(|mounts| mounts[0].clone())
-    } else {
-        None
-    };
-    if selected_mount.is_some() {
-        // A mount miss continues to index/try_files/SPA, not a second probe of
-        // the same mount in the general fallback.
-        files.statics = None;
-    }
-    let files = Arc::new(files);
+    let files = Arc::new(crate::pipeline::host::fallback_config(&host_cfg));
     let router =
         claviron_files::routing::build_router(state.clone(), files.clone())
             .layer(Extension(host_cfg.clone()));
 
+    // Native steps retain the former backend precedence. The host compiler
+    // supplies one generic application bridge, never a backend-specific Axum
+    // binding, body conversion, middleware or request extension.
+    let steps = std::iter::empty::<Arc<dyn crate::pipeline::host::DispatchStep>>();
+    #[cfg(feature = "orbit")]
+    let steps = steps.chain(crate::pipeline::link::LinkBackend::new(&state, host_cfg.orbit())
+        .map(|backend| Arc::new(backend) as Arc<dyn crate::pipeline::host::DispatchStep>));
+    #[cfg(feature = "lua")]
+    let steps = steps.chain(crate::pipeline::embed::lua::LuaBackend::new(
+        state.registry_ref().resolve::<claviron_lua::serve::LuaApplications>(),
+        host_cfg.lua(),
+    ).map(|backend| Arc::new(backend) as Arc<dyn crate::pipeline::host::DispatchStep>));
+    #[cfg(any(feature = "php_embed", feature = "php_fcgi"))]
+    let steps = steps.chain(crate::pipeline::embed::php::PhpBackend::new(
+        &state, host_cfg.build_runtimes(&state),
+    ).map(|backend| Arc::new(backend) as Arc<dyn crate::pipeline::host::DispatchStep>));
     #[cfg(feature = "upstream")]
-    let router = super::upstream::prepare(
-        router,
-        &state,
-        _host_key,
-        host_cfg.upstream.as_ref(),
-        files.clone(),
+    let steps = steps.chain(crate::pipeline::upstream::UpstreamStage::prepare(
+        &state, _host_key, host_cfg.upstream.as_ref(),
         claviron_upstream::proxy::service::UpstreamRequestPolicy {
             allow_h1_upgrade: host_cfg.transport.h1.upgrade,
             allow_connect_protocol: host_cfg.transport.h2.connect_protocol,
         },
-    );
-
-    #[cfg(any(feature = "php_embed", feature = "php_fcgi"))]
-    let router = claviron_php::routing::build_router(
-        router,
-        &state,
-        host_cfg.build_runtimes(&state),
-        |router, state, runtime| match runtime.php_runner {
-            #[cfg(feature = "php_fcgi")]
-            claviron_php::PhpRunner::Fcgi => {
-                claviron_php_fcgi::build_fcgi_router(router, state, runtime)
-            }
-            #[cfg(feature = "php_embed")]
-            claviron_php::PhpRunner::Script => {
-                claviron_php_embed::build_script_router(router, state, runtime)
-            }
-            #[cfg(feature = "php_embed")]
-            claviron_php::PhpRunner::Application => {
-                claviron_php_embed::build_application_router(
-                    router, state, runtime,
-                )
-            }
-        },
-    );
-
-    #[cfg(feature = "lua")]
-    let router =
-        claviron_lua::routing::build_router(router, &state, host_cfg.lua());
-
-    #[cfg(feature = "orbit")]
-    let router = super::orbit::prepare(router, &state, host_cfg.orbit());
-
-    // Explicit static mounts retain ownership even when an application claims
-    // `/`. Do not promote general try_files/SPA/index probing ahead of PHP.
-    let router = match selected_mount {
-        Some(mount) => claviron_files::routing::mount_selected(
-            router,
-            files.root.clone(),
-            mount,
-        ),
-        None => claviron_files::routing::mount(router, files),
-    };
+    ).map(|backend| Arc::new(backend) as Arc<dyn crate::pipeline::host::DispatchStep>));
+    let router = crate::pipeline::host::compose_dispatch_router(router, steps.collect(), &[]);
 
     // The fleet target publishes directly into the worker-local Broadcast
     // service. WebSocket upgrade routes are compiled separately, but REST

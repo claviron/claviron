@@ -16,7 +16,6 @@ categories = ["web-programming::http-server", "web-programming::http-client", "n
 [features]
 default = []
 
-axum = ["dep:axum"]
 metrics = ["claviron-runtime/metrics", "orbitive/metrics"]
 
 [dependencies]
@@ -53,9 +52,6 @@ http-body.workspace = true
 hyper.workspace = true
 # Only protocol connections and Tokio adapters; no client-legacy pooling (I20).
 hyper-util.workspace = true
-
-# ── Web framework (axum + tower) ────────────────────────────────────────
-axum = { workspace = true, optional = true }
 
 # ── TLS / certificates ──────────────────────────────────────────────────
 rustls.workspace = true

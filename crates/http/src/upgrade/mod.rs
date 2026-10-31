@@ -13,11 +13,9 @@ use std::sync::{Arc, RwLock};
 use crate::ext::ConnCtx;
 use crate::session::SessionSpawner;
 use async_trait::async_trait;
-use axum::body::Body;
-use axum::extract::State;
-use axum::middleware::Next;
-use axum::response::{IntoResponse, Response};
-use bytes::Bytes;
+#[cfg(feature = "axum")]
+use axum::{body::Body, extract::State, middleware::Next};
+use crate::{RouteBody, RouteResponse, ServiceResult, bytes_body, empty_body, err_status};
 use claviron_runtime::AppState;
 use claviron_runtime::registry::{Error, Result};
 use claviron_types::Host;
@@ -32,7 +30,7 @@ pub struct H1UpgradeContext {
     pub path: Arc<str>,
     pub uri: Uri,
     pub headers: HeaderMap,
-    /// Policies and identity prepared by the ordinary HTTP middleware.
+    /// Policies and identity prepared by the host pipeline.
     pub extensions: http::Extensions,
     pub conn: Arc<ConnCtx>,
     /// Listener-owned session capability and cooperative graceful-close signal.
@@ -82,7 +80,7 @@ pub trait H1UpgradeHandler: Send + Sync + 'static {
 
     fn is_upgrade(
         &self,
-        req: &Request<Body>,
+        req: &Request<RouteBody>,
     ) -> bool;
 
     async fn accept(
@@ -180,15 +178,15 @@ impl H1UpgradeReject {
         Self::new(StatusCode::SERVICE_UNAVAILABLE, Some(body.into()))
     }
 
-    fn into_response(self) -> Response {
+    fn into_response(self) -> RouteResponse {
         match self.body {
             Some(body) => http::Response::builder()
                 .status(self.status)
-                .body(Body::from(body))
+                .body(bytes_body(body.into()))
                 .unwrap_or_else(|_| {
-                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                    err_status(StatusCode::INTERNAL_SERVER_ERROR)
                 }),
-            None => self.status.into_response(),
+            None => err_status(self.status),
         }
     }
 }
@@ -236,6 +234,14 @@ pub struct H1UpgradeRegistry {
 }
 
 impl H1UpgradeRegistry {
+    /// Capture one host's exact endpoints while preparing its connection plan.
+    /// Native dispatch borrows this immutable map without a registry lock.
+    pub fn snapshot_for_host(&self, host: &Host) -> HashMap<Arc<str>, H1UpgradeBinding> {
+        self.routes.read().expect("h1 upgrade registry lock poisoned").iter()
+            .filter(|(key, _)| &key.host == host)
+            .map(|(key, binding)| (key.path.clone(), binding.clone()))
+            .collect()
+    }
     pub fn register_handler_for_host(
         &self,
         host: &str,
@@ -311,6 +317,7 @@ impl H1UpgradeRegistry {
     }
 }
 
+#[cfg(feature = "axum")]
 #[doc(hidden)]
 #[derive(Clone)]
 pub struct H1UpgradeMiddlewareState {
@@ -319,30 +326,45 @@ pub struct H1UpgradeMiddlewareState {
     pub host: Host,
 }
 
+#[cfg(feature = "axum")]
 #[doc(hidden)]
 pub async fn h1_upgrade_middleware(
     State(state): State<H1UpgradeMiddlewareState>,
     req: Request<Body>,
     next: Next,
-) -> Response {
+) -> axum::response::Response {
     let Some(binding) = state.registry.resolve(&state.host, req.uri().path())
     else {
         return next.run(req).await;
     };
 
+    match try_h1_upgrade(state.app_state, state.host, binding, req.map(crate::boxed_body)).await {
+        ServiceResult::Handled(response) => crate::into_axum_response(response),
+        ServiceResult::Unhandled(request) => next.run(request.map(Body::new)).await,
+    }
+}
+
+/// Admit one already-selected HTTP/1 endpoint and transfer its session to the
+/// listener owner. Unhandled retains the original body; no router is involved.
+pub async fn try_h1_upgrade(
+    app_state: AppState,
+    host: Host,
+    binding: H1UpgradeBinding,
+    req: Request<RouteBody>,
+) -> ServiceResult<RouteResponse, Request<RouteBody>> {
     let H1UpgradeBinding::Handler(handler) = binding;
     if !handler.is_upgrade(&req) {
-        return next.run(req).await;
+        return ServiceResult::Unhandled(req);
     }
 
     let Some(conn) = req.extensions().get::<Arc<ConnCtx>>().cloned() else {
         error!(
-            host = %state.host,
+            host = %host,
             path = %req.uri().path(),
             handler = handler.name(),
             "H1 upgrade request missing connection context"
         );
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        return ServiceResult::Handled(err_status(StatusCode::INTERNAL_SERVER_ERROR));
     };
 
     let Some(sessions) = req.extensions().get::<SessionSpawner>().cloned()
@@ -351,11 +373,11 @@ pub async fn h1_upgrade_middleware(
             handler = handler.name(),
             "H1 upgrade request missing session owner"
         );
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        return ServiceResult::Handled(err_status(StatusCode::INTERNAL_SERVER_ERROR));
     };
 
     let ctx = H1UpgradeContext {
-        host: state.host,
+        host,
         path: Arc::from(req.uri().path()),
         uri: req.uri().clone(),
         headers: req.headers().clone(),
@@ -364,11 +386,11 @@ pub async fn h1_upgrade_middleware(
         sessions: sessions.clone(),
     };
 
-    let accepted = match handler.accept(&state.app_state, &ctx).await {
+    let accepted = match handler.accept(&app_state, &ctx).await {
         Ok(accepted) => accepted,
         Err(reject) => {
             debug!(handler = handler.name(), "H1 upgrade rejected");
-            return reject.into_response();
+            return ServiceResult::Handled(reject.into_response());
         }
     };
 
@@ -384,7 +406,7 @@ pub async fn h1_upgrade_middleware(
                 // nothing expects a WebSocket to end.
                 let _session = claviron_runtime::activity::ACTIVITY.open_session();
                 if let Err(err) =
-                    handler.handle_upgraded(state.app_state, ctx, accepted_state, upgraded).await
+                    handler.handle_upgraded(app_state, ctx, accepted_state, upgraded).await
                 {
                     error!(handler = handler_name, error = %err, "H1 upgrade handler failed");
                 }
@@ -397,10 +419,10 @@ pub async fn h1_upgrade_middleware(
 
     if let Err(error) = submitted {
         debug!(handler = handler_name, %error, "H1 session hand-off rejected");
-        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        return ServiceResult::Handled(err_status(StatusCode::SERVICE_UNAVAILABLE));
     }
 
-    response
+    ServiceResult::Handled(response)
 }
 
 pub fn is_h1_header_upgrade<B>(
@@ -485,7 +507,7 @@ fn normalize_upgrade_path(path: Arc<str>) -> Result<Arc<str>> {
     }
 }
 
-fn switching_protocols_response(headers: HeaderMap) -> Response {
+fn switching_protocols_response(headers: HeaderMap) -> RouteResponse {
     let mut builder = http::Response::builder()
         .status(StatusCode::SWITCHING_PROTOCOLS)
         .header(http::header::UPGRADE, "websocket")
@@ -498,8 +520,8 @@ fn switching_protocols_response(headers: HeaderMap) -> Response {
     }
 
     builder
-        .body(Body::from(Bytes::new()))
-        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        .body(empty_body())
+        .unwrap_or_else(|_| err_status(StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 #[cfg(test)]

@@ -27,6 +27,9 @@ use claviron_runtime::{AppState, RunContext, ServiceStartPolicy};
 
 use crate::app::{ApplicationConfig, LuaApplication};
 
+mod adapter;
+pub use adapter::LuaApplicationAdapter;
+
 /// The host provides Olua's module contract, not an arbitrary Lua framework.
 fn discover_frameworks() -> Vec<String> {
     vec!["Olua".to_owned()]

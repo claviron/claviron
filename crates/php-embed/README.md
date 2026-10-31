@@ -72,6 +72,13 @@ supported.
 controllers expose those owners through the common application manager instead
 of copying their live state.
 
+HTTP entry is native: `PhpScriptAdapter` resolves request-scoped scripts;
+`PhpApplicationAdapter` calls a named persistent application's prepared handle.
+`PhpScriptAdapter::try_handle` consumes a handle clone and returns the original
+unread request when resolution yields `Unhandled`. The terminal `handle` API
+retains its 404-on-miss behavior. Neither adapter creates an Axum router or
+middleware layer. Host mount selection belongs to Edge's `pipeline::embed::php`.
+
 ## Configuration and capacity
 
 The startup document separates `engine` INI settings, `lifecycle` policy, `sapi`

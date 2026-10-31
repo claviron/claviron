@@ -6,7 +6,7 @@
 //! binding. The `tcp` and `quic` modules retain separate HTTP/1.1, HTTP/2,
 //! and HTTP/3 wire mechanics and connection ownership.
 
-// The Axum upstream handler proves Send through nested native Hyper futures.
+// Native upstream dispatch proves Send through nested Hyper futures.
 // Match upstream's finite proof depth without boxing the request path.
 #![recursion_limit = "256"]
 
@@ -188,7 +188,7 @@ pub fn register_hosts(
 /// The provider is inserted into the normal runtime registry so its lifecycle
 /// hooks run like any other provider. The same `Arc` is also added to the
 /// `HostAppRegistry`, which is only consulted while building a host snapshot.
-#[cfg(all(feature = "server", feature = "axum"))]
+#[cfg(feature = "server")]
 pub fn register_routable<R>(
     state: &AppState,
     provider: Arc<R>,
@@ -246,8 +246,10 @@ pub use pipeline::{
     WebTransportBinding, WebTransportHandler, WebTransportRegistry,
     WebTransportReject, WebTransportResult, webtransport_session_ended,
 };
+#[cfg(feature = "server")]
+pub use pipeline::Routable;
 #[cfg(all(feature = "server", feature = "axum"))]
-pub use pipeline::{Routable, RouteLayerContext};
+pub use pipeline::RouteLayerContext;
 
 #[cfg(feature = "quic")]
 pub mod quic;

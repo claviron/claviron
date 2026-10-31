@@ -32,9 +32,11 @@ The supplied request context must include trusted connection/host/client facts
 and an effective `HttpPolicy`. A missing policy is an execution error, not
 unlimited admission.
 
-`PhpFpmAdapter` serves the native bypass path, and `build_fcgi_router` supplies
-the optional Axum binding. Both use the same forwarding implementation.
-Bypassing Axum does not bypass the caller's HTTP admission or host policy.
+`PhpFpmAdapter` is the native entry. Its consuming `try_handle` returns an unread
+request on script-resolution fallthrough; terminal `handle` retains 404 on a
+miss. Edge prepares mount selection separately. The crate has no Axum binding
+or dependency; native entry still requires the caller's HTTP admission and
+host policy.
 
 ## Pool ownership and balancing
 
@@ -106,8 +108,8 @@ TaskService integration rather than owning application scheduling.
 The `metrics` implementation feature exposes client-side FastCGI observations
 and optional FPM status collection. Those are distinct families: a warm client
 connection and an available FPM child are different facts. The other optional
-implementation capabilities are `axum` and `tasks`; facade features compose and
-forward the selected integrations.
+implementation capability is `tasks`; facade features compose and forward the
+selected integrations.
 
 ## Related crates
 

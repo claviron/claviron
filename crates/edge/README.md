@@ -272,6 +272,66 @@ shared service instance with `register_routable`. This connects component
 lifecycle to per-host route construction. It is distinct from the host-free
 `claviron::http::routing::Routable` contract used by single-application routing.
 
+`Routable::application` prepares a native `ApplicationInterceptor` without Axum.
+It receives an `InterceptRequest` whose head can be inspected or changed while
+the body remains private. Return `Unhandled` with that capability to continue;
+consume it with `into_request` when handling the body. A handled error response,
+including 404, does not fall through. Only registered contributions execute,
+in registration order, before the configured owner; absent contributions leave
+the direct owner unchanged. Existing Axum routes and policy hooks keep their
+composition boundaries while the backend compiler is migrated.
+
+Configured dispatch prepares the order **WebSocket → Routable → Static →
+TryFiles → Embed/backend**. The optional WebSocket step requires a registered
+exact endpoint, permission for H1 in `transport.protocols`, and
+`transport.h1.upgrade: true`. It is absent when any requirement is missing.
+Its captured endpoint map requires no request-time registry lock; ordinary
+requests pass their original body onward. Host security, admission and CORS
+precede dispatch; response headers still apply before the handshake is sent.
+
+`StaticStage` and `TryFilesStage` are separate native steps
+using the shared file service. Only declared steps are installed. A static miss
+continues only when its mount permits it; a TryFiles miss passes the same unread
+body to the backend. Directory-index and SPA fallback remain behind backend
+owners. Mount prefixes and disk directories are prepared once, without URI
+rewriting or a second Static/TryFiles probe in the backend fallback.
+
+Embedded runtime backends live under `pipeline::embed`. Lua uses
+`embed::lua::LuaBackend` to select its prepared mount and call the native Lua
+application adapter. A matching unavailable application returns 503; it never
+falls through to another backend. Nonmatching mounts retain the original body.
+The remaining host compiler supplies a temporary invocation bridge, while Lua
+dispatch itself requires no Axum middleware, extractor or `Next`.
+
+`embed::php::PhpBackend` prepares distinct Script, Application and FCGI owners
+from resolved runtimes. Runner selection happens only at boot/reload. A
+persistent application calls its prepared application handle without script
+resolution; a matching unavailable application returns 503. Script/FCGI
+resolution may yield the original unread request. PHP engines and shared
+contracts no longer supply Axum bindings.
+
+`pipeline::upstream::UpstreamStage` selects an upstream profile and calls its
+native request boundary. It retains live profile replacement and the service's
+existing streaming, lease and cancellation behavior. Static/TryFiles belong to
+the preceding host steps; the explicit `UpstreamBypass` file composition remains
+available separately.
+
+`pipeline::link::LinkBackend` prepares segment-safe application mounts and their
+destination handles. A miss returns the original request; a matching unavailable
+destination owns its 503. Upload and response streaming remain concurrent. An
+upload's task owner moves from the pending head to the response body and is
+cancelled when that exchange is dropped or ends. Empty requests create no upload
+task. WebSocket and WebTransport keep their native session owners.
+
+Upstream and Link have no Axum route bindings. The remaining host compiler calls
+native backend steps through one shared application adapter; their dispatch does
+not use Axum bodies, extractors, middleware or per-request registry resolution.
+
+Native backends implement `DispatchStep` with `Request<RouteBody>`, independently
+of Rust application interception. `Unhandled` transfers that same request to
+the next owner; it does not decode or replay the body. Synchronous decisions
+stay inline in `DispatchFuture`; asynchronous steps erase only their own work.
+
 Static files, native routes, embedded applications, FastCGI, HTTP upstreams, and
 Orbit application links are composable capabilities, not interchangeable
 execution engines. Enabling one does not select or configure all the others.

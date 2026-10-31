@@ -63,9 +63,14 @@ return router
 
 Declaring the application does not mount an HTTP path by itself. Edge or another
 HTTP consumer supplies typed Lua route declarations naming that application.
-The `app` implementation surface owns the raw `Request<RouteBody>` handler;
-the optional `axum` surface adds route builders without moving engine ownership
-into Edge.
+The `app` implementation surface owns the raw `Request<RouteBody>` handler.
+Host routing and HTTP upgrade admission belong to the consumer, not the engine.
+
+`serve::LuaApplicationAdapter` is the native entry for a named managed
+application. It retains the prepared service and route policy, acquires the
+current application generation for each call, and forwards `Request<RouteBody>`
+without adapting or collecting its body. Edge's `pipeline::embed::lua::LuaBackend`
+uses this entry directly. Lua has no Axum dependency or router binding.
 
 Requests carry method, path, query, headers, and body-reading methods. Responses
 can be strings or tables with status, headers, and a body; a function-valued body

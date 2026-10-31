@@ -31,8 +31,6 @@ mod packages;
 pub mod process;
 pub mod regex;
 pub mod router;
-#[cfg(feature = "axum")]
-pub mod routing;
 #[cfg(feature = "app")]
 pub mod serve;
 #[cfg(any(feature = "websocket", feature = "webtransport"))]

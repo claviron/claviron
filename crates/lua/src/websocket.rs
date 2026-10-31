@@ -23,21 +23,9 @@ use std::sync::atomic::Ordering;
 use crate::socket::{
     Event, LuaSocket, NEXT_ID, Outbound, Transport, handle_events,
 };
-use async_trait::async_trait;
-use axum::body::Body;
-use claviron_http::upgrade::{
-    H1UpgradeAccept, H1UpgradeContext, H1UpgradeHandler, H1UpgradeReject,
-    H1UpgradeResult, H1UpgradeState, is_h1_header_upgrade,
-    websocket_response_headers,
-};
-use claviron_runtime::AppState;
-use claviron_runtime::registry::{
-    Error as RegistryError, Result as RegistryResult,
-};
 use fastwebsockets::{
     FragmentCollector, Frame, OpCode, Payload, Role, WebSocket,
 };
-use http::Request;
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 use tokio::sync::mpsc;
@@ -67,79 +55,6 @@ pub fn prepare(
     match loaded.socket_handlers(Transport::WebSocket) {
         Ok(Some(_)) => Ok(loaded),
         _ => Err(Refused::NoHandlers(application.to_owned())),
-    }
-}
-
-/// One exact HTTP/1.1 WebSocket route of a Lua application.
-pub struct LuaWebSocketUpgradeHandler {
-    service: Arc<LuaApplications>,
-    application: Arc<str>,
-}
-
-impl LuaWebSocketUpgradeHandler {
-    pub fn new(
-        service: Arc<LuaApplications>,
-        application: impl Into<Arc<str>>,
-    ) -> Self {
-        Self { service, application: application.into() }
-    }
-}
-
-#[async_trait]
-impl H1UpgradeHandler for LuaWebSocketUpgradeHandler {
-    fn name(&self) -> &'static str {
-        "lua_websocket"
-    }
-
-    fn is_upgrade(
-        &self,
-        req: &Request<Body>,
-    ) -> bool {
-        is_h1_header_upgrade(req, "websocket")
-    }
-
-    async fn accept(
-        &self,
-        _state: &AppState,
-        ctx: &H1UpgradeContext,
-    ) -> H1UpgradeResult {
-        let headers = websocket_response_headers(ctx, None)
-            .map_err(|error| H1UpgradeReject::bad_request(error.to_string()))?;
-        let application =
-            prepare(&self.service, &self.application).map_err(|error| {
-                H1UpgradeReject::service_unavailable(error.to_string())
-            })?;
-        Ok(H1UpgradeAccept::with_state(headers, application))
-    }
-
-    async fn handle_upgraded(
-        &self,
-        _state: AppState,
-        ctx: H1UpgradeContext,
-        accepted: Option<H1UpgradeState>,
-        upgraded: Upgraded,
-    ) -> RegistryResult<()> {
-        let application = accepted
-            .ok_or_else(|| {
-                RegistryError::msg("Lua WebSocket application missing")
-            })?
-            .take::<Arc<LuaApplication>>()?;
-        let host = ctx
-            .headers
-            .get(http::header::HOST)
-            .and_then(|value| value.to_str().ok())
-            .map(str::to_owned)
-            .unwrap_or_else(|| ctx.host.to_string());
-        let url = format!("wss://{host}{}", ctx.uri);
-        serve_websocket(
-            upgraded,
-            url,
-            header_pairs(&ctx.headers),
-            application,
-            "HTTP/1.1",
-        )
-        .await;
-        Ok(())
     }
 }
 

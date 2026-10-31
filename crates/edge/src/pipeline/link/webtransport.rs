@@ -322,7 +322,7 @@ where
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/orbit/webtransport.rs"]
+#[path = "../../../tests/pipeline/link/webtransport.rs"]
 mod tests;
 
 /// One bounded buffer per direction. A shutdown stops new reads but finishes
