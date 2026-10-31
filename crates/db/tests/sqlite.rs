@@ -11,37 +11,47 @@ fn entry(
     .expect("valid SQLite profile")
 }
 
+async fn connect_profile(pool: &SqlitePool) -> sqlx::SqliteConnection {
+    // These checks own filesystem I/O, not SQLx's pool acquisition deadline.
+    pool.connect_options()
+        .connect()
+        .await
+        .expect("open configured SQLite connection")
+}
+
 #[tokio::test]
 async fn configcheck_reads_committed_wal_with_reserved_path_characters() {
     let directory = tempfile::tempdir().unwrap();
     let mut settings = entry(std::path::Path::new("fixture.sqlite"), "");
     settings.path = directory.path().join("database #?%.sqlite");
     let writer = build_pool("fixture", &settings, false).unwrap();
-    let mut connection = writer.acquire().await.unwrap();
+    let mut connection = connect_profile(&writer).await;
     sqlx::query("CREATE TABLE saved (value INTEGER NOT NULL)")
-        .execute(&mut *connection)
+        .execute(&mut connection)
         .await
         .unwrap();
     sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-        .execute(&mut *connection)
+        .execute(&mut connection)
         .await
         .unwrap();
     let main_before = std::fs::read(&settings.path).unwrap();
     sqlx::query("INSERT INTO saved VALUES (37)")
-        .execute(&mut *connection)
+        .execute(&mut connection)
         .await
         .unwrap();
     assert_eq!(main_before, std::fs::read(&settings.path).unwrap());
 
     let checking = build_pool("fixture", &settings, true).unwrap();
+    let mut reader = connect_profile(&checking).await;
     let value: i64 = sqlx::query_scalar("SELECT value FROM saved")
-        .fetch_one(&checking)
+        .fetch_one(&mut reader)
         .await
         .unwrap();
     assert_eq!(value, 37, "checking must include the committed WAL");
+    reader.close().await.unwrap();
     checking.close().await;
     assert_eq!(main_before, std::fs::read(&settings.path).unwrap());
-    drop(connection);
+    connection.close().await.unwrap();
     writer.close().await;
 }
 
@@ -51,38 +61,42 @@ async fn mmap_is_applied_to_each_connection_without_changing_persistence() {
     let path = directory.path().join("database.sqlite");
     let settings = entry(&path, "mmap_size: 1 MiB");
     let pool = build_pool("test", &settings, false).unwrap();
-    let mut first = pool.acquire().await.unwrap();
-    let mut second = pool.acquire().await.unwrap();
+    let mut first = connect_profile(&pool).await;
+    let mut second = connect_profile(&pool).await;
     for connection in [&mut first, &mut second] {
         let bytes: i64 = sqlx::query_scalar("PRAGMA mmap_size")
-            .fetch_one(&mut **connection)
+            .fetch_one(connection)
             .await
             .unwrap();
         // SQLite can disable mapping at compile time or on unsupported VFSs.
         assert!(bytes == 0 || bytes == 1024 * 1024);
     }
     sqlx::query("CREATE TABLE saved (value INTEGER)")
-        .execute(&mut *first)
+        .execute(&mut first)
         .await
         .unwrap();
     sqlx::query("INSERT INTO saved VALUES (42)")
-        .execute(&mut *first)
+        .execute(&mut first)
         .await
         .unwrap();
-    drop(first);
-    drop(second);
+    first.close().await.unwrap();
+    second.close().await.unwrap();
     pool.close().await;
 
     let pool =
         build_pool("test", &entry(&path, "mmap_size: 0"), false).unwrap();
-    let bytes: i64 =
-        sqlx::query_scalar("PRAGMA mmap_size").fetch_one(&pool).await.unwrap();
+    let mut reader = connect_profile(&pool).await;
+    let bytes: i64 = sqlx::query_scalar("PRAGMA mmap_size")
+        .fetch_one(&mut reader)
+        .await
+        .unwrap();
     assert_eq!(bytes, 0);
     let value: i64 = sqlx::query_scalar("SELECT value FROM saved")
-        .fetch_one(&pool)
+        .fetch_one(&mut reader)
         .await
         .unwrap();
     assert_eq!(value, 42);
+    reader.close().await.unwrap();
     pool.close().await;
 }
 
