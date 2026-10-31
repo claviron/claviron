@@ -66,6 +66,13 @@ Optional Axum adapter (`axum` feature): `Router` implements `ApplicationHandler`
 response is terminal, including 404. This module also implements Axum extraction
 and rejection for `config::HostConfigExt`.
 
+#### `host/`
+
+- [`identity.rs`](src/pipeline/host/identity.rs) — Prepare shared direct peer
+  identity or request-local identity from a trusted proxy's forwarding headers.
+- [`identity/extensions.rs`](src/pipeline/host/identity/extensions.rs) — Prepare
+  typed metadata and populate each request's independently owned extension map.
+
 ## `tests/`
 
 ### [`provider.rs`](tests/provider.rs)
@@ -83,3 +90,8 @@ and retention of the active snapshot after invalid input. No server boots.
 
 - [`routing.rs`](tests/config/routing.rs) — Route/file normalization, policy
   inheritance, invalid declarations and unavailable backend rejection.
+
+### `pipeline/host/`
+
+- [`identity.rs`](tests/pipeline/host/identity.rs) — Fixed identity reuse, proxy
+  trust and per-request clients, typed metadata and unchanged body ownership.

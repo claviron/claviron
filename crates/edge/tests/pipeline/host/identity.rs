@@ -136,6 +136,40 @@ struct BodyOwner {
     dropped: Arc<AtomicUsize>,
 }
 
+#[test]
+fn direct_identity_without_a_transport_real_ip_is_shared_between_requests() {
+    let accepted = connection(None);
+    let mut empty_headers = proxy("192.0.2.0/24");
+    empty_headers.headers.clear();
+    for policy in [None, Some(proxy("198.51.100.0/24")), Some(empty_headers)] {
+        let pipeline = native_pipeline(
+            &accepted,
+            &host(),
+            &HostIngress { proxy: policy, deny: Arc::new(DenyService::empty()) },
+        );
+        let mut identities = Vec::new();
+        for client in ["203.0.113.1", "203.0.113.2"] {
+            let request = Request::builder()
+                .header("host", "alias.test")
+                .header("x-real-ip", client)
+                .body(())
+                .unwrap();
+            let admitted = pipeline.admit(
+                request,
+                HostRequestState::new(RequestArrival::Established),
+            ).unwrap();
+            assert_eq!(admitted.connection.real_ip, Some(accepted.remote.ip()));
+            assert!(Arc::ptr_eq(
+                &admitted.connection,
+                admitted.head.extensions.get::<Arc<ConnCtx>>().unwrap()
+            ));
+            identities.push(admitted.connection);
+        }
+        assert!(Arc::ptr_eq(&identities[0], &identities[1]));
+    }
+    assert!(accepted.real_ip.is_none());
+}
+
 impl Drop for BodyOwner {
     fn drop(&mut self) {
         self.dropped.fetch_add(1, Ordering::Relaxed);

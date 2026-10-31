@@ -56,6 +56,18 @@ impl IdentityPolicy {
         host: &VhostCtx,
         proxy: Option<ProxyConfig>,
     ) -> Self {
+        let remote = connection.remote.ip();
+        let proxy = proxy.filter(|proxy| {
+            !proxy.headers.is_empty()
+                && proxy.trusted.iter().any(|network| network.contains(&remote))
+        });
+        let connection = if connection.real_ip.is_none() && proxy.is_none() {
+            let mut direct = connection.as_ref().clone();
+            direct.real_ip = Some(remote);
+            Arc::new(direct)
+        } else {
+            connection
+        };
         let extensions = ContextExtensions::new(&connection, host);
         Self { connection, proxy, extensions }
     }
@@ -75,29 +87,17 @@ impl IdentityPolicy {
         }
 
         let remote = connection.remote.ip();
-        match proxy.filter(|proxy| {
-            !proxy.headers.is_empty()
-                && proxy.trusted.iter().any(|network| network.contains(&remote))
-        }) {
-            Some(proxy) => register_dynamic(
-                layer,
-                connection,
-                extensions,
-                move |headers| {
-                    // Keep header precedence and right-to-left trusted-hop parsing
-                    // in HTTP's shared resolver. The client identity is never cached.
-                    resolve_real_ip_from_headers(
-                        headers,
-                        remote,
-                        &proxy.trusted,
-                        &proxy.headers,
-                    )
-                },
-            ),
-            None => {
-                register_dynamic(layer, connection, extensions, move |_| remote)
-            }
-        }
+        let proxy = proxy.expect("dynamic identity has a prepared trusted proxy");
+        register_dynamic(layer, connection, extensions, move |headers| {
+            // Keep header precedence and right-to-left trusted-hop parsing
+            // in HTTP's shared resolver. The client identity is never cached.
+            resolve_real_ip_from_headers(
+                headers,
+                remote,
+                &proxy.trusted,
+                &proxy.headers,
+            )
+        });
     }
 }
 
