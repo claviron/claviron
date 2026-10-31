@@ -80,6 +80,30 @@ fn file_routes_policy_child_keeps_the_parent_policy_and_mapped_subdirectory() {
     assert_eq!(config.statics.as_ref().unwrap().len(), 1);
 }
 
+#[test]
+fn file_routes_reject_dot_segments_in_derived_directory_suffixes() {
+    for source in [
+        "root: public\nroutes: {'/../outside': {static: {}}}\n",
+        "root: public\nroutes: {'/files/./item': {try_files: true}}\n",
+        "root: public\nroutes:\n  /files:\n    path: shared\n    static: {}\n  /files/../outside: {}\n",
+        "root: public\nroutes:\n  /:\n    path: shared\n  /../outside: {}\n",
+    ] {
+        let error = serde_yaml::from_str::<HostConfig>(source)
+            .err()
+            .expect("URL suffixes must not navigate filesystem directories");
+        assert!(error.to_string().contains("dot segments"), "{error}");
+    }
+
+    let config: HostConfig = serde_yaml::from_str(
+        "root: public\nroutes: {'/files': {path: ../shared, static: {}}}\n",
+    ).unwrap();
+    let route = config.routes.find("/files").unwrap();
+    assert_eq!(
+        route.files.mapping.as_ref().unwrap().directory(),
+        std::env::current_dir().unwrap().join("public/../shared")
+    );
+}
+
 #[cfg(feature = "upstream")]
 #[test]
 fn file_routes_static_declarations_preserve_upstream_owners() {

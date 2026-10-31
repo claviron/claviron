@@ -564,11 +564,24 @@ fn file_mapping(
                 .as_str()
                 .strip_prefix(ancestor.as_str().trim_end_matches('/'))
                 .expect("matching route ancestor");
-            root.join(path).join(suffix.trim_start_matches('/'))
+            root.join(path).join(directory_suffix(prefix, suffix)?)
         }
-        None => root.join(prefix.as_str().trim_start_matches('/')),
+        None => root.join(directory_suffix(prefix, prefix.as_str())?),
     };
     Ok(RouteMapping::new(prefix.clone(), directory))
+}
+
+fn directory_suffix<'a>(
+    prefix: &PathPrefix,
+    suffix: &'a str,
+) -> Result<&'a str, String> {
+    let suffix = suffix.trim_start_matches('/');
+    if suffix.split('/').any(|segment| matches!(segment, "." | "..")) {
+        return Err(format!(
+            "route '{prefix}' cannot derive a directory from dot segments; declare path explicitly"
+        ));
+    }
+    Ok(suffix)
 }
 
 #[cfg(test)]
