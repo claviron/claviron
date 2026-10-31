@@ -149,11 +149,16 @@ impl ListenerConfig {
         other: &Self,
     ) -> bool {
         let same_driver = match (&self.settings, &other.settings) {
-            (ListenerSettings::Tcp(a), ListenerSettings::Tcp(b)) => matches!(
-                (&a.security, &b.security),
-                (TcpSecurity::Cleartext { .. }, TcpSecurity::Cleartext { .. })
-                    | (TcpSecurity::Tls { .. }, TcpSecurity::Tls { .. })
-            ),
+            (ListenerSettings::Tcp(a), ListenerSettings::Tcp(b)) => {
+                a.tcp.backlog == b.tcp.backlog
+                    && matches!(
+                        (&a.security, &b.security),
+                        (
+                            TcpSecurity::Cleartext { .. },
+                            TcpSecurity::Cleartext { .. }
+                        ) | (TcpSecurity::Tls { .. }, TcpSecurity::Tls { .. })
+                    )
+            }
             (ListenerSettings::Quic(_), ListenerSettings::Quic(_)) => true,
             _ => false,
         };
@@ -210,7 +215,7 @@ impl ListenerOverrides {
     }
 
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
-        self.tcp.apply(&TcpConfig::default()).accept_retry.validate()?;
+        self.tcp.apply(&TcpConfig::default()).validate()?;
         super::tcp::validate(
             &self.h1.apply(&H1Config::default()),
             &self.h2.apply(&H2Config::default()),
@@ -220,16 +225,6 @@ impl ListenerOverrides {
         {
             return Err(ConfigError::global(
                 "handshake_timeout must be positive",
-            ));
-        }
-        if self
-            .tcp
-            .apply(&TcpConfig::default())
-            .keepalive
-            .is_some_and(|value| value.is_zero())
-        {
-            return Err(ConfigError::global(
-                "tcp.keepalive must be positive or null",
             ));
         }
         Ok(())
@@ -312,17 +307,12 @@ impl ListenerDefinition {
                 let tcp = options
                     .tcp
                     .apply(&defaults.tcp.apply(&TcpConfig::default()));
-                tcp.accept_retry
-                    .validate()
-                    .map_err(|error| fail(&error.message))?;
+                tcp.validate().map_err(|error| fail(&error.message))?;
                 let h1 =
                     options.h1.apply(&defaults.h1.apply(&H1Config::default()));
                 let h2 =
                     options.h2.apply(&defaults.h2.apply(&H2Config::default()));
                 super::tcp::validate(&h1, &h2).map_err(|e| fail(&e.message))?;
-                if tcp.keepalive.is_some_and(|value| value.is_zero()) {
-                    return Err(fail("tcp.keepalive must be positive or null"));
-                }
                 let security = if tls {
                     if self.acme || !self.redirect_port.is_inherit() {
                         return Err(fail(

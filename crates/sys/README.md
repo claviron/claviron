@@ -17,6 +17,11 @@ do not assume equivalent process/socket support on every Rust target.
 `create_udp_socket` returns a nonblocking standard UDP socket for its caller's
 IO driver. Both require `PortSharing::Exclusive` or `Shared`.
 
+TCP also requires an explicit `NonZeroU32` backlog from its caller. Values above
+2147483647 fail with `InvalidInput` before a socket is opened; valid values go
+to `listen` without a library-selected default. The OS may cap the requested
+pending-connection queue. The owning service/configuration chooses its value.
+
 `Shared` enables `SO_REUSEPORT`; distribution among listeners is kernel-specific.
 TCP keeps `SO_REUSEADDR` for restart after TIME_WAIT. Exclusive UDP disables
 both reuse options so the default is not accidentally a competing live bind.

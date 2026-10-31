@@ -111,6 +111,21 @@ listener defaults, admission is unlimited. An explicit `null` removes an
 inherited cap. Positive counts are applied per listener group in each serving
 process; zero is invalid. File-descriptor limits do not create implicit caps.
 
+The pending TCP connection queue is configured separately with `tcp.backlog`:
+
+```yaml
+defaults:
+  listener:
+    tcp:
+      backlog: 1024
+```
+
+A listener can override it with `listeners.<name>.tcp.backlog`. Values range
+from 1 to 2147483647; omission defaults to 1024. The OS may cap the requested
+value. This is a per-socket accept queue, not an active connection or request
+limit. Changes require restarting the listener; policy reload does not resize
+an existing socket's queue.
+
 Each listener must declare `requests.max_body_size` and
 `requests.body_read_timeout`, directly or through listener defaults. A limit may
 explicitly be `off`; absence is not permission to invent one. Body-read timeout

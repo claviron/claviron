@@ -190,7 +190,8 @@ pub fn register_doors(
 ) -> registry::Result<()> {
     let binds = runner.binds();
     if !binds.is_empty() {
-        let ingress = SocketIngress::new(binds, runner.protocols());
+        let ingress = SocketIngress::new(binds, runner.protocols())
+            .tcp_backlog(runner.tcp_backlog());
         #[cfg(feature = "tls")]
         let ingress = ingress.tls(runner.tls());
         state.registry_ref().register(Arc::new(ingress))?;

@@ -1,3 +1,4 @@
+use std::num::NonZeroU32;
 use std::time::Duration;
 
 use claviron_helpers::de::deserialize_duration;
@@ -12,6 +13,12 @@ pub use accept::{AcceptRetryConfig, AcceptRetryOverride};
 #[overridable(helpers = "crate::config::helpers")]
 #[serde(deny_unknown_fields)]
 pub struct TcpConfig {
+    /// Pending connections per listening socket, before accept. Defaults to
+    /// 1024; the OS may cap it. This is not an active-connection limit.
+    /// Changing it requires restarting the listener, not a policy reload.
+    #[serde(default = "default_tcp_backlog")]
+    pub backlog: NonZeroU32,
+
     #[serde(default = "default_true")]
     pub nodelay: bool,
 
@@ -29,11 +36,34 @@ pub struct TcpConfig {
 impl Default for TcpConfig {
     fn default() -> Self {
         Self {
+            backlog: default_tcp_backlog(),
             nodelay: true,
             keepalive: default_tcp_keepalive(),
             accept_retry: AcceptRetryConfig::default(),
         }
     }
+}
+
+impl TcpConfig {
+    pub(crate) fn validate(&self) -> Result<(), super::ConfigError> {
+        if i32::try_from(self.backlog.get()).is_err() {
+            return Err(super::ConfigError::global(
+                "tcp.backlog must be at most 2147483647",
+            ));
+        }
+        self.accept_retry.validate()?;
+        if self.keepalive.is_some_and(|value| value.is_zero()) {
+            return Err(super::ConfigError::global(
+                "tcp.keepalive must be positive or null",
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Preserve the existing socket queue default in the public TCP configuration.
+fn default_tcp_backlog() -> NonZeroU32 {
+    NonZeroU32::new(1024).expect("the default TCP backlog is positive")
 }
 
 /// Resolved H1 header deadline, distinct from declaration inheritance.

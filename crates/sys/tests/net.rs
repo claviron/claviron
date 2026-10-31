@@ -6,9 +6,11 @@ use super::*;
 
 #[tokio::test]
 async fn exclusive_tcp_disables_reuseport_and_rejects_competing_listeners() {
+    let backlog = NonZeroU32::new(8).unwrap();
     let listener = create_tcp_listener(
         "127.0.0.1:0".parse().unwrap(),
         PortSharing::Exclusive,
+        backlog,
     )
     .await
     .unwrap();
@@ -18,7 +20,10 @@ async fn exclusive_tcp_disables_reuseport_and_rejects_competing_listeners() {
     let addr = listener.local_addr().unwrap();
     for sharing in [PortSharing::Exclusive, PortSharing::Shared] {
         assert_eq!(
-            create_tcp_listener(addr, sharing).await.unwrap_err().kind(),
+            create_tcp_listener(addr, sharing, backlog)
+                .await
+                .unwrap_err()
+                .kind(),
             ErrorKind::AddrInUse
         );
     }
@@ -28,23 +33,46 @@ async fn exclusive_tcp_disables_reuseport_and_rejects_competing_listeners() {
 
 #[tokio::test]
 async fn shared_tcp_allows_multiple_live_listeners() {
+    let backlog = NonZeroU32::new(8).unwrap();
     let first = create_tcp_listener(
         "127.0.0.1:0".parse().unwrap(),
         PortSharing::Shared,
+        backlog,
     )
     .await
     .unwrap();
     let addr = first.local_addr().unwrap();
-    let second = create_tcp_listener(addr, PortSharing::Shared).await.unwrap();
+    let second =
+        create_tcp_listener(addr, PortSharing::Shared, backlog).await.unwrap();
     assert!(SockRef::from(&first).reuse_port().unwrap());
     assert!(SockRef::from(&second).reuse_port().unwrap());
     assert_eq!(
-        create_tcp_listener(addr, PortSharing::Exclusive)
+        create_tcp_listener(addr, PortSharing::Exclusive, backlog)
             .await
             .unwrap_err()
             .kind(),
         ErrorKind::AddrInUse
     );
+}
+
+#[test]
+fn tcp_backlog_outside_socket_range_fails_before_binding_or_entering_tokio() {
+    use std::future::Future;
+    use std::task::{Context, Poll, Waker};
+
+    let mut future = std::pin::pin!(create_tcp_listener(
+        "192.0.2.1:1".parse().unwrap(),
+        PortSharing::Exclusive,
+        NonZeroU32::new(u32::MAX).unwrap(),
+    ));
+    let Poll::Ready(Err(error)) =
+        future.as_mut().poll(&mut Context::from_waker(Waker::noop()))
+    else {
+        panic!(
+            "invalid backlog must fail before opening a socket or needing a runtime"
+        )
+    };
+    assert_eq!(error.kind(), ErrorKind::InvalidInput);
 }
 
 #[test]

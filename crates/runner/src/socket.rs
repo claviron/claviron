@@ -17,6 +17,7 @@
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -104,6 +105,7 @@ impl Protocols {
 pub struct SocketIngress {
     binds: Vec<Bind>,
     protocols: Protocols,
+    tcp_backlog: NonZeroU32,
     #[cfg(feature = "tls")]
     tls: Option<crate::Tls>,
 }
@@ -116,9 +118,21 @@ impl SocketIngress {
         Self {
             binds,
             protocols,
+            tcp_backlog: claviron_http::config::TcpConfig::default().backlog,
             #[cfg(feature = "tls")]
             tls: None,
         }
+    }
+
+    /// Set the pending TCP connection queue before starting this ingress.
+    /// The default comes from `TcpConfig`; the OS may cap the requested value.
+    /// Values above the socket API range fail binding, rather than wrapping.
+    pub fn tcp_backlog(
+        mut self,
+        backlog: NonZeroU32,
+    ) -> Self {
+        self.tcp_backlog = backlog;
+        self
     }
 
     /// Serve TLS on the TCP sockets. A Unix socket ignores it: its boundary is
@@ -276,7 +290,7 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for SocketIngress {
         for bind in &self.binds {
             let listener = match bind {
                 Bind::Tcp(address) => Listener::Tcp(
-                    create_tcp_listener(*address, sharing)
+                    create_tcp_listener(*address, sharing, self.tcp_backlog)
                         .await
                         .map_err(failure)?,
                 ),

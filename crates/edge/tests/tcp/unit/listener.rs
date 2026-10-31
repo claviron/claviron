@@ -8,23 +8,32 @@ use crate::tcp::listener::accept_support as fault;
 
 #[tokio::test]
 async fn tcp_port_sharing_is_only_enabled_for_workers() {
+    let backlog = NonZeroU32::new(8).unwrap();
     let worker = RunMode::Worker(claviron_runtime::WorkerId::new(1));
     for mode in [RunMode::Standalone, RunMode::Master] {
         let listener =
-            bind_socket("127.0.0.1:0".parse().unwrap(), mode).await.unwrap();
+            bind_socket("127.0.0.1:0".parse().unwrap(), mode, backlog)
+                .await
+                .unwrap();
         let addr = listener.local_addr().unwrap();
         for competitor in [mode, worker] {
             assert_eq!(
-                bind_socket(addr, competitor).await.unwrap_err().kind(),
+                bind_socket(addr, competitor, backlog)
+                    .await
+                    .unwrap_err()
+                    .kind(),
                 std::io::ErrorKind::AddrInUse
             );
         }
     }
-    let first =
-        bind_socket("127.0.0.1:0".parse().unwrap(), worker).await.unwrap();
+    let first = bind_socket("127.0.0.1:0".parse().unwrap(), worker, backlog)
+        .await
+        .unwrap();
     let second_worker = RunMode::Worker(claviron_runtime::WorkerId::new(2));
     let _second =
-        bind_socket(first.local_addr().unwrap(), second_worker).await.unwrap();
+        bind_socket(first.local_addr().unwrap(), second_worker, backlog)
+            .await
+            .unwrap();
 }
 
 struct Snapshot(Arc<ListenerConfig>);

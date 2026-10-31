@@ -14,6 +14,7 @@
 //! is used.
 
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::path::PathBuf;
 
 use claviron_http::policy::{HttpPolicy, HttpPolicyOverride};
@@ -91,6 +92,11 @@ pub struct RunnerOptions {
         arg(long, num_args = 0..=1, default_missing_value = "127.0.0.1:8000")
     )]
     pub tcp: Option<SocketAddr>,
+
+    /// Pending connections per TCP listening socket. Unwritten, use the shared
+    /// TcpConfig default (1024). The OS may cap it; this is not an active limit.
+    #[cfg_attr(feature = "cli", arg(long))]
+    pub tcp_backlog: Option<NonZeroU32>,
 
     /// Answer on a Unix socket at this path.
     #[cfg_attr(feature = "cli", arg(long))]
@@ -202,6 +208,7 @@ impl RunnerOptions {
         "orbit",
         "edge_shutdown_policy",
         "tcp",
+        "tcp_backlog",
         "uds",
         "h1",
         "h2",
@@ -251,6 +258,7 @@ impl RunnerOptions {
             orbit: self.orbit || written.orbit,
             edge_shutdown_policy: written.edge_shutdown_policy,
             tcp: self.tcp.or(written.tcp),
+            tcp_backlog: self.tcp_backlog.or(written.tcp_backlog),
             uds: self.uds.or(written.uds),
             h1: self.h1 || written.h1,
             h2: self.h2 || written.h2,
@@ -299,6 +307,9 @@ impl RunnerOptions {
 
     /// What cannot be served as written, said before anything starts.
     pub fn validate(&self) -> Result<(), String> {
+        if i32::try_from(self.tcp_backlog().get()).is_err() {
+            return Err("tcp_backlog must be at most 2147483647".into());
+        }
         if let Some(name) = &self.fleet_name {
             claviron_runtime::FleetName::try_new(name)
                 .map_err(|error| format!("fleet_name: {error}"))?;
@@ -332,6 +343,13 @@ impl RunnerOptions {
         #[cfg(feature = "files")]
         self.file_site()?;
         Ok(())
+    }
+
+    /// Resolve the listener backlog once, from explicit options or HTTP defaults.
+    pub fn tcp_backlog(&self) -> NonZeroU32 {
+        self.tcp_backlog.unwrap_or_else(|| {
+            claviron_http::config::TcpConfig::default().backlog
+        })
     }
 
     /// One file site for both explicit policies and the asset shorthand.

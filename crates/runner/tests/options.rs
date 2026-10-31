@@ -1,5 +1,69 @@
 use super::*;
 
+#[test]
+fn tcp_backlog_survives_split_worker_serialization_and_command_line_override() {
+    let (shared, own) =
+        split(serde_yaml::from_str("tcp_backlog: 17\n").unwrap()).unwrap();
+    assert!(own.as_mapping().unwrap().is_empty());
+    let written: RunnerOptions = serde_yaml::from_value(shared).unwrap();
+    let written: RunnerOptions =
+        serde_json::from_slice(&serde_json::to_vec(&written).unwrap()).unwrap();
+    assert_eq!(written.tcp_backlog().get(), 17);
+    assert!(written.validate().is_ok());
+    assert_eq!(
+        RunnerOptions::default().over(written.clone()).tcp_backlog().get(),
+        17
+    );
+    let cli = RunnerOptions {
+        tcp_backlog: NonZeroU32::new(31),
+        ..Default::default()
+    };
+    assert_eq!(cli.over(written).tcp_backlog().get(), 31);
+    assert_eq!(
+        RunnerOptions::default().tcp_backlog(),
+        claviron_http::config::TcpConfig::default().backlog
+    );
+}
+
+#[test]
+fn tcp_backlog_rejects_invalid_counts_and_accepts_socket_boundaries() {
+    for value in ["0", "-1", "2147483648", "4294967296"] {
+        let parsed = serde_yaml::from_str::<RunnerOptions>(&format!(
+            "tcp_backlog: {value}\n"
+        ));
+        assert!(
+            parsed.is_err() || parsed.unwrap().validate().is_err(),
+            "backlog={value}"
+        );
+    }
+    for value in [1, i32::MAX] {
+        let parsed: RunnerOptions =
+            serde_yaml::from_str(&format!("tcp_backlog: {value}\n")).unwrap();
+        assert!(parsed.validate().is_ok());
+        assert_eq!(parsed.tcp_backlog().get(), u32::try_from(value).unwrap());
+    }
+}
+
+#[cfg(feature = "cli")]
+#[test]
+fn tcp_backlog_command_line_is_typed_and_overrides_the_file() {
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Args {
+        #[command(flatten)]
+        runner: RunnerOptions,
+    }
+    let args =
+        Args::try_parse_from(["example", "--tcp-backlog", "31"]).unwrap();
+    let written: RunnerOptions =
+        serde_yaml::from_str("tcp_backlog: 17\n").unwrap();
+    let resolved = args.runner.over(written);
+    assert_eq!(resolved.tcp_backlog().get(), 31);
+    assert!(resolved.validate().is_ok());
+    assert!(Args::try_parse_from(["example", "--tcp-backlog", "0"]).is_err());
+}
+
 /// Every serialized field has its key in `KEYS`; input aliases do not add
 /// serialized fields.
 #[test]

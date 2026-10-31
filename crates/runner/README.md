@@ -92,7 +92,8 @@ engine.
 
 The main option groups are:
 
-- Identity and transport: `name`, `fleet_name`, `tcp`, `uds`, `h1`, `h2`, and
+- Identity and transport: `name`, `fleet_name`, `tcp`, `tcp_backlog`, `uds`,
+  `h1`, `h2`, and
   `trusted`; TLS fields are available with TLS support.
 - Policy and capacity: `requests`, `responses`, `max_in_flight`, and
   `max_concurrent_requests`.
@@ -104,6 +105,13 @@ An absent TCP option does not open a listener. Zero or omitted workers use
 standalone execution; a supervised master does not serve application requests.
 Request bounds and timeouts follow the selected HTTP policy, not a hidden
 runner fallback. Operators must choose their desired admission and body limits.
+
+`tcp_backlog` (or `--tcp-backlog` with CLI support) declares the pending
+connection queue per TCP socket. Omission uses the shared `TcpConfig` default,
+1024. Positive counts up to 2147483647 are accepted; the OS may cap the request.
+Command-line values override the file and travel in worker launch options.
+This is a startup setting, independent of active request/connection limits.
+Programmatic `SocketIngress` owners can set it with `.tcp_backlog(...)`.
 
 The application name and fleet name are separate. An explicit fleet name avoids
 requiring the application name itself to satisfy Orbit's naming constraints.

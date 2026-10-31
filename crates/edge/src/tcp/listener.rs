@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::future::Future;
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::sync::Arc;
 
 use claviron_http::ListenerId;
@@ -45,19 +46,27 @@ where
     // drops earlier sockets; it cannot leave detached partial listeners.
     let mut bound = Vec::new();
     for group in groups.values() {
+        let config = group.listener();
+        let ListenerSettings::Tcp(tcp) = &config.settings else {
+            return Err(Error::msg(format!(
+                "listener '{}': not a TCP listener",
+                config.id
+            )));
+        };
         let mut sockets = Vec::new();
-        for addr in &group.listener().listen {
-            let socket =
-                bind_socket(*addr, run_mode).await.map_err(|error| {
+        for addr in &config.listen {
+            let socket = bind_socket(*addr, run_mode, tcp.tcp.backlog)
+                .await
+                .map_err(|error| {
                     Error::msg(format!(
                         "listener '{}': bind {addr}: {error}",
-                        group.listener().id
+                        config.id
                     ))
                 })?;
             if matches!(run_mode, RunMode::Worker(_)) {
-                debug!(listener = %group.listener().id, address = %socket.local_addr()?, "🌐 TCP listener bound");
+                debug!(listener = %config.id, address = %socket.local_addr()?, "🌐 TCP listener bound");
             } else {
-                info!(listener = %group.listener().id, address = %socket.local_addr()?, "🌐 TCP listener bound");
+                info!(listener = %config.id, address = %socket.local_addr()?, "🌐 TCP listener bound");
             }
             sockets.push(socket);
         }
@@ -110,12 +119,13 @@ where
 async fn bind_socket(
     addr: SocketAddr,
     run_mode: RunMode,
+    backlog: NonZeroU32,
 ) -> std::io::Result<TcpListener> {
     let sharing = match run_mode {
         RunMode::Worker(_) => PortSharing::Shared,
         RunMode::Standalone | RunMode::Master => PortSharing::Exclusive,
     };
-    create_tcp_listener(addr, sharing).await
+    create_tcp_listener(addr, sharing, backlog).await
 }
 
 async fn serve_group<S, A, F, Fut>(
