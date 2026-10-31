@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use claviron_http::ServiceResult;
 use claviron_http::authority::RequestAuthority;
 use claviron_http::ext::{ConnCtx, HostName};
 use claviron_http::listener::HttpProtocol;
@@ -22,6 +21,24 @@ pub struct IngressState {
 impl IngressState {
     pub fn new(arrival: RequestArrival) -> Self {
         Self { arrival, authority: None, deny_checked: false }
+    }
+}
+
+impl AsMut<IngressState> for IngressState {
+    fn as_mut(&mut self) -> &mut IngressState {
+        self
+    }
+}
+
+impl IngressState {
+    pub(super) fn checked<B>(
+        request: DenyCheckedRequest<'_, B>,
+        deny: &DenyService,
+        arrival: RequestArrival,
+        authority: Option<RequestAuthority>,
+    ) -> (Request<B>, Self) {
+        let (request, deny_checked) = request.into_ingress(deny);
+        (request, Self { arrival, authority, deny_checked })
     }
 }
 
@@ -61,19 +78,9 @@ impl IngressPolicy {
         }
     }
 
-    pub(crate) fn into_pipeline(
-        self
-    ) -> HostPipeline<IngressState, RequestRejection> {
-        let mut layer = HostLayerBuilder::default();
-        self.register(&mut layer);
-        let mut builder = HostPipelineBuilder::new();
-        builder.layers.push(layer);
-        builder.build()
-    }
-
-    fn register(
+    pub(super) fn register<S: AsMut<IngressState>>(
         self,
-        layer: &mut HostLayerBuilder<IngressState, RequestRejection>,
+        layer: &mut HostLayerBuilder<S, RequestRejection>,
     ) {
         let Some(protocol) = self.protocol else {
             layer.before(|_, _| {
@@ -84,6 +91,7 @@ impl IngressPolicy {
         let binding_allowed = self.binding_allowed;
         let host = self.host;
         layer.before(move |head, state| {
+            let state = state.as_mut();
             let authority = match state.authority.take() {
                 Some(authority) => Some(authority),
                 None => match RequestAuthority::from_parts(head) {
@@ -114,6 +122,7 @@ impl IngressPolicy {
             crate::config::EarlyDataPolicy::AllowAll => {}
             crate::config::EarlyDataPolicy::AllowIdempotent => {
                 layer.before(|head, state| {
+                    let state = state.as_mut();
                     if state.arrival == RequestArrival::EarlyData
                         && !matches!(
                             head.method,
@@ -145,6 +154,7 @@ impl IngressPolicy {
         }
         if !self.deny.is_empty() {
             layer.before(move |head, state| {
+                let state = state.as_mut();
                 if !state.deny_checked && self.deny.is_blocked(head.uri.path())
                 {
                     ControlFlow::Break(RequestRejection::PathDenied)
@@ -165,10 +175,11 @@ pub(crate) fn authority_matches_sni(
     authority.is_none_or(|authority| authority.host() == host.0.as_ref())
 }
 
-fn register_early_data_denial(
-    layer: &mut HostLayerBuilder<IngressState, RequestRejection>
+fn register_early_data_denial<S: AsMut<IngressState>>(
+    layer: &mut HostLayerBuilder<S, RequestRejection>
 ) {
     layer.before(|_, state| {
+        let state = state.as_mut();
         if state.arrival == RequestArrival::EarlyData {
             ControlFlow::Break(RequestRejection::TooEarly)
         } else {
@@ -177,44 +188,13 @@ fn register_early_data_denial(
     });
 }
 
-impl HostLayer<IngressState, RequestRejection> for IngressPolicy {
+impl<S: AsMut<IngressState>> HostLayer<S, RequestRejection> for IngressPolicy {
     fn prepare(
         self,
-        layer: &mut HostLayerBuilder<IngressState, RequestRejection>,
+        layer: &mut HostLayerBuilder<S, RequestRejection>,
     ) -> crate::Result<()> {
         self.register(layer);
         Ok(())
-    }
-}
-
-impl HostPipeline<IngressState, RequestRejection> {
-    /// Native ingress is a head-only plan: typed decision builders cannot add
-    /// response/body hooks. The enclosing HostService retains the pinned plan
-    /// and resumes its existing identity/dispatch path with the original body.
-    pub(crate) fn admit<B>(
-        &self,
-        request: Request<B>,
-        state: IngressState,
-    ) -> Result<Request<B>, RequestRejection> {
-        match self.prepare_with_state(request, state) {
-            ServiceResult::Handled(reply) => Err(reply.response),
-            ServiceResult::Unhandled(prepared) => {
-                Ok(Request::from_parts(prepared.head, prepared.body))
-            }
-        }
-    }
-
-    pub(crate) fn admit_checked<B>(
-        &self,
-        request: DenyCheckedRequest<'_, B>,
-        deny: &DenyService,
-        arrival: RequestArrival,
-        authority: Option<RequestAuthority>,
-    ) -> Result<Request<B>, RequestRejection> {
-        let (request, deny_checked) = request.into_ingress(deny);
-        // Only native ingress can construct these proof fields. No earlier
-        // action mutates the parsed authority or the deny-checked path.
-        self.admit(request, IngressState { arrival, authority, deny_checked })
     }
 }
 

@@ -19,8 +19,9 @@
 //! remain the caller's responsibility.
 //!
 //! [`IngressPolicy`] is the first native admission layer. It retains typed
-//! rejection reasons until the transport frames its reply. Identity, live ACL,
-//! quotas and application dispatch remain owned by `HostService`.
+//! rejection reasons until the transport frames its reply. [`IdentityPolicy`]
+//! then prepares typed connection/host extensions and request-local proxy IP.
+//! Live ACL, quotas and application dispatch remain owned by `HostService`.
 
 use std::ops::ControlFlow;
 
@@ -31,9 +32,14 @@ use http::{
 };
 
 mod builder;
+mod identity;
 pub(crate) mod ingress;
+mod state;
 
+pub use identity::{IdentityPolicy, IdentityState};
 pub use ingress::{IngressPolicy, IngressState};
+pub use state::HostRequestState;
+pub(crate) use state::IdentifiedRequest;
 mod request;
 mod response;
 

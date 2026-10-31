@@ -181,13 +181,12 @@ fn alias_remap_and_host_removal_cannot_reuse_an_old_policy() {
         &next.policy.host.vhost_config
     ));
     assert_ne!(first.policy.host.vhost_key, next.policy.host.vhost_key);
-    let mut metadata = request(());
-    next.policy.extensions.inject(
-        &mut metadata,
-        &next.policy.connection,
-        &next.policy.host,
-        None,
-    );
+    let metadata = next
+        .policy
+        .pipeline
+        .admit(request(()), HostRequestState::new(RequestArrival::Established))
+        .unwrap()
+        .request;
     assert_eq!(
         metadata.extensions().get::<HostKey>().unwrap(),
         &next.policy.host.vhost_key

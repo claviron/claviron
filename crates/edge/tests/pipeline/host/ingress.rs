@@ -3,6 +3,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use claviron_http::ext::{HostKey, HostName};
 
 use super::*;
+use claviron_http::ServiceResult;
+
+impl IngressPolicy {
+    fn into_pipeline(self) -> HostPipeline<IngressState, RequestRejection> {
+        let mut builder = HostPipelineBuilder::new();
+        builder.layer(self).unwrap();
+        builder.build()
+    }
+}
 
 fn policy(
     protocol: HttpProtocol,
@@ -72,7 +81,8 @@ impl Drop for OwnedBody {
 
 #[test]
 fn ingress_keeps_the_original_body_and_typed_rejection_before_later_work() {
-    let mut layer = HostLayerBuilder::default();
+    let mut layer =
+        HostLayerBuilder::<IngressState, RequestRejection>::default();
     policy(HttpProtocol::H1, "root: public", Arc::new(DenyService::empty()))
         .prepare(&mut layer)
         .unwrap();
@@ -94,9 +104,13 @@ fn ingress_keeps_the_original_body_and_typed_rejection_before_later_work() {
         .header("host", "app.test")
         .body(body)
         .unwrap();
-    let request = pipeline
-        .admit(request, IngressState::new(RequestArrival::Established))
-        .unwrap();
+    let ServiceResult::Unhandled(prepared) = pipeline.prepare_with_state(
+        request,
+        IngressState::new(RequestArrival::Established),
+    ) else {
+        panic!("valid ingress must remain unclaimed")
+    };
+    let (request, _) = prepared.into_request_and_state();
     assert_eq!(request.body().bytes.as_ptr(), pointer);
     assert_eq!(request.uri(), "/ok?raw=%2F");
     assert_eq!(entered.load(Ordering::Relaxed), 1);

@@ -9,14 +9,16 @@ use claviron_http::listener::HttpProtocol;
 use claviron_http::{RouteBody, RouteResponse};
 use http::{Request, StatusCode};
 
-use super::extensions::{ContextExtensions, VhostCtx};
+use super::extensions::VhostCtx;
 use super::policy::PolicySnapshot;
 use super::{AuthorityError, HostResponse};
 #[cfg(feature = "tcp")]
 use super::{CleartextRequest, RequestAuthority};
 use crate::VhostResolver;
 use crate::deny::{DenyCheckedRequest, DenyService};
-use crate::pipeline::host::{HostPipeline, IngressPolicy, IngressState};
+use crate::pipeline::host::{
+    HostPipeline, HostRequestState, IdentifiedRequest,
+};
 use crate::pipeline::{AppKind, AuthContext, HostApp};
 
 mod dispatch;
@@ -81,9 +83,8 @@ struct HostPolicy {
     host: VhostCtx,
     ingress: HostIngress,
     access: Arc<VhostResolver>,
-    extensions: ContextExtensions,
     http: HttpPolicy,
-    pipeline: HostPipeline<IngressState, RequestRejection>,
+    pipeline: HostPipeline<HostRequestState, RequestRejection>,
 }
 
 impl HostPolicy {
@@ -94,14 +95,11 @@ impl HostPolicy {
         access: Arc<VhostResolver>,
         listener: HttpPolicy,
     ) -> Self {
-        let extensions = ContextExtensions::new(&connection, &host);
         // Both declarations belong to this immutable binding. Requests reuse
         // their narrowed limits; live ACL/redirect policy is read separately.
         let http = listener.narrow(&host.vhost_config.policy());
-        let pipeline =
-            IngressPolicy::new(&connection, &host, ingress.deny.clone())
-                .into_pipeline();
-        Self { connection, host, ingress, access, extensions, http, pipeline }
+        let pipeline = HostPipeline::for_host(&connection, &host, &ingress);
+        Self { connection, host, ingress, access, http, pipeline }
     }
 }
 
@@ -148,8 +146,10 @@ impl HostService {
         request: Request<B>,
         arrival: RequestArrival,
     ) -> Result<PreparedRequest<B>, HostResponse> {
-        let request =
-            self.policy.pipeline.admit(request, IngressState::new(arrival))?;
+        let request = self
+            .policy
+            .pipeline
+            .admit(request, HostRequestState::new(arrival))?;
         Ok(self.prepare_context(request)?.with_service(self.clone()))
     }
 
@@ -191,16 +191,11 @@ impl HostService {
 
     fn prepare_context<B>(
         &self,
-        mut request: Request<B>,
+        identified: IdentifiedRequest<B>,
     ) -> Result<PreparedContext<B>, HostResponse> {
+        let IdentifiedRequest { request, connection } = identified;
         let policy = &self.policy;
         let access = policy.access.request_policy(&policy.host.vhost_key.0);
-        let connection = policy.extensions.inject(
-            &mut request,
-            &policy.connection,
-            &policy.host,
-            policy.ingress.proxy.as_ref(),
-        );
         // Real IP comes from this accepted listener's trust policy, not from
         // the reloaded host or an untrusted forwarding header.
         access.check(

@@ -27,7 +27,8 @@ pub use connect::{
 };
 pub use host::{
     HostLayer, HostLayerBuilder, HostPipeline, HostPipelineBuilder,
-    IngressPolicy, IngressState,
+    HostRequestState, IdentityPolicy, IdentityState, IngressPolicy,
+    IngressState,
 };
 #[cfg(feature = "orbit")]
 pub use orbit::build_application_router as build_orbit_application_router;

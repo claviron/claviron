@@ -64,8 +64,14 @@ Response actions run in reverse order, within the scope reached by the request.
 `IngressPolicy` is the first migrated layer: authority/binding, early-data,
 H1 upgrade and deny checks retain their existing order and typed rejections.
 Inactive upgrade/deny gates add no action. Accepted connections keep their plan;
-replacing a cleartext host binding prepares a new one. Identity, live ACL,
-redirects, quotas and application dispatch still belong to `HostService`.
+replacing a cleartext host binding prepares a new one.
+
+`IdentityPolicy` runs after ingress and prepares typed connection/host
+extensions without reading the body. The binding selects direct, peer-only or
+trusted-proxy handling once. Forwarding headers are resolved per request only
+on the trusted-proxy path; accepted TLS, protocol and listener facts stay fixed.
+HTTP extensions and native authentication retain the same `Arc<ConnCtx>`.
+Live ACL, redirects, quotas and application dispatch remain in `HostService`.
 
 ## Keep the boundary useful
 
@@ -94,7 +100,8 @@ always faster or should replace routing everywhere.
 - [Routable bindings](../../crates/edge/src/pipeline/routable.rs).
 - [Host application registry](../../crates/edge/src/pipeline/apps.rs).
 - [Native bypass dispatch](../../crates/edge/src/pipeline/bypass.rs).
-- [Prepared host pipeline and ingress](../../crates/edge/src/pipeline/host.rs).
+- [Prepared host pipeline](../../crates/edge/src/pipeline/host.rs).
+- [Request identity and proxy policy](../../crates/edge/src/pipeline/host/identity.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 
 Use `BYPASS_PIPELINE` as the search key for this application-first composition.

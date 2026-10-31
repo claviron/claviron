@@ -1,9 +1,44 @@
 use super::*;
 use crate::pipeline::host::ingress::authority_matches_sni;
+use crate::pipeline::host::{
+    HostPipeline, HostPipelineBuilder, IdentityPolicy, IdentityState,
+};
 use crate::service::RequestAuthority;
+use crate::service::RequestRejection;
+use claviron_http::ServiceResult;
+use claviron_http::config::ProxyConfig;
+use claviron_http::ext::{ConnCtx, RealIpExt};
+use http::{Extensions, Request};
 
 #[path = "extensions/template.rs"]
 mod template;
+
+fn identity_pipeline(
+    connection: &Arc<ConnCtx>,
+    host: &VhostCtx,
+    proxy: Option<ProxyConfig>,
+) -> HostPipeline<IdentityState, RequestRejection> {
+    let mut builder = HostPipelineBuilder::new();
+    builder
+        .layer(IdentityPolicy::new(connection.clone(), host, proxy))
+        .unwrap();
+    builder.build()
+}
+
+fn inject(
+    pipeline: &HostPipeline<IdentityState, RequestRejection>,
+    request: &mut Request<()>,
+) -> Arc<ConnCtx> {
+    let prepared = match pipeline
+        .prepare_with_state(std::mem::take(request), IdentityState::default())
+    {
+        ServiceResult::Unhandled(prepared) => prepared,
+        ServiceResult::Handled(_) => panic!("identity only prepares metadata"),
+    };
+    let (identified, state) = prepared.into_request_and_state();
+    *request = identified;
+    state.connection().unwrap().clone()
+}
 
 #[test]
 fn sni_authority_guard_preserves_ipv6_and_rejects_different_hosts() {
@@ -45,14 +80,14 @@ fn listener_identity_survives_per_request_proxy_resolution() {
         trusted: vec!["10.0.0.0/8".parse().unwrap()],
         headers: vec![http::HeaderName::from_static("x-real-ip")],
     });
-    let template = ContextExtensions::new(&ctx, &vctx);
+    let template = identity_pipeline(&ctx, &vctx, proxy.clone());
     for ip in ["203.0.113.1", "203.0.113.2"] {
         let mut request = Request::builder()
             .uri("https://app.test/")
             .header("x-real-ip", ip)
             .body(())
             .unwrap();
-        template.inject(&mut request, &ctx, &vctx, proxy.as_ref());
+        inject(&template, &mut request);
         assert_eq!(
             request.extensions().get::<http::uri::Scheme>(),
             Some(&http::uri::Scheme::HTTP)
@@ -71,7 +106,7 @@ fn listener_identity_survives_per_request_proxy_resolution() {
     );
     let mut direct =
         Request::builder().header("x-real-ip", "203.0.113.1").body(()).unwrap();
-    template.inject(&mut direct, &ctx, &vctx, None);
+    inject(&identity_pipeline(&ctx, &vctx, None), &mut direct);
     assert_eq!(
         direct.extensions().get::<Arc<ConnCtx>>().unwrap().real_ip,
         Some(ctx.remote.ip())
@@ -120,7 +155,7 @@ fn a_direct_connection_shares_its_context_instead_of_copying_it() {
         country_code: None,
         tls: None,
     });
-    let template = ContextExtensions::new(&ctx, &vctx);
+    let template = identity_pipeline(&ctx, &vctx, None);
     for _ in 0..2 {
         // A forwarding header from a direct client is not trusted.
         let mut request = Request::builder()
@@ -128,7 +163,7 @@ fn a_direct_connection_shares_its_context_instead_of_copying_it() {
             .header("x-real-ip", "203.0.113.1")
             .body(())
             .unwrap();
-        let shared = template.inject(&mut request, &ctx, &vctx, None);
+        let shared = inject(&template, &mut request);
         assert!(Arc::ptr_eq(&shared, &ctx), "no per-request copy");
         assert_eq!(
             request.extensions().get::<RealIpExt>().map(|ext| ext.0),
