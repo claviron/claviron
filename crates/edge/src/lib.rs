@@ -96,10 +96,8 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
         registry.register(Arc::new(VhostAliasListener::default()))?;
     }
 
-    // Boot compiles every host's pipeline from the services a serving process
-    // registers. The master serves nothing and registers none of them, so
-    // this is the one edge provider a master does not carry; see
-    // ARCHITECTURE.md §3.5.
+    // Only serving processes compile application plans; the master keeps
+    // host declarations and lifecycle coordination.
     if state.is_master() {
         #[cfg(feature = "orbit")]
         state.events().listen::<claviron_runtime::ShutdownInitiated, _>(|state, _| async move {
