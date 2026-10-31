@@ -249,18 +249,11 @@ impl Configurable for H3Server {
 impl ConfigObserver for H3Server {
     async fn config_changed(
         &self,
-        _config: &H3ServerConfig,
+        config: &H3ServerConfig,
     ) -> congif::Result<()> {
         let deps =
             self.resolve_deps(&self.state).map_err(congif::Error::msg)?;
-        let snapshot = build_snapshots(
-            self.state
-                .config_reader()
-                .snapshot::<Self>()
-                .map_err(congif::Error::msg)?
-                .as_ref(),
-            deps.as_ref(),
-        )
+        let snapshot = build_snapshots(config, deps.as_ref())
         .map_err(congif::Error::msg)?;
         self.current.publish(snapshot.clone()).map_err(congif::Error::msg)?;
         prepare_vhosts(&deps, &snapshot).map_err(congif::Error::msg)?;
