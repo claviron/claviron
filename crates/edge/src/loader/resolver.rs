@@ -228,7 +228,7 @@ impl VhostResolver {
                 .resolve::<claviron_orbit::transport::TransportService>()
         }) {
             for (_, record) in table.canonical_entries() {
-                for route in record.config.orbit() {
+                for route in record.config.link_routes() {
                     transport
                         .track_target(route.fleet_name, &route.application);
                 }

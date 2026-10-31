@@ -109,7 +109,7 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
                 return Ok(());
             };
             let fleets: BTreeSet<_> = vhosts.snapshot().canonical_entries()
-                .flat_map(|(_, record)| record.config.orbit().iter().map(|route| route.fleet_name))
+                .flat_map(|(_, record)| record.config.link_routes().map(|route| route.fleet_name))
                 .collect();
             for fleet in fleets {
                 match TransportSegment::existing_for_fleet(fleet.as_str()) {

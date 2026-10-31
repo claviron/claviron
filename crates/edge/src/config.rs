@@ -337,6 +337,14 @@ impl HostConfig {
         self.orbit.as_deref().unwrap_or(&[])
     }
 
+    /// Every Link destination needed by host-level lifecycle coordination.
+    #[cfg(feature = "orbit")]
+    pub(crate) fn link_routes(&self) -> impl Iterator<Item = &OrbitRouteConfig> {
+        self.orbit().iter().chain(
+            self.routes.iter().flat_map(|(_, route)| route.orbit().iter()),
+        )
+    }
+
     pub fn acl(&self) -> Option<&acl::AclConfig> {
         self.acl.as_ref()
     }

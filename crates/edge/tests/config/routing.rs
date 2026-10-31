@@ -1,5 +1,17 @@
 use super::*;
 
+#[cfg(feature = "orbit")]
+#[test]
+fn link_lifecycle_destinations_include_flat_and_scoped_routes() {
+    let config: HostConfig = serde_yaml::from_str(
+        "orbit: {fleet_name: first, application: root}\nroutes:\n  /api:\n    orbit: {fleet_name: second, application: api}\n  /assets:\n    static: {}\n",
+    ).unwrap();
+    let destinations: Vec<_> = config.link_routes()
+        .map(|route| (route.fleet_name.as_str(), route.application.as_str()))
+        .collect();
+    assert_eq!(destinations, [("first", "root"), ("second", "api")]);
+}
+
 #[test]
 fn file_routes_flat_root_directives_keep_file_fields_out_of_extensions() {
     let config: HostConfig = serde_yaml::from_str(

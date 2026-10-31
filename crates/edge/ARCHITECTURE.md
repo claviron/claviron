@@ -9,6 +9,7 @@ Public module exports and registration APIs.
 - `register` installs the host resolver, application registry and native session
   registries. Serving processes also register `HostAppResolver`; the master
   retains host declarations and, with `orbit`, Link shutdown notification.
+  Link target tracking and shutdown include flat and prefix-scoped destinations.
 - `register_host` / `register_hosts` retain host declarations or their source.
 - `register_routable` / `register_host_binding_provider` register provider
   lifecycle and host contributions or exclusive owners.
