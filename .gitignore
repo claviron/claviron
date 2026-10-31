@@ -97,4 +97,5 @@ core.*
 !/docs/**/*.md
 !/CONTRIBUTING.md
 !/SECURITY.md
+!ARCHITECTURE.md
 !/.agents/skills/*/SKILL.md
