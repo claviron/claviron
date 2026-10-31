@@ -1,19 +1,9 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use super::*;
-
-fn test_path() -> PathBuf {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    std::env::temp_dir()
-        .join(format!("claviron-cache-{}-{nonce}", std::process::id()))
-}
 
 #[tokio::test]
 async fn file_clear_metadata_lookup_preserves_absent_success() {
-    let path = test_path().join("absent-cache");
+    let root = tempfile::tempdir().expect("create isolated fixture");
+    let path = root.path().join("absent-cache");
     for prefix in [None, Some(""), Some("owned:")] {
         let store = FileCacheStore::new(
             "missing",
@@ -28,11 +18,10 @@ async fn file_clear_metadata_lookup_preserves_absent_success() {
 #[cfg(unix)]
 #[tokio::test]
 async fn file_clear_metadata_lookup_errors_are_not_missing_stores() {
-    let root = test_path();
-    std::fs::create_dir(&root).expect("create isolated fixture");
-    std::os::unix::fs::symlink("cycle", root.join("cycle"))
+    let root = tempfile::tempdir().expect("create isolated fixture");
+    std::os::unix::fs::symlink("cycle", root.path().join("cycle"))
         .expect("create a self-referencing symlink");
-    let path = root.join("cycle").join("cache");
+    let path = root.path().join("cycle").join("cache");
     // A symlink loop produces a real metadata error even for privileged runners.
     let native_error = path.try_exists().expect_err("metadata lookup fails");
     let mut outcomes = Vec::new();
@@ -44,7 +33,7 @@ async fn file_clear_metadata_lookup_errors_are_not_missing_stores() {
         );
         outcomes.push((prefix, store.clear().await));
     }
-    std::fs::remove_dir_all(&root).expect("remove the isolated fixture");
+    root.close().expect("remove the isolated fixture");
 
     for (prefix, outcome) in outcomes {
         let error = outcome.expect_err("clear must propagate metadata errors");
@@ -57,7 +46,8 @@ async fn file_clear_metadata_lookup_errors_are_not_missing_stores() {
 
 #[tokio::test]
 async fn prefixed_clear_keeps_other_store_keys() {
-    let path = test_path();
+    let root = tempfile::tempdir().expect("create isolated fixture");
+    let path = root.path().to_path_buf();
     let first =
         FileCacheStore::new("first", path.clone(), Some("first:".to_string()));
     let second = FileCacheStore::new(
@@ -75,5 +65,5 @@ async fn prefixed_clear_keeps_other_store_keys() {
         second.get("key").await.expect("get second"),
         Some(bytes::Bytes::from_static(b"two"))
     );
-    cacache::clear(path).await.expect("clean test cache");
+    root.close().expect("clean test cache");
 }

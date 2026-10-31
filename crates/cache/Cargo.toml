@@ -60,3 +60,6 @@ tracing.workspace = true
 
 # ── Misc utilities ──────────────────────────────────────────────────────
 bytes.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
