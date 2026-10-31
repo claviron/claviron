@@ -146,10 +146,16 @@ or use a declared duration. Header parsing limits are separate from body limits.
 
 ## Application routes and native sessions
 
+`dispatch::RouteDispatch<H>` selects a prepared owner from a borrowed HTTP head,
+without Axum or an execution engine. Longest segment prefix wins; a rejected
+entry selects its explicit rejection owner rather than trying a shorter prefix.
+Selection neither clones the owner nor takes or adapts the request body.
+
 The implementation's `routing` capability adds the host-free `Routable`
-contract, provider-owned route composition, typed extension codecs, and immutable
-prefix dispatch. Edge has a separate host-aware `Routable` contract. Extensions
-are compiled during composition rather than looked up dynamically per request.
+contract, provider-owned Axum composition, typed extension codecs, and the Axum
+invocation adapter for that same selector. Edge has a separate host-aware
+`Routable` contract. Extensions are compiled during composition rather than
+looked up dynamically per request.
 
 The server-only `session` module owns native upgrade/CONNECT hand-offs for a
 listener generation. These are transport sessions, not login sessions or cookie

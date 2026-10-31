@@ -7,6 +7,7 @@ mod bindings;
 pub mod body;
 pub mod config;
 mod ctx;
+pub mod dispatch;
 mod error;
 pub mod ext;
 pub mod forwarding;

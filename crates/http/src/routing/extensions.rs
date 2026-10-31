@@ -10,6 +10,8 @@ use claviron_types::Host;
 use serde::de::DeserializeOwned;
 use std::sync::Arc;
 
+pub use crate::dispatch::{RouteCondition, RuleContext};
+
 pub struct RouteContext<'a, C = ()> {
     pub state: &'a AppState,
     pub host: &'a Host,
@@ -19,20 +21,6 @@ pub struct RouteContext<'a, C = ()> {
     /// for disk paths; `prefix` and the HTTP request URI remain URL paths.
     pub route: &'a C,
     pub prefix: &'a PathPrefix,
-}
-
-pub struct RuleContext<'a> {
-    pub method: &'a http::Method,
-    pub uri: &'a http::Uri,
-    pub headers: &'a http::HeaderMap,
-}
-
-/// A prepared predicate. It must not parse configuration or resolve services.
-pub trait RouteCondition: Send + Sync {
-    fn accepts(
-        &self,
-        request: &RuleContext<'_>,
-    ) -> bool;
 }
 
 pub enum RouteEffect {

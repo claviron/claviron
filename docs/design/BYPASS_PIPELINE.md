@@ -173,6 +173,18 @@ cancellation releases that request's body and guards. A streamed response keeps
 only the body resources transferred to it. These are internal native owners;
 public composition continues through `HostPipeline` and `ApplicationHandler`.
 
+The shared HTTP `dispatch::RouteDispatch<H>` selects a prepared owner from a
+borrowed method, URI and header view. It has no Axum dependency or execution
+engine knowledge. It selects the longest segment prefix and checks only that
+entry's conditions; rejection selects the explicit rejected owner, never a
+shorter prefix. The returned reference belongs to the prepared table, so the
+caller can transfer the original request directly to its owner.
+
+The existing Axum route adapter now delegates that decision to this selector.
+Its `routing::ConfiguredRoute`, `routing::RouteDispatch`, `RouteCondition` and
+`RuleContext` paths remain available. Native configured-backend compilation
+will use the same selection contract; it is not connected by this extraction.
+
 ## Keep the boundary useful
 
 Native transports adapt their request bodies to `RouteBody`; bypass handlers
