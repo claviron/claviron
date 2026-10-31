@@ -4,14 +4,6 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-#[cfg(feature = "axum")]
-use ::http::StatusCode;
-#[cfg(feature = "axum")]
-use ::http::request::Parts;
-#[cfg(feature = "axum")]
-use axum::extract::FromRequestParts;
-#[cfg(feature = "axum")]
-use axum::response::{IntoResponse, Response};
 use claviron_helpers::de::opt_one_or_many;
 use claviron_http::config::cors::CorsConfig;
 pub use claviron_http::config::host::{
@@ -415,48 +407,16 @@ impl claviron_files::FileSite for HostConfig {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Axum extractor — lives next to HostConfig so any consumer can extract the
-// host config from a request without pulling claviron-edge.
-// ---------------------------------------------------------------------------
-
 /// File/application view already selected by Edge's route table. Native Rust
 /// intercepts use this instead of reselecting a route or reusing the original
 /// host-wide file policy. Canonical host metadata remains a separate handle.
 #[derive(Clone)]
 pub struct SelectedRoute(pub Arc<HostConfig>);
 
-/// Per-request handle for the active `HostConfig`. The vhost connection layer
-/// is responsible for inserting `Arc<HostConfig>` into the request extensions
-/// before this extractor runs.
+/// Shared handle to the active host configuration. Axum extraction is supplied
+/// by the optional application adapter.
 #[derive(Clone)]
 pub struct HostConfigExt(pub Arc<HostConfig>);
-
-/// Rejection for the [`HostConfigExt`] extractor.
-#[cfg(feature = "axum")]
-pub struct HostRejection(StatusCode, &'static str);
-
-#[cfg(feature = "axum")]
-impl IntoResponse for HostRejection {
-    fn into_response(self) -> Response {
-        (self.0, self.1).into_response()
-    }
-}
-
-#[cfg(feature = "axum")]
-impl<S: Send + Sync> FromRequestParts<S> for HostConfigExt {
-    type Rejection = HostRejection;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        let cfg = parts.extensions.get::<Arc<HostConfig>>().cloned().ok_or(
-            HostRejection(StatusCode::BAD_REQUEST, "Missing HostConfig"),
-        )?;
-        Ok(HostConfigExt(cfg))
-    }
-}
 
 impl Deref for HostConfigExt {
     type Target = HostConfig;
