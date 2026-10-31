@@ -114,11 +114,6 @@ pub(crate) fn compose_dispatch_other(
     }
 }
 
-#[cfg(feature = "axum")]
-mod axum;
-#[cfg(feature = "axum")]
-pub(crate) use self::axum::dispatch_router;
-
 #[cfg(test)]
 #[path = "../../../tests/pipeline/host/dispatch.rs"]
 mod tests;

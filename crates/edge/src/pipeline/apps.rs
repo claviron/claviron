@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "broadcast")]
-mod broadcast;
+pub(crate) mod broadcast;
 
 #[cfg(feature = "axum")]
 use axum::Router;
@@ -296,14 +296,6 @@ impl Reloadable<AppState> for HostAppResolver {
     }
 }
 
-/// Factory for Rust Axum routes ahead of the selected native downstream.
-/// Host policy stays in HostExecution; file and backend dispatch stay native.
-///
-/// [`register_app`]: HostAppRegistry::register_app
-#[cfg(feature = "axum")]
-pub type ApplicationRouterFactory =
-    dyn Fn(AppState) -> Router<AppState> + Send + Sync + 'static;
-
 /// Cold factory for an application-owned Axum router.
 /// The caller owns its application layers; shared host policy still applies.
 ///
@@ -322,19 +314,9 @@ pub type OtherFactory = dyn Fn(AppState, Host, Arc<HostConfig>) -> Result<OtherS
     + Sync
     + 'static;
 
-/// Internal pairing of "what kind of factory was registered" with
-/// "the factory itself".
-///
-/// Three variants because the `register_*` methods accept three
-/// different function shapes. [`HostAppRegistry::build`] dispatches on
-/// this enum to know how to invoke each factory and which [`RustRouter`]
-/// to wrap the result in. Not exposed publicly because callers don't
-/// need to construct this directly — they go through the typed
-/// `register_*` methods.
+/// Explicit whole-host Rust router factories, prepared at boot/reload.
 #[derive(Clone)]
 enum Binding {
-    #[cfg(feature = "axum")]
-    Application(Vec<Arc<ApplicationRouterFactory>>),
     #[cfg(feature = "axum")]
     Axum(Arc<AxumRouterFactory>),
     Other(Arc<OtherFactory>),
@@ -355,49 +337,37 @@ impl Binding {
         canonical: &Host,
         host_cfg: Arc<HostConfig>,
         applications: &[Arc<dyn HostHandler>],
+        layers: &[Arc<dyn RouteLayer>],
         #[cfg(feature = "websocket")] h1_upgrades: Vec<H1UpgradeRoute>,
     ) -> Result<RustRouter> {
-        match self {
+        let app = match self {
+            Self::Other(factory) => RustRouter::Other(factory(
+                state.clone(), canonical.clone(), host_cfg.clone(),
+            )?),
             #[cfg(feature = "axum")]
-            Self::Application(factories) => {
-                let routers = factories
-                    .iter()
-                    .map(|factory| factory(state.clone()))
-                    .collect();
-                #[cfg(feature = "websocket")]
-                let h1_upgrade_registry =
-                    build_h1_upgrade_registry(canonical, h1_upgrades)?;
-                let owner = super::host::compile::prepare(
-                    state, canonical, host_cfg, applications, routers,
-                    #[cfg(feature = "websocket")]
-                    h1_upgrade_registry,
-                )?;
-                Ok(RustRouter::Other(owner))
-            }
-            Self::Other(factory) => {
-                let svc = factory(
-                    state.clone(),
-                    canonical.clone(),
-                    Arc::clone(&host_cfg),
-                )?;
-                let svc = compose_other(svc, applications);
-                #[cfg(feature = "websocket")]
-                let svc = super::host::compose_websocket_other(svc,
-                    super::host::WebSocketStage::prepare(state, canonical, &host_cfg,
-                        build_h1_upgrade_registry(canonical, h1_upgrades)?));
-                Ok(RustRouter::Other(svc))
-            }
+            Self::Axum(factory) => RustRouter::Axum(factory(state.clone())),
+        };
+        #[cfg(feature = "websocket")]
+        let websocket = super::host::WebSocketStage::prepare(
+            state, canonical, &host_cfg,
+            build_h1_upgrade_registry(canonical, h1_upgrades)?,
+        );
+        let owner = match &app {
             #[cfg(feature = "axum")]
-            Self::Axum(factory) => {
-                let router = factory(state.clone());
-                let router = super::app::compose_router(router, applications);
-                #[cfg(feature = "websocket")]
-                let router = super::host::compose_websocket_router(router,
-                    super::host::WebSocketStage::prepare(state, canonical, &host_cfg,
-                        build_h1_upgrade_registry(canonical, h1_upgrades)?).as_ref());
-                Ok(RustRouter::Axum(router))
-            }
-        }
+            RustRouter::Axum(router) => super::app::owner(router.clone()),
+            RustRouter::Other(owner) => owner.clone(),
+        };
+        let prepared = compose_other(owner.clone(), applications);
+        #[cfg(feature = "websocket")]
+        let prepared = super::host::compose_websocket_other(prepared, websocket);
+        let layered = super::host::prepare_layers(prepared, layers)
+            .map_err(|error| Error::msg(error.to_string()))?;
+        let unchanged = match (&owner, &layered) {
+            (OtherService::Handler(original), OtherService::Handler(prepared)) => Arc::ptr_eq(original, prepared),
+            (OtherService::Noop, OtherService::Noop) => true,
+            _ => false,
+        };
+        Ok(if unchanged { app } else { RustRouter::Other(layered) })
     }
 }
 
@@ -405,6 +375,7 @@ impl Binding {
 struct RoutableHostBinding {
     app: Option<Binding>,
     applications: Vec<Arc<dyn HostHandler>>,
+    layers: Vec<Arc<dyn RouteLayer>>,
     #[cfg(feature = "websocket")]
     h1_upgrades: Vec<H1UpgradeRoute>,
 }
@@ -418,9 +389,9 @@ struct RoutableHostBinding {
 /// 1. **Config-driven** — `config/*.yaml` declares hosts, TLS aliases,
 ///    upstreams, statics, ACL, etc. These hosts compile a native
 ///    pipeline behind `RustRouter::Other`. Axum is entered only when
-///    Rust application routes or layers opt into it.
+///    a Rust contribution explicitly adapts its own router.
 ///
-/// 2. **Code-driven** — the binary calls `register_app` /
+/// 2. **Code-driven** — the binary calls
 ///    `register_router` / `register_other` on this registry during
 ///    bootstrap to attach handwritten Rust handlers to specific
 ///    hostnames. This is what lets the same binary serve as both an
@@ -458,9 +429,6 @@ struct RoutableHostBinding {
 ///     .registry_ref()
 ///     .resolve::<HostAppRegistry>()
 ///     .expect("HostAppRegistry not registered");
-///
-/// // Rust routes ahead of configured native files and backends
-/// registry.register_app("example.com", routes::build_app_router);
 ///
 /// // Standalone API host: your router, your middleware
 /// registry.register_router("api.example.com", routes::build_api_router);
@@ -530,31 +498,6 @@ impl HostAppRegistry {
         Ok(())
     }
 
-    /// Register Rust Axum routes within a native configured host pipeline.
-    ///
-    /// These routes run before the selected native Static/TryFiles/backend
-    /// chain. AxumPipeline delegates directly to that chain without re-entering
-    /// the Rust router. Host security and response policy remain outside it.
-    /// A host without Rust routes needs no registration or Axum invocation.
-    /// Use register_router to own the complete Rust router, or register_other
-    /// for a native application handler. Factories run only at boot/reload.
-    #[cfg(feature = "axum")]
-    pub fn register_app<F>(
-        &self,
-        vhost_key: &'static str,
-        factory: F,
-    ) where
-        F: Fn(AppState) -> Router<AppState> + Send + Sync + 'static,
-    {
-        let router: Arc<ApplicationRouterFactory> =
-            Arc::new(move |state: AppState| factory(state));
-
-        self.inner
-            .write()
-            .expect("host app registry lock poisoned")
-            .insert(vhost_key.to_string(), Binding::Application(vec![router]));
-    }
-
     /// Register a complete Axum router for this host.
     ///
     /// The factory runs at boot/reload. The caller owns application routing
@@ -605,47 +548,9 @@ impl HostAppRegistry {
             .insert(vhost_key.to_string(), Binding::Other(f));
     }
 
-    #[cfg(feature = "upstream")]
-    pub fn register_upstream_for_host(
-        &self,
-        vhost_key: impl Into<String>,
-    ) {
-        use crate::pipeline::other::factories::upstream::build;
-        let f: Arc<OtherFactory> = Arc::new(
-            move |state: AppState, canonical: Host, cfg: Arc<HostConfig>| {
-                build(state, canonical, cfg)
-            },
-        );
-
-        self.inner
-            .write()
-            .expect("host app registry lock poisoned")
-            .insert(vhost_key.into(), Binding::Other(f));
-    }
-
-    #[cfg(any(feature = "php_fcgi", feature = "php_embed"))]
-    pub fn register_php_for_host(
-        &self,
-        vhost_key: impl Into<String>,
-    ) {
-        use crate::pipeline::other::factories::php::build;
-
-        let f: Arc<OtherFactory> = Arc::new(
-            move |state: AppState, canonical: Host, cfg: Arc<HostConfig>| {
-                build(state, canonical, cfg)
-            },
-        );
-
-        self.inner
-            .write()
-            .expect("host app registry lock poisoned")
-            .insert(vhost_key.into(), Binding::Other(f));
-    }
-
     /// Register a provider-shaped route contributor.
     ///
-    /// This is a build-time convenience layer over the three explicit
-    /// registration doors. `Routable` providers are evaluated during
+    /// Native contributions are evaluated during
     /// [`build`](Self::build), and the resulting binding is frozen into the
     /// `HostAppSnapshot`. The request hot path remains a plain
     /// `Host -> RustRouter` lookup.
@@ -659,40 +564,6 @@ impl HostAppRegistry {
             .write()
             .expect("host app routables lock poisoned")
             .push(routable);
-    }
-
-    #[cfg(feature = "axum")]
-    pub(crate) fn layer_routable_routes(
-        &self,
-        state: &AppState,
-        key: &Host,
-        host: Arc<HostConfig>,
-        downstream: claviron_http::routing::AxumPipeline,
-        mut router: Router,
-    ) -> Option<Router> {
-        let mut active = false;
-        let routables = self
-            .routables
-            .read()
-            .expect("host app routables lock poisoned")
-            .clone();
-        for routable in routables {
-            if routable.match_host(key, host.as_ref()) {
-                if let Some(layered) = routable.layer_routes(
-                    super::routable::RouteLayerContext {
-                        state,
-                        host: key,
-                        config: host.clone(),
-                        downstream: downstream.clone(),
-                    },
-                    router.clone(),
-                ) {
-                    router = layered;
-                    active = true;
-                }
-            }
-        }
-        active.then_some(router)
     }
 
     pub fn register_binding_provider<R>(
@@ -813,9 +684,8 @@ impl HostAppRegistry {
         canonical: &Host,
         host_cfg: Arc<HostConfig>,
     ) -> Result<RoutableHostBinding> {
-        #[cfg(feature = "axum")]
-        let mut rust_apps: Vec<(&'static str, Arc<ApplicationRouterFactory>)> = Vec::new();
         let mut applications = Vec::new();
+        let mut layers = Vec::new();
         let mut exclusive: Option<(&'static str, Binding)> = None;
         #[cfg(feature = "websocket")]
         let mut h1_upgrades = Vec::new();
@@ -826,107 +696,38 @@ impl HostAppRegistry {
             if !routable.match_host(canonical, host_cfg.as_ref()) {
                 continue;
             }
-            let name = routable.name();
             if let Some(application) = Arc::clone(routable).application(
                 state, canonical, Arc::clone(&host_cfg),
             )? {
-                tracing::debug!(host = %canonical, provider = name,
-                    "mounting native routable application");
                 applications.push(application);
             }
+            layers.extend(Arc::clone(routable).layers(state, canonical, Arc::clone(&host_cfg))?);
             #[cfg(feature = "websocket")]
-            {
-                let mut upgrades = routable.h1_upgrades(canonical, Arc::clone(&host_cfg))?;
-                if !upgrades.is_empty() {
-                    tracing::debug!(host = %canonical, routable = name,
-                        count = upgrades.len(), "mounting H1 upgrade routable provider");
-                }
-                h1_upgrades.append(&mut upgrades);
-            }
-            #[cfg(feature = "axum")]
-            if let Some(router) = Arc::clone(routable).routes(
-                state, canonical, Arc::clone(&host_cfg),
-            )? {
-                let factory: Arc<ApplicationRouterFactory> =
-                    Arc::new(move |_state: AppState| router.clone());
-                rust_apps.push((name, factory));
-            }
+            h1_upgrades.extend(routable.h1_upgrades(canonical, Arc::clone(&host_cfg))?);
         }
 
-        let local_bindings = self
-            .binding_providers
-            .read()
-            .expect("host binding providers lock poisoned")
-            .clone();
+        let local_bindings = self.binding_providers.read()
+            .expect("host binding providers lock poisoned").clone();
         for provider in &local_bindings {
             if !provider.match_host(canonical, host_cfg.as_ref()) {
                 continue;
             }
-
-            let name = provider.name();
-            let Some(binding) =
-                provider.binding(canonical, Arc::clone(&host_cfg))?
-            else {
+            let Some(binding) = provider.binding(canonical, Arc::clone(&host_cfg))? else {
                 continue;
             };
             if let Some((previous, _)) = exclusive.as_ref() {
                 return Err(Error::msg(format!(
                     "multiple exclusive host binding providers matched host '{}': '{}' and '{}'",
-                    canonical, previous, name
+                    canonical, previous, provider.name(),
                 )));
             }
-            #[cfg(feature = "axum")]
-            if !rust_apps.is_empty() {
-                let application_names = rust_apps
-                    .iter()
-                    .map(|(name, _)| *name)
-                    .collect::<Vec<_>>()
-                    .join(",");
-                return Err(Error::msg(format!(
-                    "host binding provider '{}' is exclusive for host '{}' but Rust routables already matched: {}",
-                    name, canonical, application_names
-                )));
-            }
-            exclusive = Some((name, Binding::from_route_binding(binding)));
+            exclusive = Some((provider.name(), Binding::from_route_binding(binding)));
         }
 
-        let app = if let Some((name, binding)) = exclusive {
-            tracing::debug!(
-                host = %canonical,
-                provider = name,
-                "mounting exclusive host binding provider"
-            );
-            Some(binding)
-        } else {
-            #[cfg(feature = "axum")]
-            if !rust_apps.is_empty() {
-                let names = rust_apps
-                    .iter()
-                    .map(|(name, _)| *name)
-                    .collect::<Vec<_>>()
-                    .join(",");
-                let factories = rust_apps
-                    .into_iter()
-                    .map(|(_, factory)| factory)
-                    .collect::<Vec<_>>();
-                tracing::debug!(
-                    host = %canonical,
-                    routables = %names,
-                    "preparing Rust application providers"
-                );
-                return Ok(RoutableHostBinding {
-                    app: Some(Binding::Application(factories)),
-                    applications,
-                    #[cfg(feature = "websocket")]
-                    h1_upgrades,
-                });
-            }
-            None
-        };
-
         Ok(RoutableHostBinding {
-            app,
+            app: exclusive.map(|(_, binding)| binding),
             applications,
+            layers,
             #[cfg(feature = "websocket")]
             h1_upgrades,
         })
@@ -948,7 +749,7 @@ impl HostAppRegistry {
     ///    - If a code binding exists, invoke its factory and produce
     ///      matching application owner.
     ///    - Otherwise, compile a native configured host pipeline; no Axum
-    ///      application is installed unless Rust routes/layers opt into it.
+    ///      router is installed unless a Rust contribution explicitly adapts it.
     /// 4. Stamp the resulting `RustRouter` against **every alias** for
     ///    the canonical host so per-request lookup is one hash hit.
     ///
@@ -1074,43 +875,16 @@ impl HostAppRegistry {
                 &mut routable.h1_upgrades,
             )?;
             let binding = match custom_bindings.get(canonical).cloned() {
-                #[cfg(feature = "axum")]
-                Some(Binding::Application(mut factories)) => {
-                    if let Some(routable_app) = routable.app.clone() {
-                        match routable_app {
-                            Binding::Application(mut routable_factories) => {
-                                factories.append(&mut routable_factories);
-                                Some(Binding::Application(factories))
-                            }
-                            Binding::Axum(_) | Binding::Other(_) => {
-                                return Err(Error::msg(format!(
-                                    "host '{}' has manual Rust application routes and an exclusive routable binding",
-                                    canonical
-                                )));
-                            }
-                        }
-                    } else {
-                        Some(Binding::Application(factories))
-                    }
-                }
-                // Remaining explicit bindings own their application surface exclusively.
-                Some(exclusive) => {
+                Some(binding) => {
                     if routable.app.is_some() {
                         return Err(Error::msg(format!(
                             "host '{}' has a manual exclusive binding and a routable app binding",
                             canonical
                         )));
                     }
-                    Some(exclusive)
+                    Some(binding)
                 }
                 None => routable.app.clone(),
-            };
-            let binding = match binding {
-                #[cfg(feature = "axum")]
-                Some(Binding::Application(factories)) if factories.is_empty() => {
-                    None
-                }
-                other => other,
             };
 
             #[cfg(feature = "axum")]
@@ -1134,6 +908,7 @@ impl HostAppRegistry {
                     canonical,
                     Arc::clone(&record.config),
                     &routable.applications,
+                    &routable.layers,
                     #[cfg(feature = "websocket")]
                     routable.h1_upgrades,
                 )?
@@ -1143,6 +918,7 @@ impl HostAppRegistry {
                     canonical,
                     Arc::clone(&record.config),
                     &routable.applications,
+                    &routable.layers,
                     #[cfg(feature = "websocket")]
                     routable.h1_upgrades,
                 )?
@@ -1182,14 +958,13 @@ fn build_default_app(
     canonical: &Host,
     host_cfg: Arc<HostConfig>,
     applications: &[Arc<dyn HostHandler>],
+    layers: &[Arc<dyn RouteLayer>],
     #[cfg(feature = "websocket")] h1_upgrades: Vec<H1UpgradeRoute>,
 ) -> Result<RustRouter> {
     #[cfg(feature = "websocket")]
     let websocket = build_h1_upgrade_registry(canonical, h1_upgrades)?;
     super::host::compile::prepare(
-        state, canonical, host_cfg, applications,
-        #[cfg(feature = "axum")]
-        Vec::new(),
+        state, canonical, host_cfg, applications, layers,
         #[cfg(feature = "websocket")]
         websocket,
     ).map(RustRouter::Other)
@@ -1214,3 +989,7 @@ fn build_h1_upgrade_registry(
 #[cfg(all(test, feature = "rate-limit"))]
 #[path = "../../tests/pipeline/quota.rs"]
 mod quota_tests;
+
+#[cfg(all(test, feature = "axum"))]
+#[path = "../../tests/pipeline/apps.rs"]
+mod application_tests;

@@ -220,8 +220,8 @@ lua:
 
 ## Adding an application
 
-In a server registration callback, declare a host and attach a Rust Axum
-application before its native downstream:
+In a server registration callback, declare a host and attach an application-owned
+Axum router:
 
 ```rust
 use claviron::{
@@ -241,7 +241,7 @@ fn register_host(state: &AppState) -> registry::Result<()> {
     let apps = state.registry_ref().resolve::<HostAppRegistry>()
         .ok_or_else(|| registry::Error::msg("edge registration is required"))?;
 
-    apps.register_app("example.test", |_state| {
+    apps.register_router("example.test", |_state| {
         Router::new().route("/health", get(|| async { "ok" }))
     });
     Ok(())
@@ -250,7 +250,7 @@ fn register_host(state: &AppState) -> registry::Result<()> {
 
 This uses the root `edge` feature and assumes the standard edge infrastructure
 has already been registered. It does not configure or start a listener. The key
-passed to `register_app` selects the canonical vhost, not an arbitrary alias.
+passed to `register_router` selects the canonical vhost, not an arbitrary alias.
 
 `register_hosts` lets an integration supply multiple declarations from its
 prepared configuration. Host-source callbacks run while rebuilding the host
@@ -265,8 +265,6 @@ Both retain host admission, response policy and request ownership.
 
 `HostAppRegistry` supports distinct ownership arrangements:
 
-- `register_app` adds an Axum Rust application before the selected native
-  file/backend chain.
 - `register_router` installs a complete Axum router whose application middleware
   is owned by the caller. Host admission still applies.
 - `register_other` installs a native handler without requiring an Axum router.
@@ -282,9 +280,14 @@ the body remains private. Return `Unhandled` with that capability to continue;
 consume it with `into_request` when handling the body. A handled error response,
 including 404, does not fall through. Only registered contributions execute,
 in registration order, before the configured owner; absent contributions leave
-the direct owner unchanged. Axum routes remain an optional Rust application
-adapter. `layer_routes` returns `Some(router)` when active and `None` otherwise;
-an inactive hook installs no Axum invocation.
+the direct owner unchanged. `pipeline::app::application(router)` adapts an Axum
+router as a contribution that owns its reply, including 404. Select its requests
+before invoking that adapter; unrelated requests can remain `Unhandled`.
+
+`Routable::layers` supplies native `RouteLayer` values at boot/reload. They
+surround the selected owner in HostPipeline, including explicit Axum/Other
+bindings. Empty or inactive layers add no wrapper. They never receive an Axum
+router or a callable native downstream.
 
 Configured dispatch prepares the order **WebSocket → Routable → Static →
 TryFiles → Embed/backend**. The optional WebSocket step requires a registered

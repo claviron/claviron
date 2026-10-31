@@ -1,4 +1,6 @@
 //! Native entrances to the same Broadcast session, prepared with the host.
+pub(crate) mod rest;
+
 use std::sync::Arc;
 
 use async_trait::async_trait;

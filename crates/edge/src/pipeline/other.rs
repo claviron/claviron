@@ -1,5 +1,3 @@
-#[cfg(feature = "server")]
-pub mod factories;
 #[cfg(feature = "upstream")]
 pub mod upstream;
 

@@ -1,6 +1,4 @@
 use super::*;
-#[cfg(feature = "axum")]
-use crate::pipeline::app::compose_router;
 use bytes::Bytes;
 use http::{HeaderValue, Response, StatusCode};
 use http_body::{Body, Frame};
@@ -202,9 +200,9 @@ fn axum_adapter_passes_unhandled_payload_without_buffering() {
             Response::new(request.into_body())
         },
     );
-    let router = compose_router(backend, &[Arc::new(Pass(calls.clone()))]);
+    let pipeline = ApplicationStage::new(backend, vec![Arc::new(Pass(calls.clone()))]);
     let (request, address) = request(&counts);
-    let mut answering = Box::pin(ApplicationHandler::call(router, request));
+    let mut answering = Box::pin(pipeline.handle(request));
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
         panic!("the Axum adapter must not collect the body");
@@ -230,14 +228,22 @@ fn axum_adapter_passes_unhandled_payload_without_buffering() {
 fn an_outer_policy_rejection_cannot_enter_the_native_application() {
     let counts = Arc::new(Counts::default());
     let calls = Arc::new(AtomicUsize::new(0));
-    let router = compose_router(::axum::Router::new(), &[Arc::new(Pass(calls.clone()))])
-        .layer(::axum::middleware::from_fn(
-            |_: Request<::axum::body::Body>, _: ::axum::middleware::Next| async {
-                StatusCode::FORBIDDEN
-            },
-        ));
+    struct Reject;
+    impl crate::pipeline::ext::RouteLayer for Reject {
+        fn prepare(&self, layer: &mut super::super::HostLayerBuilder) -> crate::Result<()> {
+            layer.before(|_, _| std::ops::ControlFlow::Break(
+                Response::builder().status(StatusCode::FORBIDDEN)
+                    .body(claviron_http::empty_body()).unwrap(),
+            ));
+            Ok(())
+        }
+    }
+    let owner = compose_other(crate::pipeline::app::owner(::axum::Router::new()),
+        &[Arc::new(Pass(calls.clone()))]);
+    let owner = super::super::prepare_layers(owner, &[Arc::new(Reject)]).unwrap();
     let (request, _) = request(&counts);
-    let mut answering = Box::pin(ApplicationHandler::call(router, request));
+    let answering = owner.handle(request).map(|response| response.unwrap());
+    let mut answering = Box::pin(answering);
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
         panic!("the prepared policy rejection must answer directly");

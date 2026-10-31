@@ -77,11 +77,10 @@ pub use admission::AdmissionPolicy;
 pub use application::ApplicationHandler;
 pub use dispatch::{DispatchChain, DispatchFuture, DispatchResult, DispatchStep};
 pub(crate) use dispatch::compose_dispatch_other;
-#[cfg(feature = "axum")]
-pub(crate) use dispatch::dispatch_router;
 pub(crate) use binding::HostPolicy;
 pub use exchange::{ExchangeLayer, ExchangePolicy, ExchangeState};
 pub(crate) use execution::HostExecution;
+pub(crate) use extension::prepare_layers;
 pub use files::{StaticStage, TryFilesStage};
 pub(crate) use files::fallback_config;
 pub use identity::{IdentityPolicy, IdentityState};
@@ -102,8 +101,6 @@ pub(crate) use state::IdentifiedRequest;
 pub use websocket::WebSocketStage;
 #[cfg(feature = "websocket")]
 pub(crate) use websocket::compose_websocket_other;
-#[cfg(all(feature = "websocket", feature = "axum"))]
-pub(crate) use websocket::compose_websocket_router;
 mod request;
 mod response;
 

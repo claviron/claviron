@@ -70,17 +70,6 @@ pub(crate) fn compose_websocket_other(
     }
 }
 
-#[cfg(feature = "axum")]
-pub(crate) fn compose_websocket_router(
-    owner: axum::Router,
-    websocket: Option<&Arc<WebSocketStage>>,
-) -> axum::Router {
-    match websocket {
-        Some(websocket) => super::dispatch_router(DispatchChain::new(owner, vec![websocket.clone()])),
-        None => owner,
-    }
-}
-
 #[cfg(test)]
 #[path = "../../../tests/pipeline/host/websocket.rs"]
 mod tests;

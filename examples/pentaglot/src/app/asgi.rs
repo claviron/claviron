@@ -6,6 +6,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use async_trait::async_trait;
 use claviron::axum::Router;
 use claviron::edge::{Host, HostConfig, Routable};
+use claviron::edge::pipeline::host::{HostHandler, HostHandlerFuture, HostRequest};
+use claviron::http::ServiceResult;
 use claviron::runtime::congif::{self, ConfigFile, Configurable};
 use claviron::runtime::{AppState, Bootable, Component, Finalizable, registry};
 use gufi_asgi::asgi::{
@@ -142,18 +144,31 @@ impl Routable for Asgi {
         true
     }
 
-    fn routes(
+    fn application(
         self: Arc<Self>,
         _state: &AppState,
         _key: &Host,
         _host: Arc<HostConfig>,
-    ) -> registry::Result<Option<Router<AppState>>> {
-        // Keep the admitted URL intact, just like the other mounted applications.
+    ) -> registry::Result<Option<Arc<dyn HostHandler>>> {
         let service = PythonService::new(Arc::clone(&self.handle));
-        Ok(Some(
-            Router::new()
-                .route_service("/python", service.clone())
-                .route_service("/python/{*path}", service),
-        ))
+        let router = Router::new()
+            .route_service("/python", service.clone())
+            .route_service("/python/{*path}", service);
+        Ok(Some(Arc::new(PythonRoutes(
+            claviron::edge::pipeline::app::application(router),
+        ))))
+    }
+}
+
+struct PythonRoutes(Arc<dyn HostHandler>);
+
+impl HostHandler for PythonRoutes {
+    fn call(&self, request: HostRequest) -> HostHandlerFuture {
+        let path = request.head().uri.path();
+        if path == "/python" || path.starts_with("/python/") {
+            self.0.call(request)
+        } else {
+            Box::pin(std::future::ready(ServiceResult::Unhandled(request)))
+        }
     }
 }

@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-#[cfg(feature = "axum")]
-use axum::Router;
 #[cfg(feature = "websocket")]
 use claviron_http::upgrade::H1UpgradeRoute;
 use claviron_runtime::AppState;
@@ -14,20 +12,9 @@ use super::host::HostHandler;
 use super::apps::AxumRouterFactory;
 use crate::config::HostConfig;
 
-/// Boot-time inputs for an optional Rust application layer.
-/// `downstream` calls the already-selected native owner without re-entering
-/// the Axum route contributions. It requires no second prefix lookup.
-#[cfg(feature = "axum")]
-pub struct RouteLayerContext<'a> {
-    pub state: &'a AppState,
-    pub host: &'a Host,
-    pub config: Arc<HostConfig>,
-    pub downstream: claviron_http::routing::AxumPipeline,
-}
-
 /// Provider-owned Rust applications bound to selected edge hosts at preparation.
-/// Native `application` contributions require no Axum. The optional `routes`
-/// and `layer_routes` hooks explicitly opt into Axum application composition.
+/// Applications and declared layers enter the native host plan. A contribution
+/// can explicitly adapt an Axum router without wrapping the native downstream.
 pub trait Routable: AnyComponent<AppState> {
     /// Directive codecs and compilers owned by this provider. Enumerated only
     /// while preparing a host snapshot; never consulted during dispatch.
@@ -60,31 +47,16 @@ pub trait Routable: AnyComponent<AppState> {
         Ok(None)
     }
 
-    /// Build routes from the registered shared instance at host preparation.
-    /// Handlers may capture this Arc directly; host selection stays here,
-    /// rather than being repeated on each request.
-    #[cfg(feature = "axum")]
-    fn routes(
+    /// Prepare native layers surrounding this host's selected request owner.
+    /// Called only at boot/reload, including for explicit Axum/Other bindings.
+    /// An empty or inactive layer set leaves no request-time wrapper.
+    fn layers(
         self: Arc<Self>,
         _state: &AppState,
         _key: &Host,
         _host: Arc<HostConfig>,
-    ) -> Result<Option<Router<AppState>>> {
-        Ok(None)
-    }
-
-    /// Prepare an optional Axum layer around the Rust application and selected
-    /// native downstream. Return None when inactive: no Axum invocation remains.
-    /// Host security, CORS and response policy are outside this application.
-    /// Preparation runs per selected scope at boot/reload. Exclusive standalone
-    /// and Other bindings retain their own application composition.
-    #[cfg(feature = "axum")]
-    fn layer_routes(
-        &self,
-        _context: RouteLayerContext<'_>,
-        _router: Router,
-    ) -> Option<Router> {
-        None
+    ) -> Result<Vec<Arc<dyn super::ext::RouteLayer>>> {
+        Ok(Vec::new())
     }
 
     #[cfg(feature = "websocket")]

@@ -43,11 +43,11 @@ handlers can retain the provider's shared dependencies. One provider can
 contribute to several hosts, each with its own composition.
 
 Interception lets those contributions handle selected requests while the
-configured application owner continues serving the remaining paths. A
-`Routable` can also supply route extensions and explicitly opt into an Axum
-application layer with `layer_routes`. Returning `None` installs no adapter.
-The prepared downstream handle delegates to the selected native owner without
-re-entering the Rust routes or selecting the prefix again.
+configured application owner continues serving the remaining paths.
+`Routable::application` returns a native request contribution; `Routable::layers`
+returns native host layers. Both are prepared at boot/reload. Axum is an explicit
+Rust router adapter, with no callable native downstream inside that router.
+An unclaimed request keeps its original body and proceeds through the host plan.
 
 This supports applications built from several cooperating parts, including
 gradual replacement of individual handlers. Route ownership and delegation are

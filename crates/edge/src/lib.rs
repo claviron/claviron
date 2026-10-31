@@ -248,8 +248,6 @@ pub use pipeline::{
 };
 #[cfg(feature = "server")]
 pub use pipeline::Routable;
-#[cfg(all(feature = "server", feature = "axum"))]
-pub use pipeline::RouteLayerContext;
 
 #[cfg(feature = "quic")]
 pub mod quic;

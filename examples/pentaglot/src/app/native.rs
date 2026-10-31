@@ -5,10 +5,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use claviron::axum::Router;
 use claviron::axum::extract::Request;
 use claviron::axum::http::{HeaderValue, StatusCode};
-use claviron::axum::middleware::{self, Next};
 use claviron::axum::response::{Html, IntoResponse, Response};
 use claviron::axum::routing::{any, get};
-use claviron::edge::{Host, HostConfig, Routable, RouteLayerContext};
+use claviron::edge::{Host, HostConfig, Routable};
+use claviron::edge::extension::RouteLayer;
+use claviron::edge::pipeline::host::{HostHandler, HostHandlerFuture, HostLayerBuilder, HostRequest};
+use claviron::http::ServiceResult;
 use claviron::runtime::{AppState, Component, registry};
 use http_body_util::BodyExt;
 use serde::Serialize;
@@ -45,50 +47,55 @@ impl Routable for Native {
         true
     }
 
-    fn routes(
+    fn application(
         self: Arc<Self>,
         _state: &AppState,
         _key: &Host,
         _host: Arc<HostConfig>,
-    ) -> registry::Result<Option<Router<AppState>>> {
+    ) -> registry::Result<Option<Arc<dyn HostHandler>>> {
         let root = Arc::clone(&self);
         let echo = Arc::clone(&self);
-        Ok(Some(
-            Router::new()
-                .route(
-                    "/",
-                    get(|| async {
-                        Html(include_str!("../../public/index.html"))
-                    }),
-                )
-                .route(
-                    "/rust",
-                    any(move |request| root.clone().answer(request)),
-                )
-                .route(
-                    "/rust/echo",
-                    any(move |request| echo.clone().answer(request)),
-                ),
-        ))
+        let router = Router::new()
+            .route("/", get(|| async { Html(include_str!("../../public/index.html")) }))
+            .route("/rust", any(move |request| root.clone().answer(request)))
+            .route("/rust/echo", any(move |request| echo.clone().answer(request)));
+        Ok(Some(Arc::new(NativeRoutes(
+            claviron::edge::pipeline::app::application(router),
+        ))))
     }
 
-    fn layer_routes(
-        &self,
-        _context: RouteLayerContext<'_>,
-        router: Router,
-    ) -> Option<Router> {
-        let pid =
-            HeaderValue::from_str(&std::process::id().to_string()).unwrap();
-        Some(router.layer(middleware::from_fn(
-            move |request: Request, next: Next| {
-                let pid = pid.clone();
-                async move {
-                    let mut response = next.run(request).await;
-                    response.headers_mut().insert("x-pentaglot-pid", pid);
-                    response
-                }
-            },
-        )))
+    fn layers(
+        self: Arc<Self>,
+        _state: &AppState,
+        _key: &Host,
+        _host: Arc<HostConfig>,
+    ) -> registry::Result<Vec<Arc<dyn RouteLayer>>> {
+        Ok(vec![Arc::new(WorkerPid(
+            HeaderValue::from_str(&std::process::id().to_string()).unwrap(),
+        ))])
+    }
+}
+
+struct NativeRoutes(Arc<dyn HostHandler>);
+
+impl HostHandler for NativeRoutes {
+    fn call(&self, request: HostRequest) -> HostHandlerFuture {
+        match request.head().uri.path() {
+            "/" | "/rust" | "/rust/echo" => self.0.call(request),
+            _ => Box::pin(std::future::ready(ServiceResult::Unhandled(request))),
+        }
+    }
+}
+
+struct WorkerPid(HeaderValue);
+
+impl RouteLayer for WorkerPid {
+    fn prepare(&self, layer: &mut HostLayerBuilder) -> claviron::edge::Result<()> {
+        let pid = self.0.clone();
+        layer.after(move |response, _| {
+            response.headers.insert("x-pentaglot-pid", pid.clone());
+        });
+        Ok(())
     }
 }
 

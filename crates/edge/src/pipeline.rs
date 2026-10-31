@@ -48,8 +48,6 @@ pub use host::{AccessLogLayer, AccessLogState};
 #[cfg(feature = "rate-limit")]
 pub use host::{QuotaPolicy, QuotaState};
 pub use routable::{HostBindingProvider, RouteBinding, Routable};
-#[cfg(feature = "axum")]
-pub use routable::RouteLayerContext;
 #[cfg(feature = "webtransport")]
 pub use wt::{
     H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,

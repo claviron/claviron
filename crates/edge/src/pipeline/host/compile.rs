@@ -17,8 +17,6 @@ use crate::{HostConfig, config::SelectedRoute};
 use crate::pipeline::other::{OtherHandler, OtherService};
 use crate::pipeline::apps::{HostAppRegistry, ResolvedRouteExtensions};
 use crate::pipeline::ext::{RouteContext, RouteLayer};
-#[cfg(feature = "axum")]
-use crate::pipeline::app;
 
 struct SelectedOwner {
     config: Arc<HostConfig>,
@@ -43,15 +41,10 @@ impl OtherHandler for HostRoutes {
 }
 
 struct Compiler<'a> {
-    #[cfg(feature = "axum")]
+    #[cfg(feature = "broadcast")]
     state: &'a AppState,
-    #[cfg(feature = "axum")]
-    host: &'a Host,
-    #[cfg(feature = "axum")]
-    config: Arc<HostConfig>,
     applications: &'a [Arc<dyn HostHandler>],
-    #[cfg(feature = "axum")]
-    routers: Vec<axum::Router<AppState>>,
+    layers: &'a [Arc<dyn RouteLayer>],
     registry: Option<Arc<HostAppRegistry>>,
     #[cfg(feature = "websocket")]
     websocket: Option<Arc<super::WebSocketStage>>,
@@ -64,6 +57,10 @@ impl Compiler<'_> {
         layers: &[Arc<dyn RouteLayer>],
     ) -> Result<OtherService> {
         let mut steps = scope_steps(&config);
+        #[cfg(feature = "broadcast")]
+        if let Some(rest) = crate::pipeline::apps::broadcast::rest::prepare(self.state, &config) {
+            steps.insert(0, rest);
+        }
         steps.extend(plan.steps);
         let registered = if accept_applications { self.applications } else { &[] };
         let selected = handler.filter(|_| accept_applications).map(|handler| {
@@ -72,33 +69,16 @@ impl Compiler<'_> {
             applications
         });
         let applications = selected.as_deref().unwrap_or(registered);
-        #[cfg(feature = "broadcast")]
-        let configured = app::configured(self.state, &config);
-        #[cfg(feature = "broadcast")]
-        let dispatch_applications = if configured.is_some() { &[][..] } else { applications };
-        #[cfg(not(feature = "broadcast"))]
-        let dispatch_applications = applications;
-        let owner = compose_dispatch_other(plan.terminal, steps, dispatch_applications);
-        #[cfg(feature = "broadcast")]
-        let owner = match configured {
-            // User Rust contributions retain first claim over configured
-            // endpoints. The extra adapter exists only for these endpoints.
-            Some(routes) => super::compose_other(app::with_downstream(routes, owner), applications),
-            None => owner,
-        };
-        #[cfg(feature = "axum")]
-        let owner = app::compose(
-            self.state, self.host, self.config.clone(),
-            if accept_applications { &self.routers } else { &[] },
-            self.registry.as_deref(), owner,
-        );
+        let owner = compose_dispatch_other(plan.terminal, steps, applications);
         // Conditions and configured security layers stay outside WebSocket.
         // It is the first dispatch owner before any application contribution.
         #[cfg(feature = "websocket")]
         let owner = if accept_applications {
             super::compose_websocket_other(owner, self.websocket.clone())
         } else { owner };
-        let owner = prepare_layers(owner, layers)
+        let mut active_layers = self.layers.to_vec();
+        active_layers.extend_from_slice(layers);
+        let owner = prepare_layers(owner, &active_layers)
             .map_err(|error| Error::msg(error.to_string()))?;
         Ok(OtherService::new(SelectedOwner { config, owner }))
     }
@@ -109,19 +89,14 @@ pub(crate) fn prepare(
     host: &Host,
     config: Arc<HostConfig>,
     applications: &[Arc<dyn HostHandler>],
-    #[cfg(feature = "axum")] routers: Vec<axum::Router<AppState>>,
+    layers: &[Arc<dyn RouteLayer>],
     #[cfg(feature = "websocket")] websocket: Option<Arc<crate::pipeline::H1UpgradeRegistry>>,
 ) -> Result<OtherService> {
     let compiler = Compiler {
-        #[cfg(feature = "axum")]
+        #[cfg(feature = "broadcast")]
         state,
-        #[cfg(feature = "axum")]
-        host,
-        #[cfg(feature = "axum")]
-        config: config.clone(),
         applications,
-        #[cfg(feature = "axum")]
-        routers,
+        layers,
         registry: state.registry_ref().resolve::<HostAppRegistry>(),
         #[cfg(feature = "websocket")]
         websocket: super::WebSocketStage::prepare(state, host, &config, websocket),

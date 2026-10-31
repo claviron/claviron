@@ -34,7 +34,7 @@ impl OtherHandler for Arc<LayeredOwner> {
     }
 }
 
-pub(super) fn prepare_layers(
+pub(crate) fn prepare_layers(
     owner: OtherService,
     layers: &[Arc<dyn RouteLayer>],
 ) -> crate::Result<OtherService> {

@@ -1,11 +1,11 @@
 use super::*;
 use axum::body::{Body, to_bytes};
-use axum::extract::{Extension, Request, State};
-use axum::response::Response;
-use axum::routing::any;
+use http::Request;
 use claviron_files::{FileSite, ResourceAdapter};
-use claviron_http::{RequestContext, RouteResponse, boxed_body, bytes_body};
+use claviron_http::{RequestContext, RouteResponse, bytes_body};
 use http::StatusCode;
+use claviron_runtime::AppState;
+use crate::HostConfig;
 
 struct Fallback;
 
@@ -21,19 +21,19 @@ impl claviron_files::Handler for Fallback {
     }
 }
 
-async fn resource(
-    State(adapter): State<Arc<ResourceAdapter>>,
-    Extension(site): Extension<crate::config::SelectedRoute>,
-    request: Request,
-) -> Response {
-    let canonical = request.extensions().get::<Arc<HostConfig>>().unwrap();
-    assert!(!Arc::ptr_eq(canonical, &site.0));
-    claviron_http::into_axum_response(
-        adapter
-            .handle_with_site(request.map(boxed_body), site.0.as_ref())
-            .await
-            .unwrap(),
-    )
+struct Resource(Arc<ResourceAdapter>);
+
+impl HostHandler for Resource {
+    fn call(&self, request: HostRequest) -> HostHandlerFuture {
+        let request = request.into_request();
+        let site = request.extensions().get::<crate::config::SelectedRoute>().unwrap().0.clone();
+        let canonical = request.extensions().get::<Arc<HostConfig>>().unwrap();
+        assert!(!Arc::ptr_eq(canonical, &site));
+        let adapter = self.0.clone();
+        Box::pin(async move {
+            ServiceResult::Handled(adapter.handle_with_site(request, site.as_ref()).await.unwrap())
+        })
+    }
 }
 
 #[tokio::test]
@@ -60,15 +60,14 @@ async fn file_routes_reach_native_intercepts_with_the_selected_file_policy() {
         state.clone(),
         Arc::new(HostConfig::new(directory.path())),
     ));
-    let app =
-        Router::new().route("/{*resource}", any(resource)).with_state(adapter);
+    let app: Arc<dyn HostHandler> = Arc::new(Resource(adapter));
     let config = Arc::new(config);
     let owner = crate::pipeline::host::compile::prepare(
         &state,
         &"cdn.example.test".parse().unwrap(),
         config.clone(),
+        &[app],
         &[],
-        vec![app],
         #[cfg(feature = "websocket")]
         None,
     )
