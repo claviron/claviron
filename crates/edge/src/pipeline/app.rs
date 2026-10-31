@@ -123,10 +123,6 @@ pub(crate) fn with_downstream(routes: Router, native: OtherService) -> OtherServ
     owner(routes.merge(dispatch_router(native)))
 }
 
-#[cfg(all(test, feature = "php_embed"))]
-#[path = "../../tests/unit/application.rs"]
-mod tests;
-
 #[cfg(test)]
 #[path = "../../tests/unit/file_routes.rs"]
 mod file_route_tests;

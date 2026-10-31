@@ -1,6 +1,7 @@
 //! Native ordinary-request execution around one already selected application.
 
 use std::sync::Arc;
+use std::future::Future;
 
 use claviron_http::{RouteBody, RouteResponse};
 use claviron_http::admission::Admission;
@@ -31,10 +32,27 @@ pub(crate) struct HostExecution {
 }
 
 impl HostExecution {
-    pub(crate) async fn dispatch(
+    pub(crate) fn dispatch<H: ApplicationHandler>(
         self,
-        owner: impl ApplicationHandler,
-    ) -> RouteResponse {
+        owner: H,
+    ) -> impl Future<Output = RouteResponse> + Send {
+        // Resolve concrete terminal methods before constructing async state.
+        // Their invocation stays deferred to the original admission/head phase.
+        self.execute(owner, H::times_its_head, H::call)
+    }
+
+    async fn execute<H, T, C, F>(
+        self,
+        owner: H,
+        timing_owner: T,
+        call: C,
+    ) -> RouteResponse
+    where
+        H: Send,
+        T: FnOnce(&H) -> bool + Send,
+        C: FnOnce(H, Request<RouteBody>) -> F + Send,
+        F: Future<Output = RouteResponse> + Send,
+    {
         let _access = self.access;
         #[cfg(feature = "rate-limit")]
         let _quotas = self.quotas;
@@ -96,12 +114,12 @@ impl HostExecution {
         access.admitted();
         // Head-timing ownership is irrelevant when no timeout was declared.
         let head_timeout = context.0.admission_policy
-            .head_timeout_for(|| owner.times_its_head());
+            .head_timeout_for(|| timing_owner(&owner));
         let answering = async move {
             if let Some(response) = early_reply {
                 return response;
             }
-            owner.call(request).await
+            call(owner, request).await
         };
         // Late here is the server's, not the client's: 504, as a runner's
         // own head timeout answers.

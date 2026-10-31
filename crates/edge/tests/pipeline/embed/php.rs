@@ -72,14 +72,16 @@ fn prefix(path: &str) -> Option<PathPrefix> {
 
 #[test]
 fn selected_application_never_runs_the_script_owner_and_unhandled_keeps_body() {
-    for (path, status, scripts) in [
-        ("/live/item", StatusCode::SERVICE_UNAVAILABLE, 0),
-        ("/lively/item", StatusCode::OK, 1),
+    for (path, status, scripts, owner) in [
+        ("/live/item", StatusCode::SERVICE_UNAVAILABLE, 0, Some("application")),
+        ("/live/admin/item", StatusCode::SERVICE_UNAVAILABLE, 0, Some("admin")),
+        ("/lively/item", StatusCode::OK, 1, None),
     ] {
         let counts = Arc::new(Counts::default());
         let backend = PhpBackend::from_mounts(vec![
             Mount { path: None, owner: Arc::new(ScriptDeclines(counts.clone())) },
             Mount { path: prefix("/live"), owner: Arc::new(Answer("application")) },
+            Mount { path: prefix("/live/admin"), owner: Arc::new(Answer("admin")) },
         ]).unwrap();
         let data = Bytes::from(vec![0, 255, 13, 10]);
         let address = data.as_ptr();
@@ -96,6 +98,7 @@ fn selected_application_never_runs_the_script_owner_and_unhandled_keeps_body() {
             panic!("mount selection must not wait for the body or start PHP");
         };
         assert_eq!(response.status(), status);
+        assert_eq!(response.headers().get("x-example-owner").map(|value| value.to_str().unwrap()), owner);
         assert_eq!(counts.scripts.load(Ordering::Relaxed), scripts);
         assert_eq!(counts.fallback.load(Ordering::Relaxed), scripts);
         assert_eq!(counts.polls.load(Ordering::Relaxed), 0);

@@ -93,7 +93,19 @@ impl<H> ApplicationStage<H>
 where
     H: ApplicationHandler + Clone + Sync + 'static,
 {
-    pub async fn handle(self, request: Request<RouteBody>) -> RouteResponse {
+    pub fn handle(self, request: Request<RouteBody>) -> impl Future<Output = RouteResponse> + Send {
+        // The async traversal owns a concrete call; it clones the terminal
+        // only after every host handler has returned the original request.
+        self.execute(request, H::call)
+    }
+}
+
+impl<H: Clone + Send + Sync + 'static> ApplicationStage<H> {
+    async fn execute<C, F>(self, request: Request<RouteBody>, call: C) -> RouteResponse
+    where
+        C: FnOnce(H, Request<RouteBody>) -> F + Send,
+        F: Future<Output = RouteResponse> + Send,
+    {
         let mut request = HostRequest::new(request);
         for application in &self.inner.applications {
             request = match application.call(request).await {
@@ -101,7 +113,7 @@ where
                 ServiceResult::Unhandled(request) => request,
             };
         }
-        self.inner.backend.clone().call(request.into_request()).await
+        call(self.inner.backend.clone(), request.into_request()).await
     }
 }
 

@@ -10,7 +10,7 @@ fn fixture() -> (
     Arc<VhostResolver>,
     HostKey,
 ) {
-    let config = Arc::new(serde_yaml::from_str("root: public").unwrap());
+    let config: Arc<crate::HostConfig> = Arc::new(serde_yaml::from_str("root: public").unwrap());
     let canonical = HostKey(Arc::new("app.test".parse().unwrap()));
     let access = Arc::new(VhostResolver::default());
     access.upsert_host(canonical.0.as_ref().clone(), config.clone());
