@@ -37,6 +37,9 @@ application view. Native preparation consumes these declarations separately.
   capabilities and owner conflicts, inherit policy and resolve file mappings.
 - [`routing/statics.rs`](src/config/routing/statics.rs) — Compile relative
   directory declarations into shared static mounts with derived URL prefixes.
+- [`quota.rs`](src/config/quota.rs) — `rate-limit`: IP admission declarations.
+  Validate namespace/key capacity and cost against the quota definition;
+  delegate store geometry and policy validation to Orbit without opening SHM.
 
 Normalization runs while preparing configuration. Root and prefix declarations
 share feature validation; provider directives remain data for host compilation.
@@ -45,6 +48,13 @@ reject dot segments; explicit disk paths retain their configured meaning.
 Policy-only children inherit overlapping static mounts from the closest
 declaring scope, retaining mount-relative cache rules unless they remap disk
 directories. Application owners and TryFiles are not inherited.
+
+### [`provider.rs`](src/provider.rs)
+
+`HttpConfigProvider` owns `http.yaml` through Congif. Boot, reload and observed
+changes publish prepared `HttpSnapshot` values atomically; listener capability
+validation precedes publication. An absent file declares no listeners.
+Registration also connects watchdog and optional metrics to snapshot accessors.
 
 ### `pipeline/`
 
@@ -56,6 +66,17 @@ response is terminal, including 404. This module also implements Axum extraction
 and rejection for `config::HostConfigExt`.
 
 ## `tests/`
+
+### [`provider.rs`](tests/provider.rs)
+
+Configuration preparation, value comparison, unavailable transport rejection
+and retention of the active snapshot after invalid input. No server boots.
+
+- [`fixtures/http/base.yaml`](tests/fixtures/http/base.yaml) — Valid candidate.
+- [`fixtures/http/changed.yaml`](tests/fixtures/http/changed.yaml) — Changed
+  listener policy.
+- [`fixtures/http/invalid.yaml`](tests/fixtures/http/invalid.yaml) — Invalid
+  listener address.
 
 ### `config/`
 
