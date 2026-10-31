@@ -17,6 +17,30 @@ impl<R> HostPipeline<(), R> {
 }
 
 impl<S, R> HostPipeline<S, R> {
+    /// Borrow only the request head and arm the reached response scope.
+    ///
+    /// The caller retains its body, including for an early reply, and passes
+    /// the eventual response to the returned scope. No request or body is
+    /// reconstructed, erased or retained by this operation.
+    pub fn prepare_head(
+        &self,
+        head: &mut RequestParts,
+        mut state: S,
+    ) -> (Option<R>, PreparedResponse<'_, S, R>) {
+        for step in &self.before {
+            if let ControlFlow::Break(response) =
+                (step.action)(head, &mut state)
+            {
+                return (Some(response), PreparedResponse {
+                    pipeline: self,
+                    state,
+                    scope: step.scope,
+                });
+            }
+        }
+        (None, PreparedResponse { pipeline: self, state, scope: self.complete })
+    }
+
     /// Borrow the head for active actions; retain the original body untouched.
     ///
     /// `S` belongs to this request, not to the shared plan. It may contain

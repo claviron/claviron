@@ -23,7 +23,8 @@
 //! then prepares typed connection/host extensions and request-local proxy IP.
 //! [`AccessPolicy`] applies live canonical-host ACL/redirect decisions next.
 //! With `rate-limit`, `QuotaPolicy` prepares the selected application's rate
-//! admission after access. Application dispatch remains owned by `HostService`.
+//! admission after access. [`ExchangeLayer`] prepares configured CORS and reply
+//! headers. Application dispatch remains owned by `HostService`.
 
 use std::ops::ControlFlow;
 
@@ -35,6 +36,7 @@ use http::{
 
 mod access;
 mod builder;
+mod exchange;
 mod identity;
 pub(crate) mod ingress;
 #[cfg(feature = "rate-limit")]
@@ -42,6 +44,7 @@ mod quota;
 mod state;
 
 pub use access::{AccessPolicy, AccessState};
+pub use exchange::{ExchangeLayer, ExchangeState};
 pub use identity::{IdentityPolicy, IdentityState};
 pub use ingress::{IngressPolicy, IngressState};
 #[cfg(feature = "rate-limit")]
@@ -125,6 +128,17 @@ pub struct PreparedRequest<'p, B, S = (), R = RouteResponse> {
 pub struct PreparedReply<'p, S = (), R = RouteResponse> {
     pipeline: &'p HostPipeline<S, R>,
     response: R,
+    state: S,
+    scope: ReplyScope,
+}
+
+/// Response actions armed by a borrowed request head.
+///
+/// The caller keeps its body and owns any early reply. Finish exactly one
+/// eventual response, including an admission/timeout response. Dropping this
+/// scope releases its state without executing response callbacks.
+pub struct PreparedResponse<'p, S = (), R = RouteResponse> {
+    pipeline: &'p HostPipeline<S, R>,
     state: S,
     scope: ReplyScope,
 }

@@ -972,13 +972,16 @@ async fn bypass_without_head_timeout_does_not_query_backend_timing() {
 #[tokio::test]
 async fn admission_holds_on_the_bypass_path() {
     use crate::pipeline::{Admission, HostApp};
+    let exchange_config: crate::HostConfig = serde_yaml::from_str(
+        "root: public\ncors: permissive\nheaders: {set: {x-policy: edge}}",
+    ).unwrap();
     let release = Arc::new(tokio::sync::Notify::new());
     let app = HostApp {
         app: AppKind::Bypass(BypassService::Handler(Arc::new(Hold(
             Arc::clone(&release),
         )))),
         admission: Admission::limited(Some(1)),
-        exchange_policy: None,
+        exchange_policy: crate::service::ExchangePolicy::compile(&exchange_config, None),
         server_header: None,
         #[cfg(feature = "rate-limit")]
         quotas: None,
@@ -991,8 +994,12 @@ async fn admission_holds_on_the_bypass_path() {
     };
     let service = service_with_limits(HttpProtocol::H1, "", app, listener);
     let send = |service: &HostService| {
+        let mut request = request("/");
+        request.headers_mut().insert(
+            header::ORIGIN, "https://client.test".parse().unwrap(),
+        );
         let prepared =
-            service.prepare(request("/"), RequestArrival::Established).unwrap();
+            service.prepare(request, RequestArrival::Established).unwrap();
         tokio::spawn(
             prepared.map_body(|()| claviron_http::empty_body()).dispatch(),
         )
@@ -1001,14 +1008,12 @@ async fn admission_holds_on_the_bypass_path() {
     let first = send(&service);
     tokio::task::yield_now().await;
     let second = send(&service);
-    assert_eq!(
-        second.await.unwrap().status(),
-        StatusCode::SERVICE_UNAVAILABLE,
-        "no place"
-    );
-    assert_eq!(
-        first.await.unwrap().status(),
-        StatusCode::GATEWAY_TIMEOUT,
-        "head late"
-    );
+    for (response, expected) in [
+        (second.await.unwrap(), StatusCode::SERVICE_UNAVAILABLE),
+        (first.await.unwrap(), StatusCode::GATEWAY_TIMEOUT),
+    ] {
+        assert_eq!(response.status(), expected);
+        assert_eq!(response.headers()["x-policy"], "edge");
+        assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+    }
 }

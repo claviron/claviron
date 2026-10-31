@@ -96,7 +96,21 @@ Quota plans stay with the selected `HostApp`, which owns the stores, rather
 than the cleartext metadata cache. `HostService` continues the prepared head
 through that plan after access and before reassembling the original body for
 dispatch. It does not clone the plan or quota handle per admission. Unconfigured
-hosts skip quota execution; application dispatch remains in `HostService`.
+hosts skip quota execution.
+
+`ExchangeLayer` prepares only the declared CORS and response-header actions for
+an effective host/prefix scope. CORS runs once against the request head; its
+accepted origin stays in `ExchangeState`. Response processing applies the final
+header unsets/sets, then CORS headers, including on preflight, rejected-origin
+and admission/timeout replies. An empty scope contributes no actions.
+
+`prepare_head` borrows request parts and returns any early decision together
+with a `PreparedResponse` scope. The caller retains its request body while
+waiting for admission or a reply. Finishing the scope applies only the armed
+response actions; dropping it releases state without running those callbacks.
+A host without exchange policy does not enter this preparation or split its
+request for it. Prefix selection and the plan remain with the pinned
+`HostApp`; application dispatch remains in `HostService`.
 
 ## Keep the boundary useful
 
@@ -129,6 +143,7 @@ always faster or should replace routing everywhere.
 - [Request identity and proxy policy](../../crates/edge/src/pipeline/host/identity.rs).
 - [Live host access policy](../../crates/edge/src/pipeline/host/access.rs).
 - [Prepared quota policy](../../crates/edge/src/pipeline/host/quota.rs).
+- [CORS and response-header layer](../../crates/edge/src/pipeline/host/exchange.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 
 Use `BYPASS_PIPELINE` as the search key for this application-first composition.

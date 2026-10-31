@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::pipeline::bypass::BypassService;
+use crate::pipeline::host::ExchangeState;
 #[cfg(feature = "tcp")]
 use claviron_http::RouteFuture;
 use claviron_http::admission::Admission;
@@ -185,14 +186,20 @@ impl DispatchRequest {
         let mut request = self.request;
         // Borrow the pinned policy: no per-request Arc clone, and absent
         // configuration means no policy selection or CORS/header processing.
-        let exchange = &self.exchange_policy;
-        let exchange = exchange
-            .as_ref()
-            .and_then(|policy| policy.select(request.uri().path()));
+        let (early_reply, exchange) = match self.exchange_policy.as_ref()
+            .and_then(|policy| policy.select(request.uri().path()))
+        {
+            Some(pipeline) => {
+                let (mut head, body) = request.into_parts();
+                let (reply, scope) = pipeline.prepare_head(
+                    &mut head, ExchangeState::default(),
+                );
+                request = Request::from_parts(head, body);
+                (reply, Some(scope))
+            }
+            None => (None, None),
+        };
         let server_header = self.server_header;
-        let (early_reply, origin) = exchange
-            .map(|policy| policy.check(request.method(), request.headers()))
-            .unwrap_or((None, None));
         request.extensions_mut().insert(self.policy);
         // Taken before admission, so an application's own "request start"
         // includes the time the request waited for a place.
@@ -217,7 +224,7 @@ impl DispatchRequest {
                 server_header,
             );
             return match exchange {
-                Some(policy) => policy.finish(response, origin.as_ref()),
+                Some(policy) => policy.finish(response),
                 None => response,
             };
         };
@@ -249,13 +256,13 @@ impl DispatchRequest {
                 server_header,
             );
             return match exchange {
-                Some(policy) => policy.finish(response, origin.as_ref()),
+                Some(policy) => policy.finish(response),
                 None => response,
             };
         };
         let response = with_server_header(response, server_header);
         let response = match exchange {
-            Some(policy) => policy.finish(response, origin.as_ref()),
+            Some(policy) => policy.finish(response),
             None => response,
         };
         // The reply's own guard, on every path an application answers

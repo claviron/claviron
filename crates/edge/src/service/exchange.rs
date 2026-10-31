@@ -4,12 +4,12 @@
 //! around any owner only when the operator declared a policy.
 
 use crate::config::HostConfig;
+use crate::pipeline::host::{ExchangeLayer, ExchangeState, HostPipeline};
 use claviron_http::{
-    RouteResponse,
     config::{cors::CorsConfig, host::HostHeadersConfig, routes::RouteTable},
     ext::PathPrefix,
 };
-use http::{HeaderMap, HeaderValue, Method};
+use http::HeaderValue;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -19,9 +19,8 @@ pub struct ExchangePolicy {
 }
 
 pub(crate) struct ExchangeRules {
-    cors: Option<CorsConfig>,
-    set: Box<[(http::HeaderName, HeaderValue)]>,
-    unset: Box<[http::HeaderName]>,
+    layer: ExchangeLayer,
+    pipeline: Option<HostPipeline<ExchangeState>>,
 }
 
 impl ExchangePolicy {
@@ -72,31 +71,15 @@ impl ExchangePolicy {
     pub(crate) fn select(
         &self,
         path: &str,
-    ) -> Option<&ExchangeRules> {
+    ) -> Option<&HostPipeline<ExchangeState>> {
         let rules = self.routes.find(path).unwrap_or(&self.fallback);
-        if rules.is_empty() { None } else { Some(rules) }
+        rules.pipeline.as_ref()
     }
 }
 
 impl ExchangeRules {
-    fn is_empty(&self) -> bool {
-        self.cors.is_none() && self.set.is_empty() && self.unset.is_empty()
-    }
-    fn same_as(
-        &self,
-        other: &Self,
-    ) -> bool {
-        self.set == other.set
-            && self.unset == other.unset
-            && match (&self.cors, &other.cors) {
-                (None, None) => true,
-                (Some(a), Some(b)) => {
-                    a.policy == b.policy
-                        && a.credentials == b.credentials
-                        && a.origins == b.origins
-                }
-                _ => false,
-            }
+    fn same_as(&self, other: &Self) -> bool {
+        self.layer.same_as(&other.layer)
     }
     fn compile(
         headers: &HostHeadersConfig,
@@ -140,40 +123,10 @@ impl ExchangeRules {
         }
         set.sort_unstable_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
         unset.sort_unstable_by(|a, b| a.as_str().cmp(b.as_str()));
-        Self {
-            cors: cors.cloned(),
-            set: set.into_boxed_slice(),
-            unset: unset.into_boxed_slice(),
-        }
-    }
-
-    pub(crate) fn check(
-        &self,
-        method: &Method,
-        headers: &HeaderMap,
-    ) -> (Option<RouteResponse>, Option<HeaderValue>) {
-        self.cors
-            .as_ref()
-            .map(|cors| super::cors::check(cors, method, headers))
-            .unwrap_or((None, None))
-    }
-
-    pub(crate) fn finish(
-        &self,
-        mut response: RouteResponse,
-        origin: Option<&HeaderValue>,
-    ) -> RouteResponse {
-        let headers = response.headers_mut();
-        for name in &self.unset {
-            headers.remove(name);
-        }
-        for (name, value) in &self.set {
-            headers.insert(name.clone(), value.clone());
-        }
-        if let Some(cors) = &self.cors {
-            super::cors::finish(cors, origin, headers);
-        }
-        response
+        let layer = ExchangeLayer::new(cors.cloned(), set, unset);
+        let pipeline = (!layer.is_empty())
+            .then(|| layer.clone().into_pipeline());
+        Self { layer, pipeline }
     }
 }
 

@@ -1,7 +1,6 @@
 pub(crate) mod acl;
 mod authority;
 mod bindings;
-mod cors;
 mod exchange;
 pub use exchange::ExchangePolicy;
 mod extensions;

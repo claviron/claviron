@@ -1,5 +1,14 @@
 use super::*;
 use claviron_http::config::HttpSnapshot;
+use claviron_http::RouteResponse;
+
+fn apply_policy(policy: &ExchangePolicy, path: &str) -> RouteResponse {
+    let (mut head, ()) = http::Request::builder().uri(path).body(()).unwrap().into_parts();
+    let (reply, scope) = policy.select(path).unwrap()
+        .prepare_head(&mut head, ExchangeState::default());
+    assert!(reply.is_none());
+    scope.finish(RouteResponse::new(claviron_http::empty_body()))
+}
 
 #[test]
 fn server_headers_keep_vhost_and_route_overrides() {
@@ -11,18 +20,12 @@ fn server_headers_keep_vhost_and_route_overrides() {
     ).unwrap();
     let policy =
         ExchangePolicy::compile(&host, Some(&defaults.headers)).unwrap();
-    let response = policy
-        .select("/")
-        .unwrap()
-        .finish(RouteResponse::new(claviron_http::empty_body()), None);
+    let response = apply_policy(&policy, "/");
     assert_eq!(response.headers()[http::header::SERVER], "host");
     assert_eq!(response.headers()["x-policy"], "host");
     assert_eq!(response.headers()["x-revive"], "host");
     assert!(!response.headers().contains_key("x-remove"));
-    let response = policy
-        .select("/api/test")
-        .unwrap()
-        .finish(RouteResponse::new(claviron_http::empty_body()), None);
+    let response = apply_policy(&policy, "/api/test");
     assert_eq!(response.headers()[http::header::SERVER], "api");
     assert_eq!(response.headers()["x-policy"], "global");
 }
