@@ -15,6 +15,48 @@ TLS, host admission and HTTP transport belong to the edge. Which application
 owns a path, and which parts you choose to implement in Rust, need not be fixed
 for the whole host or for the lifetime of the project.
 
+## One host, one plan
+
+For a configured host, connection binding leads into the following request flow.
+Boot and reload build the plan; requests use the selected publication.
+
+```mermaid
+flowchart TD
+    Config["Host configuration + Rust registrations"] --> Plan["Build host plan<br/>Only active steps"]
+
+    TLS["TLS / QUIC<br/>SNI at connection acceptance"] --> Bound["Pin host + application"]
+    Plain["Cleartext HTTP<br/>Authority on each request"] --> Current["Resolve current host"]
+    Plan -. "accepted publication" .-> Bound
+    Plan -. "current publication" .-> Current
+
+    Bound --> Policy
+    Current --> Policy
+    Policy["Host checks and admission<br/>Authority · identity · ACL · quotas · CORS"] --> Scope
+    Scope["Select dispatch scope<br/>Entry conditions + supplied application layers"] --> WS
+
+    WS["WebSocket endpoint"] -->|Unmatched| App
+    App["Rust applications<br/>Native contributions or Axum routes"] -->|Unhandled| Static
+    Static["Static mounts"] -->|Unhandled| TryFiles
+    TryFiles["TryFiles"] -->|Unhandled| Backend
+    Backend["Configured backend<br/>Embed · Upstream · Link"] -->|Unhandled| Fallback
+    Fallback["Directory index · SPA · 404"] --> Reply
+
+    WS -->|Handshake or rejection| Reply
+    App -->|Handled| Reply
+    Static -->|Handled| Reply
+    TryFiles -->|Handled| Reply
+    Backend -->|Handled| Reply
+    Reply["Response actions for entered steps<br/>Headers · CORS · body guards · accounting"] --> Client["Client"]
+```
+
+Only configured steps appear in the prepared plan. A handled response ends
+dispatch, including a handled 404. `Unhandled` passes the same unread request
+body to the next owner. A rejected entry condition selects the original
+fallback scope without the rejected route's applications or WebSocket.
+
+The diagram shows ordinary HTTP requests and the HTTP/1 WebSocket handoff.
+H2 CONNECT and WebTransport use their native session entry points.
+
 ## Connection binding
 
 Claviron does not wait until application routing to decide what a TLS
