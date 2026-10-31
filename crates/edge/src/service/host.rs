@@ -17,10 +17,8 @@ use super::{CleartextRequest, RequestAuthority};
 use crate::VhostResolver;
 use crate::deny::{DenyCheckedRequest, DenyService};
 use crate::pipeline::host::{
-    AdmissionPolicy, HostPipeline, HostRequestState, IdentifiedRequest, ReplyPolicy,
+    HostPolicy, HostRequestState, IdentifiedRequest,
 };
-#[cfg(feature = "access-log")]
-use crate::pipeline::host::AccessLogLayer;
 use crate::pipeline::{AppKind, AuthContext, HostApp};
 
 mod dispatch;
@@ -76,42 +74,6 @@ impl RequestRejection {
                 StatusCode::BAD_REQUEST
             }
             Self::TooEarly => StatusCode::TOO_EARLY,
-        }
-    }
-}
-
-struct HostPolicy {
-    connection: Arc<ConnCtx>,
-    host: VhostCtx,
-    ingress: HostIngress,
-    http: HttpPolicy,
-    admission_policy: AdmissionPolicy,
-    reply: Option<ReplyPolicy>,
-    #[cfg(feature = "access-log")]
-    access_log: Option<AccessLogLayer>,
-    pipeline: HostPipeline<HostRequestState, HostResponse>,
-}
-
-impl HostPolicy {
-    fn new(
-        connection: Arc<ConnCtx>,
-        host: VhostCtx,
-        ingress: HostIngress,
-        access: Arc<VhostResolver>,
-        listener: HttpPolicy,
-    ) -> Self {
-        // Both declarations belong to this immutable binding. Requests reuse
-        // their narrowed limits; live ACL/redirect policy is read separately.
-        let http = listener.narrow(&host.vhost_config.policy());
-        let admission_policy = AdmissionPolicy::new(http.requests);
-        let reply = ReplyPolicy::new(http.responses);
-        #[cfg(feature = "access-log")]
-        let access_log = AccessLogLayer::new(host.vhost_key.clone(), host.vhost_config.access_log());
-        let pipeline = HostPipeline::for_host(&connection, &host, &ingress, access);
-        Self {
-            connection, host, ingress, http, admission_policy, reply, pipeline,
-            #[cfg(feature = "access-log")]
-            access_log,
         }
     }
 }
@@ -332,23 +294,6 @@ impl<B> PreparedRequest<B> {
     pub fn into_request(self) -> Request<B> {
         self.request
     }
-}
-
-/// A reply with a status and nothing else.
-fn status_reply(status: StatusCode) -> RouteResponse {
-    let mut response = RouteResponse::new(claviron_http::empty_body());
-    *response.status_mut() = status;
-    response
-}
-
-fn with_server_header(
-    mut response: RouteResponse,
-    server: Option<http::HeaderValue>,
-) -> RouteResponse {
-    if let Some(server) = server {
-        response.headers_mut().insert(http::header::SERVER, server);
-    }
-    response
 }
 
 #[cfg(test)]

@@ -29,8 +29,9 @@
 //! asynchronous admission boundary, outside synchronous head actions.
 //! With `access-log`, `AccessLogLayer` retains the producer/host declaration
 //! while channel selection and each record's lifetime remain request-local.
-//! [`ApplicationHandler`] owns the terminal call with a concrete future;
-//! `HostService` still selects the application and orchestrates admission.
+//! [`ApplicationHandler`] owns the terminal call with a concrete future.
+//! Native execution composes the prepared policies around that call;
+//! `HostService` remains the admission/transport handoff and owner selector.
 
 use std::ops::ControlFlow;
 
@@ -45,8 +46,10 @@ mod access;
 mod access_log;
 mod admission;
 mod application;
+mod binding;
 mod builder;
 mod exchange;
+mod execution;
 mod identity;
 pub(crate) mod ingress;
 #[cfg(feature = "rate-limit")]
@@ -59,7 +62,9 @@ pub use access::{AccessPolicy, AccessState};
 pub use access_log::{AccessLogLayer, AccessLogState};
 pub use admission::AdmissionPolicy;
 pub use application::ApplicationHandler;
+pub(crate) use binding::HostPolicy;
 pub use exchange::{ExchangeLayer, ExchangeState};
+pub(crate) use execution::HostExecution;
 pub use identity::{IdentityPolicy, IdentityState};
 pub use ingress::{IngressPolicy, IngressState};
 #[cfg(feature = "rate-limit")]

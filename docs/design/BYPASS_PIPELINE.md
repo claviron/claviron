@@ -110,7 +110,7 @@ waiting for admission or a reply. Finishing the scope applies only the armed
 response actions; dropping it releases state without running those callbacks.
 A host without exchange policy does not enter this preparation or split its
 request for it. Prefix selection and the plan remain with the pinned
-`HostApp`; application dispatch remains in `HostService`.
+`HostApp`; the native execution stage borrows them during dispatch.
 
 `ReplyPolicy` selects response-body guarding when the effective listener/host
 policy is prepared. Without a size or idle limit there is no guard policy.
@@ -160,6 +160,19 @@ native oneshot. Application selection happens before those futures are built,
 and the host execution boundary still owns capacity, head timing and accounting.
 This step does not replace host registration, merged routing or engine adapters.
 
+Native execution now lives in `pipeline::host`: `HostPolicy` prepares the
+immutable binding and `HostExecution` owns one ordinary exchange. `HostService`
+still selects/adapts the admitted application for the transport. It returns the
+same concrete execution future directly, without an additional async wrapper.
+
+Execution retains the existing order: activity/access record, configured
+exchange policy, request metadata, capacity, head timing, application response,
+response policy and stream accounting. Capacity and quota stores remain with
+the selected `HostApp`; the cleartext metadata cache retains neither. Queue/head
+cancellation releases that request's body and guards. A streamed response keeps
+only the body resources transferred to it. These are internal native owners;
+public composition continues through `HostPipeline` and `ApplicationHandler`.
+
 ## Keep the boundary useful
 
 Native transports adapt their request bodies to `RouteBody`; bypass handlers
@@ -195,6 +208,8 @@ always faster or should replace routing everywhere.
 - [Response-body policy](../../crates/edge/src/pipeline/host/reply.rs).
 - [Prepared admission timing](../../crates/edge/src/pipeline/host/admission.rs).
 - [Access-record layer](../../crates/edge/src/pipeline/host/access_log.rs).
+- [Typed application call](../../crates/edge/src/pipeline/host/application.rs).
+- [Native host execution](../../crates/edge/src/pipeline/host/execution.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 
 Use `BYPASS_PIPELINE` as the search key for this application-first composition.

@@ -2,6 +2,7 @@ use super::super::tests::{request, service_with_limits};
 use super::*;
 use crate::pipeline::bypass::{BypassHandler, BypassService};
 use claviron_http::RouteFuture;
+use claviron_http::admission::Admission;
 #[cfg(feature = "axum")]
 use claviron_http::boxed_body;
 #[cfg(any(feature = "tcp", feature = "axum"))]
@@ -190,6 +191,61 @@ fn host_dispatch_cancellation_releases_admission_and_owned_work() {
         assert_eq!(state.entered.load(Ordering::Relaxed), entered + 2);
         drop(queued);
         assert_eq!(state.dropped.load(Ordering::Relaxed), dropped + 2);
+    }
+}
+
+#[cfg(feature = "tcp")]
+#[test]
+fn host_execution_cancelled_queue_releases_body_and_binding_before_admission() {
+    let state = Arc::new(State::default());
+    let mut cx = Context::from_waker(Waker::noop());
+    for app in apps(&state) {
+        let capacity = Admission::limited(Some(1));
+        let active = service_with_limits(
+            HttpProtocol::H1,
+            "",
+            HostApp { admission: capacity.clone(), ..app.clone().into() },
+            RequestPolicy::unlimited(),
+        );
+        let waiting = service_with_limits(
+            HttpProtocol::H1,
+            "",
+            HostApp { admission: capacity, ..app.into() },
+            RequestPolicy::unlimited(),
+        );
+        let entered = state.entered.load(Ordering::Relaxed);
+        let mut first = Box::pin(dispatch(prepare(&active)));
+        assert!(first.as_mut().poll(&mut cx).is_pending());
+
+        let polls = Arc::new(AtomicUsize::new(0));
+        let dropped = Arc::new(AtomicUsize::new(0));
+        let body = streaming_body(
+            Arc::new(AtomicBool::new(false)), polls.clone(), dropped.clone(),
+        );
+        let queued = prepare(&waiting).map_body(|_| body);
+        let generation = Arc::downgrade(&queued.service.policy);
+        drop(waiting);
+        let mut queued = Box::pin(dispatch(queued));
+        assert!(queued.as_mut().poll(&mut cx).is_pending());
+        assert!(generation.upgrade().is_some());
+        assert_eq!(state.entered.load(Ordering::Relaxed), entered + 1);
+        assert_eq!(polls.load(Ordering::Relaxed), 0);
+        assert_eq!(dropped.load(Ordering::Relaxed), 0);
+
+        // Cancelling a queued exchange releases its own generation/body but
+        // cannot release the active exchange's place or start the backend.
+        drop(queued);
+        assert!(generation.upgrade().is_none());
+        assert_eq!(dropped.load(Ordering::Relaxed), 1);
+        let mut next = Box::pin(dispatch(prepare(&active)));
+        assert!(next.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(state.entered.load(Ordering::Relaxed), entered + 1);
+        drop(first);
+        assert!(next.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(state.entered.load(Ordering::Relaxed), entered + 2);
+        drop(next);
+        assert_eq!(polls.load(Ordering::Relaxed), 0);
+        assert_eq!(dropped.load(Ordering::Relaxed), 1);
     }
 }
 
