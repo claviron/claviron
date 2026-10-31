@@ -57,4 +57,4 @@ permission to establish every kind of native session in early data.
 - [Transport arrival and host admission](../../crates/edge/src/service/host.rs).
 - [QUIC TLS configurations](../../crates/edge/src/quic/tls.rs).
 - [Authority-before-early-data regression checks](../../crates/edge/tests/service/host.rs).
-- [Host binding](HOST_BINDING.md).
+- [Connection binding](HOST_PIPELINE.md#connection-binding).

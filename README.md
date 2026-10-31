@@ -349,8 +349,7 @@ paths on macOS ARM64 and Linux x86-64, with configurations, latency and errors.
 These notes explain the choices behind Claviron's behavior, not new protocol
 standards. Their identifiers are stable search keys across code and documentation.
 
-- [BYPASS_PIPELINE](docs/design/BYPASS_PIPELINE.md) — routing shaped around your application, including gradual adoption of Rust.
-- [HOST_BINDING](docs/design/HOST_BINDING.md) — bind TLS connections to the host selected at acceptance.
+- [HOST_PIPELINE](docs/design/HOST_PIPELINE.md) — connection binding, prepared host policy and native application dispatch.
 - [EARLY_DATA_POLICY](docs/design/EARLY_DATA_POLICY.md) — separate 0-RTT support from permission to execute early requests.
 - [CONNECTION_HIJACK](docs/design/CONNECTION_HIJACK.md) — let PHP and Rust use the same request-owned PostgreSQL session.
 - [LIFETIME_POLICY](docs/design/LIFETIME_POLICY.md) — prepare work before the hot path without moving safety checks away from their evidence.

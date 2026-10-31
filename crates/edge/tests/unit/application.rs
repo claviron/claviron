@@ -8,7 +8,6 @@ use claviron_php_embed::{
 use claviron_runtime::ServiceStatus;
 use claviron_runtime::registry::Registry;
 use http::{Request, StatusCode};
-use tower::ServiceExt;
 
 use super::*;
 
@@ -65,25 +64,24 @@ async fn wait_for(mut predicate: impl FnMut() -> bool) {
 }
 
 async fn call(
-    router: &Router,
+    owner: &BypassService,
     method: &str,
     uri: &str,
     body: &str,
 ) -> (StatusCode, String) {
-    let response = router
-        .clone()
-        .oneshot(
+    let response = owner
+        .handle(
             Request::builder()
                 .method(method)
                 .uri(uri)
                 .extension(claviron_http::policy::HttpPolicy::unlimited())
-                .body(Body::from(body.to_owned()))
+                .body(claviron_http::bytes_body(body.to_owned().into()))
                 .unwrap(),
         )
         .await
         .unwrap();
     let status = response.status();
-    let body = to_bytes(response.into_body(), 4096).await.unwrap();
+    let body = to_bytes(Body::new(response.into_body()), 4096).await.unwrap();
     (status, String::from_utf8(body.to_vec()).unwrap())
 }
 
@@ -178,10 +176,12 @@ php:
     ))
     .unwrap();
     let host = "app.test".parse::<Host>().unwrap();
-    let router = create_default_router(
-        state.clone(),
+    let owner = crate::pipeline::host::compile::prepare(
+        &state,
         &host,
         Arc::new(config),
+        &[],
+        Vec::new(),
         #[cfg(feature = "websocket")]
         None,
     )
@@ -192,34 +192,34 @@ php:
             .enumerate()
     {
         assert_eq!(
-            call(&router, "GET", uri, "").await,
+            call(&owner, "GET", uri, "").await,
             (StatusCode::OK, format!("live#{} GET {uri} ", count + 1))
         );
     }
     assert_eq!(
-        call(&router, "POST", "/live/echo?q=two", "payload").await,
+        call(&owner, "POST", "/live/echo?q=two", "payload").await,
         (StatusCode::OK, "live#5 POST /live/echo?q=two payload".into())
     );
     assert_eq!(
-        call(&router, "GET", "/live/admin/settings", "").await,
+        call(&owner, "GET", "/live/admin/settings", "").await,
         (StatusCode::OK, "admin#1 GET /live/admin/settings ".into())
     );
     for uri in ["/", "/lively", "/liveness/check"] {
         assert_eq!(
-            call(&router, "GET", uri, "").await,
+            call(&owner, "GET", uri, "").await,
             (StatusCode::OK, "classic".into())
         );
     }
     assert_eq!(
-        call(&router, "GET", "/missing/index.php", "").await,
+        call(&owner, "GET", "/missing/index.php", "").await,
         (StatusCode::SERVICE_UNAVAILABLE, String::new())
     );
     assert_eq!(
-        call(&router, "GET", "/live/build/app.css", "").await,
+        call(&owner, "GET", "/live/build/app.css", "").await,
         (StatusCode::OK, "body { color: red; }".into())
     );
     assert_eq!(
-        call(&router, "GET", "/live/build/missing.css", "").await.0,
+        call(&owner, "GET", "/live/build/missing.css", "").await.0,
         StatusCode::NOT_FOUND
     );
     for uri in [
@@ -227,12 +227,12 @@ php:
         "/live/optional/missing.css",
         "/live/build/index.php",
     ] {
-        let (status, body) = call(&router, "GET", uri, "").await;
+        let (status, body) = call(&owner, "GET", uri, "").await;
         assert_eq!(status, StatusCode::OK, "{uri}: {body}");
         assert!(body.contains(&format!("GET {uri}")), "{uri}: {body}");
     }
     assert_eq!(
-        call(&router, "GET", "/live/build/.env", "").await.0,
+        call(&owner, "GET", "/live/build/.env", "").await.0,
         StatusCode::FORBIDDEN
     );
     manager.stop("PhpApplicationService").await.unwrap();
@@ -246,15 +246,15 @@ php:
         tokio::time::sleep(Duration::from_millis(5)).await;
     }
     assert_eq!(
-        call(&router, "GET", "/live/", "").await,
+        call(&owner, "GET", "/live/", "").await,
         (StatusCode::SERVICE_UNAVAILABLE, String::new())
     );
     assert_eq!(
-        call(&router, "GET", "/", "").await,
+        call(&owner, "GET", "/", "").await,
         (StatusCode::OK, "classic".into())
     );
     assert_eq!(
-        call(&router, "GET", "/live/build/app.css", "").await,
+        call(&owner, "GET", "/live/build/app.css", "").await,
         (StatusCode::OK, "body { color: red; }".into())
     );
     manager.start("PhpApplicationService").await.unwrap();
@@ -262,9 +262,9 @@ php:
         application.snapshot().get("live").is_some_and(|p| p.ready == 1)
     })
     .await;
-    // The same router holds a service handle, not a stale generation/pool handle.
+    // The same owner holds a service handle, not a stale generation/pool handle.
     assert_eq!(
-        call(&router, "GET", "/live/", "").await,
+        call(&owner, "GET", "/live/", "").await,
         (StatusCode::OK, "live#1 GET /live/ ".into())
     );
     state.initiate_shutdown();

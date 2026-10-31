@@ -17,7 +17,7 @@ categories = ["filesystem", "caching", "web-programming::http-server"]
 default = []
 tasks = ["dep:claviron-tasks"]
 orbit = ["dep:claviron-orbit"]
-axum = ["dep:axum"]
+axum = ["dep:axum", "claviron-http/axum"]
 metrics = ["claviron-http/metrics"]
 # Marker for facade-level cache builds. The current file service owns its
 # in-crate memory/disk cache; shared claviron-cache integration will hang here.
@@ -26,7 +26,7 @@ cache = []
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-helpers.workspace = true
-claviron-http = { workspace = true, features = ["axum"] }
+claviron-http.workspace = true
 claviron-orbit = { workspace = true, optional = true }
 claviron-runtime.workspace = true
 claviron-tasks = { workspace = true, optional = true }

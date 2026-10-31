@@ -32,7 +32,7 @@ clients-fleet = ["clients", "orbitive/client-pool-fleet"]
 http = ["runtime", "dep:claviron-http"]
 # Bounded request-rate admission, independent of Axum and application engines.
 rate-limit = ["http", "dep:claviron-orbit", "claviron-orbit/quota", "claviron-http/rate-limit", "claviron-edge?/rate-limit"]
-axum = ["http", "claviron-http/axum", "dep:axum", "claviron-runner?/axum"]
+axum = ["http", "claviron-http/axum", "dep:axum", "claviron-edge?/axum", "claviron-files?/axum", "claviron-runner?/axum"]
 # Native benchmark handlers. Adapt existing compositions without selecting one.
 bench = ["axum", "dep:serde", "dep:async-trait"]
 logging = ["dep:claviron-logging"]
@@ -173,7 +173,7 @@ claviron-cache = { workspace = true, optional = true }
 claviron-db = { workspace = true, default-features = true, optional = true }
 claviron-edge = { workspace = true, optional = true }
 claviron-ffi = { workspace = true, features = ["http"], optional = true }
-claviron-files = { workspace = true, features = ["axum"], optional = true }
+claviron-files = { workspace = true, optional = true }
 claviron-geoip = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-hosting = { workspace = true, optional = true }

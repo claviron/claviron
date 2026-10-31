@@ -31,7 +31,7 @@ The application chooses the components and shared providers. The host binding
 selects their exposure. Adding another hostname does not inherently require
 another implementation of the application or another copy of its state.
 
-[BYPASS_PIPELINE](BYPASS_PIPELINE.md) describes the serving choices: a native
+[HOST_PIPELINE](HOST_PIPELINE.md) describes the serving choices: a native
 host pipeline, an application-owned router or direct bypass dispatch. Those are ways
 to present application behavior through the edge.
 
@@ -121,10 +121,10 @@ for every domain. A client supplies a hostname, origin or credential; those
 inputs are checked against the selected entry point's policy. They do not grant
 authority to replace an accepted binding or relax its requirements.
 
-Application composition does not merge accepted transport identities. A TLS
+Application composition preserves accepted transport identities. A TLS
 connection retains its selected host and application binding, and requests must
 still pass the applicable host, protocol and access checks.
-[HOST_BINDING](HOST_BINDING.md) defines that connection contract. An alias or
+[HOST_PIPELINE](HOST_PIPELINE.md#connection-binding) defines that connection contract. An alias or
 another hostname serving the same application does not authorize switching
 hosts on an established TLS connection.
 

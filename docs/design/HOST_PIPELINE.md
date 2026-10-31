@@ -1,9 +1,10 @@
-# An application-shaped pipeline
+# HostPipeline
 
-Design identifier: `BYPASS_PIPELINE`.
+Design identifier: `HOST_PIPELINE`.
 
 This is the serving-pipeline application of
-[APPLICATION_FIRST](APPLICATION_FIRST.md).
+[APPLICATION_FIRST](APPLICATION_FIRST.md). It covers connection-level host
+selection and the prepared request pipeline that runs under that binding.
 
 If your repository has both `app/*.php` and `src/main.rs`, routing should help
 those parts work together. It should not force you to put another server between
@@ -13,6 +14,68 @@ Claviron is an edge, but its pipeline is built around the application it serves.
 TLS, host admission and HTTP transport belong to the edge. Which application
 owns a path, and which parts you choose to implement in Rust, need not be fixed
 for the whole host or for the lifetime of the project.
+
+## Connection binding
+
+Claviron does not wait until application routing to decide what a TLS
+connection belongs to. The ClientHello selects a hosted name, its TLS policy
+and its application binding together. Configure the client or proxy to connect
+to that host; do not treat the accepted connection as a reusable entrance to
+any site that happens to be served by the same binary.
+
+This starts from an edge-facing deployment. Running behind another proxy is
+possible, but the proxy must preserve this connection-level host choice rather
+than expecting a later `Host` header to replace it.
+
+### Select once, check each request
+
+For TLS over TCP and QUIC, the accepted binding captures the requested hostname,
+the canonical vhost, its application and the relevant handshake policy.
+Listener capabilities and host declarations jointly determine the protocols
+that connection may use. Required client authentication is selected before the
+handshake finishes, not added after an HTTP request arrives.
+
+Every ordinary HTTP request still has its authority parsed and validated.
+A different hostname receives **421 Misdirected Request** instead of being
+rerouted to another application on that connection. Ports do not change this
+host-identity comparison. Invalid authority is a separate malformed-request
+failure; the legal HTTP/1.0 missing-authority case can use the established TLS
+binding.
+
+A certificate covering several names is not routing permission. Neither an
+overlapping SAN nor an alias pointing to the same application permits a client
+to switch the accepted hostname mid-connection.
+
+Unknown or absent SNI cannot select a hosted binding. Refusing that handshake
+is a consequence of the model, not its whole purpose: a default certificate
+must not silently choose an unrelated application.
+
+### Reload and accepted connections
+
+A new host publication can affect subsequent connection acceptance. Existing
+connections retain their accepted TLS/authentication and application binding.
+Policies explicitly read live, such as host access rules and early replies,
+may change without turning the connection into a different host.
+
+This is not retroactive revocation of an established TLS session. If a change
+requires existing sessions to end, that needs its own lifecycle operation.
+
+The immutable host binding prepares the listener/host request and response
+limits once. Cleartext requests reuse them while that binding matches the
+current host configuration; replacement prepares new limits without changing
+already admitted requests.
+
+### Cleartext host selection
+
+There is no SNI binding on a cleartext HTTP/1 connection. Each request resolves
+its validated authority against the current host table, including on keepalive.
+The host's non-SSL policy then selects reject, redirect or explicit serving.
+Cleartext cannot satisfy a required TLS client-certificate policy.
+
+Likewise, trusted forwarded headers can help resolve a request's client IP;
+they do not select a different TLS host. A proxy routing multiple public names
+must use connections with the appropriate upstream SNI instead of relying on
+cross-host reuse of one accepted connection.
 
 ## Start with what already runs
 
@@ -49,26 +112,24 @@ deny/access rules and the narrowed HTTP policy still apply. Request admission,
 head timing and response-body guards are not Axum-only facilities. Skipping the
 router must not make an application invisible to exchange accounting either.
 
-The immutable host binding prepares the listener/host request and response
-limits once. Cleartext requests reuse them while that binding matches the
-current host configuration; replacement prepares new limits without changing
-already admitted requests. ACL and redirect rules remain live per request.
-
 Typed request extensions remain request-owned. Context replacement reuses an
 existing value's box and releases the old value; unrelated entries remain
 untouched. A fresh request still needs independent typed values and the ordinary
 `http::Extensions` allocations. The prepared host map does not share mutable
 extension storage between requests.
 
-## Prepared host actions
+## Request flow
 
-`HostPipeline` prepares active `HostLayer` actions with the host binding.
-Requests execute the prepared head actions in order with their own typed state;
-an unhandled request keeps its original body until a terminal handler claims it.
-Response actions run in reverse order, within the scope reached by the request.
+At boot or reload, Edge builds a `HostPipeline` containing the host's required
+checks and enabled policies. Each request passes those checks and admission
+before reaching its application or backend. Disabled policies install no step.
 
-`IngressPolicy` is the first migrated layer: authority/binding, early-data,
-H1 upgrade and deny checks retain their existing order and typed rejections.
+Checks inspect the request head. Each request owns its state and body; an
+unclaimed request passes that same unread body to the next handler. Response
+actions run in reverse order, only for the layers the request entered.
+
+First, `IngressPolicy` checks authority, connection binding, early data,
+H1 upgrade permission and deny rules, returning a typed rejection on failure.
 Inactive upgrade/deny gates add no action. Accepted connections keep their plan;
 replacing a cleartext host binding prepares a new one.
 
@@ -147,6 +208,8 @@ the empty reply record, while a normal response transfers it to the stream.
 HTTP/gRPC status, trailers, byte counts and drop/completion behavior retain the
 same recorder. Runtime activity accounting remains independent of access logs.
 
+## Application dispatch
+
 `ApplicationHandler<B>` is the typed terminal call after host admission. It
 consumes one request and returns that owner's concrete response future.
 `PreparedRequest::dispatch_to` defers the call until first poll and finishes
@@ -198,8 +261,10 @@ a native application. Active application layers and Rust route handlers retain
 an optional Axum adapter. Configured Pusher REST endpoints still use that Rust
 application adapter before files and backends. User native contributions retain
 precedence over these configured endpoints. The native backend plan contains no
-Axum router. The former merged module and automatic Axum upstream shortcut
-are removed; explicit standalone routers and Bypass application APIs remain.
+Axum router. Configured hosts use native compilation; explicit standalone
+routers and Bypass application APIs remain available.
+
+## Files and backends
 
 Configured file dispatch prepares **Routable → Static → TryFiles → backend**.
 Static and TryFiles are separate asynchronous steps using `claviron-files`,
@@ -216,8 +281,8 @@ callers keep their explicit file composition. Engines and transport backends
 supply native calls and do not supply Axum builders.
 
 The local runtime category is named Embed. `pipeline/embed` owns its native
-backend adapters; it is not an Axum application category. Lua is the first
-migrated backend. Its prepared mounts preserve segment boundaries, specificity
+backend adapters; it is not an Axum application category. Lua's prepared mounts
+preserve segment boundaries, specificity
 and the former equal-prefix precedence. Only a nonmatching mount yields the
 unchanged request; a matching unavailable application owns its 503 response.
 `LuaApplicationAdapter` retains the existing live generation, policy and execution
@@ -226,7 +291,7 @@ handshake/admission belongs to Edge; the engine receives the upgraded transport.
 The native compiler preserves configured backend precedence and never invokes
 a Lua router builder.
 
-PHP is the next native Embed backend. pipeline/embed/php.rs prepares mounts
+For PHP, pipeline/embed/php.rs prepares mounts
 from resolved PhpRuntime values; its only runner match is at preparation.
 Script, Application and FCGI each own a separate request future. Application
 execution therefore carries no script resolver, filesystem probe or Script
@@ -266,6 +331,8 @@ Empty requests create neither an upload task nor its response wrapper. Native
 WebSocket session handoff and WebTransport streams retain their existing owners
 and shutdown signals. No retry, deadline, polling or SHM ABI change is added.
 
+## WebSocket sessions
+
 When declared, WebSocket is the first dispatch step before Rust applications.
 Its preparation requires a registered exact path, permission for HTTP/1 and an
 enabled H1 handshake in the host transport policy. Otherwise no WebSocket step
@@ -280,7 +347,9 @@ Native built-ins use `DispatchStep`, distinct from `ApplicationInterceptor`.
 work. `Unhandled` transfers the same Request<RouteBody>, without body polling,
 collection or decoding. Cancellation drops the currently owned request/future.
 
-Native execution now lives in `pipeline::host`: `HostPolicy` prepares the
+## Request lifetime
+
+Native execution lives in `pipeline::host`: `HostPolicy` prepares the
 immutable binding and `HostExecution` owns one ordinary exchange. `HostService`
 still selects/adapts the admitted application for the transport. It returns the
 same concrete execution future directly, without an additional async wrapper.
@@ -293,6 +362,8 @@ cancellation releases that request's body and guards. A streamed response keeps
 only the body resources transferred to it. These are internal native owners;
 public composition continues through `HostPipeline` and `ApplicationHandler`.
 
+## Route selection
+
 The shared HTTP `dispatch::RouteDispatch<H>` selects a prepared owner from a
 borrowed method, URI and header view. It has no Axum dependency or execution
 engine knowledge. It selects the longest segment prefix and checks only that
@@ -304,7 +375,7 @@ The existing Axum route adapter now delegates that decision to this selector.
 Its `routing::ConfiguredRoute`, `routing::RouteDispatch`, `RouteCondition` and
 `RuleContext` paths remain available. Native configured-backend compilation uses this same selection contract.
 
-## Keep the boundary useful
+## Bypass and Axum
 
 Native transports adapt their request bodies to `RouteBody`; bypass handlers
 return `RouteResponse`. The bypass dispatch chain does not require Axum types.
@@ -327,6 +398,11 @@ always faster or should replace routing everywhere.
 
 ## Follow the implementation
 
+- [TCP TLS acceptance](../../crates/edge/src/tcp/secure/tls.rs).
+- [QUIC host and TLS policy](../../crates/edge/src/quic/tls.rs).
+- [Host identity and authority comparison](../../crates/edge/src/service/extensions.rs).
+- [Cleartext host selection](../../crates/edge/src/tcp/plain/handler.rs).
+- [TLS capabilities](../../crates/tls/README.md).
 - [Edge routing and composition guide](../../crates/edge/README.md).
 - [Routable bindings](../../crates/edge/src/pipeline/routable.rs).
 - [Host application registry](../../crates/edge/src/pipeline/apps.rs).
@@ -344,4 +420,4 @@ always faster or should replace routing everywhere.
 - [Native host execution](../../crates/edge/src/pipeline/host/execution.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 
-Use `BYPASS_PIPELINE` as the search key for this application-first composition.
+Use `HOST_PIPELINE` for connection binding, prepared host policy and native application dispatch.

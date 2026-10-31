@@ -27,7 +27,6 @@ axum = [
     "dep:axum",
     "dep:http-body",
     "claviron-http/routing",
-    "claviron-files/axum",
     "claviron-pusher?/axum",
 ]
 upstream = ["server", "dep:claviron-upstream"]

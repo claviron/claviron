@@ -7,10 +7,9 @@ contracts, not protocol standards or chronological decision records.
 
 - [APPLICATION_FIRST](APPLICATION_FIRST.md): applications define their work and
   shared state; host bindings select how their parts are presented and admitted.
-- [BYPASS_PIPELINE](BYPASS_PIPELINE.md): shape routing around the application;
-  compose native Rust with existing request owners without bypassing admission.
-- [HOST_BINDING](HOST_BINDING.md): a TLS connection belongs to its accepted
-  host, not every application covered by its certificate.
+- [HOST_PIPELINE](HOST_PIPELINE.md): bind connections to their accepted host;
+  prepare host policy and compose native applications and backends without
+  bypassing admission.
 - [EARLY_DATA_POLICY](EARLY_DATA_POLICY.md): transport acceptance of 0-RTT
   does not grant application permission to execute replayable work.
 - [CONNECTION_HIJACK](CONNECTION_HIJACK.md): PHP and native Rust borrow the same

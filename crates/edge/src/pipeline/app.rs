@@ -5,7 +5,7 @@ use std::sync::Arc;
 use axum::Router;
 use claviron_http::{RouteBody, RouteFuture};
 use claviron_http::routing::{AxumPipeline, RouteLayer};
-use claviron_runtime::{AppState, registry::Result as RegistryResult};
+use claviron_runtime::AppState;
 use claviron_types::Host;
 use futures_util::FutureExt;
 use http::Request;
@@ -82,35 +82,6 @@ pub(crate) fn configured(
 #[cfg(feature = "broadcast")]
 pub(crate) fn with_downstream(routes: Router, native: BypassService) -> BypassService {
     owner(routes.merge(dispatch_router(native)))
-}
-
-/// Explicit Axum view of a prepared native host, for application composition.
-/// Config-only host publication does not call this adapter.
-pub fn create_router(
-    state: AppState,
-    host: &Host,
-    config: Arc<HostConfig>,
-    applications: Vec<Router<AppState>>,
-    #[cfg(feature = "websocket")] websocket: Option<Arc<super::H1UpgradeRegistry>>,
-) -> RegistryResult<Router> {
-    super::host::compile::prepare(
-        &state, host, config, &[], applications,
-        #[cfg(feature = "websocket")]
-        websocket,
-    ).map(dispatch_router)
-}
-
-/// Explicit Axum view without additional Rust route contributions.
-pub fn create_default_router(
-    state: AppState,
-    host: &Host,
-    config: Arc<HostConfig>,
-    #[cfg(feature = "websocket")] websocket: Option<Arc<super::H1UpgradeRegistry>>,
-) -> RegistryResult<Router> {
-    create_router(state, host, config, Vec::new(),
-        #[cfg(feature = "websocket")]
-        websocket,
-    )
 }
 
 #[cfg(all(test, feature = "php_embed"))]

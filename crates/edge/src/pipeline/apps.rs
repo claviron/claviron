@@ -600,9 +600,9 @@ impl HostAppRegistry {
     ///
     /// # Where it lands
     ///
-    /// Wraps to [`AppKind::Axum`] **without** the `create_router`
-    /// wrapper — the factory's output goes through the connection
-    /// layer as-is. You get axum routing, you skip claviron layers.
+    /// Wraps to [`AppKind::Axum`] without configured file/backend composition.
+    /// The factory's output goes through the connection layer as-is;
+    /// shared host admission and response policy still apply.
     #[cfg(feature = "axum")]
     pub fn register_router<F>(
         &self,

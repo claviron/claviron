@@ -140,10 +140,12 @@ This handler receives a GET-style `RequestContext`, not a request body. Use an
 application HTTP handler for body-aware POST/PUT behavior. The adapter itself
 still accepts the shared `Request<RouteBody>` at the transport boundary.
 
-The implementation has no default features. `axum` adds router/mount adapters,
+The implementation has no default features. Core file calls do not enable Axum.
+The optional `axum` feature adds router/mount adapters and HTTP body conversions;
 `orbit` adds the fleet arena integration, `tasks` adds the registered cache-GC
 task, and `metrics` records cache observations in the owning HTTP family.
 There is no second file-specific metrics provider.
+Through the root facade, select both `files` and `axum` to use the Axum adapters.
 
 ## Related crates
 

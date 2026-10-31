@@ -6,7 +6,6 @@ use axum::routing::any;
 use claviron_files::{FileSite, ResourceAdapter};
 use claviron_http::{RequestContext, RouteResponse, boxed_body, bytes_body};
 use http::StatusCode;
-use tower::ServiceExt;
 
 struct Fallback;
 
@@ -64,10 +63,11 @@ async fn file_routes_reach_native_intercepts_with_the_selected_file_policy() {
     let app =
         Router::new().route("/{*resource}", any(resource)).with_state(adapter);
     let config = Arc::new(config);
-    let router = create_router(
-        state,
+    let owner = crate::pipeline::host::compile::prepare(
+        &state,
         &"cdn.example.test".parse().unwrap(),
         config.clone(),
+        &[],
         vec![app],
         #[cfg(feature = "websocket")]
         None,
@@ -82,13 +82,12 @@ async fn file_routes_reach_native_intercepts_with_the_selected_file_policy() {
         ("/frontend/.hidden", StatusCode::FORBIDDEN, ""),
         ("/frontend/assets/%2e%2e/index.html", StatusCode::FORBIDDEN, ""),
     ] {
-        let response = router
-            .clone()
-            .oneshot(
+        let response = owner
+            .handle(
                 Request::builder()
                     .uri(uri)
                     .extension(config.clone())
-                    .body(Body::empty())
+                    .body(claviron_http::empty_body())
                     .unwrap(),
             )
             .await
@@ -103,7 +102,7 @@ async fn file_routes_reach_native_intercepts_with_the_selected_file_policy() {
             );
         }
         assert_eq!(
-            to_bytes(response.into_body(), 4096).await.unwrap(),
+            to_bytes(Body::new(response.into_body()), 4096).await.unwrap(),
             expected,
             "{uri}"
         );
