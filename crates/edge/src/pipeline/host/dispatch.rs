@@ -117,7 +117,7 @@ pub(crate) fn compose_dispatch_bypass(
 #[cfg(feature = "axum")]
 mod axum;
 #[cfg(feature = "axum")]
-pub(crate) use self::axum::{compose_dispatch_router, dispatch_router};
+pub(crate) use self::axum::dispatch_router;
 
 #[cfg(test)]
 #[path = "../../../tests/pipeline/host/dispatch.rs"]

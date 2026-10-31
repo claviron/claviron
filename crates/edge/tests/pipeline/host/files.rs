@@ -135,29 +135,3 @@ fn dynamic_names_reach_the_backend_without_filesystem_or_body_work() {
     drop(response);
     assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
 }
-
-#[cfg(feature = "upstream")]
-#[tokio::test]
-async fn an_empty_child_file_scope_does_not_inherit_the_root_probe() {
-    let directory = tempfile::tempdir().unwrap();
-    std::fs::create_dir(directory.path().join("api")).unwrap();
-    std::fs::write(directory.path().join("api/item.txt"), "must not be served").unwrap();
-    let config: HostConfig = serde_yaml::from_str(&format!(
-        "root: {}\nroutes:\n  /:\n    try_files: true\n  /api: {{}}\n",
-        serde_yaml::to_string(directory.path()).unwrap().trim(),
-    )).unwrap();
-    // The file scope is disabled, so neither root mapping nor filesystem
-    // contents can turn this request into a file response.
-    let (fallback, steps) = prepare_upstream_files(&config);
-    let selected = fallback.route_for("/api/item.txt").unwrap();
-    assert!(!selected.try_files());
-    assert!(selected.statics().is_none());
-    let counts = Arc::new(Counts::default());
-    let pipeline = DispatchChain::new(Echo(counts.clone()), steps);
-    let (request, _) = request("/api/item.txt", &counts);
-    let response = pipeline.handle(request).await;
-    assert_eq!(counts.backend.load(Ordering::Relaxed), 1);
-    assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
-    drop(response);
-    assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
-}

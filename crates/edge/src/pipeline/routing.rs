@@ -5,11 +5,7 @@
 
 pub use claviron_http::config::routes::RouteTable;
 
-pub(crate) use claviron_http::routing::{
-    ConfiguredRoute, RouteDispatch, dispatch,
-};
+pub use claviron_http::dispatch::{ConfiguredRoute, RouteDispatch, RouteCondition, RuleContext};
 
-pub use crate::pipeline::merged::extensions::{
-    RouteCondition, RouteContext, RouteEffect, RouteExtension, RouteLayer,
-    RuleContext, directive,
-};
+#[cfg(feature = "axum")]
+pub use super::ext::{RouteContext, RouteEffect, RouteExtension, RouteLayer, directive};

@@ -14,12 +14,9 @@ use super::host::ApplicationInterceptor;
 use super::apps::StandaloneRouterFactory;
 use crate::config::HostConfig;
 
-/// Boot-time inputs for a provider's host-wide route layer.
-///
-/// The router passed alongside this context contains the merged application
-/// routes. `downstream` calls only the configured owner (the host fallback on
-/// legacy hosts, the selected prefix on hosts with inherited policy layers),
-/// allowing delegation without entering merged Rust application routes.
+/// Boot-time inputs for an optional Rust application layer.
+/// `downstream` calls the already-selected native owner without re-entering
+/// the Axum route contributions. It requires no second prefix lookup.
 #[cfg(feature = "axum")]
 pub struct RouteLayerContext<'a> {
     pub state: &'a AppState,
@@ -30,7 +27,7 @@ pub struct RouteLayerContext<'a> {
 
 /// Provider-owned Rust applications bound to selected edge hosts at preparation.
 /// Native `application` contributions require no Axum. The optional `routes`
-/// and `layer_routes` hooks retain their existing Axum composition contract.
+/// and `layer_routes` hooks explicitly opt into Axum application composition.
 pub trait Routable: AnyComponent<AppState> {
     /// Directive codecs and compilers owned by this provider. Enumerated only
     /// while preparing a host snapshot; never consulted during dispatch.
@@ -76,22 +73,18 @@ pub trait Routable: AnyComponent<AppState> {
         Ok(None)
     }
 
-    /// Wrap the assembled host router, including sibling routables and its
-    /// config-driven fallback. Built at boot/reload, before Claviron's
-    /// response headers, CORS, metrics and tracing layers are attached. Hosts
-    /// with inherited route policy layers prepare this stack per selected
-    /// prefix, inside those layers; other hosts prepare it once per host.
-    /// Exclusive standalone/bypass bindings do not use this hook.
-    /// `downstream` bypasses merged Rust contributions and calls the configured
-    /// owner directly. Capture it at boot for navigation delegation;
-    /// unlike request extensions, it is available before inner routes run.
+    /// Prepare an optional Axum layer around the Rust application and selected
+    /// native downstream. Return None when inactive: no Axum invocation remains.
+    /// Host security, CORS and response policy are outside this application.
+    /// Preparation runs per selected scope at boot/reload. Exclusive standalone
+    /// and Bypass bindings retain their own application composition.
     #[cfg(feature = "axum")]
     fn layer_routes(
         &self,
         _context: RouteLayerContext<'_>,
-        router: Router,
-    ) -> Router {
-        router
+        _router: Router,
+    ) -> Option<Router> {
+        None
     }
 
     #[cfg(feature = "websocket")]

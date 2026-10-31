@@ -2,7 +2,7 @@
 //!
 //! A selected scope runs its Rust applications, explicit Static steps, then
 //! its optional TryFiles step, before handing the unread body to Embed/backend.
-//! These steps are native; the remaining Axum compiler is a migration adapter.
+//! Configuration is compiled before dispatch; these steps never enter Axum.
 
 use std::sync::Arc;
 
@@ -13,9 +13,6 @@ use claviron_http::config::files::FilesConfig;
 use claviron_http::ext::RealIpExt;
 
 use super::{DispatchStep, DispatchFuture};
-#[cfg(feature = "axum")]
-use super::ApplicationInterceptor;
-#[cfg(any(feature = "axum", feature = "upstream", test))]
 use crate::HostConfig;
 
 /// One explicit, prepared static mount. The file service owns mapping/security.
@@ -71,8 +68,7 @@ impl DispatchStep for TryFilesStage {
     }
 }
 
-#[cfg(any(feature = "axum", feature = "upstream", test))]
-fn scope_steps(config: &HostConfig) -> Vec<Arc<dyn DispatchStep>> {
+pub(super) fn scope_steps(config: &HostConfig) -> Vec<Arc<dyn DispatchStep>> {
     let mut files = config.files.clone();
     files.root = config.root();
     let mut steps: Vec<Arc<dyn DispatchStep>> = Vec::new();
@@ -85,18 +81,7 @@ fn scope_steps(config: &HostConfig) -> Vec<Arc<dyn DispatchStep>> {
     steps
 }
 
-/// The selected scope is already known to the caller. No host lookup here.
-#[cfg(feature = "axum")]
-pub(crate) fn compose_configured_router(
-    backend: axum::Router,
-    config: &HostConfig,
-    applications: &[Arc<dyn ApplicationInterceptor>],
-) -> axum::Router {
-    super::compose_dispatch_router(backend, scope_steps(config), applications)
-}
-
 /// General fallback after these steps must not repeat Static or TryFiles.
-#[cfg(any(feature = "axum", feature = "upstream"))]
 pub(crate) fn fallback_config(config: &HostConfig) -> FilesConfig {
     let mut files = config.files.clone();
     files.root = config.root();
@@ -104,11 +89,6 @@ pub(crate) fn fallback_config(config: &HostConfig) -> FilesConfig {
     files.try_files = false;
     files
 }
-
-#[cfg(feature = "upstream")]
-mod upstream;
-#[cfg(feature = "upstream")]
-pub(crate) use upstream::prepare_upstream_files;
 
 #[cfg(test)]
 #[path = "../../../tests/pipeline/host/files.rs"]

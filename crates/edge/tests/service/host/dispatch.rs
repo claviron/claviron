@@ -324,6 +324,7 @@ fn host_dispatch_tcp_keeps_bypass_inline_and_boxes_only_axum() {
         let prepared = prepared(app, RequestPolicy::unlimited());
         let generation = Arc::downgrade(&prepared.service.policy);
         let future = prepared.into_tcp_future();
+        #[cfg(feature = "axum")]
         match &future {
             Either::Left(answering) => {
                 assert!(!bypass);
@@ -336,6 +337,11 @@ fn host_dispatch_tcp_keeps_bypass_inline_and_boxes_only_axum() {
                 assert!(bypass);
                 assert_eq!(std::mem::size_of_val(answering), expected);
             }
+        }
+        #[cfg(not(feature = "axum"))]
+        {
+            assert!(bypass);
+            assert_eq!(std::mem::size_of_val(&future), expected);
         }
         drop(future);
         assert!(generation.upgrade().is_none());

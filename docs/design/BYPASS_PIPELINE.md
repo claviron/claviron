@@ -31,13 +31,13 @@ repository. The application and its host configuration declare what is served.
 
 ## Bypass is a choice of dispatch, not an escape from admission
 
-Not every host needs the merged router. The application registry supports
+Host composition is native. The application registry supports
 different composition shapes:
 
 | Shape | What you choose |
 | --- | --- |
-| Configured / merged routing | Compose configured owners, native routes and the applicable router layers. |
-| An application-owned router | Supply the router yourself without the merged Claviron router stack. |
+| Configured routing | Compile declared native steps and optional Rust applications per host. |
+| An application-owned router | Supply a Rust router while retaining shared host admission. |
 | Bypass | Dispatch directly to a native `BypassHandler` or a built-in backend without an Axum router. |
 
 The choice is per host, not a server-wide mode. A native resource service and a
@@ -158,7 +158,7 @@ Native Bypass and Axum dispatch use this same contract without another future
 box or service clone. Bypass keeps its existing handler future; Axum uses its
 native oneshot. Application selection happens before those futures are built,
 and the host execution boundary still owns capacity, head timing and accounting.
-This step does not replace host registration, merged routing or engine adapters.
+Host registration and engine lifecycle remain with their existing owners.
 
 `Routable::application` now prepares the native Rust contribution through the
 existing host registry. It returns an `ApplicationInterceptor`; no parallel
@@ -179,19 +179,27 @@ pipeline future stays concrete until its existing application adapter boundary.
 The combined Rust/backend call keeps Edge's declared whole-head deadline;
 backend-specific narrowed deadlines remain with their execution owner.
 
-The current compatibility compiler installs this stage inside the selected route's policy
-scope. Existing Rust Axum routes retain precedence; their delegation handle
-reaches the native stage and then the configured owner without re-entering those
-Rust routes. A rejected entry uses the original backend fallback and never runs
-the rejected native contribution. The compatibility bridge only adapts body
-types and is absent when neither native contributions nor file steps exist.
-The remaining host compiler still supplies an Axum application adapter.
-Its backend steps are native; they no longer have separate Axum bindings.
-Removing that outer compiler is subsequent work. Axum's target
-boundary is the Rust Application itself. Once it yields, Static, TryFiles and
-the Embed, upstream or Link backend are native pipeline owners, not Axum
-middleware or routers. The pipeline calls the SHM application transport Link;
-existing Orbit configuration and transport APIs retain their names.
+The native host compiler installs this stage inside the selected route's policy
+scope. Rust Axum applications remain optional and retain route precedence; their
+delegation handle calls the already-selected native chain without re-entering
+the Rust router or looking up the prefix again. A rejected entry selects the
+original fallback without its native application contributions or WebSocket.
+Axum is not the host compiler or the embedded-backend invocation path.
+
+`host/compile.rs` prepares only declared steps for each effective scope. It
+reuses HTTP's RouteDispatch for longest segment-prefix selection and conditions;
+a sole unconditional root needs no dispatch-table wrapper. SelectedRoute metadata
+is inserted before the chosen scope executes. File/backend preparations are
+immutable and stay with the accepted host publication across reload.
+
+`Routable::layer_routes` explicitly returns Option<Router>. None installs no
+Axum invocation, including for a registered provider whose only contribution is
+a native application. Active application layers and Rust route handlers retain
+an optional Axum adapter. Configured Pusher REST endpoints still use that Rust
+application adapter before files and backends. User native contributions retain
+precedence over these configured endpoints. The native backend plan contains no
+Axum router. The former merged module and automatic Axum upstream shortcut
+are removed; explicit standalone routers and Bypass application APIs remain.
 
 Configured file dispatch prepares **Routable → Static → TryFiles → backend**.
 Static and TryFiles are separate asynchronous steps using `claviron-files`,
@@ -202,11 +210,10 @@ only its own steps; disabled declarations produce no step. Missing files obey
 the original `Request<RouteBody>`; no request body is polled or collected.
 
 The residual backend file view omits both Static and TryFiles, retaining only
-directory-index/SPA fallback. The automatic upstream binding shares a prepared
-scope table with that fallback and preserves empty child scopes. Direct public
-`UpstreamBypass` callers keep their explicit file composition. The migration
-adapter invokes native backend steps through one shared application bridge;
-engines and transport backends do not supply Axum builders.
+directory-index/SPA fallback. Each selected scope prepares its own file view;
+an empty child does not inherit the root probe. Direct public UpstreamBypass
+callers keep their explicit file composition. Engines and transport backends
+supply native calls and do not supply Axum builders.
 
 The local runtime category is named Embed. `pipeline/embed` owns its native
 backend adapters; it is not an Axum application category. Lua is the first
@@ -216,9 +223,8 @@ unchanged request; a matching unavailable application owns its 503 response.
 `LuaApplicationAdapter` retains the existing live generation, policy and execution
 path. Lua no longer provides an Axum feature or router binding. HTTP/1 WebSocket
 handshake/admission belongs to Edge; the engine receives the upgraded transport.
-The existing compiler still bridges
-the native Lua stage at its former position so other backend precedence is
-unchanged while their migration proceeds. It no longer calls Lua's Axum builder.
+The native compiler preserves configured backend precedence and never invokes
+a Lua router builder.
 
 PHP is the next native Embed backend. pipeline/embed/php.rs prepares mounts
 from resolved PhpRuntime values; its only runner match is at preparation.
@@ -232,10 +238,9 @@ only Rust application interception uses InterceptRequest. A backend does not
 construct or restore an interception capability. Dropping the call retains the engine's existing cancellation path.
 
 The PHP contract, embed and FCGI crates no longer contain an Axum feature,
-dependency or binding. The current host compiler temporarily bridges the native
-PHP owner at its former position, as for Lua. Upstream and Link also use native
-DispatchStep owners through the same bridge. Existing script/application engine capacity, INI, environment and
-lifecycle contracts are unchanged.
+dependency or binding. PHP, Lua, Upstream and Link are DispatchStep owners in
+the same prepared native chain. Existing script/application engine capacity,
+INI, environment and lifecycle contracts are unchanged.
 
 UpstreamStage selects the existing live UpstreamApp profile, then transfers
 Request<RouteBody> directly to call_upstream_service. Explicit/root selection,
@@ -297,8 +302,7 @@ caller can transfer the original request directly to its owner.
 
 The existing Axum route adapter now delegates that decision to this selector.
 Its `routing::ConfiguredRoute`, `routing::RouteDispatch`, `RouteCondition` and
-`RuleContext` paths remain available. Native configured-backend compilation
-will use the same selection contract; it is not connected by this extraction.
+`RuleContext` paths remain available. Native configured-backend compilation uses this same selection contract.
 
 ## Keep the boundary useful
 

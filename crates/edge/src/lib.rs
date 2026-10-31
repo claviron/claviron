@@ -1,9 +1,9 @@
 //! HTTP edge composition with independently selected native transport drivers.
 //!
 //! Transport drivers hand accepted connection and request facts to this crate.
-//! It owns host admission and selects the response owner: a merged application
-//! router, an axum-free bypass such as upstream/FCGI, or a native session
-//! binding. The `tcp` and `quic` modules retain separate HTTP/1.1, HTTP/2,
+//! It owns host admission and prepares native file/backend dispatch, with
+//! optional Rust application adapters and native session bindings. The `tcp`
+//! and `quic` modules retain separate HTTP/1.1, HTTP/2,
 //! and HTTP/3 wire mechanics and connection ownership.
 
 // Native upstream dispatch proves Send through nested Hyper futures.
@@ -16,8 +16,8 @@ pub mod config;
 
 #[cfg(all(feature = "server", feature = "db"))]
 mod listener;
-// `pipeline` owns both request paths: merged routers and direct bypass
-// adapters. `transport` is what a transport driver resolves a host with.
+// `pipeline` prepares native host plans and optional Rust application adapters.
+// `transport` is what a transport driver resolves a host with.
 // `loader` combines host declarations; `service` is the machinery behind them.
 // neither is anyone else's business, so neither is public. See `transport`.
 #[cfg(feature = "server")]
@@ -26,7 +26,7 @@ pub(crate) mod loader;
 #[cfg(feature = "server")]
 pub mod pipeline;
 #[cfg(feature = "axum")]
-pub use pipeline::merged::extensions as extension;
+pub use pipeline::ext as extension;
 #[cfg(feature = "server")]
 mod provider;
 #[cfg(feature = "server")]
@@ -96,7 +96,7 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
         registry.register(Arc::new(VhostAliasListener::default()))?;
     }
 
-    // Boot compiles every host's router from the services a serving process
+    // Boot compiles every host's pipeline from the services a serving process
     // registers. The master serves nothing and registers none of them, so
     // this is the one edge provider a master does not carry; see
     // ARCHITECTURE.md §3.5.

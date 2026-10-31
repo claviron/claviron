@@ -3,13 +3,6 @@ use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "broadcast")]
 mod broadcast;
-#[cfg(all(
-    feature = "lua",
-    any(feature = "websocket", feature = "webtransport")
-))]
-mod lua_socket;
-#[cfg(all(feature = "lua", feature = "webtransport"))]
-mod lua_webtransport;
 
 #[cfg(feature = "axum")]
 use axum::Router;
@@ -21,31 +14,20 @@ use claviron_runtime::registry::{
     Bootable, Component, Error, Reloadable, Resolve, Result, priority,
 };
 use claviron_types::Host;
-#[cfg(feature = "upstream")]
-use claviron_upstream::UpstreamProvider;
 use tracing::error;
 
 use crate::VhostResolver;
 use crate::config::HostConfig;
 use crate::pipeline::bypass::BypassService;
-#[cfg(feature = "upstream")]
-use crate::pipeline::bypass::upstream::UpstreamBypass;
-#[cfg(feature = "axum")]
-use crate::pipeline::merged::create_router_with_applications;
 use crate::pipeline::routable::Routable;
 use crate::pipeline::host::{ApplicationInterceptor, compose_bypass};
 use crate::pipeline::routable::{HostBindingProvider, RouteBinding};
 
-/// Prepared terminal owner for one host publication.
+/// Prepared ordinary-request owner for one host publication.
 ///
-/// Axum retains the current configured-router and public Rust-router adapters;
-/// Bypass retains direct native handler ownership. Shared host admission,
-/// exchange policy and accounting apply to both shapes.
-///
-/// Matching Routable native contributions are prepared through the same host
-/// registry and composed before the configured owner. No contribution installs
-/// no stage. They are not a separate exclusive binding or per-request factory.
-/// The remaining Axum-based backend compiler is migrated independently.
+/// Configured host pipelines use the native BypassService call boundary.
+/// Axum remains an explicit standalone Rust application shape. Both retain
+/// shared host admission, exchange policy, body guards and accounting.
 #[derive(Clone)]
 pub enum AppKind {
     #[cfg(feature = "axum")]
@@ -64,7 +46,7 @@ impl AppKind {
 }
 
 #[cfg(feature = "axum")]
-use crate::pipeline::merged::routing::RouteContext;
+use crate::pipeline::routing::RouteContext;
 pub use claviron_http::admission::Admission;
 
 /// Prepared route-extension effects, resolved once during host composition.
@@ -314,18 +296,12 @@ impl Reloadable<AppState> for HostAppResolver {
     }
 }
 
-/// Factory for [`register_app`]: produces a router that **will be
-/// merged into** claviron's standard pipeline by `create_router(...)`.
-///
-/// The returned `Router<AppState>` carries `AppState` so claviron's
-/// outer router (which provides the state) can absorb it via
-/// `.merge(...)`. After merging, your routes see the same middleware
-/// stack every config-driven host gets (file_handler, PHP, CORS,
-/// alt-svc, …). Host ACL and early replies precede every app shape.
+/// Factory for Rust Axum routes ahead of the selected native downstream.
+/// Host policy stays in HostExecution; file and backend dispatch stay native.
 ///
 /// [`register_app`]: HostAppRegistry::register_app
 #[cfg(feature = "axum")]
-pub type MergedRouterFactory =
+pub type ApplicationRouterFactory =
     dyn Fn(AppState) -> Router<AppState> + Send + Sync + 'static;
 
 /// Factory for [`register_router`]: produces a fully-formed
@@ -370,7 +346,7 @@ pub type BypassFactory = dyn Fn(AppState, Host, Arc<HostConfig>) -> Result<Bypas
 #[derive(Clone)]
 enum Binding {
     #[cfg(feature = "axum")]
-    Merged(Vec<Arc<MergedRouterFactory>>),
+    Application(Vec<Arc<ApplicationRouterFactory>>),
     #[cfg(feature = "axum")]
     Standalone(Arc<StandaloneRouterFactory>),
     Bypass(Arc<BypassFactory>),
@@ -395,7 +371,7 @@ impl Binding {
     ) -> Result<AppKind> {
         match self {
             #[cfg(feature = "axum")]
-            Self::Merged(factories) => {
+            Self::Application(factories) => {
                 let routers = factories
                     .iter()
                     .map(|factory| factory(state.clone()))
@@ -403,16 +379,12 @@ impl Binding {
                 #[cfg(feature = "websocket")]
                 let h1_upgrade_registry =
                     build_h1_upgrade_registry(canonical, h1_upgrades)?;
-                let router = create_router_with_applications(
-                    state.clone(),
-                    canonical,
-                    Arc::clone(&host_cfg),
-                    routers,
-                    applications,
+                let owner = super::host::compile::prepare(
+                    state, canonical, host_cfg, applications, routers,
                     #[cfg(feature = "websocket")]
                     h1_upgrade_registry,
                 )?;
-                Ok(AppKind::Axum(router))
+                Ok(AppKind::Bypass(owner))
             }
             Self::Bypass(factory) => {
                 let svc = factory(
@@ -456,9 +428,9 @@ struct RoutableHostBinding {
 /// claviron has two registration channels for vhosts:
 ///
 /// 1. **Config-driven** — `config/*.yaml` declares hosts, TLS aliases,
-///    upstreams, statics, ACL, etc. These hosts go straight to
-///    `AppKind::Axum` with the standard middleware pipeline. No Rust
-///    code involved per host.
+///    upstreams, statics, ACL, etc. These hosts compile a native
+///    pipeline behind `AppKind::Bypass`. Axum is entered only when
+///    Rust application routes or layers opt into it.
 ///
 /// 2. **Code-driven** — the binary calls `register_app` /
 ///    `register_router` / `register_bypass` on this registry during
@@ -499,7 +471,7 @@ struct RoutableHostBinding {
 ///     .resolve::<HostAppRegistry>()
 ///     .expect("HostAppRegistry not registered");
 ///
-/// // Main app: merged with claviron middleware (statics, CORS, ACL…)
+/// // Rust routes ahead of configured native files and backends
 /// registry.register_app("example.com", routes::build_app_router);
 ///
 /// // Standalone API host: your router, your middleware
@@ -574,46 +546,14 @@ impl HostAppRegistry {
         Ok(())
     }
 
-    /// Register a router that **gets merged into claviron's standard
-    /// pipeline**.
+    /// Register Rust Axum routes within a native configured host pipeline.
     ///
-    /// # When to use
-    ///
-    /// You want your Rust routes to coexist with claviron's standard
-    /// middleware: static asset handler (`statics:` / `try_files:` /
-    /// SPA), PHP layers (FCGI / SAPI), CORS,
-    /// alt-svc, served-by header, tracing,
-    /// optional metrics. Your routes are merged in via
-    /// `Router::merge` — claviron owns the layer stack, you own the
-    /// route surface. Host policy applies before this stack, as for bypass.
-    ///
-    /// Concretely: a marketing site that has a few `/api/*` Rust
-    /// endpoints alongside static HTML/CSS/JS and a PHP backend
-    /// fits this pattern.
-    ///
-    /// # When not to use
-    ///
-    /// - You want to own every middleware decision (no claviron
-    ///   stack) → use [`Self::register_router`].
-    /// - You don't want axum at all (custom protocol, hot-path
-    ///   service) → use [`Self::register_bypass`].
-    /// - The host has no Rust code at all (purely config-driven) →
-    ///   don't register; the default pipeline is built automatically.
-    ///
-    /// # Lifecycle
-    ///
-    /// `vhost_key` is `&'static str` because the binding is pinned
-    /// in code; the canonical host name doesn't change across reloads
-    /// (aliases for it can change in config, but the canonical name
-    /// is the contract). If the registered key has no canonical
-    /// config in `vhosts.yaml` at build time, the registration is
-    /// **skipped with an error log** and the host stays unregistered
-    /// — see [`build`](Self::build) for the exact branch.
-    ///
-    /// # Where it lands
-    ///
-    /// Wraps to [`AppKind::Axum`] via `create_router(...)` — your
-    /// routes inside, claviron middleware around them.
+    /// These routes run before the selected native Static/TryFiles/backend
+    /// chain. AxumPipeline delegates directly to that chain without re-entering
+    /// the Rust router. Host security and response policy remain outside it.
+    /// A host without Rust routes needs no registration or Axum invocation.
+    /// Use register_router to own the complete Rust router, or register_bypass
+    /// for a native application handler. Factories run only at boot/reload.
     #[cfg(feature = "axum")]
     pub fn register_app<F>(
         &self,
@@ -622,13 +562,13 @@ impl HostAppRegistry {
     ) where
         F: Fn(AppState) -> Router<AppState> + Send + Sync + 'static,
     {
-        let router: Arc<MergedRouterFactory> =
+        let router: Arc<ApplicationRouterFactory> =
             Arc::new(move |state: AppState| factory(state));
 
         self.inner
             .write()
             .expect("host app registry lock poisoned")
-            .insert(vhost_key.to_string(), Binding::Merged(vec![router]));
+            .insert(vhost_key.to_string(), Binding::Application(vec![router]));
     }
 
     /// Register a fully-formed router that **bypasses claviron
@@ -813,7 +753,8 @@ impl HostAppRegistry {
         host: Arc<HostConfig>,
         downstream: claviron_http::routing::AxumPipeline,
         mut router: Router,
-    ) -> Router {
+    ) -> Option<Router> {
+        let mut active = false;
         let routables = self
             .routables
             .read()
@@ -821,18 +762,21 @@ impl HostAppRegistry {
             .clone();
         for routable in routables {
             if routable.match_host(key, host.as_ref()) {
-                router = routable.layer_routes(
+                if let Some(layered) = routable.layer_routes(
                     super::routable::RouteLayerContext {
                         state,
                         host: key,
                         config: host.clone(),
                         downstream: downstream.clone(),
                     },
-                    router,
-                );
+                    router.clone(),
+                ) {
+                    router = layered;
+                    active = true;
+                }
             }
         }
-        router
+        active.then_some(router)
     }
 
     pub fn register_binding_provider<R>(
@@ -957,7 +901,7 @@ impl HostAppRegistry {
         host_cfg: Arc<HostConfig>,
     ) -> Result<RoutableHostBinding> {
         #[cfg(feature = "axum")]
-        let mut merged: Vec<(&'static str, Arc<MergedRouterFactory>)> = Vec::new();
+        let mut rust_apps: Vec<(&'static str, Arc<ApplicationRouterFactory>)> = Vec::new();
         let mut applications = Vec::new();
         let mut exclusive: Option<(&'static str, Binding)> = None;
         #[cfg(feature = "websocket")]
@@ -990,9 +934,9 @@ impl HostAppRegistry {
             if let Some(router) = Arc::clone(routable).routes(
                 state, canonical, Arc::clone(&host_cfg),
             )? {
-                let factory: Arc<MergedRouterFactory> =
+                let factory: Arc<ApplicationRouterFactory> =
                     Arc::new(move |_state: AppState| router.clone());
-                merged.push((name, factory));
+                rust_apps.push((name, factory));
             }
         }
 
@@ -1019,15 +963,15 @@ impl HostAppRegistry {
                 )));
             }
             #[cfg(feature = "axum")]
-            if !merged.is_empty() {
-                let merged_names = merged
+            if !rust_apps.is_empty() {
+                let application_names = rust_apps
                     .iter()
                     .map(|(name, _)| *name)
                     .collect::<Vec<_>>()
                     .join(",");
                 return Err(Error::msg(format!(
                     "host binding provider '{}' is exclusive for host '{}' but Rust routables already matched: {}",
-                    name, canonical, merged_names
+                    name, canonical, application_names
                 )));
             }
             exclusive = Some((name, Binding::from_route_binding(binding)));
@@ -1042,23 +986,23 @@ impl HostAppRegistry {
             Some(binding)
         } else {
             #[cfg(feature = "axum")]
-            if !merged.is_empty() {
-                let names = merged
+            if !rust_apps.is_empty() {
+                let names = rust_apps
                     .iter()
                     .map(|(name, _)| *name)
                     .collect::<Vec<_>>()
                     .join(",");
-                let factories = merged
+                let factories = rust_apps
                     .into_iter()
                     .map(|(_, factory)| factory)
                     .collect::<Vec<_>>();
                 tracing::debug!(
                     host = %canonical,
                     routables = %names,
-                    "mounting merged routable providers"
+                    "preparing Rust application providers"
                 );
                 return Ok(RoutableHostBinding {
-                    app: Some(Binding::Merged(factories)),
+                    app: Some(Binding::Application(factories)),
                     applications,
                     #[cfg(feature = "websocket")]
                     h1_upgrades,
@@ -1089,11 +1033,9 @@ impl HostAppRegistry {
     ///    config is a soft error, not a hard failure.
     /// 3. For every canonical host in the resolver:
     ///    - If a code binding exists, invoke its factory and produce
-    ///      the matching [`AppKind`] (`Merged` / `Standalone` /
-    ///      `Bypass`).
-    ///    - Otherwise, build a default `AppKind::Axum` via
-    ///      `create_default_router` (claviron middleware + config-
-    ///      driven routes only).
+    ///      matching application owner.
+    ///    - Otherwise, compile a native configured host pipeline; no Axum
+    ///      application is installed unless Rust routes/layers opt into it.
     /// 4. Stamp the resulting `AppKind` against **every alias** for
     ///    the canonical host so per-request lookup is one hash hit.
     ///
@@ -1201,14 +1143,14 @@ impl HostAppRegistry {
                 Arc::clone(&record.config),
             )?;
             #[cfg(all(feature = "lua", feature = "websocket"))]
-            append_lua_websocket_routes(
+            super::embed::lua::append_websocket_routes(
                 state,
                 canonical,
                 &record.config,
                 &mut routable.h1_upgrades,
             )?;
             #[cfg(all(feature = "lua", feature = "webtransport"))]
-            lua_webtransport::append_routes(state, canonical, &record.config)?;
+            super::embed::lua::append_webtransport_routes(state, canonical, &record.config)?;
             #[cfg(all(feature = "orbit", feature = "webtransport"))]
             super::link::webtransport::bind(state, canonical, &record.config)?;
             #[cfg(feature = "broadcast")]
@@ -1220,25 +1162,25 @@ impl HostAppRegistry {
             )?;
             let binding = match custom_bindings.get(canonical).cloned() {
                 #[cfg(feature = "axum")]
-                Some(Binding::Merged(mut factories)) => {
+                Some(Binding::Application(mut factories)) => {
                     if let Some(routable_app) = routable.app.clone() {
                         match routable_app {
-                            Binding::Merged(mut routable_factories) => {
+                            Binding::Application(mut routable_factories) => {
                                 factories.append(&mut routable_factories);
-                                Some(Binding::Merged(factories))
+                                Some(Binding::Application(factories))
                             }
                             Binding::Standalone(_) | Binding::Bypass(_) => {
                                 return Err(Error::msg(format!(
-                                    "host '{}' has manual merged routes and an exclusive routable binding",
+                                    "host '{}' has manual Rust application routes and an exclusive routable binding",
                                     canonical
                                 )));
                             }
                         }
                     } else {
-                        Some(Binding::Merged(factories))
+                        Some(Binding::Application(factories))
                     }
                 }
-                // As above: whatever the merged arm did not take is exclusive.
+                // Remaining explicit bindings own their application surface exclusively.
                 Some(exclusive) => {
                     if routable.app.is_some() {
                         return Err(Error::msg(format!(
@@ -1252,7 +1194,7 @@ impl HostAppRegistry {
             };
             let binding = match binding {
                 #[cfg(feature = "axum")]
-                Some(Binding::Merged(factories)) if factories.is_empty() => {
+                Some(Binding::Application(factories)) if factories.is_empty() => {
                     None
                 }
                 other => other,
@@ -1329,220 +1271,15 @@ fn build_default_app(
     applications: &[Arc<dyn ApplicationInterceptor>],
     #[cfg(feature = "websocket")] h1_upgrades: Vec<H1UpgradeRoute>,
 ) -> Result<AppKind> {
-    #[cfg(feature = "upstream")]
-    if let Some(svc) =
-        build_config_upstream_bypass(state, canonical, &host_cfg, applications)
-    {
+    #[cfg(feature = "websocket")]
+    let websocket = build_h1_upgrade_registry(canonical, h1_upgrades)?;
+    super::host::compile::prepare(
+        state, canonical, host_cfg, applications,
+        #[cfg(feature = "axum")]
+        Vec::new(),
         #[cfg(feature = "websocket")]
-        let svc = super::host::compose_websocket_bypass(svc,
-            super::host::WebSocketStage::prepare(state, canonical, &host_cfg,
-                build_h1_upgrade_registry(canonical, h1_upgrades)?));
-        return Ok(AppKind::Bypass(svc));
-    }
-
-    #[cfg(feature = "axum")]
-    {
-        #[cfg(feature = "websocket")]
-        let h1_upgrade_registry =
-            build_h1_upgrade_registry(canonical, h1_upgrades)?;
-
-        Ok(AppKind::Axum(create_router_with_applications(
-            state.clone(),
-            canonical,
-            host_cfg,
-            Vec::new(),
-            applications,
-            #[cfg(feature = "websocket")]
-            h1_upgrade_registry,
-        )?))
-    }
-    // The default host pipeline *is* the router — statics, try_files, the PHP
-    // layers. CORS/headers are shared HTTP policy, not part of that router.
-    // A build without `axum` has no application router to fall back to,
-    // so a host has to say what serves it: `register_php_bypass_for_host`,
-    // `register_upstream_bypass_for_host`, `register_bypass`, or an upstream in
-    // its own config. Refusing at build is the point; the alternative is a host
-    // that boots and then 404s everything.
-    #[cfg(not(feature = "axum"))]
-    {
-        let _ = (state, host_cfg, applications);
-        #[cfg(feature = "websocket")]
-        let _ = h1_upgrades;
-
-        Err(Error::msg(format!(
-            "host '{canonical}' has no bypass binding, and this build has no router to fall back \
-             on (feature `axum` is off)"
-        )))
-    }
-}
-
-#[cfg(all(feature = "lua", feature = "websocket"))]
-fn append_lua_websocket_routes(
-    state: &AppState,
-    canonical: &Host,
-    host: &HostConfig,
-    routes: &mut Vec<H1UpgradeRoute>,
-) -> Result<()> {
-    let Some(service) =
-        state.registry_ref().resolve::<claviron_lua::serve::LuaApplications>()
-    else {
-        return Ok(());
-    };
-    let h2_connect = state.registry_ref().resolve::<crate::H2ConnectRegistry>();
-
-    for application in host.lua() {
-        for websocket in application.websockets() {
-            let path = mounted_websocket_path(
-                application.path.as_ref(),
-                &websocket.path,
-            );
-            let handler = Arc::new(lua_socket::WebSocketUpgrade {
-                origin: application.origin,
-                service: service.clone(),
-                application: Arc::from(application.application.as_str()),
-            });
-            routes.push(H1UpgradeRoute::handler(path.clone(), handler)?);
-            if let Some(registry) = h2_connect.as_ref() {
-                registry.bind_handler(
-                    canonical.clone(),
-                    path,
-                    Arc::new(LuaWebSocketConnectHandler {
-                        origin: application.origin,
-                        service: service.clone(),
-                        application: Arc::from(
-                            application.application.as_str(),
-                        ),
-                    }),
-                )?;
-            }
-        }
-    }
-    Ok(())
-}
-
-/// A Lua application's WebSocket over HTTP/2 extended CONNECT (RFC 8441).
-#[cfg(all(feature = "lua", feature = "websocket"))]
-struct LuaWebSocketConnectHandler {
-    origin: claviron_http::config::routes::lua::LuaSocketOriginPolicy,
-    service: Arc<claviron_lua::serve::LuaApplications>,
-    application: Arc<str>,
-}
-
-#[cfg(all(feature = "lua", feature = "websocket"))]
-#[async_trait::async_trait]
-impl crate::H2ConnectHandler for LuaWebSocketConnectHandler {
-    fn name(&self) -> &'static str {
-        "lua_websocket_h2"
-    }
-
-    async fn accept(
-        &self,
-        _state: &AppState,
-        ctx: &crate::AuthContext,
-    ) -> crate::H2ConnectResult {
-        if !lua_socket::allows_origin(
-            self.origin,
-            &ctx.headers,
-            &ctx.uri,
-            &ctx.conn.scheme(),
-        ) {
-            return Err(crate::H2ConnectReject::forbidden());
-        }
-        // RFC 8441 §5: 13 is the only version defined for this handshake.
-        let version = ctx
-            .headers
-            .get("sec-websocket-version")
-            .and_then(|value| value.to_str().ok());
-        if version != Some("13") {
-            return Err(crate::H2ConnectReject::bad_request());
-        }
-        let application =
-            claviron_lua::websocket::prepare(&self.service, &self.application)
-                .map_err(|_| {
-                    crate::H2ConnectReject::new(
-                        http::StatusCode::SERVICE_UNAVAILABLE,
-                    )
-                })?;
-        Ok(crate::H2ConnectAccept::authenticated(application))
-    }
-
-    async fn handle(
-        &self,
-        _state: AppState,
-        ctx: crate::AuthContext,
-        authenticated: Option<crate::AnyAuthenticated>,
-        req: http::Request<claviron_http::RouteBody>,
-    ) -> Result<claviron_http::RouteResponse> {
-        let is_websocket =
-            req.extensions().get::<hyper::ext::Protocol>().is_some_and(
-                |protocol| protocol.as_str().eq_ignore_ascii_case("websocket"),
-            );
-        if !is_websocket {
-            return Ok(claviron_http::err_status(
-                http::StatusCode::BAD_REQUEST,
-            ));
-        }
-        let application = authenticated
-            .ok_or_else(|| Error::msg("Lua WebSocket application missing"))?
-            .take::<Arc<claviron_lua::app::LuaApplication>>()?;
-        let sessions = req
-            .extensions()
-            .get::<claviron_http::session::SessionSpawner>()
-            .cloned()
-            .ok_or_else(|| {
-                Error::msg("H2 CONNECT request carries no session spawner")
-            })?;
-        let authority = req
-            .uri()
-            .authority()
-            .map(|authority| authority.to_string())
-            .unwrap_or_else(|| ctx.host.to_string());
-        let url = format!(
-            "wss://{authority}{}",
-            req.uri().path_and_query().map_or("/", |path| path.as_str())
-        );
-        let headers = claviron_lua::websocket::header_pairs(&ctx.headers);
-        let submitted = sessions.spawn(async move {
-            match hyper::upgrade::on(req).await {
-                Ok(upgraded) => {
-                    claviron_lua::websocket::serve_websocket(
-                        upgraded,
-                        url,
-                        headers,
-                        application,
-                        "HTTP/2.0",
-                    )
-                    .await;
-                }
-                Err(error) => error!(%error, "H2 CONNECT upgrade failed"),
-            }
-        });
-        if let Err(error) = submitted {
-            tracing::debug!(%error, "H2 CONNECT session hand-off rejected");
-            return Ok(claviron_http::err_status(
-                http::StatusCode::SERVICE_UNAVAILABLE,
-            ));
-        }
-        Ok(http::Response::builder()
-            .status(http::StatusCode::OK)
-            .body(claviron_http::empty_body())
-            .expect("static response"))
-    }
-}
-
-#[cfg(all(
-    feature = "lua",
-    any(feature = "websocket", feature = "webtransport")
-))]
-fn mounted_websocket_path(
-    mount: Option<&claviron_http::ext::PathPrefix>,
-    path: &claviron_http::ext::PathPrefix,
-) -> Arc<str> {
-    match mount.map(|mount| mount.as_str()) {
-        None | Some("/") => Arc::from(path.as_str()),
-        Some(mount) if path.as_str() == "/" => Arc::from(mount),
-        Some(mount) => Arc::from(format!("{mount}{}", path.as_str())),
-    }
+        websocket,
+    ).map(AppKind::Bypass)
 }
 
 #[cfg(feature = "websocket")]
@@ -1560,63 +1297,6 @@ fn build_h1_upgrade_registry(
     }
     Ok(Some(registry))
 }
-
-#[cfg(feature = "upstream")]
-fn build_config_upstream_bypass(
-    state: &AppState,
-    canonical: &Host,
-    host_cfg: &HostConfig,
-    applications: &[Arc<dyn ApplicationInterceptor>],
-) -> Option<BypassService> {
-    if !host_cfg.can_bypass_axum_for_upstream() {
-        return None;
-    }
-
-    let upstream_name = host_cfg.upstream_name()?;
-
-    let Some(provider) = state.registry_ref().resolve::<UpstreamProvider>()
-    else {
-        error!(
-            host = %canonical,
-            upstream = upstream_name,
-            "host declares bypass-capable upstream but UpstreamProvider is not registered"
-        );
-        return None;
-    };
-
-    let Some(app) = provider.app_for_state(upstream_name, state) else {
-        error!(
-            host = %canonical,
-            upstream = upstream_name,
-            "host declares unknown bypass-capable upstream app/profile"
-        );
-        return None;
-    };
-
-    tracing::debug!(
-        host = %canonical,
-        upstream = upstream_name,
-        app = app.name(),
-        "mounting bypass HTTP upstream"
-    );
-
-    let policy = claviron_upstream::proxy::service::UpstreamRequestPolicy {
-        allow_h1_upgrade: host_cfg.transport.h1.upgrade,
-        allow_connect_protocol: host_cfg.transport.h2.connect_protocol,
-    };
-    let (files, file_steps) = crate::pipeline::host::prepare_upstream_files(host_cfg);
-    let backend = BypassService::new(UpstreamBypass::new(
-        app,
-        state.clone(),
-        files,
-        policy,
-    ));
-    Some(crate::pipeline::host::compose_dispatch_bypass(backend, file_steps, applications))
-}
-
-#[cfg(all(test, feature = "lua", feature = "websocket"))]
-#[path = "../../tests/pipeline/apps.rs"]
-mod websocket_tests;
 
 #[cfg(all(test, feature = "rate-limit"))]
 #[path = "../../tests/pipeline/quota.rs"]

@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::pipeline::host::HostExecution;
-#[cfg(feature = "tcp")]
+#[cfg(all(feature = "tcp", feature = "axum"))]
 use claviron_http::RouteFuture;
 #[cfg(feature = "tcp")]
 use futures_util::FutureExt;
@@ -69,7 +69,7 @@ impl PreparedRequest<RouteBody> {
 
     /// Keep Bypass dispatch inline through the native TCP service boundary.
     /// Only Axum is erased here; its concrete state must not enlarge Bypass.
-    #[cfg(feature = "tcp")]
+    #[cfg(all(feature = "tcp", feature = "axum"))]
     pub(crate) fn into_tcp_future(
         self
     ) -> Either<
@@ -87,6 +87,16 @@ impl PreparedRequest<RouteBody> {
                 Either::Right(request.dispatch(service).map(Ok))
             }
         }
+    }
+
+    /// A native-only build retains the same inline transport future without
+    /// compiling an Axum alternative or introducing another future box.
+    #[cfg(all(feature = "tcp", not(feature = "axum")))]
+    pub(crate) fn into_tcp_future(
+        self,
+    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send {
+        let (AppKind::Bypass(service), request) = self.into_dispatch();
+        request.dispatch(service).map(Ok)
     }
 }
 

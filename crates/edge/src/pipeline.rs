@@ -4,7 +4,10 @@ pub mod embed;
 mod connect;
 pub mod host;
 #[cfg(feature = "axum")]
-pub mod merged;
+pub mod app;
+#[cfg(feature = "axum")]
+pub mod ext;
+pub mod routing;
 #[cfg(feature = "orbit")]
 pub mod link;
 #[cfg(feature = "upstream")]

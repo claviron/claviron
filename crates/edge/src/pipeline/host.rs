@@ -51,6 +51,8 @@ mod access_log;
 mod admission;
 mod application;
 mod binding;
+mod backend;
+pub(crate) mod compile;
 mod builder;
 mod dispatch;
 mod exchange;
@@ -74,17 +76,12 @@ pub use application::ApplicationHandler;
 pub use dispatch::{DispatchChain, DispatchFuture, DispatchResult, DispatchStep};
 pub(crate) use dispatch::compose_dispatch_bypass;
 #[cfg(feature = "axum")]
-pub(crate) use dispatch::{compose_dispatch_router, dispatch_router};
+pub(crate) use dispatch::dispatch_router;
 pub(crate) use binding::HostPolicy;
 pub use exchange::{ExchangeLayer, ExchangeState};
 pub(crate) use execution::HostExecution;
 pub use files::{StaticStage, TryFilesStage};
-#[cfg(feature = "axum")]
-pub(crate) use files::compose_configured_router;
-#[cfg(feature = "axum")]
 pub(crate) use files::fallback_config;
-#[cfg(feature = "upstream")]
-pub(crate) use files::prepare_upstream_files;
 pub use identity::{IdentityPolicy, IdentityState};
 pub use intercept::{
     ApplicationInterceptor, ApplicationStage, InterceptFuture,

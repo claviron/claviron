@@ -21,17 +21,11 @@ server = [
     "claviron-http/server",
     "dep:futures-util",
 ]
-# The router side of hosting. Off, a host can still be pinned to a bypass
-# adapter — one .php, a static root, an upstream — because that path never had
-# an axum type in it; what it could not do before was *prove* that, since axum
-# came in unconditionally. On (which every normal build is, via
-# `claviron/server`) nothing changes.
+# Optional Rust application/router adapters; native host compilation is independent.
 axum = [
     "server",
     "dep:axum",
     "dep:http-body",
-    "dep:pin-project-lite",
-    "dep:tower-http",
     "claviron-http/routing",
     "claviron-files/axum",
     "claviron-pusher?/axum",
@@ -47,13 +41,13 @@ access-log = [
 ]
 websocket = ["server", "claviron-http/websocket", "claviron-lua?/websocket", "dep:hyper"]
 
-broadcast = ["server", "dep:claviron-pusher", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
+# Configured Pusher REST endpoints currently use an optional Rust router adapter.
+broadcast = ["server", "axum", "dep:claviron-pusher", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
 
 php = ["dep:claviron-php"]
 php_fcgi = ["server", "php", "dep:claviron-php-fcgi", "claviron-php?/php_fcgi"]
 php_embed = ["server", "php", "dep:claviron-php-embed", "claviron-php?/php_embed"]
-# The host compiler remains an Axum adapter during migration; Lua dispatch is native.
-lua = ["server", "axum", "dep:claviron-lua", "claviron-http/lua"]
+lua = ["server", "dep:claviron-lua", "claviron-http/lua"]
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
     "claviron-http/orbit",
@@ -78,7 +72,7 @@ http3 = ["server", "claviron-http/http3"]
 webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport", "claviron-lua?/webtransport"]
 # Native drivers are opt-in; host declarations alone open no sockets.
 tcp = [
-    "server", "axum", "claviron-types/ssl", "dep:claviron-sys",
+    "server", "claviron-types/ssl", "dep:claviron-sys",
     "dep:hyper", "dep:hyper-util", "dep:http-body-util",
     "dep:futures-util", "dep:socket2",
 ]
@@ -117,7 +111,6 @@ claviron-upstream = { workspace = true, optional = true }
 arc-swap.workspace = true
 async-trait.workspace = true
 futures-util = { workspace = true, optional = true }
-pin-project-lite = { workspace = true, optional = true }
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"], optional = true }
 
@@ -138,7 +131,6 @@ percent-encoding = { workspace = true, optional = true }
 # ── Web framework (axum + tower) ────────────────────────────────────────
 axum = { workspace = true, optional = true }
 tower.workspace = true
-tower-http = { workspace = true, optional = true }
 
 # ── TLS / certificates ──────────────────────────────────────────────────
 rustls = { workspace = true, optional = true }

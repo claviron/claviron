@@ -18,7 +18,7 @@ use crate::pipeline::{
     WebTransportResult,
 };
 
-pub(super) fn append_routes(
+pub(crate) fn append_routes(
     state: &AppState,
     host: &Host,
     config: &HostConfig,
@@ -103,7 +103,7 @@ impl WebTransportHandler for Handler {
                     WebTransportReject::new(StatusCode::NOT_FOUND)
                 })?;
         // Native CONNECT and H1 upgrade share the same browser-origin boundary.
-        if !super::lua_socket::allows_origin(
+        if !super::origin::allows_origin(
             route.origin,
             &ctx.headers,
             &ctx.uri,
@@ -169,5 +169,5 @@ impl WebTransportHandler for Handler {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/lua_webtransport.rs"]
+#[path = "../../../../tests/pipeline/embed/lua/webtransport.rs"]
 mod tests;

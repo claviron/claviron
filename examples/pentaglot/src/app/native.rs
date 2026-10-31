@@ -76,10 +76,10 @@ impl Routable for Native {
         &self,
         _context: RouteLayerContext<'_>,
         router: Router,
-    ) -> Router {
+    ) -> Option<Router> {
         let pid =
             HeaderValue::from_str(&std::process::id().to_string()).unwrap();
-        router.layer(middleware::from_fn(
+        Some(router.layer(middleware::from_fn(
             move |request: Request, next: Next| {
                 let pid = pid.clone();
                 async move {
@@ -88,7 +88,7 @@ impl Routable for Native {
                     response
                 }
             },
-        ))
+        )))
     }
 }
 

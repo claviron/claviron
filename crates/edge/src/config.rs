@@ -295,10 +295,9 @@ impl HostConfig {
             && self.transport.allows_protocol(protocol)
     }
 
-    /// Boot-time composition: produces the effective `Arc<PhpRuntime>` that
-    /// will be pinned as a router Extension for this host.
+    /// Boot-time composition: produces effective native PHP declarations.
     ///
-    /// `create_router` runs once per host, so this work is paid once at
+    /// Host preparation runs once per changed host, so this work is paid at
     /// setup — not on every request. The resulting `PhpRuntime` is the
     /// runtime-optimized, immutable shape that the request hot path
     /// actually consumes (root + indexes resolved, env wrapped in Arc, etc).
@@ -310,8 +309,8 @@ impl HostConfig {
     ///   filtered to `.php` candidates, or `["index.php"]` as last resort.
     ///
     /// Build every PHP runtime declared on this host, regardless of `runner:`
-    /// kind. Caller (the vhost router) sorts by path-prefix length and
-    /// dispatches each runtime to the correct runner via `PhpRuntime::php_runner`,
+    /// kind. The native Embed compiler sorts by path-prefix length and
+    /// prepares a distinct owner for `PhpRuntime::php_runner`,
     /// so a single host can mix `runner: script` and `runner: fcgi` routes —
     /// most-specific match wins independent of runner.
     #[cfg(feature = "php")]

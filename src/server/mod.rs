@@ -249,7 +249,7 @@ pub struct Server<R = fn(&AppState) -> registry::Result<()>> {
     #[cfg(feature = "edge")]
     edge_extensions: Vec<
         Arc<
-            dyn claviron_edge::pipeline::merged::routing::RouteExtension<
+            dyn claviron_edge::pipeline::routing::RouteExtension<
                     claviron_edge::config::HostConfig,
                 >,
         >,
@@ -321,7 +321,7 @@ where
         extension: E,
     ) -> Self
     where
-        E: claviron_edge::pipeline::merged::routing::RouteExtension<
+        E: claviron_edge::pipeline::routing::RouteExtension<
                 claviron_edge::config::HostConfig,
             > + 'static,
     {

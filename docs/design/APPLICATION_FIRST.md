@@ -31,8 +31,8 @@ The application chooses the components and shared providers. The host binding
 selects their exposure. Adding another hostname does not inherently require
 another implementation of the application or another copy of its state.
 
-[BYPASS_PIPELINE](BYPASS_PIPELINE.md) describes the serving choices: merged
-routing, an application-owned router or direct bypass dispatch. Those are ways
+[BYPASS_PIPELINE](BYPASS_PIPELINE.md) describes the serving choices: a native
+host pipeline, an application-owned router or direct bypass dispatch. Those are ways
 to present application behavior through the edge.
 
 ## Routable contributions and interception
@@ -44,9 +44,10 @@ contribute to several hosts, each with its own composition.
 
 Interception lets those contributions handle selected requests while the
 configured application owner continues serving the remaining paths. A
-`Routable` can also supply route extensions and wrap the assembled router with
-`layer_routes`. The prepared downstream handle delegates to the selected
-configured owner without re-entering the merged Rust routes.
+`Routable` can also supply route extensions and explicitly opt into an Axum
+application layer with `layer_routes`. Returning `None` installs no adapter.
+The prepared downstream handle delegates to the selected native owner without
+re-entering the Rust routes or selecting the prefix again.
 
 This supports applications built from several cooperating parts, including
 gradual replacement of individual handlers. Route ownership and delegation are
@@ -146,7 +147,8 @@ without implicitly changing the owners of application work or shared state.
 ## Follow the implementation
 
 - [Provider route and host bindings](../../crates/edge/src/pipeline/routable.rs).
-- [Merged routing and interception](../../crates/edge/src/pipeline/merged.rs).
+- [Native host compilation](../../crates/edge/src/pipeline/host/compile.rs).
+- [Optional Rust application adapters](../../crates/edge/src/pipeline/app.rs).
 - [Prepared host applications](../../crates/edge/src/pipeline/apps.rs).
 - [Shared host admission](../../crates/edge/src/service/host.rs).
 - [Configured exchange policies](../../crates/edge/src/service/exchange.rs) and

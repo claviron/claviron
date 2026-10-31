@@ -1,4 +1,20 @@
-//! Cold Lua mount selection and direct native application calls.
+//! Native Lua HTTP dispatch and optional socket/session bindings.
+//!
+//! Host preparation calls the registration functions once per publication.
+//! Socket ownership and admission remain with the native transport registries;
+//! their precedence does not follow the ordinary HTTP backend's position.
+
+#[cfg(any(feature = "websocket", feature = "webtransport"))]
+mod origin;
+#[cfg(feature = "websocket")]
+mod websocket;
+#[cfg(feature = "webtransport")]
+mod webtransport;
+
+#[cfg(feature = "websocket")]
+pub(crate) use websocket::append_routes as append_websocket_routes;
+#[cfg(feature = "webtransport")]
+pub(crate) use webtransport::append_routes as append_webtransport_routes;
 
 use std::sync::Arc;
 
@@ -69,6 +85,22 @@ impl DispatchStep for LuaBackend {
         })
     }
 }
+
+#[cfg(any(feature = "websocket", feature = "webtransport"))]
+fn mounted_websocket_path(
+    mount: Option<&claviron_http::ext::PathPrefix>,
+    path: &claviron_http::ext::PathPrefix,
+) -> Arc<str> {
+    match mount.map(|mount| mount.as_str()) {
+        None | Some("/") => Arc::from(path.as_str()),
+        Some(mount) if path.as_str() == "/" => Arc::from(mount),
+        Some(mount) => Arc::from(format!("{mount}{}", path.as_str())),
+    }
+}
+
+#[cfg(all(test, feature = "websocket"))]
+#[path = "../../../tests/pipeline/embed/lua/socket_path.rs"]
+mod socket_path_tests;
 
 #[cfg(test)]
 #[path = "../../../tests/pipeline/embed/lua.rs"]

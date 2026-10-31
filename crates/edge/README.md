@@ -14,7 +14,8 @@ application framework.
 
 Direct crate consumers select `tcp` for HTTP/1.1 and HTTP/2, add `tls` for
 the HTTPS driver, or select `quic` for HTTP/3 and its native WebTransport
-bindings. The existing `http3` feature exposes shared H3 declarations;
+bindings. TCP and native host compilation do not require the `axum` feature;
+select it when supplying Axum Rust applications. The existing `http3` feature exposes shared H3 declarations;
 `quic` additionally selects the driver. Selecting a feature does not register
 or start a listener. Runner retains its own ingress and does not depend on Edge.
 
@@ -219,8 +220,8 @@ lua:
 
 ## Adding an application
 
-In a server registration callback, declare a host and attach a merged Axum
-application:
+In a server registration callback, declare a host and attach a Rust Axum
+application before its native downstream:
 
 ```rust
 use claviron::{
@@ -260,8 +261,8 @@ rather than perform their own file I/O.
 
 `HostAppRegistry` supports distinct ownership arrangements:
 
-- `register_app` merges Rust routes into Claviron's configured pipeline, retaining
-  its configured static-file and application layers.
+- `register_app` adds an Axum Rust application before the selected native
+  file/backend chain.
 - `register_router` installs a complete Axum router whose application middleware
   is owned by the caller. Host admission still applies.
 - `register_bypass` installs a native handler without requiring an Axum router.
@@ -278,8 +279,9 @@ the body remains private. Return `Unhandled` with that capability to continue;
 consume it with `into_request` when handling the body. A handled error response,
 including 404, does not fall through. Only registered contributions execute,
 in registration order, before the configured owner; absent contributions leave
-the direct owner unchanged. Existing Axum routes and policy hooks keep their
-composition boundaries while the backend compiler is migrated.
+the direct owner unchanged. Axum routes remain an optional Rust application
+adapter. `layer_routes` returns `Some(router)` when active and `None` otherwise;
+an inactive hook installs no Axum invocation.
 
 Configured dispatch prepares the order **WebSocket → Routable → Static →
 TryFiles → Embed/backend**. The optional WebSocket step requires a registered
@@ -300,8 +302,7 @@ Embedded runtime backends live under `pipeline::embed`. Lua uses
 `embed::lua::LuaBackend` to select its prepared mount and call the native Lua
 application adapter. A matching unavailable application returns 503; it never
 falls through to another backend. Nonmatching mounts retain the original body.
-The remaining host compiler supplies a temporary invocation bridge, while Lua
-dispatch itself requires no Axum middleware, extractor or `Next`.
+Lua dispatch requires no Axum middleware, extractor or `Next`.
 
 `embed::php::PhpBackend` prepares distinct Script, Application and FCGI owners
 from resolved runtimes. Runner selection happens only at boot/reload. A
@@ -323,9 +324,16 @@ upload's task owner moves from the pending head to the response body and is
 cancelled when that exchange is dropped or ends. Empty requests create no upload
 task. WebSocket and WebTransport keep their native session owners.
 
-Upstream and Link have no Axum route bindings. The remaining host compiler calls
-native backend steps through one shared application adapter; their dispatch does
-not use Axum bodies, extractors, middleware or per-request registry resolution.
+Host preparation compiles selected scopes directly into native owners. The
+longest prefix and its conditions select one chain; a rejected entry goes to
+the declared fallback and skips that entry's applications and WebSocket. A sole
+unconditional root is installed directly. Each scope carries its own
+`SelectedRoute` metadata and file/backend ownership.
+
+Config-only hosts require no Axum router. Axum is entered for explicitly supplied
+Rust routes or active application layers. Configured Pusher REST endpoints use an optional Rust application adapter
+before files/backends; user native contributions keep first claim. Embedded
+engines, files, Upstream and Link do not use an Axum adapter. Accepted connections retain the prepared publication across reload.
 
 Native backends implement `DispatchStep` with `Request<RouteBody>`, independently
 of Rust application interception. `Unhandled` transfers that same request to

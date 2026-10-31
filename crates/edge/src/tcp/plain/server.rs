@@ -97,7 +97,8 @@ impl HttpServer {
     }
 }
 
-#[cfg(test)]
+// This existing fixture compares an Axum application with a native owner.
+#[cfg(all(test, feature = "axum"))]
 #[path = "../../../tests/tcp/unit/plain.rs"]
 mod tests;
 
