@@ -24,8 +24,7 @@ use claviron_runtime::congif::{
     self, ConfigFile, ConfigObserver, Configurable, Format,
 };
 use claviron_runtime::registry::{Component, Reloadable, priority};
-use tracing::info;
-use tracing::log::debug;
+use tracing::{debug, info};
 
 /// Locate `http.yaml` inside the runtime config directory.
 pub fn http_config_path(state: &AppState) -> PathBuf {

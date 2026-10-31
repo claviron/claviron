@@ -8,9 +8,9 @@ policy, and selects its application. Its opt-in [TCP](docs/tcp/README.md) and
 lifecycle separately from the shared hosting pipeline.
 
 Applications normally use `claviron::edge` through the root crate's `edge`
-feature. Enable TLS, HTTP/3, and application adapters
-explicitly as needed. The edge is neither an interpreter nor a language-specific
-application framework.
+feature. Select `axum` for Axum Rust applications. Enable TLS, HTTP/3, and other
+application adapters as needed. The edge is neither an interpreter nor a
+language-specific application framework.
 
 Direct crate consumers select `tcp` for HTTP/1.1 and HTTP/2, add `tls` for
 the HTTPS driver, or select `quic` for HTTP/3 and its native WebTransport
@@ -248,9 +248,10 @@ fn register_host(state: &AppState) -> registry::Result<()> {
 }
 ```
 
-This uses the root `edge` feature and assumes the standard edge infrastructure
-has already been registered. It does not configure or start a listener. The key
-passed to `register_router` selects the canonical vhost, not an arbitrary alias.
+This uses the root `edge` and `axum` features and assumes the standard edge
+infrastructure has already been registered. It does not configure or start a
+listener. The key passed to `register_router` selects the canonical vhost, not
+an arbitrary alias.
 
 `register_hosts` lets an integration supply multiple declarations from its
 prepared configuration. Host-source callbacks run while rebuilding the host

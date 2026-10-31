@@ -324,10 +324,11 @@ actually needs:
 - `runner` adds the single-application launch and ingress shell; the integration
   registers its engine and routing.
 - `supervisor` adds managed worker processes to the server lifecycle.
-- `edge` composes the supervised HTTP edge with Axum routing, static-file
+- `edge` composes the supervised HTTP edge with native host routing, static-file
   support, and native cleartext HTTP/1 and HTTP/2 ingress.
 
-Add `tls`, `http3`, `php_embed`, `tasks`, or `cache` as needed.
+Add `axum` for Axum Rust applications, or `tls`, `http3`, `php_embed`, `tasks`,
+and `cache` as needed.
 
 Applications register their own components through `Server::register` or
 `Server::with_services`, then provide the configuration and adapters their

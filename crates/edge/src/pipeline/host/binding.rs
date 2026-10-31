@@ -12,6 +12,7 @@ use crate::service::{HostIngress, HostResponse, VhostCtx};
 use crate::VhostResolver;
 
 pub(crate) struct HostPolicy {
+    #[cfg(any(test, all(feature = "tcp", feature = "tls")))]
     pub(crate) connection: Arc<ConnCtx>,
     pub(crate) host: VhostCtx,
     pub(crate) ingress: HostIngress,
@@ -40,7 +41,9 @@ impl HostPolicy {
         let access_log = AccessLogLayer::new(host.vhost_key.clone(), host.vhost_config.access_log());
         let pipeline = HostPipeline::for_host(&connection, &host, &ingress, access);
         Self {
-            connection, host, ingress, http, admission_policy, reply, pipeline,
+            #[cfg(any(test, all(feature = "tcp", feature = "tls")))]
+            connection,
+            host, ingress, http, admission_policy, reply, pipeline,
             #[cfg(feature = "access-log")]
             access_log,
         }

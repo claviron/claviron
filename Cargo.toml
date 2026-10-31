@@ -92,11 +92,11 @@ server = [
 # standalone with zero workers or as a master/worker fleet.
 supervisor = ["server", "dep:claviron-supervisor", "claviron-runner?/supervisor"]
 
-# The supervised HTTP edge composition. This preserves the former `server`
-# feature's cleartext H1/H2, host-routing, and file-serving surface.
+# The supervised HTTP edge with native host routing and file serving.
+# Select `axum` separately for Rust Axum applications.
 edge = [
     "supervisor",
-    "axum",
+    "http",
     "files",
     "claviron-http/server",
     "dep:claviron-edge",
