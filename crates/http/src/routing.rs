@@ -1,18 +1,13 @@
-//! Axum route capabilities shared by standalone runners and edge consumers.
+//! Host-free Axum application route composition.
 
-pub mod dispatch;
 pub use crate::config::routes::RouteTable;
-pub use dispatch::{ConfiguredRoute, RouteDispatch};
 pub use crate::dispatch::{RouteCondition, RuleContext};
 
 use std::sync::{Arc, RwLock};
 
 use axum::Router;
-use axum::extract::Request;
-use axum::response::Response;
 use claviron_runtime::AppState;
 use claviron_runtime::registry::{AnyComponent, Component, Error, Result};
-use tower::ServiceExt;
 
 /// A provider that contributes Rust-executed Axum routes.
 ///
@@ -95,30 +90,4 @@ where
     state.registry_ref().register(routable.clone())?;
     routes.insert(routable);
     Ok(())
-}
-
-/// A callable handle to the Axum router below an intercepting Rust route.
-///
-/// Vhost routing may place the configured host application below it, while a
-/// standalone language runner may place ASGI or another application adapter
-/// below it. The handle itself knows neither owner.
-#[derive(Clone)]
-pub struct AxumPipeline {
-    inner: Arc<Router>,
-}
-
-impl AxumPipeline {
-    pub fn new(inner: Router) -> Self {
-        Self { inner: Arc::new(inner) }
-    }
-
-    pub async fn call(
-        &self,
-        request: Request,
-    ) -> Response {
-        match self.inner.as_ref().clone().oneshot(request).await {
-            Ok(response) => response,
-            Err(error) => match error {},
-        }
-    }
 }
