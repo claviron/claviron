@@ -9,7 +9,7 @@ use super::*;
 fn apply_db_aliases_skips_invalid_alias_hosts() {
     let table: VhostTable = serde_yaml::from_str(
         r#"
-claviron.dev:
+app.test:
   root: public
 "#,
     )
@@ -18,8 +18,8 @@ claviron.dev:
 
     let mut aliases = HashMap::new();
     aliases.insert(
-        "claviron.dev".to_string(),
-        vec!["www.claviron.dev".to_string(), String::new(), "   ".to_string()],
+        "app.test".to_string(),
+        vec!["www.app.test".to_string(), String::new(), "   ".to_string()],
     );
 
     snapshot
@@ -30,7 +30,7 @@ claviron.dev:
     assert_eq!(table.host_count(), 1);
     assert_eq!(table.alias_count(), 1);
 
-    let alias = Host::from_str("www.claviron.dev").expect("parse valid alias");
-    let canonical = Host::from_str("claviron.dev").expect("parse canonical");
+    let alias = Host::from_str("www.app.test").expect("parse valid alias");
+    let canonical = Host::from_str("app.test").expect("parse canonical");
     assert_eq!(table.resolve(&alias).expect("alias resolves").0, canonical);
 }

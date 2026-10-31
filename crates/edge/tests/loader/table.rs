@@ -72,12 +72,12 @@ fn deserialize_multiple_hosts() {
 default:
   root: public
 
-claviron.dev:
+app.test:
   root: public
   alias:
-    - claviron.app
+    - alias.test
 
-stream.home:
+stream.test:
   root: /sites/default/public
 "#;
 
@@ -85,15 +85,15 @@ stream.home:
         serde_yaml::from_str(yaml).expect("parse vhost table");
 
     assert_eq!(table.host_count(), 3, "expected 3 canonical hosts");
-    assert_eq!(table.alias_count(), 1, "expected 1 alias row (claviron.app)");
+    assert_eq!(table.alias_count(), 1, "expected 1 alias row (alias.test)");
 
-    let canonical = Host::from_str("claviron.dev").expect("parse canonical");
+    let canonical = Host::from_str("app.test").expect("parse canonical");
     assert!(
         table.canonical_config(&canonical).is_some(),
-        "claviron.dev must be canonical"
+        "app.test must be canonical"
     );
 
-    let alias = Host::from_str("claviron.app").expect("parse alias");
+    let alias = Host::from_str("alias.test").expect("parse alias");
     let resolved = table.resolve(&alias).expect("alias must resolve");
-    assert_eq!(resolved.0, canonical, "alias resolves to claviron.dev");
+    assert_eq!(resolved.0, canonical, "alias resolves to app.test");
 }

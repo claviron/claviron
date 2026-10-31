@@ -57,6 +57,22 @@ changes publish prepared `HttpSnapshot` values atomically; listener capability
 validation precedes publication. An absent file declares no listeners.
 Registration also connects watchdog and optional metrics to snapshot accessors.
 
+### [`loader.rs`](src/loader.rs) and `loader/`
+
+Host declaration loading and immutable publication; no request-body execution.
+
+- [`config.rs`](src/loader/config.rs) — `VhostDocument`, recursive includes,
+  partial reads and declaration identity reuse through Congif.
+- [`error.rs`](src/loader/error.rs) — Declaration/load errors.
+- [`table.rs`](src/loader/table.rs) — Canonical names, aliases, listener/log
+  selectors and prepared application handles in one publication.
+- [`snapshot.rs`](src/loader/snapshot.rs) — Candidate host/alias edits and
+  optional database alias hydration.
+- [`resolver.rs`](src/loader/resolver.rs) — Retained host sources, dependent
+  preparation, atomic table publication and connection retirement notification.
+  File changes preserve unrelated hosts and live aliases; failed preparation
+  retains the published table. `db` adds hosting dependencies and alias reads.
+
 ### `pipeline/`
 
 #### [`app.rs`](src/pipeline/app.rs)
@@ -95,3 +111,14 @@ and retention of the active snapshot after invalid input. No server boots.
 
 - [`identity.rs`](tests/pipeline/host/identity.rs) — Fixed identity reuse, proxy
   trust and per-request clients, typed metadata and unchanged body ownership.
+
+### `loader/`
+
+- [`table.rs`](tests/loader/table.rs) — Canonical/alias lookup, shared policy
+  and named listener validation.
+- [`snapshot.rs`](tests/loader/snapshot.rs) — Database alias input validation.
+- [`resolver.rs`](tests/loader/resolver.rs) — Hosting/config boot dependencies.
+- [`resolver/selection.rs`](tests/loader/resolver/selection.rs) — Coherent
+  application selection, publication failures and generation ownership.
+- [`binding.rs`](tests/loader/binding.rs) — Event-driven retirement on host or
+  alias replacement; unrelated publications retain the binding.
