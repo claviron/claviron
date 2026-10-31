@@ -98,6 +98,12 @@ and rejection for `config::HostConfigExt`.
 - [`lua.rs`](src/pipeline/embed/lua.rs) — Prepared Lua mount selection.
   Nonmatching requests return synchronously with the unread body; only a
   selected adapter creates an asynchronous call. Engine execution belongs to Lua.
+- [`lua/websocket.rs`](src/pipeline/embed/lua/websocket.rs) — Lua H1 upgrades
+  and H2 CONNECT handoff from flat and prefix-scoped declarations.
+- [`lua/webtransport.rs`](src/pipeline/embed/lua/webtransport.rs) — Lua H3
+  session admission and native stream handoff, rechecking the selected route.
+- [`lua/origin.rs`](src/pipeline/embed/lua/origin.rs) — Shared browser-origin
+  admission using the requested authority and accepted transport scheme.
 
 ## `tests/`
 

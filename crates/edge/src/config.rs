@@ -332,6 +332,14 @@ impl HostConfig {
         self.lua.as_deref().unwrap_or(&[])
     }
 
+    #[cfg(all(feature = "lua", any(feature = "websocket", feature = "webtransport")))]
+    pub(crate) fn lua_routes(&self) -> impl Iterator<Item = &LuaRouteConfig> {
+        self.lua().iter().chain(
+            self.routes.iter().filter(|(prefix, _)| prefix.as_str() != "/")
+                .flat_map(|(_, route)| route.lua().iter()),
+        )
+    }
+
     #[cfg(feature = "orbit")]
     pub fn orbit(&self) -> &[OrbitRouteConfig] {
         self.orbit.as_deref().unwrap_or(&[])
