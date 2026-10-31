@@ -178,7 +178,7 @@ impl DispatchRequest {
             &self.connection,
         );
         // Retain the admitted host and connection even without access logging.
-        let _context = (self.host, self.connection);
+        let context = (self.host, self.connection);
         // The application receives the policy the edge narrowed for it
         // (listener, then host) and narrows it once more with its own
         // block: the edge computes, the runner owns. A plain
@@ -206,7 +206,6 @@ impl DispatchRequest {
         request.extensions_mut().insert(claviron_http::ext::ReceivedAt(
             std::time::SystemTime::now(),
         ));
-        let replies = self.policy.responses;
         let requests = self.policy.requests;
         // Admission, on every path to the host: a place among the requests it
         // serves at once, waited for up to the request's `queue_timeout`, and
@@ -269,18 +268,9 @@ impl DispatchRequest {
         // through — axum or not: its ceiling and the longest gap between two
         // of its pieces. Where it was a tower layer it guarded axum's replies
         // only, and hid every reply's length from the transport.
-        let response = if replies.max_body_size.is_none()
-            && replies.body_idle_timeout.is_none()
-        {
-            response
-        } else {
-            response.map(|body| {
-                claviron_http::body::guard_reply(
-                    body,
-                    replies.max_body_size,
-                    replies.body_idle_timeout,
-                )
-            })
+        let response = match &context.0.reply {
+            Some(policy) => policy.finish(response),
+            None => response,
         };
         // Outermost, so what it counts is what the client is sent.
         #[cfg(feature = "access-log")]

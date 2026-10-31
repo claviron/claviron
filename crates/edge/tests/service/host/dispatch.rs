@@ -6,7 +6,6 @@ use claviron_http::RouteFuture;
 use claviron_http::boxed_body;
 #[cfg(any(feature = "tcp", feature = "axum"))]
 use futures_util::FutureExt;
-#[cfg(feature = "tcp")]
 use http_body::Body;
 use http_body_util::BodyExt;
 use std::convert::Infallible;
@@ -130,6 +129,38 @@ fn host_dispatch_cancellation_before_poll_never_calls_the_owner() {
     }
     assert_eq!(state.entered.load(Ordering::Relaxed), 0);
     assert_eq!(state.dropped.load(Ordering::Relaxed), 0);
+}
+
+#[test]
+fn host_dispatch_applies_prepared_reply_limits_before_stream_delivery() {
+    let state = Arc::new(State::default());
+    state.ready.store(true, Ordering::Relaxed);
+    for app in apps(&state) {
+        let service = service_with_limits(
+            HttpProtocol::H1,
+            "responses: {max_body_size: 3}",
+            app,
+            RequestPolicy::unlimited(),
+        );
+        assert!(service.policy.reply.is_some());
+        let prepared = prepare(&service).map_body(|_| {
+            claviron_http::bytes_body(bytes::Bytes::from_static(b"payload"))
+        });
+        let mut answering = std::pin::pin!(dispatch(prepared));
+        let mut cx = Context::from_waker(Waker::noop());
+        let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
+            panic!("the head must not wait for body validation");
+        };
+        assert_eq!(response.status(), StatusCode::CREATED);
+        let mut body = response.into_body();
+        let Poll::Ready(Some(Err(error))) = Pin::new(&mut body).poll_frame(&mut cx) else {
+            panic!("the configured response limit must reject the oversized frame");
+        };
+        assert_eq!(
+            error.downcast_ref::<claviron_http::body::BodyLimit>(),
+            Some(&claviron_http::body::BodyLimit::TooLarge { limit: 3 }),
+        );
+    }
 }
 
 #[test]

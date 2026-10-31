@@ -24,7 +24,8 @@
 //! [`AccessPolicy`] applies live canonical-host ACL/redirect decisions next.
 //! With `rate-limit`, `QuotaPolicy` prepares the selected application's rate
 //! admission after access. [`ExchangeLayer`] prepares configured CORS and reply
-//! headers. Application dispatch remains owned by `HostService`.
+//! headers. [`ReplyPolicy`] prepares only declared response-body guards.
+//! Application dispatch remains owned by `HostService`.
 
 use std::ops::ControlFlow;
 
@@ -41,6 +42,7 @@ mod identity;
 pub(crate) mod ingress;
 #[cfg(feature = "rate-limit")]
 mod quota;
+mod reply;
 mod state;
 
 pub use access::{AccessPolicy, AccessState};
@@ -49,6 +51,7 @@ pub use identity::{IdentityPolicy, IdentityState};
 pub use ingress::{IngressPolicy, IngressState};
 #[cfg(feature = "rate-limit")]
 pub use quota::{QuotaPolicy, QuotaState};
+pub use reply::ReplyPolicy;
 pub use state::HostRequestState;
 pub(crate) use state::IdentifiedRequest;
 mod request;

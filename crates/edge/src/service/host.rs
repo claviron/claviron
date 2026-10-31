@@ -17,7 +17,7 @@ use super::{CleartextRequest, RequestAuthority};
 use crate::VhostResolver;
 use crate::deny::{DenyCheckedRequest, DenyService};
 use crate::pipeline::host::{
-    HostPipeline, HostRequestState, IdentifiedRequest,
+    HostPipeline, HostRequestState, IdentifiedRequest, ReplyPolicy,
 };
 use crate::pipeline::{AppKind, AuthContext, HostApp};
 
@@ -83,6 +83,7 @@ struct HostPolicy {
     host: VhostCtx,
     ingress: HostIngress,
     http: HttpPolicy,
+    reply: Option<ReplyPolicy>,
     pipeline: HostPipeline<HostRequestState, HostResponse>,
 }
 
@@ -97,8 +98,9 @@ impl HostPolicy {
         // Both declarations belong to this immutable binding. Requests reuse
         // their narrowed limits; live ACL/redirect policy is read separately.
         let http = listener.narrow(&host.vhost_config.policy());
+        let reply = ReplyPolicy::new(http.responses);
         let pipeline = HostPipeline::for_host(&connection, &host, &ingress, access);
-        Self { connection, host, ingress, http, pipeline }
+        Self { connection, host, ingress, http, reply, pipeline }
     }
 }
 

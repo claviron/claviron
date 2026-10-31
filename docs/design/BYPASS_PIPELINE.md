@@ -112,6 +112,16 @@ A host without exchange policy does not enter this preparation or split its
 request for it. Prefix selection and the plan remain with the pinned
 `HostApp`; application dispatch remains in `HostService`.
 
+`ReplyPolicy` selects response-body guarding when the effective listener/host
+policy is prepared. Without a size or idle limit there is no guard policy.
+Native dispatch uses that typed policy directly after exchange response actions
+and before access accounting. A composed HostPipeline can register the same
+policy as a body action; it contributes no request or response-head callback.
+The guard forwards data and trailers without collecting or decoding them,
+and dropping the body releases its original source. Idle timers still start
+only when HTTP polls a guarded body. Transport write limits, buffering and
+queue/head deadlines retain their existing owners.
+
 ## Keep the boundary useful
 
 Native transports adapt their request bodies to `RouteBody`; bypass handlers
@@ -144,6 +154,7 @@ always faster or should replace routing everywhere.
 - [Live host access policy](../../crates/edge/src/pipeline/host/access.rs).
 - [Prepared quota policy](../../crates/edge/src/pipeline/host/quota.rs).
 - [CORS and response-header layer](../../crates/edge/src/pipeline/host/exchange.rs).
+- [Response-body policy](../../crates/edge/src/pipeline/host/reply.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 
 Use `BYPASS_PIPELINE` as the search key for this application-first composition.

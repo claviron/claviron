@@ -28,7 +28,7 @@ pub use connect::{
 pub use host::{
     AccessPolicy, AccessState, ExchangeLayer, ExchangeState,
     HostLayer, HostLayerBuilder, HostPipeline, HostPipelineBuilder,
-    HostRequestState, IdentityPolicy, IdentityState, IngressPolicy,
+    HostRequestState, IdentityPolicy, IdentityState, IngressPolicy, ReplyPolicy,
     IngressState,
 };
 #[cfg(feature = "rate-limit")]
