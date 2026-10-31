@@ -408,7 +408,7 @@ impl<'de> Deserialize<'de> for VhostTable {
     }
 }
 
-fn is_alias_allowed(
+pub(super) fn is_alias_allowed(
     canonical: &Host,
     alias: &Host,
 ) -> bool {

@@ -107,16 +107,21 @@ impl VhostSnapshot {
         alias: Host,
         canonical: Host,
     ) -> crate::Result<bool> {
-        if alias == canonical {
-            return Ok(false);
-        }
-
         let Some(config) = self.table.canonical_config(&canonical) else {
             return Err(crate::Error::Missing(format!(
                 "vhost not found for alias target: {}",
                 canonical
             )));
         };
+
+        if alias == canonical {
+            return Ok(false);
+        }
+        if !super::table::is_alias_allowed(&canonical, &alias) {
+            return Err(crate::Error::Invalid(format!(
+                "alias '{alias}' is incompatible with canonical host '{canonical}'"
+            )));
+        }
 
         if let Some(record) = self.table.record(&alias)
             && record.canonical == alias
@@ -129,6 +134,18 @@ impl VhostSnapshot {
 
         self.table.remove_alias(&alias);
         Ok(self.table.insert_alias(alias, canonical, config))
+    }
+
+    pub fn update_alias(
+        &mut self,
+        previous: Option<&Host>,
+        alias: Host,
+        canonical: Host,
+    ) -> crate::Result<bool> {
+        let inserted = self.upsert_alias(alias.clone(), canonical)?;
+        let removed = previous.filter(|previous| *previous != &alias)
+            .is_some_and(|previous| self.delete_alias(previous));
+        Ok(inserted || removed)
     }
 
     pub fn delete_alias(

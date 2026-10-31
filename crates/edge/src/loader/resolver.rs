@@ -504,12 +504,22 @@ impl VhostResolver {
         alias: Host,
         canonical: Host,
     ) -> crate::Result<bool> {
+        self.update_alias(None, alias, canonical)
+    }
+
+    /// Validate and publish an alias rename/retarget as one candidate.
+    pub(crate) fn update_alias(
+        &self,
+        previous: Option<&Host>,
+        alias: Host,
+        canonical: Host,
+    ) -> crate::Result<bool> {
         let _publication = self.publication.lock().map_err(|_| {
             crate::Error::other("vhost publication lock poisoned")
         })?;
         let current = self.snapshot();
         let mut snapshot = VhostSnapshot::from_table(current.as_ref().clone());
-        let inserted = snapshot.upsert_alias(alias, canonical)?;
+        let inserted = snapshot.update_alias(previous, alias, canonical)?;
         if inserted {
             self.publish_locked(snapshot.into_table())?;
         }

@@ -117,3 +117,26 @@ fn a_move_published_before_the_first_poll_is_not_missed() {
     let mut retired = pin!(binding.retired());
     assert!(ready(retired.as_mut()), "the first poll checks the current table");
 }
+
+#[test]
+fn alias_update_validates_before_removal_and_publishes_once() {
+    let resolver = resolver();
+    let old = host("www.a.test");
+    let initial = resolver.snapshot();
+    for (alias, canonical) in [
+        (host("new.test"), host("missing.test")),
+        (host("b.test"), host("a.test")),
+        (host("127.0.0.1"), host("a.test")),
+    ] {
+        assert!(resolver.update_alias(Some(&old), alias, canonical).is_err());
+        assert!(Arc::ptr_eq(&initial, &resolver.snapshot()));
+    }
+    let generation = *resolver.publications.borrow();
+    let new = host("new.test");
+    assert!(resolver.update_alias(Some(&old), new.clone(), host("b.test")).unwrap());
+    assert_eq!(*resolver.publications.borrow(), generation.wrapping_add(1));
+    let current = resolver.snapshot();
+    assert!(current.resolve_exact(&old).is_none());
+    assert_eq!(current.resolve_exact(&new).unwrap().0, host("b.test"));
+    assert_eq!(initial.resolve_exact(&old).unwrap().0, host("a.test"));
+}

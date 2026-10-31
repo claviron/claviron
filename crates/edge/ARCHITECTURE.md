@@ -72,6 +72,9 @@ Host declaration loading and immutable publication; no request-body execution.
   preparation, atomic table publication and connection retirement notification.
   File changes preserve unrelated hosts and live aliases; failed preparation
   retains the published table. `db` adds hosting dependencies and alias reads.
+- [`listener.rs`](src/listener.rs) — `db`: apply hosting alias events, with
+  PostgreSQL NOTIFY under `postgres`. Renames validate before one publication;
+  reconnect gaps resynchronize from hosting storage.
 
 ### `pipeline/`
 
