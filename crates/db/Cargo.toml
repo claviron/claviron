@@ -51,6 +51,3 @@ tracing.workspace = true
 [dev-dependencies]
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
-
-# ── System / OS bindings ────────────────────────────────────────────────
-tempfile = "3"
