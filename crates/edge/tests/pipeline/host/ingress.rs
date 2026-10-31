@@ -110,7 +110,8 @@ fn ingress_keeps_the_original_body_and_typed_rejection_before_later_work() {
     ) else {
         panic!("valid ingress must remain unclaimed")
     };
-    let (request, _) = prepared.into_request_and_state();
+    let (head, body, _) = prepared.into_parts_and_state();
+    let request = Request::from_parts(head, body);
     assert_eq!(request.body().bytes.as_ptr(), pointer);
     assert_eq!(request.uri(), "/ok?raw=%2F");
     assert_eq!(entered.load(Ordering::Relaxed), 1);

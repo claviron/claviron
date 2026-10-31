@@ -74,9 +74,10 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
     assert!(Arc::ptr_eq(&canonical, &alias));
     let mut request = http::Request::new(());
     request.extensions_mut().insert(RealIpExt("192.0.2.1".parse().unwrap()));
-    assert!(canonical.check(&request).is_ok());
+    let (mut head, ()) = request.into_parts();
+    assert!(canonical.check(&mut head).is_ok());
     assert_eq!(
-        alias.check(&request).unwrap_err().into_response().status(),
+        alias.check(&mut head).unwrap_err().into_response().status(),
         http::StatusCode::TOO_MANY_REQUESTS
     );
 }

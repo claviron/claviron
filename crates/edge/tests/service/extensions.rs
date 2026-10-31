@@ -35,7 +35,8 @@ fn inject(
         ServiceResult::Unhandled(prepared) => prepared,
         ServiceResult::Handled(_) => panic!("identity only prepares metadata"),
     };
-    let (identified, state) = prepared.into_request_and_state();
+    let (head, body, state) = prepared.into_parts_and_state();
+    let identified = Request::from_parts(head, body);
     *request = identified;
     state.connection().unwrap().clone()
 }

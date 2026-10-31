@@ -22,7 +22,8 @@
 //! rejection reasons until the transport frames its reply. [`IdentityPolicy`]
 //! then prepares typed connection/host extensions and request-local proxy IP.
 //! [`AccessPolicy`] applies live canonical-host ACL/redirect decisions next.
-//! Quotas and application dispatch remain owned by `HostService`.
+//! With `rate-limit`, `QuotaPolicy` prepares the selected application's rate
+//! admission after access. Application dispatch remains owned by `HostService`.
 
 use std::ops::ControlFlow;
 
@@ -36,11 +37,15 @@ mod access;
 mod builder;
 mod identity;
 pub(crate) mod ingress;
+#[cfg(feature = "rate-limit")]
+mod quota;
 mod state;
 
 pub use access::{AccessPolicy, AccessState};
 pub use identity::{IdentityPolicy, IdentityState};
 pub use ingress::{IngressPolicy, IngressState};
+#[cfg(feature = "rate-limit")]
+pub use quota::{QuotaPolicy, QuotaState};
 pub use state::HostRequestState;
 pub(crate) use state::IdentifiedRequest;
 mod request;

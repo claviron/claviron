@@ -60,7 +60,8 @@ impl AsMut<AccessState> for HostRequestState {
 }
 
 pub(crate) struct IdentifiedRequest<B> {
-    pub(crate) request: Request<B>,
+    pub(crate) head: RequestParts,
+    pub(crate) body: B,
     pub(crate) connection: Arc<ConnCtx>,
     pub(crate) access: PolicySnapshot,
 }
@@ -95,12 +96,12 @@ impl HostPipeline<HostRequestState, HostResponse> {
             ServiceResult::Handled(reply) => return Err(reply.response),
             ServiceResult::Unhandled(prepared) => prepared,
         };
-        let (request, state) = prepared.into_request_and_state();
+        let (head, body, state) = prepared.into_parts_and_state();
         let connection = state
             .identity
             .connection
             .ok_or(RequestRejection::MissingIdentity)?;
-        Ok(IdentifiedRequest { request, connection, access: state.access.snapshot })
+        Ok(IdentifiedRequest { head, body, connection, access: state.access.snapshot })
     }
 
     pub(crate) fn admit_checked<B>(
@@ -132,7 +133,25 @@ impl HeadOnlyReply for HostResponse {}
 impl<B, S, R: HeadOnlyReply> PreparedRequest<'_, B, S, R> {
     /// Typed rejection plans cannot register response hooks. Transfer their
     /// unclaimed request and phase state without discarding response work.
-    pub(crate) fn into_request_and_state(self) -> (Request<B>, S) {
-        (Request::from_parts(self.head, self.body), self.state)
+    pub(crate) fn into_parts_and_state(self) -> (RequestParts, B, S) {
+        (self.head, self.body, self.state)
+    }
+}
+
+#[cfg(feature = "rate-limit")]
+impl<S, R: HeadOnlyReply> HostPipeline<S, R> {
+    /// Continue a head-only plan without assembling, moving or erasing a body.
+    /// Typed plans cannot register response hooks, so none are discarded here.
+    pub(crate) fn check_head(
+        &self,
+        head: &mut RequestParts,
+        state: &mut S,
+    ) -> Result<(), R> {
+        for step in &self.before {
+            if let ControlFlow::Break(reply) = (step.action)(head, state) {
+                return Err(reply);
+            }
+        }
+        Ok(())
     }
 }

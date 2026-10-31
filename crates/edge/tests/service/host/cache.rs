@@ -187,9 +187,9 @@ fn alias_remap_and_host_removal_cannot_reuse_an_old_policy() {
         .pipeline
         .admit(request(()), HostRequestState::new(RequestArrival::Established))
         .unwrap()
-        .request;
+        .head;
     assert_eq!(
-        metadata.extensions().get::<HostKey>().unwrap(),
+        metadata.extensions.get::<HostKey>().unwrap(),
         &next.policy.host.vhost_key
     );
     let old_policy = Arc::downgrade(&next.policy);

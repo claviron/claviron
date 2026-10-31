@@ -192,15 +192,17 @@ impl HostService {
         &self,
         identified: IdentifiedRequest<B>,
     ) -> Result<PreparedContext<B>, HostResponse> {
-        let IdentifiedRequest { request, connection, access } = identified;
+        let IdentifiedRequest { head, body, connection, access } = identified;
         let policy = &self.policy;
         #[cfg(feature = "rate-limit")]
+        let mut head = head;
+        #[cfg(feature = "rate-limit")]
         let quota_snapshot = match &self.app.quotas {
-            Some(quotas) => quotas.check(&request)?,
+            Some(quotas) => quotas.check(&mut head)?,
             None => None,
         };
         Ok(PreparedContext {
-            request,
+            request: Request::from_parts(head, body),
             connection,
             access,
             policy: policy.http,

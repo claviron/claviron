@@ -10,9 +10,10 @@ use claviron_http::rate_limit::{
 };
 use claviron_orbit::quota::{Quota, QuotaConfig, QuotaResource};
 use claviron_runtime::registry::{Error, Result};
-use http::Request;
+use http::request::Parts;
 
-use super::{HostResponse, RequestRejection};
+use super::HostResponse;
+use crate::pipeline::host::{HostPipeline, QuotaPolicy, QuotaState};
 use crate::Host;
 use crate::config::{HostConfig, quota::RateLimitConfig};
 use crate::loader::table::VhostTable;
@@ -39,6 +40,15 @@ impl<K: KeyProvider> Admission for RateLimiter<K> {
 
 #[derive(Clone)]
 pub(crate) struct RegisteredQuota(Arc<dyn Admission>);
+
+impl RegisteredQuota {
+    pub(crate) fn check(
+        &self,
+        request: &RequestHead<'_>,
+    ) -> std::result::Result<Option<Snapshot>, HostResponse> {
+        self.0.check(request).map_err(HostResponse::Quota)
+    }
+}
 
 #[derive(Clone, Default)]
 pub(crate) struct QuotaRegistrations {
@@ -180,10 +190,13 @@ impl QuotaRegistrations {
         rules.sort_unstable_by(|(a, _), (b, _)| {
             b.len().cmp(&a.len()).then_with(|| a.as_str().cmp(b.as_str()))
         });
+        let rules: Arc<[(PathPrefix, RegisteredQuota)]> = rules.into();
+        let pipeline = QuotaPolicy::from_rules(rules.clone()).into_pipeline();
         Ok(Some(Arc::new(HostQuotas {
             declarations,
             registered,
-            rules: rules.into_boxed_slice(),
+            rules,
+            pipeline,
         })))
     }
 }
@@ -218,43 +231,18 @@ fn validate_prefix(prefix: &PathPrefix) -> Result<()> {
 pub struct HostQuotas {
     declarations: Vec<(PathPrefix, RateLimitConfig)>,
     registered: Vec<(PathPrefix, RegisteredQuota)>,
-    rules: Box<[(PathPrefix, RegisteredQuota)]>,
+    pub(crate) rules: Arc<[(PathPrefix, RegisteredQuota)]>,
+    pipeline: HostPipeline<QuotaState, HostResponse>,
 }
 
 impl HostQuotas {
-    pub(crate) fn check<B>(
+    pub(crate) fn check(
         &self,
-        request: &Request<B>,
+        head: &mut Parts,
     ) -> std::result::Result<Option<Snapshot>, HostResponse> {
-        // A uniform host policy needs no path normalization or prefix search.
-        let selected =
-            if self.rules.len() == 1 && self.rules[0].0.as_str() == "/" {
-                Some(&self.rules[0])
-            } else {
-                let paths = super::acl::comparison_paths(request.uri().path())?;
-                let selected = self.select(&paths.separated);
-                if let Some(literal) = &paths.literal
-                    && selected.map(|rule| rule as *const _)
-                        != self.select(literal).map(|rule| rule as *const _)
-                {
-                    return Err(RequestRejection::AmbiguousPath.into());
-                }
-                selected
-            };
-        if let Some((_, quota)) = selected {
-            return quota
-                .0
-                .check(&RequestHead::new(request))
-                .map_err(HostResponse::Quota);
-        }
-        Ok(None)
-    }
-
-    fn select(
-        &self,
-        path: &str,
-    ) -> Option<&(PathPrefix, RegisteredQuota)> {
-        self.rules.iter().find(|(prefix, _)| prefix.has_path_segment(path))
+        let mut state = QuotaState::default();
+        self.pipeline.check_head(head, &mut state)?;
+        Ok(state.snapshot())
     }
 }
 

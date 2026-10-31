@@ -81,7 +81,7 @@ fn host_identity_uses_only_captured_trust_and_does_not_cache_proxy_clients() {
         );
         assert!(Arc::ptr_eq(
             &admitted.connection,
-            admitted.request.extensions().get::<Arc<ConnCtx>>().unwrap()
+            admitted.head.extensions.get::<Arc<ConnCtx>>().unwrap()
         ));
     }
 
@@ -113,7 +113,7 @@ fn host_identity_uses_only_captured_trust_and_does_not_cache_proxy_clients() {
             Some(expected.parse().unwrap())
         );
         assert_eq!(
-            admitted.request.extensions().get::<RealIpExt>().unwrap().0,
+            admitted.head.extensions.get::<RealIpExt>().unwrap().0,
             expected.parse::<IpAddr>().unwrap()
         );
         identities.push(admitted.connection);
@@ -162,8 +162,8 @@ fn host_identity_follows_ingress_and_keeps_single_body_ownership() {
         .admit(request, HostRequestState::new(RequestArrival::Established))
         .unwrap();
     assert!(Arc::ptr_eq(&admitted.connection, &accepted));
-    assert_eq!(admitted.request.body().bytes.as_ptr(), pointer);
-    assert_eq!(admitted.request.uri(), "/ok?raw=%2F");
+    assert_eq!(admitted.body.bytes.as_ptr(), pointer);
+    assert_eq!(admitted.head.uri, "/ok?raw=%2F");
     assert_eq!(dropped.load(Ordering::Relaxed), 0);
     drop(admitted);
     assert_eq!(dropped.load(Ordering::Relaxed), 1);

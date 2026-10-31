@@ -83,8 +83,20 @@ snapshot; an open host traverses no rules and clones no rule Arc. The canonical
 lookup remains necessary so removal or newly enabled rules also reach existing
 connections. Host ACL, route ACL and redirects contain only active checks,
 compiled in that order. An admitted request retains its selected generation
-through dispatch or cancellation. Quotas and application dispatch remain in
-`HostService`.
+through dispatch or cancellation.
+
+With `rate-limit`, `QuotaPolicy` is the next prepared head step. Only configured
+limits or explicit Rust registrations create a quota plan. A uniform root limit
+selects its direct path during preparation; scoped limits retain canonical path
+checks and longest-prefix selection. Key providers borrow the parsed head and
+typed extensions, and a successful admission retains its committed snapshot.
+Cancellation does not refund a charge or perform another store read.
+
+Quota plans stay with the selected `HostApp`, which owns the stores, rather
+than the cleartext metadata cache. `HostService` continues the prepared head
+through that plan after access and before reassembling the original body for
+dispatch. It does not clone the plan or quota handle per admission. Unconfigured
+hosts skip quota execution; application dispatch remains in `HostService`.
 
 ## Keep the boundary useful
 
@@ -116,6 +128,7 @@ always faster or should replace routing everywhere.
 - [Prepared host pipeline](../../crates/edge/src/pipeline/host.rs).
 - [Request identity and proxy policy](../../crates/edge/src/pipeline/host/identity.rs).
 - [Live host access policy](../../crates/edge/src/pipeline/host/access.rs).
+- [Prepared quota policy](../../crates/edge/src/pipeline/host/quota.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 
 Use `BYPASS_PIPELINE` as the search key for this application-first composition.

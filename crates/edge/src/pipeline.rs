@@ -30,6 +30,8 @@ pub use host::{
     HostRequestState, IdentityPolicy, IdentityState, IngressPolicy,
     IngressState,
 };
+#[cfg(feature = "rate-limit")]
+pub use host::{QuotaPolicy, QuotaState};
 #[cfg(feature = "orbit")]
 pub use orbit::build_application_router as build_orbit_application_router;
 pub use routable::{HostBindingProvider, RouteBinding};

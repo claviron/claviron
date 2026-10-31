@@ -77,9 +77,9 @@ fn access_retains_admitted_rules_until_the_request_is_dropped() {
         Err(HostResponse::Rejected(RequestRejection::AccessDenied))
     ));
     assert!(admitted.access.check(
-        admitted.request.uri(), "192.0.2.1".parse().unwrap(),
+        &admitted.head.uri, "192.0.2.1".parse().unwrap(),
     ).is_ok());
-    assert_eq!(admitted.request.uri(), "/public?raw=%2F");
+    assert_eq!(&admitted.head.uri, "/public?raw=%2F");
     assert!(generation.upgrade().is_some());
     drop(admitted);
     assert!(generation.upgrade().is_none());
