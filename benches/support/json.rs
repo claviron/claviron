@@ -16,7 +16,7 @@ const EXPECTED: &[u8] =
     br#"{"message":"Hello, World!","method":"GET","path":"/json"}"#;
 
 #[derive(Serialize)]
-struct Payload<'a> {
+pub struct Payload<'a> {
     message: &'static str,
     method: &'a str,
     path: &'a str,
@@ -32,12 +32,16 @@ pub fn request() -> Input {
         .unwrap()
 }
 
-pub fn response<B>(request: Request<B>) -> Response<Full<Bytes>> {
-    let payload = Payload {
+pub fn payload<B>(request: &Request<B>) -> Payload<'_> {
+    Payload {
         message: "Hello, World!",
         method: request.method().as_str(),
         path: request.uri().path(),
-    };
+    }
+}
+
+pub fn response<B>(request: Request<B>) -> Response<Full<Bytes>> {
+    let payload = payload(&request);
     let bytes = serde_json::to_vec(black_box(&payload)).unwrap();
     Response::builder()
         .status(StatusCode::OK)

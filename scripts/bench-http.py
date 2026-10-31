@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a decoded-request dispatch benchmark and retain local results."""
+"""Measure decoded dispatch or persistent HTTP/1 round trips; retain local results."""
 
 import argparse
 from datetime import datetime, timezone
@@ -16,9 +16,17 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 HISTORY = ROOT / ".benchmarks" / "http"
 BENCHMARKS = {
-    "dispatch-hyper": "dispatch/hyper/request",
-    "dispatch-edge-other": "dispatch/edge/other/request",
+    "dispatch-hyper": ("dispatch/hyper/request", "decoded-request-to-consumed-response"),
+    "dispatch-axum": ("dispatch/axum/request", "decoded-request-to-consumed-response"),
+    "dispatch-edge-other": ("dispatch/edge/other/request", "decoded-request-to-consumed-response"),
+    "dispatch-edge-axum": ("dispatch/edge/axum/request", "decoded-request-to-consumed-response"),
+    "dispatch-edge-pipeline": ("dispatch/edge/pipeline/request", "decoded-request-to-consumed-response"),
+    "http1-hyper": ("transport/http1/hyper/request", "persistent-loopback-http1-round-trip"),
+    "http1-axum": ("transport/http1/axum/request", "persistent-loopback-http1-round-trip"),
+    "http1-edge": ("transport/http1/edge/request", "persistent-loopback-http1-round-trip"),
 }
+# Keep code generation and optional adapter availability identical across targets.
+FEATURES = ["edge", "axum"]
 
 
 def command(*args, cwd=ROOT):
@@ -54,7 +62,7 @@ def source_state(root=ROOT):
 
 
 def path_dependencies():
-    metadata = json.loads(command("cargo", "metadata", "--format-version", "1", "--features", "edge"))
+    metadata = json.loads(command("cargo", "metadata", "--format-version", "1", "--features", ",".join(FEATURES)))
     roots = set()
     for package in metadata["packages"]:
         if package["source"] is None:
@@ -66,7 +74,7 @@ def path_dependencies():
 
 
 def build(target):
-    args = ["cargo", "bench", "--bench", target, "--features", "edge",
+    args = ["cargo", "bench", "--bench", target, "--features", ",".join(FEATURES),
             "--no-run", "--message-format=json-render-diagnostics"]
     executable = None
     with subprocess.Popen(args, cwd=ROOT, stdout=subprocess.PIPE, text=True) as process:
@@ -144,20 +152,18 @@ def main():
     record = {
         "run_id": run_id,
         "target": args.target,
-        "benchmark": BENCHMARKS[args.target],
+        "benchmark": BENCHMARKS[args.target][0],
         "status": "started",
         "source": source,
         "artifact_sha256": file_digest(executable),
         "controls": {
-            "schema": 2,
-            "boundary": "decoded-request-to-consumed-response",
-            "workload_sha256": {name: file_digest(ROOT / name) for name in (
-                "benches/dispatch/hyper.rs", "benches/dispatch/edge/other.rs",
-                "benches/support/mod.rs",
-                "benches/support/json.rs", "benches/support/decoded.rs",
-                "benches/support/setup.rs", "benches/support/certificate.rs",
-                "benches/support/fixtures/http.yaml", "benches/support/fixtures/vhosts.yaml",
-            )},
+            "schema": 3,
+            "boundary": BENCHMARKS[args.target][1],
+            "workload_sha256": {
+                path.relative_to(ROOT).as_posix(): file_digest(path)
+                for path in sorted((ROOT / "benches").rglob("*"))
+                if path.is_file() and path.suffix in {".rs", ".yaml"}
+            },
             "manifest_sha256": file_digest(ROOT / "Cargo.toml"),
             "lock_sha256": file_digest(ROOT / "Cargo.lock"),
             "cargo_config_sha256": file_digest(ROOT / ".cargo" / "config.toml"),
@@ -169,7 +175,7 @@ def main():
             "logical_cpus": os.cpu_count(),
             "affinity": sorted(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else None,
             "allocator": "system",
-            "features": ["edge"],
+            "features": FEATURES,
             "profile": "bench",
             "runtime": "tokio/current_thread",
             "concurrency": 1,

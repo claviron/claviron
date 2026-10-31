@@ -240,6 +240,7 @@ http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
+hyper-util = { workspace = true, features = ["service"] }
 serde = { workspace = true, features = ["derive"] }
 
 # ── TLS benchmark preparation ──────────────────────────────────────────
@@ -259,6 +260,48 @@ required-features = ["edge"]
 [[bench]]
 name = "dispatch-hyper"
 path = "benches/dispatch/hyper.rs"
+harness = false
+test = false
+required-features = ["edge"]
+
+[[bench]]
+name = "dispatch-axum"
+path = "benches/dispatch/axum.rs"
+harness = false
+test = false
+required-features = ["edge", "axum"]
+
+[[bench]]
+name = "dispatch-edge-axum"
+path = "benches/dispatch/edge/axum.rs"
+harness = false
+test = false
+required-features = ["edge", "axum"]
+
+[[bench]]
+name = "dispatch-edge-pipeline"
+path = "benches/dispatch/edge/pipeline.rs"
+harness = false
+test = false
+required-features = ["edge"]
+
+[[bench]]
+name = "http1-hyper"
+path = "benches/transport/http1/hyper.rs"
+harness = false
+test = false
+required-features = ["edge"]
+
+[[bench]]
+name = "http1-axum"
+path = "benches/transport/http1/axum.rs"
+harness = false
+test = false
+required-features = ["edge", "axum"]
+
+[[bench]]
+name = "http1-edge"
+path = "benches/transport/http1/edge.rs"
 harness = false
 test = false
 required-features = ["edge"]
