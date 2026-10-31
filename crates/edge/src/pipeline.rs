@@ -26,7 +26,8 @@ pub use connect::{
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
 };
 pub use host::{
-    AccessPolicy, AccessState, AdmissionPolicy, ExchangeLayer, ExchangeState,
+    AccessPolicy, AccessState, AdmissionPolicy, ApplicationHandler,
+    ExchangeLayer, ExchangeState,
     HostLayer, HostLayerBuilder, HostPipeline, HostPipelineBuilder,
     HostRequestState, IdentityPolicy, IdentityState, IngressPolicy, ReplyPolicy,
     IngressState,

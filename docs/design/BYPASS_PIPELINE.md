@@ -147,6 +147,19 @@ the empty reply record, while a normal response transfers it to the stream.
 HTTP/gRPC status, trailers, byte counts and drop/completion behavior retain the
 same recorder. Runtime activity accounting remains independent of access logs.
 
+`ApplicationHandler<B>` is the typed terminal call after host admission. It
+consumes one request and returns that owner's concrete response future.
+`PreparedRequest::dispatch_to` defers the call until first poll and finishes
+the armed response actions. An unhandled request still owns its original body
+before this handoff; no status code, including 404, implicitly returns ownership.
+The existing closure-based `dispatch` remains available.
+
+Native Bypass and Axum dispatch use this same contract without another future
+box or service clone. Bypass keeps its existing handler future; Axum uses its
+native oneshot. Application selection happens before those futures are built,
+and the host execution boundary still owns capacity, head timing and accounting.
+This step does not replace host registration, merged routing or engine adapters.
+
 ## Keep the boundary useful
 
 Native transports adapt their request bodies to `RouteBody`; bypass handlers

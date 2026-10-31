@@ -96,6 +96,21 @@ impl<'p, B, S, R> PreparedRequest<'p, B, S, R> {
         }
     }
 
+    /// Call one typed application on first poll and finish the armed response
+    /// actions. No application clone, body conversion or future box is added.
+    /// Before dispatch the unhandled request still owns its original body.
+    pub fn dispatch_to<H>(
+        self,
+        application: H,
+    ) -> impl Future<Output = RouteResponse> + Send + 'p
+    where
+        B: Send + 'p,
+        S: Send + 'p,
+        H: ApplicationHandler<B> + 'p,
+    {
+        self.dispatch(move |request| application.call(request))
+    }
+
     /// Hand this request to one terminal handler on first poll, not construction.
     ///
     /// No task or future box is added. Before first poll the deferred closure

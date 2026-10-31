@@ -29,7 +29,8 @@
 //! asynchronous admission boundary, outside synchronous head actions.
 //! With `access-log`, `AccessLogLayer` retains the producer/host declaration
 //! while channel selection and each record's lifetime remain request-local.
-//! Application dispatch remains owned by `HostService`.
+//! [`ApplicationHandler`] owns the terminal call with a concrete future;
+//! `HostService` still selects the application and orchestrates admission.
 
 use std::ops::ControlFlow;
 
@@ -43,6 +44,7 @@ mod access;
 #[cfg(feature = "access-log")]
 mod access_log;
 mod admission;
+mod application;
 mod builder;
 mod exchange;
 mod identity;
@@ -56,6 +58,7 @@ pub use access::{AccessPolicy, AccessState};
 #[cfg(feature = "access-log")]
 pub use access_log::{AccessLogLayer, AccessLogState};
 pub use admission::AdmissionPolicy;
+pub use application::ApplicationHandler;
 pub use exchange::{ExchangeLayer, ExchangeState};
 pub use identity::{IdentityPolicy, IdentityState};
 pub use ingress::{IngressPolicy, IngressState};

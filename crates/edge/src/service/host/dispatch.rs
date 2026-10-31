@@ -1,8 +1,7 @@
 //! Select an application before constructing its host dispatch future.
 
 use super::*;
-use crate::pipeline::bypass::BypassService;
-use crate::pipeline::host::ExchangeState;
+use crate::pipeline::host::{ApplicationHandler, ExchangeState};
 #[cfg(feature = "tcp")]
 use claviron_http::RouteFuture;
 use claviron_http::admission::Admission;
@@ -12,8 +11,6 @@ use futures_util::future::Either;
 #[cfg(feature = "tcp")]
 use std::convert::Infallible;
 use std::future::Future;
-#[cfg(feature = "axum")]
-use tower::ServiceExt;
 
 /// Host policy shared by both dispatch implementations, without an AppKind
 /// or the other application's concrete answering future.
@@ -110,57 +107,10 @@ impl PreparedRequest<RouteBody> {
     }
 }
 
-trait RequestOwner: Send {
-    fn times_its_head(&self) -> bool {
-        false
-    }
-
-    fn answer(
-        self,
-        request: Request<RouteBody>,
-    ) -> impl Future<Output = RouteResponse> + Send;
-}
-
-impl RequestOwner for BypassService {
-    fn times_its_head(&self) -> bool {
-        BypassService::times_its_head(self)
-    }
-
-    fn answer(
-        self,
-        request: Request<RouteBody>,
-    ) -> impl Future<Output = RouteResponse> + Send {
-        // Keep the owner beside its existing erased future until the reply or
-        // cancellation, without another async state that carries the request.
-        self.handle(request).map(move |reply| {
-            let _owner = self;
-            match reply {
-                Ok(response) => response,
-                Err(never) => match never {},
-            }
-        })
-    }
-}
-
-#[cfg(feature = "axum")]
-impl RequestOwner for axum::Router {
-    fn answer(
-        self,
-        request: Request<RouteBody>,
-    ) -> impl Future<Output = RouteResponse> + Send {
-        self.oneshot(request.map(axum::body::Body::new)).map(
-            |reply| match reply {
-                Ok(response) => claviron_http::from_axum_response(response),
-                Err(never) => match never {},
-            },
-        )
-    }
-}
-
 impl DispatchRequest {
     async fn dispatch(
         self,
-        owner: impl RequestOwner,
+        owner: impl ApplicationHandler,
     ) -> RouteResponse {
         let _access = self.access;
         #[cfg(feature = "rate-limit")]
@@ -228,7 +178,7 @@ impl DispatchRequest {
             if let Some(response) = early_reply {
                 return response;
             }
-            owner.answer(request).await
+            owner.call(request).await
         };
         // Late here is the server's, not the client's: 504, as a runner's
         // own head timeout answers.

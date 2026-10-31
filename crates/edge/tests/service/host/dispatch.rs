@@ -1,6 +1,6 @@
 use super::super::tests::{request, service_with_limits};
 use super::*;
-use crate::pipeline::bypass::BypassHandler;
+use crate::pipeline::bypass::{BypassHandler, BypassService};
 use claviron_http::RouteFuture;
 #[cfg(feature = "axum")]
 use claviron_http::boxed_body;
