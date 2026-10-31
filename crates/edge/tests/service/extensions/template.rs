@@ -93,20 +93,45 @@ fn existing_extensions_keep_their_boxes_and_unrelated_values() {
     let native = Arc::new(());
     let policy = HttpPolicy::unlimited();
     let received = ReceivedAt(std::time::SystemTime::UNIX_EPOCH);
+    let previous_connection = Arc::new(connection.as_ref().clone());
+    let previous_connection_weak = Arc::downgrade(&previous_connection);
     let mut request = Request::builder()
         .extension(NativeValue(native.clone()))
         .extension(policy)
         .extension(received)
+        .extension(previous_connection)
         .extension(RealIpExt("203.0.113.1".parse().unwrap()))
         .extension(http::uri::Scheme::HTTPS)
         .body(())
         .unwrap();
     let address = request.extensions().get::<NativeValue>().unwrap()
         as *const NativeValue;
+    let connection_address = request.extensions().get::<Arc<ConnCtx>>().unwrap()
+        as *const Arc<ConnCtx>;
+    let ip_address =
+        request.extensions().get::<RealIpExt>().unwrap() as *const RealIpExt;
+    let scheme_address =
+        request.extensions().get::<http::uri::Scheme>().unwrap()
+            as *const http::uri::Scheme;
     inject(&template, &mut request);
     assert_context(request.extensions(), &connection, &host);
     let value = request.extensions().get::<NativeValue>().unwrap();
     assert_eq!(value as *const NativeValue, address);
+    assert_eq!(
+        request.extensions().get::<Arc<ConnCtx>>().unwrap()
+            as *const Arc<ConnCtx>,
+        connection_address
+    );
+    assert_eq!(
+        request.extensions().get::<RealIpExt>().unwrap() as *const RealIpExt,
+        ip_address
+    );
+    assert_eq!(
+        request.extensions().get::<http::uri::Scheme>().unwrap()
+            as *const http::uri::Scheme,
+        scheme_address
+    );
+    assert!(previous_connection_weak.upgrade().is_none());
     assert!(Arc::ptr_eq(&value.0, &native));
     assert_eq!(request.extensions().get::<HttpPolicy>(), Some(&policy));
     assert_eq!(request.extensions().get::<ReceivedAt>(), Some(&received));

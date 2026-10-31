@@ -54,6 +54,12 @@ limits once. Cleartext requests reuse them while that binding matches the
 current host configuration; replacement prepares new limits without changing
 already admitted requests. ACL and redirect rules remain live per request.
 
+Typed request extensions remain request-owned. Context replacement reuses an
+existing value's box and releases the old value; unrelated entries remain
+untouched. A fresh request still needs independent typed values and the ordinary
+`http::Extensions` allocations. The prepared host map does not share mutable
+extension storage between requests.
+
 ## Prepared host actions
 
 `HostPipeline` prepares active `HostLayer` actions with the host binding.

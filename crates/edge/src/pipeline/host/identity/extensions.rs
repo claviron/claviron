@@ -10,8 +10,25 @@ use http::{Extensions, request::Parts, uri::Scheme};
 use crate::config::HostConfig;
 use crate::service::VhostCtx;
 
+/// Replace a request-owned value in its existing box, or allocate it once when
+/// absent. The entry API keeps both cases to one type-map lookup.
+fn set_context<T: Clone + Send + Sync + 'static>(
+    extensions: &mut Extensions,
+    value: T,
+) {
+    let mut incoming = Some(value);
+    let slot = extensions.get_or_insert_with(|| {
+        incoming.take().expect("extension initializer runs once")
+    });
+    if let Some(value) = incoming {
+        // Publish the replacement before dropping the previous value, as
+        // Extensions::insert does, without replacing the box itself.
+        drop(std::mem::replace(slot, value));
+    }
+}
+
 /// The map capacity and fixed values are prepared with the host binding.
-/// Each request owns its own boxes; native maps preserve unrelated entries.
+/// Each request owns its own boxes; populated native maps retain their boxes.
 pub(super) struct ContextExtensions {
     template: Extensions,
     fixed: FixedContext,
@@ -31,14 +48,14 @@ impl FixedContext {
         &self,
         extensions: &mut Extensions,
     ) {
-        extensions.insert(self.listener.clone());
-        extensions.insert(self.scheme.clone());
+        set_context(extensions, self.listener.clone());
+        set_context(extensions, self.scheme.clone());
         if let Some(protocol) = self.protocol {
-            extensions.insert(protocol);
+            set_context(extensions, protocol);
         }
-        extensions.insert(self.hostname.clone());
-        extensions.insert(self.key.clone());
-        extensions.insert(self.config.clone());
+        set_context(extensions, self.hostname.clone());
+        set_context(extensions, self.key.clone());
+        set_context(extensions, self.config.clone());
     }
 }
 
@@ -98,8 +115,8 @@ impl ContextExtensions {
         connection: &Arc<ConnCtx>,
         ip: IpAddr,
     ) {
-        extensions.insert(connection.clone());
+        set_context(extensions, connection.clone());
         self.fixed.inject(extensions);
-        extensions.insert(RealIpExt(ip));
+        set_context(extensions, RealIpExt(ip));
     }
 }
