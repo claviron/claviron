@@ -64,7 +64,7 @@ Host declaration loading and immutable publication; no request-body execution.
 - [`config.rs`](src/loader/config.rs) — `VhostDocument`, recursive includes,
   partial reads and declaration identity reuse through Congif.
 - [`error.rs`](src/loader/error.rs) — Declaration/load errors.
-- [`table.rs`](src/loader/table.rs) — Canonical names, aliases, listener/log
+- [`table.rs`](src/loader/table.rs) — Canonical names, validated aliases, listener/log
   selectors and prepared application handles in one publication.
 - [`snapshot.rs`](src/loader/snapshot.rs) — Candidate host/alias edits and
   optional database alias hydration.

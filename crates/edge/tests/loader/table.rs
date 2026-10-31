@@ -1,6 +1,17 @@
 use super::*;
 
 #[test]
+fn incompatible_declared_alias_types_are_rejected() {
+    for source in [
+        "app.test: {aliases: ['127.0.0.1']}",
+        "'127.0.0.1': {aliases: [app.test]}",
+    ] {
+        let error = serde_yaml::from_str::<VhostTable>(source).err().unwrap();
+        assert!(error.to_string().contains("incompatible alias"), "{error}");
+    }
+}
+
+#[test]
 #[cfg(feature = "server")]
 fn aliases_share_compiled_acl_and_old_tables_keep_their_rules() {
     let table: VhostTable = serde_yaml::from_str(

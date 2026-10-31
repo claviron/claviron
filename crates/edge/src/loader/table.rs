@@ -136,11 +136,15 @@ impl VhostTable {
                     }
                     continue;
                 }
-                table.insert_alias(
+                if !table.insert_alias(
                     alias.clone(),
                     canonical.clone(),
                     Arc::clone(&config),
-                );
+                ) {
+                    return Err(crate::Error::Invalid(format!(
+                        "vhost '{canonical}': incompatible alias '{alias}'"
+                    )));
+                }
             }
         }
 
