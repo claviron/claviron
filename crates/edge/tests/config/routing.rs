@@ -126,3 +126,21 @@ fn disabled_rate_limit_is_rejected_instead_of_silently_ignored() {
         );
     }
 }
+
+#[cfg(not(feature = "upstream"))]
+#[test]
+fn disabled_upstream_is_rejected_in_flat_and_scoped_declarations() {
+    for source in [
+        "root: public\nupstream: example\n",
+        "root: public\nupstream: example\nroutes: {ajax_only: true}\n",
+        "root: public\nroutes: {'/': {upstream: example}}\n",
+        "root: public\nroutes: {'/api': {upstream: example}}\n",
+    ] {
+        let error = serde_yaml::from_str::<HostConfig>(source)
+            .err()
+            .expect("unavailable upstream must not become an unbound owner");
+        let message = error.to_string();
+        assert!(message.contains("directive 'upstream'"), "{message}");
+        assert!(message.contains("is not enabled"), "{message}");
+    }
+}

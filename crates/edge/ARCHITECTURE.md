@@ -30,6 +30,17 @@ application view. Native preparation consumes these declarations separately.
 - `SelectedRoute` and `HostConfigExt` carry shared configuration metadata.
 - Axum extraction is implemented by the optional application adapter.
 
+### `config/`
+
+- [`routing.rs`](src/config/routing.rs) — `RouteConfig` and `HostConfig`
+  deserialization: normalize root/prefix declarations, validate enabled
+  capabilities and owner conflicts, inherit policy and resolve file mappings.
+- [`routing/statics.rs`](src/config/routing/statics.rs) — Compile relative
+  directory declarations into shared static mounts with derived URL prefixes.
+
+Normalization runs while preparing configuration. Root and prefix declarations
+share feature validation; provider directives remain data for host compilation.
+
 ### `pipeline/`
 
 #### [`app.rs`](src/pipeline/app.rs)
@@ -38,3 +49,10 @@ Optional Axum adapter (`axum` feature): `Router` implements `ApplicationHandler`
 `application` adapts it to a selective `HostHandler` contribution. The router's
 response is terminal, including 404. This module also implements Axum extraction
 and rejection for `config::HostConfigExt`.
+
+## `tests/`
+
+### `config/`
+
+- [`routing.rs`](tests/config/routing.rs) — Route/file normalization, policy
+  inheritance, invalid declarations and unavailable backend rejection.

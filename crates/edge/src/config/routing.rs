@@ -79,6 +79,10 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     if source.contains_key(key("path")) {
         return Err("path belongs to a route; use root on the host".into());
     }
+    let root = PathPrefix::root();
+    for name in source.keys().filter_map(Value::as_str) {
+        validate_feature(&root, name)?;
+    }
     let routes = source.remove(key("routes"));
     // Keep the initial rule-only schema readable while deployments migrate.
     if routes.as_ref().is_some_and(|value| value.is_sequence())
@@ -386,6 +390,24 @@ fn is_builtin_directive(name: &str) -> bool {
         )
 }
 
+fn validate_feature(prefix: &PathPrefix, name: &str) -> Result<(), String> {
+    let supported = match name {
+        "php" => cfg!(feature = "php"),
+        "lua" => cfg!(feature = "lua"),
+        "orbit" => cfg!(feature = "orbit"),
+        "upstream" => cfg!(feature = "upstream"),
+        "broadcast" | "pusher" => cfg!(feature = "broadcast"),
+        "rate_limit" => cfg!(feature = "rate-limit"),
+        _ => true,
+    };
+    if !supported {
+        return Err(format!(
+            "directive '{name}' on route '{prefix}' is not enabled"
+        ));
+    }
+    Ok(())
+}
+
 fn leaf(
     source: Mapping,
     entry_rules: Vec<PathPrefix>,
@@ -430,20 +452,7 @@ fn validate(
         } else if !is_builtin_directive(name) {
             extensions.insert(name.to_owned(), value.clone());
         }
-        let supported = match name {
-            "php" => cfg!(feature = "php"),
-            "lua" => cfg!(feature = "lua"),
-            "orbit" => cfg!(feature = "orbit"),
-            "upstream" => cfg!(feature = "upstream"),
-            "broadcast" | "pusher" => cfg!(feature = "broadcast"),
-            "rate_limit" => cfg!(feature = "rate-limit"),
-            _ => true,
-        };
-        if !supported {
-            return Err(format!(
-                "directive '{name}' on route '{prefix}' is not enabled"
-            ));
-        }
+        validate_feature(prefix, name)?;
     }
     if owners > 1 {
         return Err(format!(
