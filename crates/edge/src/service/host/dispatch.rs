@@ -169,14 +169,9 @@ impl DispatchRequest {
         // This request's access record, when `logging.yaml` asks for them:
         // made here because everything a host serves passes here once.
         #[cfg(feature = "access-log")]
-        let mut access = crate::access::AccessGuard::begin(
-            self.host.host.vhost_config.access_log(),
-            &self.host.host.vhost_key.0.to_cow_str(),
-            self.request.method(),
-            self.request.uri().path(),
-            self.request.version(),
-            &self.connection,
-        );
+        let mut access = self.host.access_log.as_ref()
+            .map(|policy| policy.begin(&self.request, &self.connection))
+            .unwrap_or_default();
         // Retain the admitted host and connection even without access logging.
         let context = (self.host, self.connection);
         // The application receives the policy the edge narrowed for it
@@ -214,9 +209,7 @@ impl DispatchRequest {
         let Some(_place) = context.0.admission_policy.enter(&self.admission).await
         else {
             #[cfg(feature = "access-log")]
-            if let Some(access) = access {
-                access.replied(StatusCode::SERVICE_UNAVAILABLE);
-            }
+            access.replied(StatusCode::SERVICE_UNAVAILABLE);
             let response = with_server_header(
                 status_reply(StatusCode::SERVICE_UNAVAILABLE),
                 server_header,
@@ -227,9 +220,7 @@ impl DispatchRequest {
             };
         };
         #[cfg(feature = "access-log")]
-        if let Some(access) = access.as_mut() {
-            access.admitted();
-        }
+        access.admitted();
         // Head-timing ownership is irrelevant when no timeout was declared.
         let head_timeout = context.0.admission_policy
             .head_timeout_for(|| owner.times_its_head());
@@ -246,9 +237,7 @@ impl DispatchRequest {
                 .await
         else {
             #[cfg(feature = "access-log")]
-            if let Some(access) = access {
-                access.replied(StatusCode::GATEWAY_TIMEOUT);
-            }
+            access.replied(StatusCode::GATEWAY_TIMEOUT);
             let response = with_server_header(
                 status_reply(StatusCode::GATEWAY_TIMEOUT),
                 server_header,
@@ -273,10 +262,7 @@ impl DispatchRequest {
         };
         // Outermost, so what it counts is what the client is sent.
         #[cfg(feature = "access-log")]
-        let response = match access {
-            Some(access) => access.wrap(response),
-            None => response,
-        };
+        let response = access.finish(response);
         #[cfg(feature = "rate-limit")]
         let response = {
             let mut response = response;

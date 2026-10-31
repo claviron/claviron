@@ -40,6 +40,60 @@ struct AccessLog {
     channels: Arc<LogChannels>,
 }
 
+/// A host binding's process-local producer capability. Channel membership and
+/// the default selector remain live in LogChannels across configuration reload.
+#[derive(Clone)]
+pub(crate) struct AccessLogTarget {
+    log: &'static AccessLog,
+    channel: Option<Arc<str>>,
+}
+
+impl AccessLogTarget {
+    pub(crate) fn prepare(channel: Option<&str>) -> Option<Self> {
+        if channel == Some(OFF) {
+            return None;
+        }
+        Some(Self {
+            log: ACCESS_LOG.get()?,
+            channel: channel.map(Arc::from),
+        })
+    }
+
+    pub(crate) fn channel(&self) -> Option<ChannelId> {
+        match self.channel.as_deref() {
+            Some(name) => self.log.channels.channel(name),
+            None => self.log.channels.access(),
+        }
+    }
+
+    pub(crate) fn begin(
+        &self,
+        channel: ChannelId,
+        host: &str,
+        method: &Method,
+        path: &str,
+        version: Version,
+        connection: &Arc<ConnCtx>,
+    ) -> AccessGuard {
+        AccessGuard {
+            log: self.log,
+            channel,
+            started: Instant::now(),
+            admitted: None,
+            head: None,
+            host: host.to_owned(),
+            method: method.clone(),
+            path: path.to_owned(),
+            version,
+            connection: Arc::clone(connection),
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            grpc_status: None,
+            bytes: 0,
+            complete: false,
+        }
+    }
+}
+
 /// What a host's `access_log` turns off: no record is made for it.
 pub(crate) const OFF: &str = "off";
 
@@ -98,42 +152,6 @@ pub(crate) struct AccessGuard {
 }
 
 impl AccessGuard {
-    /// `None` when access records are off for this host: nothing is built
-    /// for them. `channel` is the host's `access_log`, checked against
-    /// `logging.yaml` when the vhosts were loaded.
-    pub(crate) fn begin(
-        channel: Option<&str>,
-        host: &str,
-        method: &Method,
-        path: &str,
-        version: Version,
-        connection: &Arc<ConnCtx>,
-    ) -> Option<Self> {
-        let log = ACCESS_LOG.get()?;
-        let channel = match channel {
-            Some(OFF) => return None,
-            Some(name) => log.channels.channel(name)?,
-            // `logging.yaml`'s `access_log`, as it is declared now.
-            None => log.channels.access()?,
-        };
-        Some(Self {
-            log,
-            channel,
-            started: Instant::now(),
-            admitted: None,
-            head: None,
-            host: host.to_owned(),
-            method: method.clone(),
-            path: path.to_owned(),
-            version,
-            connection: Arc::clone(connection),
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            grpc_status: None,
-            bytes: 0,
-            complete: false,
-        })
-    }
-
     pub(crate) fn admitted(&mut self) {
         self.admitted = Some(Instant::now());
     }
@@ -153,14 +171,20 @@ impl AccessGuard {
         mut self,
         response: RouteResponse,
     ) -> RouteResponse {
-        self.status = response.status();
-        self.grpc_status = grpc_status(response.headers());
+        self.record_head(response.status(), response.headers());
+        response.map(|body| self.wrap_body(body))
+    }
+
+    pub(crate) fn record_head(&mut self, status: StatusCode, headers: &HeaderMap) {
+        self.status = status;
+        self.grpc_status = grpc_status(headers);
         self.head = Some(Instant::now());
-        response.map(|body| {
-            // An empty body is never polled.
-            self.complete = body.is_end_stream();
-            AccessBody { inner: body, guard: self }.boxed_unsync()
-        })
+    }
+
+    pub(crate) fn wrap_body(mut self, body: RouteBody) -> RouteBody {
+        // An empty body is never polled.
+        self.complete = body.is_end_stream();
+        AccessBody { inner: body, guard: self }.boxed_unsync()
     }
 }
 

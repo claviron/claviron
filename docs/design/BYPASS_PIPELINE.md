@@ -132,6 +132,21 @@ HTTP head future retains first-poll deadline and cancellation behavior.
 This asynchronous execution stage stays outside synchronous `HostLayer` head
 actions; it adds no erased layer future, task or implicit duration.
 
+With `access-log`, `AccessLogLayer` prepares the producer capability and
+canonical host declaration when a ready process binds a host. `off` or an
+absent producer contributes no layer. An existing producer retains a live
+channel selector, including when its current default is empty: later channel
+configuration changes must still reach existing connections. No record or
+body wrapper is created when that lookup has no destination.
+
+`AccessLogState` owns one record through admission and the response body.
+Native dispatch uses the prepared layer directly without splitting its request;
+composed pipelines install it after identity and outside response shaping/body
+guards. The execution owner marks actual admission. An early 503/504 completes
+the empty reply record, while a normal response transfers it to the stream.
+HTTP/gRPC status, trailers, byte counts and drop/completion behavior retain the
+same recorder. Runtime activity accounting remains independent of access logs.
+
 ## Keep the boundary useful
 
 Native transports adapt their request bodies to `RouteBody`; bypass handlers
@@ -166,6 +181,7 @@ always faster or should replace routing everywhere.
 - [CORS and response-header layer](../../crates/edge/src/pipeline/host/exchange.rs).
 - [Response-body policy](../../crates/edge/src/pipeline/host/reply.rs).
 - [Prepared admission timing](../../crates/edge/src/pipeline/host/admission.rs).
+- [Access-record layer](../../crates/edge/src/pipeline/host/access_log.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 
 Use `BYPASS_PIPELINE` as the search key for this application-first composition.

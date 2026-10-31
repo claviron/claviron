@@ -31,6 +31,8 @@ pub use host::{
     HostRequestState, IdentityPolicy, IdentityState, IngressPolicy, ReplyPolicy,
     IngressState,
 };
+#[cfg(feature = "access-log")]
+pub use host::{AccessLogLayer, AccessLogState};
 #[cfg(feature = "rate-limit")]
 pub use host::{QuotaPolicy, QuotaState};
 #[cfg(feature = "orbit")]

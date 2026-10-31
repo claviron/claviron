@@ -19,6 +19,8 @@ use crate::deny::{DenyCheckedRequest, DenyService};
 use crate::pipeline::host::{
     AdmissionPolicy, HostPipeline, HostRequestState, IdentifiedRequest, ReplyPolicy,
 };
+#[cfg(feature = "access-log")]
+use crate::pipeline::host::AccessLogLayer;
 use crate::pipeline::{AppKind, AuthContext, HostApp};
 
 mod dispatch;
@@ -85,6 +87,8 @@ struct HostPolicy {
     http: HttpPolicy,
     admission_policy: AdmissionPolicy,
     reply: Option<ReplyPolicy>,
+    #[cfg(feature = "access-log")]
+    access_log: Option<AccessLogLayer>,
     pipeline: HostPipeline<HostRequestState, HostResponse>,
 }
 
@@ -101,8 +105,14 @@ impl HostPolicy {
         let http = listener.narrow(&host.vhost_config.policy());
         let admission_policy = AdmissionPolicy::new(http.requests);
         let reply = ReplyPolicy::new(http.responses);
+        #[cfg(feature = "access-log")]
+        let access_log = AccessLogLayer::new(host.vhost_key.clone(), host.vhost_config.access_log());
         let pipeline = HostPipeline::for_host(&connection, &host, &ingress, access);
-        Self { connection, host, ingress, http, admission_policy, reply, pipeline }
+        Self {
+            connection, host, ingress, http, admission_policy, reply, pipeline,
+            #[cfg(feature = "access-log")]
+            access_log,
+        }
     }
 }
 

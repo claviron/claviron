@@ -27,6 +27,8 @@
 //! headers. [`ReplyPolicy`] prepares only declared response-body guards.
 //! [`AdmissionPolicy`] supplies prepared queue/head timing to HTTP's existing
 //! asynchronous admission boundary, outside synchronous head actions.
+//! With `access-log`, `AccessLogLayer` retains the producer/host declaration
+//! while channel selection and each record's lifetime remain request-local.
 //! Application dispatch remains owned by `HostService`.
 
 use std::ops::ControlFlow;
@@ -38,6 +40,8 @@ use http::{
 };
 
 mod access;
+#[cfg(feature = "access-log")]
+mod access_log;
 mod admission;
 mod builder;
 mod exchange;
@@ -49,6 +53,8 @@ mod reply;
 mod state;
 
 pub use access::{AccessPolicy, AccessState};
+#[cfg(feature = "access-log")]
+pub use access_log::{AccessLogLayer, AccessLogState};
 pub use admission::AdmissionPolicy;
 pub use exchange::{ExchangeLayer, ExchangeState};
 pub use identity::{IdentityPolicy, IdentityState};
