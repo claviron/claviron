@@ -151,7 +151,7 @@ without implicitly changing the owners of application work or shared state.
 - [Optional Rust application adapters](../../crates/edge/src/pipeline/app.rs).
 - [Prepared host applications](../../crates/edge/src/pipeline/apps.rs).
 - [Shared host admission](../../crates/edge/src/service/host.rs).
-- [Configured exchange policies](../../crates/edge/src/service/exchange.rs) and
+- [Configured exchange policies](../../crates/edge/src/pipeline/host/exchange/policy.rs) and
   [CORS handling](../../crates/edge/src/pipeline/host/exchange/cors.rs).
 - [Runner application composition](../../crates/runner/src/routing.rs).
 - [Session handles](../../crates/auth/src/session.rs) and

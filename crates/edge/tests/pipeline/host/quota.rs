@@ -9,7 +9,7 @@ use claviron_orbit::quota::{QuotaBacking, QuotaConfig, QuotaTable};
 use super::*;
 use crate::config::HostConfig;
 use crate::config::quota::RateLimitConfig;
-use crate::service::quota::QuotaRegistrations;
+use crate::pipeline::host::QuotaRegistrations;
 
 fn quotas() -> Arc<HostQuotas> {
     let mut host = HostConfig::new("public");

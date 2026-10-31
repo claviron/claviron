@@ -7,7 +7,7 @@ use claviron_http::ext::PathPrefix;
 use http::{HeaderValue, StatusCode, Uri};
 
 use super::acl::CompiledAcl;
-use super::{HostResponse, RequestRejection};
+use crate::service::{HostResponse, RequestRejection};
 use crate::config::{HostConfig, RedirectConfig};
 
 pub(crate) struct RequestPolicy {
@@ -172,5 +172,5 @@ impl Target {
 }
 
 #[cfg(test)]
-#[path = "../../tests/service/policy.rs"]
+#[path = "../../../../tests/pipeline/host/access/policy.rs"]
 mod tests;

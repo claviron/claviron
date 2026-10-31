@@ -131,5 +131,5 @@ impl ExchangeRules {
 }
 
 #[cfg(test)]
-#[path = "../../tests/service/exchange.rs"]
+#[path = "../../../../tests/pipeline/host/exchange/policy.rs"]
 mod tests;

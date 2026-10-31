@@ -5,9 +5,15 @@ use std::sync::Arc;
 use claviron_http::ext::HostKey;
 
 use super::*;
-use crate::service::policy::PolicySnapshot;
 use crate::service::{HostResponse, RequestRejection};
 use crate::VhostResolver;
+
+mod acl;
+mod policy;
+
+#[cfg(feature = "rate-limit")]
+pub(super) use acl::comparison_paths;
+pub(crate) use policy::{PolicySnapshot, RequestPolicy};
 
 /// Retains the exact rule generation admitted for this request. A removed
 /// canonical is distinct from an open host; no alias/default fallback applies.

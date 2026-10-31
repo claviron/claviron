@@ -8,7 +8,7 @@ use claviron_http::ext::ConnCtx;
 
 use super::*;
 use crate::deny::{DenyCheckedRequest, DenyService};
-use crate::service::policy::PolicySnapshot;
+use crate::pipeline::host::PolicySnapshot;
 use crate::service::{
     HostIngress, HostResponse, RequestArrival, RequestRejection, VhostCtx,
 };

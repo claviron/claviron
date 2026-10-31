@@ -152,7 +152,7 @@ fn host_selection_reload_keeps_old_contexts_and_applies_alias_removal_and_recrea
     );
     assert!(matches!(
         resolver.request_policy(&host("b.test")),
-        crate::service::policy::PolicySnapshot::Removed
+        crate::pipeline::host::PolicySnapshot::Removed
     ));
     assert!(resolver.delete_host(&host("default")));
     assert!(resolve(&resolver.snapshot(), "alias.test").is_none());

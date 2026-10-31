@@ -64,7 +64,7 @@ pub struct HostApp {
     pub app: RustRouter,
     pub admission: Admission,
     /// Optional, explicitly configured edge HTTP policy, independent of owner.
-    pub exchange_policy: Option<Arc<crate::service::ExchangePolicy>>,
+    pub exchange_policy: Option<Arc<crate::pipeline::host::ExchangePolicy>>,
     /// Baseline response identity, separate from optional CORS/header policy.
     pub server_header: Option<http::HeaderValue>,
     #[cfg(feature = "rate-limit")]
@@ -488,7 +488,7 @@ pub struct HostAppRegistry {
     route_extensions: RwLock<Vec<Arc<dyn RouteExtension>>>,
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
     #[cfg(feature = "rate-limit")]
-    quotas: RwLock<crate::service::quota::QuotaRegistrations>,
+    quotas: RwLock<crate::pipeline::host::QuotaRegistrations>,
 }
 
 impl HostAppRegistry {
@@ -1117,7 +1117,7 @@ impl HostAppRegistry {
             let standalone = matches!(&binding, Some(Binding::Axum(_)));
             #[cfg(not(feature = "axum"))]
             let standalone = false;
-            let exchange_policy = crate::service::ExchangePolicy::compile(
+            let exchange_policy = crate::pipeline::host::ExchangePolicy::compile(
                 &record.config,
                 default_headers,
             );

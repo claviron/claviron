@@ -9,8 +9,8 @@ use claviron_http::ext::ConnCtx;
 use http::{Request, StatusCode};
 
 use super::{ApplicationHandler, ExchangeState, HostPolicy};
-use crate::service::ExchangePolicy;
-use crate::service::policy::PolicySnapshot;
+use crate::pipeline::host::ExchangePolicy;
+use crate::pipeline::host::PolicySnapshot;
 
 /// One admitted exchange and its retained binding/application resources.
 /// The selected owner stays outside this value, so another owner's concrete

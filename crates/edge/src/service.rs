@@ -1,13 +1,9 @@
-pub(crate) mod acl;
+//! Transport-to-host bindings, prepared-request handoff and native reply decisions.
+
 mod authority;
 mod bindings;
-mod exchange;
-pub use exchange::ExchangePolicy;
 mod extensions;
 mod host;
-pub(crate) mod policy;
-#[cfg(feature = "rate-limit")]
-pub(crate) mod quota;
 mod response;
 
 pub use authority::resolve_request_authority;

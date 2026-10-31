@@ -6,9 +6,13 @@ use claviron_http::ext::PathPrefix;
 use claviron_http::rate_limit::{RequestHead, Snapshot};
 
 use super::*;
-use crate::service::quota::RegisteredQuota;
 use crate::service::{HostResponse, RequestRejection};
-use crate::HostQuotas;
+
+mod prepare;
+
+use prepare::RegisteredQuota;
+pub use prepare::HostQuotas;
+pub(crate) use prepare::QuotaRegistrations;
 
 /// The committed admission snapshot, retained without a second store read.
 #[derive(Default)]
@@ -78,7 +82,7 @@ impl QuotaPolicy {
         &self,
         head: &RequestParts,
     ) -> Result<Option<Snapshot>, HostResponse> {
-        let paths = crate::service::acl::comparison_paths(head.uri.path())?;
+        let paths = super::access::comparison_paths(head.uri.path())?;
         let selected = self.select(&paths.separated);
         if let Some(literal) = &paths.literal
             && selected.map(|rule| rule as *const _)

@@ -70,6 +70,7 @@ mod state;
 mod websocket;
 
 pub use access::{AccessPolicy, AccessState};
+pub(crate) use access::{PolicySnapshot, RequestPolicy};
 #[cfg(feature = "access-log")]
 pub use access_log::{AccessLogLayer, AccessLogState};
 pub use admission::AdmissionPolicy;
@@ -79,7 +80,7 @@ pub(crate) use dispatch::compose_dispatch_other;
 #[cfg(feature = "axum")]
 pub(crate) use dispatch::dispatch_router;
 pub(crate) use binding::HostPolicy;
-pub use exchange::{ExchangeLayer, ExchangeState};
+pub use exchange::{ExchangeLayer, ExchangePolicy, ExchangeState};
 pub(crate) use execution::HostExecution;
 pub use files::{StaticStage, TryFilesStage};
 pub(crate) use files::fallback_config;
@@ -91,7 +92,9 @@ pub use handler::{
 pub(crate) use handler::compose_other;
 pub use ingress::{IngressPolicy, IngressState};
 #[cfg(feature = "rate-limit")]
-pub use quota::{QuotaPolicy, QuotaState};
+pub use quota::{HostQuotas, QuotaPolicy, QuotaState};
+#[cfg(feature = "rate-limit")]
+pub(crate) use quota::QuotaRegistrations;
 pub use reply::ReplyPolicy;
 pub use state::HostRequestState;
 pub(crate) use state::IdentifiedRequest;

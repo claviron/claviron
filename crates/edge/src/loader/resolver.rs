@@ -304,8 +304,8 @@ impl VhostResolver {
     pub(crate) fn request_policy(
         &self,
         canonical: &Host,
-    ) -> crate::service::policy::PolicySnapshot {
-        use crate::service::policy::PolicySnapshot;
+    ) -> crate::pipeline::host::PolicySnapshot {
+        use crate::pipeline::host::PolicySnapshot;
         let table = self.table.load();
         match table
             .record(canonical)

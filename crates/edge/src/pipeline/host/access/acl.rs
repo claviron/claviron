@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use claviron_http::ext::PathPrefix;
 
-use super::RequestRejection;
+use crate::service::RequestRejection;
 use crate::config::acl::{AccessLimiter, AclConfig};
 
 pub(crate) struct CompiledAcl {
@@ -148,5 +148,5 @@ fn hex(byte: u8) -> Option<u8> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/service/acl.rs"]
+#[path = "../../../../tests/pipeline/host/access/acl.rs"]
 mod tests;

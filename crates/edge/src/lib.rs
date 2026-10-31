@@ -32,7 +32,7 @@ mod provider;
 #[cfg(feature = "server")]
 pub(crate) mod service;
 #[cfg(feature = "rate-limit")]
-pub use service::quota::HostQuotas;
+pub use pipeline::host::HostQuotas;
 #[cfg(feature = "server")]
 pub mod transport;
 

@@ -8,6 +8,9 @@ use http::{HeaderName, HeaderValue};
 use super::*;
 
 mod cors;
+mod policy;
+
+pub use policy::ExchangePolicy;
 
 /// Request-local origin accepted by this exchange's CORS check.
 #[derive(Default)]

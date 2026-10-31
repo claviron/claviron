@@ -113,7 +113,7 @@ pub(super) fn request(path: &str) -> Request<()> {
 #[test]
 fn quota_admission_is_shared_by_native_protocols_and_precedes_body_dispatch() {
     use crate::HostConfig;
-    use crate::service::quota::QuotaRegistrations;
+    use crate::pipeline::host::QuotaRegistrations;
     use claviron_http::rate_limit::{IpKey, RateLimiter};
     use claviron_orbit::quota::{Quota, QuotaBacking, QuotaConfig, QuotaTable};
     use std::num::{NonZeroU64, NonZeroUsize};
@@ -630,7 +630,7 @@ impl OtherHandler for Echo {
 #[tokio::test]
 async fn quota_response_headers_are_opt_in_and_survive_native_body_mapping() {
     use crate::HostConfig;
-    use crate::service::quota::QuotaRegistrations;
+    use crate::pipeline::host::QuotaRegistrations;
     let protocols = [
         HttpProtocol::H1,
         HttpProtocol::H2,
@@ -981,7 +981,7 @@ async fn admission_holds_on_the_other_path() {
             Arc::clone(&release),
         )))),
         admission: Admission::limited(Some(1)),
-        exchange_policy: crate::service::ExchangePolicy::compile(&exchange_config, None),
+        exchange_policy: crate::pipeline::host::ExchangePolicy::compile(&exchange_config, None),
         server_header: None,
         #[cfg(feature = "rate-limit")]
         quotas: None,

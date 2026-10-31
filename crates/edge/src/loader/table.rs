@@ -13,7 +13,7 @@ pub struct VhostRecord {
     pub canonical: Host,
     pub config: Arc<HostConfig>,
     #[cfg(feature = "server")]
-    pub(crate) policy: Option<Arc<crate::service::policy::RequestPolicy>>,
+    pub(crate) policy: Option<Arc<crate::pipeline::host::RequestPolicy>>,
 }
 
 /// One published name binding. Keep the declaration separately shareable:
@@ -341,7 +341,7 @@ impl VhostTable {
             .filter(|record| record.canonical == canonical)
             .map(|record| record.policy.clone())
             .unwrap_or_else(|| {
-                crate::service::policy::RequestPolicy::compile(&config)
+                crate::pipeline::host::RequestPolicy::compile(&config)
             });
         match next.entry(key) {
             Entry::Occupied(e) => {

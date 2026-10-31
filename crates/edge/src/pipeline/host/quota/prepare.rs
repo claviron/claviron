@@ -12,7 +12,7 @@ use claviron_orbit::quota::{Quota, QuotaConfig, QuotaResource};
 use claviron_runtime::registry::{Error, Result};
 use http::request::Parts;
 
-use super::HostResponse;
+use crate::service::HostResponse;
 use crate::pipeline::host::{HostPipeline, QuotaPolicy, QuotaState};
 use crate::Host;
 use crate::config::{HostConfig, quota::RateLimitConfig};
@@ -247,5 +247,5 @@ impl HostQuotas {
 }
 
 #[cfg(test)]
-#[path = "../../tests/service/quota.rs"]
+#[path = "../../../../tests/pipeline/host/quota/prepare.rs"]
 mod tests;

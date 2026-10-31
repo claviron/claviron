@@ -10,7 +10,7 @@ use claviron_http::{RouteBody, RouteResponse};
 use http::{Request, StatusCode};
 
 use super::extensions::VhostCtx;
-use super::policy::PolicySnapshot;
+use crate::pipeline::host::PolicySnapshot;
 use super::{AuthorityError, HostResponse};
 #[cfg(feature = "tcp")]
 use super::{CleartextRequest, RequestAuthority};
