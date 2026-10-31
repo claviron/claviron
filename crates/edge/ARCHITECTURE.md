@@ -42,6 +42,9 @@ Normalization runs while preparing configuration. Root and prefix declarations
 share feature validation; provider directives remain data for host compilation.
 Directory mappings inherit the closest declared `path`. URL-derived suffixes
 reject dot segments; explicit disk paths retain their configured meaning.
+Policy-only children inherit overlapping static mounts from the closest
+declaring scope, retaining mount-relative cache rules unless they remap disk
+directories. Application owners and TryFiles are not inherited.
 
 ### `pipeline/`
 

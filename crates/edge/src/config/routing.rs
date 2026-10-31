@@ -301,33 +301,58 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     let mut host = leaf(source.clone(), entry_rules)?;
     // File-only consumers, including axum-free Other, receive the same mounts
     // compiled from route keys. This is not a second configuration surface.
-    let mounts: Vec<_> = entries
+    let declared_mounts: Vec<_> = entries
         .iter()
-        .flat_map(|(_, route)| route.statics.iter().flatten().cloned())
+        .filter_map(|(prefix, route)| {
+            route.statics.as_ref().filter(|mounts| !mounts.is_empty())
+                .map(|mounts| (prefix.clone(), mounts.clone()))
+        })
         .collect();
     for (prefix, config) in &mut entries {
-        // A policy-only child keeps the enclosing static policy, paired with
-        // its own prepared directory/prefix mapping.
+        // Inherit only the closest declaring scope, never mounts owned by a
+        // descendant or sibling route. Keep directory-group prefixes intact.
         if !config.owns_handler
             && config.statics.as_ref().is_none_or(Vec::is_empty)
-            && let Some(mount) = mounts
+            && let Some((_, mounts)) = declared_mounts
                 .iter()
-                .find(|mount| mount.path.has_path_segment(prefix.as_str()))
+                .find(|(ancestor, _)| ancestor.has_path_segment(prefix.as_str()))
         {
             let config = Arc::get_mut(config)
                 .expect("route configuration has not been published");
-            let mut mount = mount.clone();
-            mount.path = prefix.clone();
-            mount.dir = config
-                .files
-                .mapping
-                .as_ref()
-                .expect("prepared route mapping")
-                .directory()
-                .to_path_buf();
-            config.files.statics = Some(vec![mount]);
+            let mapping = config.files.mapping.as_ref()
+                .expect("prepared route mapping");
+            let mut inherited = Vec::new();
+            for mount in mounts {
+                let mut mount = mount.clone();
+                if let Some(suffix) = mapping.relative_path(mount.path.as_str()) {
+                    // The directory group is below the selected route.
+                    mount.dir = mapping.directory().join(suffix);
+                } else if mount.path.has_path_segment(prefix.as_str()) {
+                    let suffix = prefix.as_str()
+                        .strip_prefix(mount.path.as_str().trim_end_matches('/'))
+                        .expect("matching static ancestor")
+                        .trim_start_matches('/');
+                    // A policy-only child does not change the mount-relative
+                    // name seen by cache rules. An explicit disk remap still
+                    // establishes a new directory/prefix pair.
+                    if mount.dir.join(suffix) != mapping.directory() {
+                        mount.path = prefix.clone();
+                        mount.dir = mapping.directory().to_path_buf();
+                    }
+                } else {
+                    continue;
+                }
+                inherited.push(mount);
+            }
+            if !inherited.is_empty() {
+                config.files.statics = Some(inherited);
+            }
         }
     }
+    let mounts: Vec<_> = declared_mounts
+        .into_iter()
+        .flat_map(|(_, mounts)| mounts)
+        .collect();
     if !mounts.is_empty() {
         host.files.statics = Some(mounts);
     }

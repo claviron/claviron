@@ -66,18 +66,59 @@ fn file_routes_directory_groups_keep_one_route_and_relative_policy_paths() {
 #[test]
 fn file_routes_policy_child_keeps_the_parent_policy_and_mapped_subdirectory() {
     let config: HostConfig = serde_yaml::from_str(
-        "root: public\nroutes:\n  /files:\n    path: shared\n    static: {none_found: true}\n  /files/private:\n    cors: disabled\n",
+        "root: public\nroutes:\n  /files:\n    path: shared\n    static:\n      none_found: true\n      rules: [{test: '^private/app\\.js$'}]\n  /files/private:\n    cors: disabled\n",
     ).unwrap();
     let child = config.routes.find("/files/private").unwrap();
     assert_eq!(child.files.root, std::path::Path::new("public"));
+    assert_eq!(
+        child.files.mapping.as_ref().unwrap().directory(),
+        std::env::current_dir().unwrap().join("public/shared/private")
+    );
+    let mount = &child.statics.as_ref().unwrap()[0];
+    assert_eq!(mount.path.as_str(), "/files");
+    assert_eq!(
+        mount.dir,
+        std::env::current_dir().unwrap().join("public/shared")
+    );
+    let mapping = RouteMapping::new(mount.path.clone(), mount.dir.clone());
+    let relative = mapping.relative_path("/files/private/app.js").unwrap();
+    assert_eq!(relative, "private/app.js");
+    assert!(mount.rules.as_ref().unwrap()[0].test.is_match(relative));
+    assert!(mount.none_found);
+    assert_eq!(config.statics.as_ref().unwrap().len(), 1);
+}
+
+#[test]
+fn file_routes_policy_child_inherits_directory_groups_without_sibling_mounts() {
+    let config: HostConfig = serde_yaml::from_str(
+        "root: public\nroutes:\n  /:\n    path: shared\n    statics: [{dir: frontend/assets}, {dir: frontend/icons}]\n  /frontend:\n    cors: disabled\n  /frontend/private:\n    path: private\n    static: {}\n",
+    ).unwrap();
+    let child = config.routes.find("/frontend").unwrap();
+    let mounts = child.statics.as_ref().unwrap();
+    assert_eq!(mounts.len(), 2);
+    for (mount, directory) in mounts.iter().zip(["assets", "icons"]) {
+        assert_eq!(mount.path.as_str(), format!("/frontend/{directory}"));
+        assert_eq!(
+            mount.dir,
+            std::env::current_dir().unwrap()
+                .join("public/shared/frontend").join(directory)
+        );
+    }
+}
+
+#[test]
+fn file_routes_inherited_statics_respect_an_explicit_child_directory() {
+    let config: HostConfig = serde_yaml::from_str(
+        "root: public\nroutes:\n  /files:\n    path: shared\n    static: {none_found: true}\n  /files/private:\n    path: relocated\n    cors: disabled\n",
+    ).unwrap();
+    let child = config.routes.find("/files/private").unwrap();
     let mount = &child.statics.as_ref().unwrap()[0];
     assert_eq!(mount.path.as_str(), "/files/private");
     assert_eq!(
         mount.dir,
-        std::env::current_dir().unwrap().join("public/shared/private")
+        std::env::current_dir().unwrap().join("public/relocated")
     );
     assert!(mount.none_found);
-    assert_eq!(config.statics.as_ref().unwrap().len(), 1);
 }
 
 #[test]
