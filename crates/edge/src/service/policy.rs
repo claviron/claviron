@@ -11,62 +11,49 @@ use super::{HostResponse, RequestRejection};
 use crate::config::{HostConfig, RedirectConfig};
 
 pub(crate) struct RequestPolicy {
-    acl: Option<Arc<CompiledAcl>>,
-    route_acl: Option<Arc<CompiledAcl>>,
-    redirects: Box<[RedirectRule]>,
+    checks: Box<[AccessCheck]>,
+}
+
+enum AccessCheck {
+    Acl(Arc<CompiledAcl>),
+    Redirect(RedirectRule),
 }
 
 impl RequestPolicy {
     pub(crate) fn compile(config: &HostConfig) -> Option<Arc<Self>> {
-        let policy = Self {
-            acl: config.acl().and_then(CompiledAcl::compile),
-            route_acl: CompiledAcl::from_entries(
-                config.routes.iter().filter_map(|(prefix, route)| {
-                    route
-                        .route_acl
-                        .as_ref()
-                        .map(|acl| (prefix.clone(), acl.clone()))
-                }),
-            ),
-            redirects: config
-                .redirect
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .map(RedirectRule::compile)
-                .collect(),
-        };
-        if policy.acl.is_none()
-            && policy.route_acl.is_none()
-            && policy.redirects.is_empty()
-        {
+        let mut checks = Vec::new();
+        if let Some(acl) = config.acl().and_then(CompiledAcl::compile) {
+            checks.push(AccessCheck::Acl(acl));
+        }
+        if let Some(acl) = CompiledAcl::from_entries(
+            config.routes.iter().filter_map(|(prefix, route)| {
+                route.route_acl.as_ref().map(|acl| (prefix.clone(), acl.clone()))
+            }),
+        ) {
+            checks.push(AccessCheck::Acl(acl));
+        }
+        checks.extend(
+            config.redirect.as_deref().unwrap_or_default().iter()
+                .map(|rule| AccessCheck::Redirect(RedirectRule::compile(rule))),
+        );
+        if checks.is_empty() {
             None
         } else {
-            Some(Arc::new(policy))
+            Some(Arc::new(Self { checks: checks.into_boxed_slice() }))
         }
     }
 
-    pub(crate) fn check(
-        &self,
-        uri: &Uri,
-        ip: IpAddr,
-    ) -> Result<(), HostResponse> {
-        if let Some(acl) = &self.acl {
-            acl.check(uri.path(), ip)?;
-        }
-        if let Some(acl) = &self.route_acl {
-            acl.check(uri.path(), ip)?;
-        }
-        for rule in &self.redirects {
-            if rule.path.has_path_segment(uri.path()) {
-                let location = rule
-                    .target
-                    .render(uri)
-                    .map_err(|_| RequestRejection::InvalidRedirect)?;
-                return Err(HostResponse::Redirect {
-                    status: rule.status,
-                    location,
-                });
+    pub(crate) fn check(&self, uri: &Uri, ip: IpAddr) -> Result<(), HostResponse> {
+        for check in &self.checks {
+            match check {
+                AccessCheck::Acl(acl) => acl.check(uri.path(), ip)?,
+                AccessCheck::Redirect(rule) => {
+                    if rule.path.has_path_segment(uri.path()) {
+                        let location = rule.target.render(uri)
+                            .map_err(|_| RequestRejection::InvalidRedirect)?;
+                        return Err(HostResponse::Redirect { status: rule.status, location });
+                    }
+                }
             }
         }
         Ok(())

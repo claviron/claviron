@@ -33,6 +33,10 @@ impl AsMut<IdentityState> for IdentityState {
     }
 }
 
+impl AsRef<IdentityState> for IdentityState {
+    fn as_ref(&self) -> &IdentityState { self }
+}
+
 /// Prepares one identity action from the accepted connection and listener
 /// policy. It captures host metadata without retaining the application.
 ///
@@ -54,9 +58,9 @@ impl IdentityPolicy {
         Self { connection, proxy, extensions }
     }
 
-    pub(super) fn register<S: AsMut<IdentityState>>(
+    pub(super) fn register<S: AsMut<IdentityState>, R>(
         self,
-        layer: &mut HostLayerBuilder<S, RequestRejection>,
+        layer: &mut HostLayerBuilder<S, R>,
     ) {
         let Self { connection, proxy, extensions } = self;
         if let Some(ip) = connection.real_ip {
@@ -95,8 +99,8 @@ impl IdentityPolicy {
     }
 }
 
-fn register_dynamic<S: AsMut<IdentityState>>(
-    layer: &mut HostLayerBuilder<S, RequestRejection>,
+fn register_dynamic<S: AsMut<IdentityState>, R>(
+    layer: &mut HostLayerBuilder<S, R>,
     connection: Arc<ConnCtx>,
     extensions: ContextExtensions,
     resolve: impl Fn(&HeaderMap) -> IpAddr + Send + Sync + 'static,
@@ -112,12 +116,12 @@ fn register_dynamic<S: AsMut<IdentityState>>(
     });
 }
 
-impl<S: AsMut<IdentityState>> HostLayer<S, RequestRejection>
+impl<S: AsMut<IdentityState>, R: From<RequestRejection>> HostLayer<S, R>
     for IdentityPolicy
 {
     fn prepare(
         self,
-        layer: &mut HostLayerBuilder<S, RequestRejection>,
+        layer: &mut HostLayerBuilder<S, R>,
     ) -> crate::Result<()> {
         self.register(layer);
         Ok(())

@@ -82,9 +82,8 @@ struct HostPolicy {
     connection: Arc<ConnCtx>,
     host: VhostCtx,
     ingress: HostIngress,
-    access: Arc<VhostResolver>,
     http: HttpPolicy,
-    pipeline: HostPipeline<HostRequestState, RequestRejection>,
+    pipeline: HostPipeline<HostRequestState, HostResponse>,
 }
 
 impl HostPolicy {
@@ -98,8 +97,8 @@ impl HostPolicy {
         // Both declarations belong to this immutable binding. Requests reuse
         // their narrowed limits; live ACL/redirect policy is read separately.
         let http = listener.narrow(&host.vhost_config.policy());
-        let pipeline = HostPipeline::for_host(&connection, &host, &ingress);
-        Self { connection, host, ingress, access, http, pipeline }
+        let pipeline = HostPipeline::for_host(&connection, &host, &ingress, access);
+        Self { connection, host, ingress, http, pipeline }
     }
 }
 
@@ -193,15 +192,8 @@ impl HostService {
         &self,
         identified: IdentifiedRequest<B>,
     ) -> Result<PreparedContext<B>, HostResponse> {
-        let IdentifiedRequest { request, connection } = identified;
+        let IdentifiedRequest { request, connection, access } = identified;
         let policy = &self.policy;
-        let access = policy.access.request_policy(&policy.host.vhost_key.0);
-        // Real IP comes from this accepted listener's trust policy, not from
-        // the reloaded host or an untrusted forwarding header.
-        access.check(
-            request.uri(),
-            connection.real_ip.ok_or(RequestRejection::MissingIdentity)?,
-        )?;
         #[cfg(feature = "rate-limit")]
         let quota_snapshot = match &self.app.quotas {
             Some(quotas) => quotas.check(&request)?,

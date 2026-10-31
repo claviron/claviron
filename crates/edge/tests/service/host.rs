@@ -34,6 +34,15 @@ pub(super) fn service_with_limits(
     app: impl Into<crate::pipeline::HostApp>,
     listener: RequestPolicy,
 ) -> HostService {
+    service_with_limits_and_access(protocol, config, app, listener).0
+}
+
+fn service_with_limits_and_access(
+    protocol: HttpProtocol,
+    config: &str,
+    app: impl Into<crate::pipeline::HostApp>,
+    listener: RequestPolicy,
+) -> (HostService, Arc<VhostResolver>) {
     let table =
         serde_yaml::from_str(&format!("app.test: {{root: public, {config}}}"))
             .unwrap();
@@ -61,7 +70,7 @@ pub(super) fn service_with_limits(
     });
     let router: RouterConfig =
         serde_yaml::from_str("deny: ['^/blocked']").unwrap();
-    HostService::new(
+    let service = HostService::new(
         app,
         connection,
         host,
@@ -72,12 +81,13 @@ pub(super) fn service_with_limits(
             }),
             deny: Arc::new(DenyService::from_set(router.deny_set())),
         },
-        access,
+        access.clone(),
         HttpPolicy {
             requests: listener,
             responses: ResponsePolicy::unlimited(),
         },
-    )
+    );
+    (service, access)
 }
 
 fn noop(
@@ -85,6 +95,10 @@ fn noop(
     config: &str,
 ) -> HostService {
     service(protocol, config, AppKind::Bypass(BypassService::Noop))
+}
+
+fn noop_with_access(protocol: HttpProtocol, config: &str) -> (HostService, Arc<VhostResolver>) {
+    service_with_limits_and_access(protocol, config, AppKind::Bypass(BypassService::Noop), RequestPolicy::unlimited())
 }
 
 pub(super) fn request(path: &str) -> Request<()> {
@@ -354,7 +368,7 @@ fn cleartext_authority_handoff_keeps_transport_and_upgrade_guards() {
 #[cfg(feature = "tcp")]
 #[test]
 fn cleartext_authority_handoff_keeps_live_acl_redirect_and_removal() {
-    let service = noop(HttpProtocol::H1, "");
+    let (service, access) = noop_with_access(HttpProtocol::H1, "");
     let key = service.policy.host.vhost_key.0.as_ref().clone();
     let prepare = || {
         let checked = service
@@ -376,7 +390,7 @@ fn cleartext_authority_handoff_keeps_live_acl_redirect_and_removal() {
             StatusCode::TEMPORARY_REDIRECT,
         ),
     ] {
-        service.policy.access.upsert_host(
+        access.upsert_host(
             key.clone(),
             Arc::new(
                 serde_yaml::from_str(&format!("root: public\n{config}"))
@@ -385,7 +399,7 @@ fn cleartext_authority_handoff_keeps_live_acl_redirect_and_removal() {
         );
         assert_eq!(prepare().err().unwrap().into_response().status(), expected);
     }
-    service.policy.access.delete_host(&key);
+    access.delete_host(&key);
     assert!(matches!(
         prepare(),
         Err(HostResponse::Rejected(RequestRejection::HostRemoved))
@@ -394,7 +408,7 @@ fn cleartext_authority_handoff_keeps_live_acl_redirect_and_removal() {
 
 #[test]
 fn missing_protocol_is_not_inferred_from_request_version_or_uri() {
-    let binding = noop(HttpProtocol::H1, "");
+    let (binding, access) = noop_with_access(HttpProtocol::H1, "");
     let service = HostService::new(
         binding.app.clone(),
         Arc::new(ConnCtx {
@@ -403,7 +417,7 @@ fn missing_protocol_is_not_inferred_from_request_version_or_uri() {
         }),
         binding.policy.host.clone(),
         binding.policy.ingress.clone(),
-        binding.policy.access.clone(),
+        access.clone(),
         HttpPolicy::unlimited(),
     );
     assert!(matches!(
@@ -416,8 +430,7 @@ fn missing_protocol_is_not_inferred_from_request_version_or_uri() {
 fn live_host_replies_precede_body_adaptation_and_native_dispatch() {
     struct NativeBody;
     for protocol in [HttpProtocol::H1, HttpProtocol::H2, HttpProtocol::H3] {
-        let service = noop(protocol, "");
-        let resolver = &service.policy.access;
+        let (service, resolver) = noop_with_access(protocol, "");
         let key = service.policy.host.vhost_key.0.as_ref().clone();
         let captured = service.policy.host.vhost_config.clone();
         let admitted = service
@@ -734,12 +747,11 @@ async fn acl_reload_reaches_existing_bindings_before_axum_or_bypass_dispatch() {
             AppKind::Axum(router),
             AppKind::Bypass(BypassService::Handler(Arc::new(Echo))),
         ] {
-            let service = service(protocol, "", app);
+            let (service, resolver) = service_with_limits_and_access(protocol, "", app, RequestPolicy::unlimited());
             let old = service
                 .prepare(request("/admin"), RequestArrival::Established)
                 .unwrap();
             let captured = service.policy.host.vhost_config.clone();
-            let resolver = &service.policy.access;
             let key = service.policy.host.vhost_key.0.as_ref().clone();
             // Neither changing transport policy nor router construction is
             // required to publish a new request-admission ACL.
@@ -809,7 +821,7 @@ async fn acl_reload_reaches_existing_bindings_before_axum_or_bypass_dispatch() {
 fn acl_uses_this_requests_trusted_ip_and_never_polls_a_body() {
     struct Unpollable;
     for protocol in [HttpProtocol::H1, HttpProtocol::H2, HttpProtocol::H3] {
-        let binding = noop(
+        let (binding, access) = noop_with_access(
             protocol,
             "aliases: [alias.test], acl: {'/admin': {policy: deny, allowed: ['203.0.113.1/32']}}",
         );
@@ -822,7 +834,7 @@ fn acl_uses_this_requests_trusted_ip_and_never_polls_a_body() {
             binding.policy.connection.clone(),
             host,
             binding.policy.ingress.clone(),
-            binding.policy.access.clone(),
+            access.clone(),
             HttpPolicy::unlimited(),
         );
         for (ip, allowed) in [
@@ -853,7 +865,7 @@ fn acl_uses_this_requests_trusted_ip_and_never_polls_a_body() {
                 proxy: None,
                 deny: service.policy.ingress.deny.clone(),
             },
-            service.policy.access.clone(),
+            access.clone(),
             HttpPolicy::unlimited(),
         );
         let forged = Request::builder()
@@ -872,7 +884,7 @@ fn acl_uses_this_requests_trusted_ip_and_never_polls_a_body() {
 
 #[tokio::test]
 async fn invalid_reload_retains_the_enforced_acl() {
-    let service = noop(HttpProtocol::H2, "acl: {'/admin': {policy: deny}}");
+    let (service, access) = noop_with_access(HttpProtocol::H2, "acl: {'/admin': {policy: deny}}");
     let dir = tempfile::tempdir().unwrap();
     let state = claviron_runtime::AppState::standalone("acl-test", dir.path());
     std::fs::create_dir_all(state.config_dir()).unwrap();
@@ -886,7 +898,7 @@ async fn invalid_reload_retains_the_enforced_acl() {
         "app.test: {root: public, redirect: {to: '/not escaped'}}",
     ] {
         std::fs::write(&path, yaml).unwrap();
-        assert!(service.policy.access.replace_all(&state).await.is_err());
+        assert!(access.replace_all(&state).await.is_err());
         assert!(matches!(
             service.prepare(request("/admin"), RequestArrival::Established),
             Err(HostResponse::Rejected(RequestRejection::AccessDenied))

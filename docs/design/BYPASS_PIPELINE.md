@@ -77,7 +77,14 @@ extensions without reading the body. The binding selects direct, peer-only or
 trusted-proxy handling once. Forwarding headers are resolved per request only
 on the trusted-proxy path; accepted TLS, protocol and listener facts stay fixed.
 HTTP extensions and native authentication retain the same `Arc<ConnCtx>`.
-Live ACL, redirects, quotas and application dispatch remain in `HostService`.
+`AccessPolicy` follows identity and applies live canonical-host ACL and redirect
+rules before application routing. Each admission selects the current rule
+snapshot; an open host traverses no rules and clones no rule Arc. The canonical
+lookup remains necessary so removal or newly enabled rules also reach existing
+connections. Host ACL, route ACL and redirects contain only active checks,
+compiled in that order. An admitted request retains its selected generation
+through dispatch or cancellation. Quotas and application dispatch remain in
+`HostService`.
 
 ## Keep the boundary useful
 
@@ -108,6 +115,7 @@ always faster or should replace routing everywhere.
 - [Native bypass dispatch](../../crates/edge/src/pipeline/bypass.rs).
 - [Prepared host pipeline](../../crates/edge/src/pipeline/host.rs).
 - [Request identity and proxy policy](../../crates/edge/src/pipeline/host/identity.rs).
+- [Live host access policy](../../crates/edge/src/pipeline/host/access.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 
 Use `BYPASS_PIPELINE` as the search key for this application-first composition.

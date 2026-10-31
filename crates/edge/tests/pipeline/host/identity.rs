@@ -20,6 +20,12 @@ fn host() -> VhostCtx {
     }
 }
 
+fn native_pipeline(connection: &Arc<ConnCtx>, host: &VhostCtx, ingress: &HostIngress) -> HostPipeline<HostRequestState, crate::service::HostResponse> {
+    let access = Arc::new(crate::VhostResolver::default());
+    access.upsert_host(host.vhost_key.0.as_ref().clone(), host.vhost_config.clone());
+    HostPipeline::for_host(connection, host, ingress, access)
+}
+
 fn connection(ip: Option<IpAddr>) -> Arc<ConnCtx> {
     Arc::new(ConnCtx {
         state: Default::default(),
@@ -53,7 +59,7 @@ fn host_identity_uses_only_captured_trust_and_does_not_cache_proxy_clients() {
         (Some(proxy("198.51.100.0/24")), "192.0.2.1"),
         (Some(proxy("192.0.2.0/24")), "203.0.113.1"),
     ] {
-        let pipeline = HostPipeline::for_host(
+        let pipeline = native_pipeline(
             &accepted,
             &host,
             &HostIngress {
@@ -79,7 +85,7 @@ fn host_identity_uses_only_captured_trust_and_does_not_cache_proxy_clients() {
         ));
     }
 
-    let pipeline = HostPipeline::for_host(
+    let pipeline = native_pipeline(
         &accepted,
         &host,
         &HostIngress {
@@ -132,7 +138,7 @@ impl Drop for BodyOwner {
 #[test]
 fn host_identity_follows_ingress_and_keeps_single_body_ownership() {
     let accepted = connection(Some("192.0.2.1".parse().unwrap()));
-    let pipeline = HostPipeline::for_host(
+    let pipeline = native_pipeline(
         &accepted,
         &host(),
         &HostIngress {
@@ -176,7 +182,7 @@ fn host_identity_follows_ingress_and_keeps_single_body_ownership() {
     ) else {
         panic!("deny must reject before identity")
     };
-    assert_eq!(reply.response, RequestRejection::PathDenied);
+    assert_eq!(reply.response, crate::service::HostResponse::Rejected(RequestRejection::PathDenied));
     assert!(reply.state.identity().connection().is_none());
     assert_eq!(dropped.load(Ordering::Relaxed), 2);
     drop(reply);

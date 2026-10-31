@@ -8,12 +8,17 @@ use claviron_http::ext::ConnCtx;
 
 use super::*;
 use crate::deny::{DenyCheckedRequest, DenyService};
-use crate::service::{HostIngress, RequestArrival, RequestRejection, VhostCtx};
+use crate::service::policy::PolicySnapshot;
+use crate::service::{
+    HostIngress, HostResponse, RequestArrival, RequestRejection, VhostCtx,
+};
+use crate::VhostResolver;
 
 /// Independent phase state for one native request, never a shared extension map.
 pub struct HostRequestState {
     ingress: IngressState,
     identity: IdentityState,
+    access: AccessState,
 }
 
 impl HostRequestState {
@@ -21,6 +26,7 @@ impl HostRequestState {
         Self {
             ingress: IngressState::new(arrival),
             identity: IdentityState::default(),
+            access: AccessState::default(),
         }
     }
 
@@ -41,16 +47,30 @@ impl AsMut<IdentityState> for HostRequestState {
     }
 }
 
+impl AsRef<IdentityState> for HostRequestState {
+    fn as_ref(&self) -> &IdentityState {
+        &self.identity
+    }
+}
+
+impl AsMut<AccessState> for HostRequestState {
+    fn as_mut(&mut self) -> &mut AccessState {
+        &mut self.access
+    }
+}
+
 pub(crate) struct IdentifiedRequest<B> {
     pub(crate) request: Request<B>,
     pub(crate) connection: Arc<ConnCtx>,
+    pub(crate) access: PolicySnapshot,
 }
 
-impl HostPipeline<HostRequestState, RequestRejection> {
+impl HostPipeline<HostRequestState, HostResponse> {
     pub(crate) fn for_host(
         connection: &Arc<ConnCtx>,
         host: &VhostCtx,
         ingress: &HostIngress,
+        access: Arc<VhostResolver>,
     ) -> Self {
         let mut ingress_layer = HostLayerBuilder::default();
         IngressPolicy::new(connection, host, ingress.deny.clone())
@@ -58,17 +78,19 @@ impl HostPipeline<HostRequestState, RequestRejection> {
         let mut identity_layer = HostLayerBuilder::default();
         IdentityPolicy::new(connection.clone(), host, ingress.proxy.clone())
             .register(&mut identity_layer);
-        HostPipelineBuilder { layers: vec![ingress_layer, identity_layer] }
+        let mut access_layer = HostLayerBuilder::default();
+        AccessPolicy::new(access, host.vhost_key.clone()).register(&mut access_layer);
+        HostPipelineBuilder { layers: vec![ingress_layer, identity_layer, access_layer] }
             .build()
     }
 
-    /// The native plan is head-only. Resume live policy and dispatch with the
-    /// original body and the same identity already installed in its extensions.
+    /// The native plan is head-only. Resume quota admission and dispatch with
+    /// the original body, prepared identity and admitted access generation.
     pub(crate) fn admit<B>(
         &self,
         request: Request<B>,
         state: HostRequestState,
-    ) -> Result<IdentifiedRequest<B>, RequestRejection> {
+    ) -> Result<IdentifiedRequest<B>, HostResponse> {
         let prepared = match self.prepare_with_state(request, state) {
             ServiceResult::Handled(reply) => return Err(reply.response),
             ServiceResult::Unhandled(prepared) => prepared,
@@ -78,7 +100,7 @@ impl HostPipeline<HostRequestState, RequestRejection> {
             .identity
             .connection
             .ok_or(RequestRejection::MissingIdentity)?;
-        Ok(IdentifiedRequest { request, connection })
+        Ok(IdentifiedRequest { request, connection, access: state.access.snapshot })
     }
 
     pub(crate) fn admit_checked<B>(
@@ -87,17 +109,27 @@ impl HostPipeline<HostRequestState, RequestRejection> {
         deny: &DenyService,
         arrival: RequestArrival,
         authority: Option<RequestAuthority>,
-    ) -> Result<IdentifiedRequest<B>, RequestRejection> {
+    ) -> Result<IdentifiedRequest<B>, HostResponse> {
         let (request, ingress) =
             IngressState::checked(request, deny, arrival, authority);
         self.admit(
             request,
-            HostRequestState { ingress, identity: IdentityState::default() },
+            HostRequestState {
+                ingress,
+                identity: IdentityState::default(),
+                access: AccessState::default(),
+            },
         )
     }
 }
 
-impl<B, S> PreparedRequest<'_, B, S, RequestRejection> {
+// Only these typed head decisions are eligible for the ownership handoff;
+// RouteResponse plans may carry response hooks that must not be discarded.
+pub(crate) trait HeadOnlyReply {}
+impl HeadOnlyReply for RequestRejection {}
+impl HeadOnlyReply for HostResponse {}
+
+impl<B, S, R: HeadOnlyReply> PreparedRequest<'_, B, S, R> {
     /// Typed rejection plans cannot register response hooks. Transfer their
     /// unclaimed request and phase state without discarding response work.
     pub(crate) fn into_request_and_state(self) -> (Request<B>, S) {

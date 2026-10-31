@@ -78,13 +78,13 @@ impl IngressPolicy {
         }
     }
 
-    pub(super) fn register<S: AsMut<IngressState>>(
+    pub(super) fn register<S: AsMut<IngressState>, R: From<RequestRejection>>(
         self,
-        layer: &mut HostLayerBuilder<S, RequestRejection>,
+        layer: &mut HostLayerBuilder<S, R>,
     ) {
         let Some(protocol) = self.protocol else {
             layer.before(|_, _| {
-                ControlFlow::Break(RequestRejection::MissingProtocol)
+                ControlFlow::Break(RequestRejection::MissingProtocol.into())
             });
             return;
         };
@@ -98,7 +98,7 @@ impl IngressPolicy {
                     Ok(authority) => authority,
                     Err(error) => {
                         return ControlFlow::Break(
-                            RequestRejection::InvalidAuthority(error),
+                            RequestRejection::InvalidAuthority(error).into(),
                         );
                     }
                 },
@@ -106,7 +106,7 @@ impl IngressPolicy {
             if !binding_allowed
                 || !authority_matches_sni(authority.as_ref(), &host)
             {
-                return ControlFlow::Break(RequestRejection::Misdirected);
+                return ControlFlow::Break(RequestRejection::Misdirected.into());
             }
             ControlFlow::Continue(())
         });
@@ -131,7 +131,7 @@ impl IngressPolicy {
                                 | http::Method::OPTIONS
                         )
                     {
-                        return ControlFlow::Break(RequestRejection::TooEarly);
+                        return ControlFlow::Break(RequestRejection::TooEarly.into());
                     }
                     ControlFlow::Continue(())
                 });
@@ -146,7 +146,7 @@ impl IngressPolicy {
         if protocol == HttpProtocol::H1 && !self.upgrade {
             layer.before(|head, _| {
                 if head.headers.contains_key(http::header::UPGRADE) {
-                    ControlFlow::Break(RequestRejection::UpgradeForbidden)
+                    ControlFlow::Break(RequestRejection::UpgradeForbidden.into())
                 } else {
                     ControlFlow::Continue(())
                 }
@@ -157,7 +157,7 @@ impl IngressPolicy {
                 let state = state.as_mut();
                 if !state.deny_checked && self.deny.is_blocked(head.uri.path())
                 {
-                    ControlFlow::Break(RequestRejection::PathDenied)
+                    ControlFlow::Break(RequestRejection::PathDenied.into())
                 } else {
                     ControlFlow::Continue(())
                 }
@@ -175,23 +175,23 @@ pub(crate) fn authority_matches_sni(
     authority.is_none_or(|authority| authority.host() == host.0.as_ref())
 }
 
-fn register_early_data_denial<S: AsMut<IngressState>>(
-    layer: &mut HostLayerBuilder<S, RequestRejection>
+fn register_early_data_denial<S: AsMut<IngressState>, R: From<RequestRejection>>(
+    layer: &mut HostLayerBuilder<S, R>
 ) {
     layer.before(|_, state| {
         let state = state.as_mut();
         if state.arrival == RequestArrival::EarlyData {
-            ControlFlow::Break(RequestRejection::TooEarly)
+            ControlFlow::Break(RequestRejection::TooEarly.into())
         } else {
             ControlFlow::Continue(())
         }
     });
 }
 
-impl<S: AsMut<IngressState>> HostLayer<S, RequestRejection> for IngressPolicy {
+impl<S: AsMut<IngressState>, R: From<RequestRejection>> HostLayer<S, R> for IngressPolicy {
     fn prepare(
         self,
-        layer: &mut HostLayerBuilder<S, RequestRejection>,
+        layer: &mut HostLayerBuilder<S, R>,
     ) -> crate::Result<()> {
         self.register(layer);
         Ok(())
