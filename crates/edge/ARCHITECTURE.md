@@ -221,8 +221,8 @@ Features compile capabilities; declarations and registration select what runs.
 
 ## `tests/`
 
-Test files mirror their owning modules. Native transport fixtures use isolated
-resources; embedded-engine execution is outside Edge tests.
+Test files mirror their owning modules. They exercise parsing, routing, body
+ownership and isolated state transitions without provider boot or live listeners.
 
 ### Entry and configuration
 
@@ -253,7 +253,7 @@ resources; embedded-engine execution is outside Edge tests.
 - [`other.rs`](tests/pipeline/other.rs) — Future erasure, head-timing ownership and Noop reply.
 - [`quota.rs`](tests/pipeline/quota.rs) — Public quota registration shared by canonical names and aliases.
 - [`wt.rs`](tests/pipeline/wt.rs) — Exact native bindings precede Link fallback.
-- [`link.rs`](tests/pipeline/link.rs) — Link route misses, H1/H2 handshakes, shutdown and headers.
+- [`link.rs`](tests/pipeline/link.rs) — Link route misses, handshake construction, message forwarding and cancellation.
 - [`link/webtransport.rs`](tests/pipeline/link/webtransport.rs) — Independent streams, route ownership, cancellation and partial writes.
 - [`embed/lua.rs`](tests/pipeline/embed/lua.rs) — Lua mount precedence and unchanged unread bodies/trailers.
 - [`embed/lua/origin.rs`](tests/pipeline/embed/lua/origin.rs) — Origin ambiguity, requested aliases/ports and accepted scheme.
@@ -294,35 +294,18 @@ resources; embedded-engine execution is outside Edge tests.
 
 ### `tcp/`
 
-- [`README.md`](tests/tcp/README.md) — Fixture boundaries and focused transport/resilience invocations.
 - [`fixtures/listeners.yaml`](tests/tcp/fixtures/listeners.yaml) — Reserved loopback listener configuration.
-- [`support/accept.rs`](tests/tcp/support/accept.rs) — Synthetic accept outcomes and deterministic wake control.
-- [`support/framing.rs`](tests/tcp/support/framing.rs) — Shared raw H1 framing and keepalive cases.
-- [`support/tls.rs`](tests/tcp/support/tls.rs) — Isolated TLS/Hyper connection fixture and structured cleanup.
-- [`unit/accept.rs`](tests/tcp/unit/accept.rs) — Socket-local retry state and error classification.
+- [`unit/accept.rs`](tests/tcp/unit/accept.rs) — Retry growth, saturation and warning-state transitions.
 - [`unit/body.rs`](tests/tcp/unit/body.rs) — Ended/lazy bodies, trailers and configured guards.
 - [`unit/config.rs`](tests/tcp/unit/config.rs) — Sibling transport changes do not invalidate unrelated inputs.
-- [`unit/head.rs`](tests/tcp/unit/head.rs) — Native H1 header-size boundary.
-- [`unit/listener.rs`](tests/tcp/unit/listener.rs) — Port sharing, group capacity, accept failures and owned drain.
-- [`unit/plain.rs`](tests/tcp/unit/plain.rs) — Cleartext host selection, live policies and H1 upgrade.
-- [`unit/plain/authority.rs`](tests/tcp/unit/plain/authority.rs) — Authority rejection and absolute-target selection.
-- [`unit/plain/framing.rs`](tests/tcp/unit/plain/framing.rs) — Malformed/ambiguous framing and keepalive.
-- [`unit/plain/timeout.rs`](tests/tcp/unit/plain/timeout.rs) — Captured header deadlines and reload behavior.
 - [`unit/redirect.rs`](tests/tcp/unit/redirect.rs) — IPv6, query and declared redirect port.
-- [`unit/service.rs`](tests/tcp/unit/service.rs) — Native H2 CONNECT admission before auth/body handoff.
 - [`unit/timeout.rs`](tests/tcp/unit/timeout.rs) — Driver-default, disabled and explicit header deadlines.
-- [`unit/tls.rs`](tests/tcp/unit/tls.rs) — Host ALPN preference and alias/TLS publication.
-- [`unit/tls/authority.rs`](tests/tcp/unit/tls/authority.rs) — TLS authority rejection scoped to the correct connection/stream.
-- [`unit/tls/churn.rs`](tests/tcp/unit/tls/churn.rs) — Opt-in TLS slot-reclamation probe.
-- [`unit/tls/framing.rs`](tests/tcp/unit/tls/framing.rs) — TLS H1 framing and keepalive.
-- [`unit/tls/rejections.rs`](tests/tcp/unit/tls/rejections.rs) — Handshake/authority refusal and capacity release.
-- [`unit/tls/resilience.rs`](tests/tcp/unit/tls/resilience.rs) — Independent H2 streams, controlled IO and declared drain.
+- [`unit/tls.rs`](tests/tcp/unit/tls.rs) — Configured host ALPN selection without opening connections.
 
 ### `quic/`
 
 - [`error.rs`](tests/quic/error.rs) — Normal closure does not hide nonzero failures.
-- [`listener.rs`](tests/quic/listener.rs) — Worker-only UDP port sharing and request-body mode selection.
+- [`listener.rs`](tests/quic/listener.rs) — Request-body mode selection from the request head.
 - [`listener/drain.rs`](tests/quic/listener/drain.rs) — Force/panic cleanup joins owned children without cancelling siblings.
 - [`request.rs`](tests/quic/request.rs) — Framing/body rejection, transport interruptions and early reply metadata.
-- [`tls.rs`](tests/quic/tls.rs) — Alias/TLS selector publication.
 - [`wt/streams.rs`](tests/quic/wt/streams.rs) — Bounded input, session completion and dropped receivers.

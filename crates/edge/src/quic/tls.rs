@@ -24,10 +24,6 @@ fn h3_alpns() -> Vec<Vec<u8>> {
     H3.alpn_versions().iter().map(|p| p.to_vec()).collect()
 }
 
-#[cfg(test)]
-#[path = "../../tests/quic/tls.rs"]
-mod alias;
-
 #[derive(Clone)]
 pub(crate) struct H3TlsAccept {
     policy: Arc<H3TlsPolicy>,

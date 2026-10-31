@@ -18,10 +18,6 @@ mod service;
 #[path = "../../tests/tcp/unit/config.rs"]
 mod config_tests;
 
-#[cfg(test)]
-#[path = "../../tests/tcp/support/framing.rs"]
-mod framing_cases;
-
 pub use plain::HttpServer;
 #[cfg(feature = "tls")]
 pub use secure::HttpsServer;

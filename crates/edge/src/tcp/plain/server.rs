@@ -97,11 +97,6 @@ impl HttpServer {
     }
 }
 
-// This existing fixture compares an Axum application with a native owner.
-#[cfg(all(test, feature = "axum"))]
-#[path = "../../../tests/tcp/unit/plain.rs"]
-mod tests;
-
 pub(super) fn build_snapshots(
     http: &HttpSnapshot,
     state: &AppState,

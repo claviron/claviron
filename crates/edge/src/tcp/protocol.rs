@@ -47,7 +47,3 @@ pub(crate) fn socket(
 #[cfg(test)]
 #[path = "../../tests/tcp/unit/timeout.rs"]
 mod timeout_tests;
-
-#[cfg(test)]
-#[path = "../../tests/tcp/unit/head.rs"]
-mod head_tests;

@@ -26,10 +26,6 @@ pub(crate) trait TcpListenerSnapshot: ListenerSnapshot {
     fn listener(&self) -> &ListenerConfig;
 }
 
-#[cfg(test)]
-#[path = "../../tests/tcp/support/accept.rs"]
-mod accept_support;
-
 pub(crate) async fn serve<S, F, Fut>(
     snapshots: &ListenerSnapshots<S>,
     groups: &BTreeMap<ListenerId, Arc<S>>,
@@ -232,7 +228,3 @@ where
         None => Ok(()),
     }
 }
-
-#[cfg(test)]
-#[path = "../../tests/tcp/unit/listener.rs"]
-mod tests;

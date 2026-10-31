@@ -162,15 +162,11 @@ quinn-deferred-config = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["test-util"] }
 
 # ── HTTP core ───────────────────────────────────────────────────────────
-h2 = "0.4"
 http-body.workspace = true
 http-body-util.workspace = true
 
 # ── Web framework (axum + tower) ────────────────────────────────────────
 axum.workspace = true
-
-# ── TLS / certificates ──────────────────────────────────────────────────
-rcgen.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

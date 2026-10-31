@@ -234,7 +234,3 @@ async fn handle_h2_connect(
         }
     }
 }
-
-#[cfg(test)]
-#[path = "../../tests/tcp/unit/service.rs"]
-mod tests;

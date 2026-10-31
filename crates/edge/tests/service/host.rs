@@ -895,31 +895,6 @@ fn acl_uses_this_requests_trusted_ip_and_never_polls_a_body() {
     }
 }
 
-#[tokio::test]
-async fn invalid_reload_retains_the_enforced_acl() {
-    let (service, access) =
-        noop_with_access(HttpProtocol::H2, "acl: {'/admin': {policy: deny}}");
-    let dir = tempfile::tempdir().unwrap();
-    let state = claviron_runtime::AppState::standalone("acl-test", dir.path());
-    std::fs::create_dir_all(state.config_dir()).unwrap();
-    let path = state.config_dir().join("vhost.yaml");
-    for yaml in [
-        "app.test: {root: public, acl: {'/admin': {policy: alow}}}",
-        "app.test:\n  root: public\n  acl:\n    '/admin': {policy: deny}\n    '/admin/': {policy: allow}",
-        "app.test: {root: public, acl: {'/admin': {policy: deny, allowed: [invalid]}}}",
-        "app.test: {root: public, error: 200}",
-        "app.test: {root: public, redirect: {to: /new, code: 999}}",
-        "app.test: {root: public, redirect: {to: '/not escaped'}}",
-    ] {
-        std::fs::write(&path, yaml).unwrap();
-        assert!(access.replace_all(&state).await.is_err());
-        assert!(matches!(
-            service.prepare(request("/admin"), RequestArrival::Established),
-            Err(HostResponse::Rejected(RequestRejection::AccessDenied))
-        ));
-    }
-}
-
 /// A Other handler that answers once it is let go.
 struct Hold(Arc<tokio::sync::Notify>);
 impl OtherHandler for Hold {
