@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use crate::{RouteBody, empty_body};
+use async_trait::async_trait;
 use claviron_runtime::AppState;
 use claviron_runtime::registry::Result;
 use http::{HeaderMap, Request};
@@ -98,10 +98,20 @@ fn registry_rejects_invalid_and_duplicate_exact_routes() {
 fn host_snapshot_keeps_exact_paths_and_its_prepared_generation() {
     let registry = H1UpgradeRegistry::default();
     let host: claviron_types::Host = "example.test".parse().unwrap();
-    registry.register_handler(host.clone(), "/socket", Arc::new(TestHandler)).unwrap();
-    registry.register_handler_for_host("other.test", "/other", Arc::new(TestHandler)).unwrap();
+    registry
+        .register_handler(host.clone(), "/socket", Arc::new(TestHandler))
+        .unwrap();
+    registry
+        .register_handler_for_host(
+            "other.test",
+            "/other",
+            Arc::new(TestHandler),
+        )
+        .unwrap();
     let snapshot = registry.snapshot_for_host(&host);
-    registry.register_handler(host.clone(), "/later", Arc::new(TestHandler)).unwrap();
+    registry
+        .register_handler(host.clone(), "/later", Arc::new(TestHandler))
+        .unwrap();
     assert_eq!(snapshot.len(), 1);
     assert!(snapshot.contains_key("/socket"));
     assert!(!snapshot.contains_key("/socket/child"));

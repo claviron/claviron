@@ -4,7 +4,10 @@ use claviron_php_embed::{PhpApplicationAdapter, PhpApplicationService};
 
 struct Application(PhpApplicationAdapter);
 
-pub(super) fn prepare(state: &AppState, runtime: PhpRuntime) -> Arc<dyn DispatchStep> {
+pub(super) fn prepare(
+    state: &AppState,
+    runtime: PhpRuntime,
+) -> Arc<dyn DispatchStep> {
     let adapter = runtime.application.as_ref().and_then(|name| {
         let service = state.registry_ref().resolve::<PhpApplicationService>()?;
         let adapter = match PhpApplicationAdapter::new(service, name).environment(state, &runtime) {
@@ -28,7 +31,10 @@ pub(super) fn prepare(state: &AppState, runtime: PhpRuntime) -> Arc<dyn Dispatch
 }
 
 impl DispatchStep for Application {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         let adapter = self.0.clone();
         DispatchFuture::new(async move {
             match adapter.handle(request).await {

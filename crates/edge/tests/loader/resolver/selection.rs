@@ -1,6 +1,6 @@
 use super::*;
 use crate::pipeline::other::{OtherHandler, OtherService};
-use crate::pipeline::{Admission, RustRouter, HostApp, HostAppSnapshot};
+use crate::pipeline::{Admission, HostApp, HostAppSnapshot, RustRouter};
 use crate::service::{
     VhostBindings, VhostCtx, resolve_request_authority, resolve_sni_from_table,
 };

@@ -68,9 +68,13 @@ impl ExchangeLayer {
             && self.actions.unset.is_empty()
     }
 
-    pub(crate) fn same_as(&self, other: &Self) -> bool {
+    pub(crate) fn same_as(
+        &self,
+        other: &Self,
+    ) -> bool {
         let (a, b) = (&self.actions, &other.actions);
-        a.set == b.set && a.unset == b.unset
+        a.set == b.set
+            && a.unset == b.unset
             && match (&a.cors, &b.cors) {
                 (None, None) => true,
                 (Some(a), Some(b)) => {
@@ -105,7 +109,11 @@ impl ExchangeLayer {
                 }
             });
             layer.after(move |head, state| {
-                cors::finish(&cors, state.as_mut().origin.as_ref(), &mut head.headers);
+                cors::finish(
+                    &cors,
+                    state.as_mut().origin.as_ref(),
+                    &mut head.headers,
+                );
             });
         }
         if !self.actions.set.is_empty() || !self.actions.unset.is_empty() {
@@ -125,7 +133,10 @@ impl ExchangeLayer {
 }
 
 impl<S: AsMut<ExchangeState>> HostLayer<S> for ExchangeLayer {
-    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
         self.register(layer);
         Ok(())
     }

@@ -10,9 +10,9 @@ use crate::service::{HostResponse, RequestRejection};
 
 mod prepare;
 
-use prepare::RegisteredQuota;
 pub use prepare::HostQuotas;
 pub(crate) use prepare::QuotaRegistrations;
+use prepare::RegisteredQuota;
 
 /// The committed admission snapshot, retained without a second store read.
 #[derive(Default)]
@@ -47,12 +47,14 @@ impl QuotaPolicy {
     }
 
     pub(crate) fn from_rules(
-        rules: Arc<[(PathPrefix, RegisteredQuota)]>,
+        rules: Arc<[(PathPrefix, RegisteredQuota)]>
     ) -> Self {
         Self { rules }
     }
 
-    pub(crate) fn into_pipeline(self) -> HostPipeline<QuotaState, HostResponse> {
+    pub(crate) fn into_pipeline(
+        self
+    ) -> HostPipeline<QuotaState, HostResponse> {
         let mut layer = HostLayerBuilder::default();
         self.register(&mut layer);
         HostPipelineBuilder { layers: vec![layer] }.build()
@@ -96,7 +98,10 @@ impl QuotaPolicy {
         }
     }
 
-    fn select(&self, path: &str) -> Option<&(PathPrefix, RegisteredQuota)> {
+    fn select(
+        &self,
+        path: &str,
+    ) -> Option<&(PathPrefix, RegisteredQuota)> {
         self.rules.iter().find(|(prefix, _)| prefix.has_path_segment(path))
     }
 }

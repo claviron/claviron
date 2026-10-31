@@ -226,6 +226,8 @@ where
 pub use claviron_types::Host;
 pub use config::HostConfig;
 #[cfg(feature = "server")]
+pub use pipeline::Routable;
+#[cfg(feature = "server")]
 pub use pipeline::other::{OtherHandler, OtherService};
 #[cfg(feature = "server")]
 pub use pipeline::{
@@ -246,8 +248,6 @@ pub use pipeline::{
     WebTransportBinding, WebTransportHandler, WebTransportRegistry,
     WebTransportReject, WebTransportResult, webtransport_session_ended,
 };
-#[cfg(feature = "server")]
-pub use pipeline::Routable;
 
 #[cfg(feature = "quic")]
 pub mod quic;

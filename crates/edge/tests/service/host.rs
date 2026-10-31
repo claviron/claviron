@@ -97,8 +97,16 @@ fn noop(
     service(protocol, config, RustRouter::Other(OtherService::Noop))
 }
 
-fn noop_with_access(protocol: HttpProtocol, config: &str) -> (HostService, Arc<VhostResolver>) {
-    service_with_limits_and_access(protocol, config, RustRouter::Other(OtherService::Noop), RequestPolicy::unlimited())
+fn noop_with_access(
+    protocol: HttpProtocol,
+    config: &str,
+) -> (HostService, Arc<VhostResolver>) {
+    service_with_limits_and_access(
+        protocol,
+        config,
+        RustRouter::Other(OtherService::Noop),
+        RequestPolicy::unlimited(),
+    )
 }
 
 pub(super) fn request(path: &str) -> Request<()> {
@@ -747,7 +755,12 @@ async fn acl_reload_reaches_existing_bindings_before_axum_or_other_dispatch() {
             RustRouter::Axum(router),
             RustRouter::Other(OtherService::Handler(Arc::new(Echo))),
         ] {
-            let (service, resolver) = service_with_limits_and_access(protocol, "", app, RequestPolicy::unlimited());
+            let (service, resolver) = service_with_limits_and_access(
+                protocol,
+                "",
+                app,
+                RequestPolicy::unlimited(),
+            );
             let old = service
                 .prepare(request("/admin"), RequestArrival::Established)
                 .unwrap();
@@ -884,7 +897,8 @@ fn acl_uses_this_requests_trusted_ip_and_never_polls_a_body() {
 
 #[tokio::test]
 async fn invalid_reload_retains_the_enforced_acl() {
-    let (service, access) = noop_with_access(HttpProtocol::H2, "acl: {'/admin': {policy: deny}}");
+    let (service, access) =
+        noop_with_access(HttpProtocol::H2, "acl: {'/admin': {policy: deny}}");
     let dir = tempfile::tempdir().unwrap();
     let state = claviron_runtime::AppState::standalone("acl-test", dir.path());
     std::fs::create_dir_all(state.config_dir()).unwrap();
@@ -974,14 +988,18 @@ async fn admission_holds_on_the_other_path() {
     use crate::pipeline::{Admission, HostApp};
     let exchange_config: crate::HostConfig = serde_yaml::from_str(
         "root: public\ncors: permissive\nheaders: {set: {x-policy: edge}}",
-    ).unwrap();
+    )
+    .unwrap();
     let release = Arc::new(tokio::sync::Notify::new());
     let app = HostApp {
         app: RustRouter::Other(OtherService::Handler(Arc::new(Hold(
             Arc::clone(&release),
         )))),
         admission: Admission::limited(Some(1)),
-        exchange_policy: crate::pipeline::host::ExchangePolicy::compile(&exchange_config, None),
+        exchange_policy: crate::pipeline::host::ExchangePolicy::compile(
+            &exchange_config,
+            None,
+        ),
         server_header: None,
         #[cfg(feature = "rate-limit")]
         quotas: None,
@@ -995,9 +1013,9 @@ async fn admission_holds_on_the_other_path() {
     let service = service_with_limits(HttpProtocol::H1, "", app, listener);
     let send = |service: &HostService| {
         let mut request = request("/");
-        request.headers_mut().insert(
-            header::ORIGIN, "https://client.test".parse().unwrap(),
-        );
+        request
+            .headers_mut()
+            .insert(header::ORIGIN, "https://client.test".parse().unwrap());
         let prepared =
             service.prepare(request, RequestArrival::Established).unwrap();
         tokio::spawn(
@@ -1014,6 +1032,9 @@ async fn admission_holds_on_the_other_path() {
     ] {
         assert_eq!(response.status(), expected);
         assert_eq!(response.headers()["x-policy"], "edge");
-        assert_eq!(response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN], "*");
+        assert_eq!(
+            response.headers()[header::ACCESS_CONTROL_ALLOW_ORIGIN],
+            "*"
+        );
     }
 }

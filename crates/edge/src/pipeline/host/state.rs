@@ -7,12 +7,12 @@ use claviron_http::authority::RequestAuthority;
 use claviron_http::ext::ConnCtx;
 
 use super::*;
+use crate::VhostResolver;
 use crate::deny::{DenyCheckedRequest, DenyService};
 use crate::pipeline::host::PolicySnapshot;
 use crate::service::{
     HostIngress, HostResponse, RequestArrival, RequestRejection, VhostCtx,
 };
-use crate::VhostResolver;
 
 /// Independent phase state for one native request, never a shared extension map.
 pub struct HostRequestState {
@@ -80,9 +80,12 @@ impl HostPipeline<HostRequestState, HostResponse> {
         IdentityPolicy::new(connection.clone(), host, ingress.proxy.clone())
             .register(&mut identity_layer);
         let mut access_layer = HostLayerBuilder::default();
-        AccessPolicy::new(access, host.vhost_key.clone()).register(&mut access_layer);
-        HostPipelineBuilder { layers: vec![ingress_layer, identity_layer, access_layer] }
-            .build()
+        AccessPolicy::new(access, host.vhost_key.clone())
+            .register(&mut access_layer);
+        HostPipelineBuilder {
+            layers: vec![ingress_layer, identity_layer, access_layer],
+        }
+        .build()
     }
 
     /// The native plan is head-only. Resume quota admission and dispatch with
@@ -101,7 +104,12 @@ impl HostPipeline<HostRequestState, HostResponse> {
             .identity
             .connection
             .ok_or(RequestRejection::MissingIdentity)?;
-        Ok(IdentifiedRequest { head, body, connection, access: state.access.snapshot })
+        Ok(IdentifiedRequest {
+            head,
+            body,
+            connection,
+            access: state.access.snapshot,
+        })
     }
 
     pub(crate) fn admit_checked<B>(

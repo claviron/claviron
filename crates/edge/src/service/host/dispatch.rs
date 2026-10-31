@@ -93,7 +93,7 @@ impl PreparedRequest<RouteBody> {
     /// compiling an Axum alternative or introducing another future box.
     #[cfg(all(feature = "tcp", not(feature = "axum")))]
     pub(crate) fn into_tcp_future(
-        self,
+        self
     ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send {
         let (RustRouter::Other(service), request) = self.into_dispatch();
         request.dispatch(service).map(Ok)

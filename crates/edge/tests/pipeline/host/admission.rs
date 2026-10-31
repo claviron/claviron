@@ -12,12 +12,15 @@ fn admission_without_capacity_or_deadline_needs_no_runtime_or_backend_probe() {
             queue_timeout: Some(Duration::from_secs(1)),
             ..RequestPolicy::unlimited()
         });
-        assert_eq!(policy.head_timeout_for(|| panic!("no head timing probe")), None);
+        assert_eq!(
+            policy.head_timeout_for(|| panic!("no head timing probe")),
+            None
+        );
         policy.enter(&admission)
     };
     let mut entering = pin!(entering);
-    let Poll::Ready(Some(_place)) = entering.as_mut()
-        .poll(&mut Context::from_waker(Waker::noop()))
+    let Poll::Ready(Some(_place)) =
+        entering.as_mut().poll(&mut Context::from_waker(Waker::noop()))
     else {
         panic!("unlimited capacity must not wait or create a queue timer");
     };
@@ -32,10 +35,13 @@ fn prepared_head_deadline_keeps_backend_timing_ownership() {
     });
     let probes = Cell::new(0);
     for owns in [false, true] {
-        assert_eq!(policy.head_timeout_for(|| {
-            probes.set(probes.get() + 1);
-            owns
-        }), if owns { None } else { Some(deadline) });
+        assert_eq!(
+            policy.head_timeout_for(|| {
+                probes.set(probes.get() + 1);
+                owns
+            }),
+            if owns { None } else { Some(deadline) }
+        );
     }
     assert_eq!(probes.get(), 2);
 }

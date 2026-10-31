@@ -1,14 +1,18 @@
 //! Host-owned directive compilation and native request effects.
 
-use claviron_runtime::{AppState, registry::{Error, Result}};
+use claviron_runtime::{
+    AppState,
+    registry::{Error, Result},
+};
 use claviron_types::Host;
 use serde::de::DeserializeOwned;
 use std::sync::Arc;
 
-use crate::HostConfig;
 pub use super::host::{
-    HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest, HostLayerBuilder,
+    HostHandler, HostHandlerFuture, HostHandlerResult, HostLayerBuilder,
+    HostRequest,
 };
+use crate::HostConfig;
 pub use claviron_http::dispatch::{RouteCondition, RuleContext};
 
 pub struct RouteContext<'a> {
@@ -33,7 +37,10 @@ pub enum RouteEffect {
 /// Compile a declared route policy into native head/response actions.
 /// Called only at boot/reload. No Router, request or body is supplied here.
 pub trait RouteLayer: Send + Sync {
-    fn prepare(&self, layer: &mut HostLayerBuilder) -> crate::Result<()>;
+    fn prepare(
+        &self,
+        layer: &mut HostLayerBuilder,
+    ) -> crate::Result<()>;
 }
 
 /// Provider-owned configuration codec, resolved while preparing a host.
@@ -42,7 +49,9 @@ pub trait RouteExtension: Send + Sync {
 
     /// Inherit a host-level layer unless a route overrides this directive.
     /// Inherited effects must be Layer; fallback scopes keep the host policy.
-    fn inherit_from_host(&self) -> bool { false }
+    fn inherit_from_host(&self) -> bool {
+        false
+    }
 
     fn resolve(
         &self,
@@ -61,7 +70,9 @@ where
     F: Fn(&RouteContext<'_>, C) -> Result<RouteEffect> + Send + Sync + 'static,
 {
     Arc::new(TypedDirective {
-        name, compile, config: std::marker::PhantomData::<fn() -> C>,
+        name,
+        compile,
+        config: std::marker::PhantomData::<fn() -> C>,
     })
 }
 
@@ -76,16 +87,22 @@ where
     C: DeserializeOwned,
     F: Fn(&RouteContext<'_>, C) -> Result<RouteEffect> + Send + Sync,
 {
-    fn name(&self) -> &'static str { self.name }
+    fn name(&self) -> &'static str {
+        self.name
+    }
 
     fn resolve(
-        &self, context: &RouteContext<'_>, source: &serde_yaml::Value,
+        &self,
+        context: &RouteContext<'_>,
+        source: &serde_yaml::Value,
     ) -> Result<RouteEffect> {
-        let config = serde_yaml::from_value(source.clone()).map_err(|error| {
-            Error::msg(format!(
-                "route '{}' directive '{}': {error}", context.prefix, self.name,
-            ))
-        })?;
+        let config =
+            serde_yaml::from_value(source.clone()).map_err(|error| {
+                Error::msg(format!(
+                    "route '{}' directive '{}': {error}",
+                    context.prefix, self.name,
+                ))
+            })?;
         (self.compile)(context, config)
     }
 }

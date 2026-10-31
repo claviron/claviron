@@ -1,12 +1,12 @@
 //! Native ordinary-request execution around one already selected application.
 
-use std::sync::Arc;
 use std::future::Future;
+use std::sync::Arc;
 
-use claviron_http::{RouteBody, RouteResponse};
 use claviron_http::admission::Admission;
 use claviron_http::config::HttpPolicy;
 use claviron_http::ext::ConnCtx;
+use claviron_http::{RouteBody, RouteResponse};
 use http::{Request, StatusCode};
 
 use super::{ApplicationHandler, ExchangeState, HostPolicy};
@@ -60,7 +60,10 @@ impl HostExecution {
         // This request's access record, when `logging.yaml` asks for them:
         // made here because everything a host serves passes here once.
         #[cfg(feature = "access-log")]
-        let mut access = self.host.access_log.as_ref()
+        let mut access = self
+            .host
+            .access_log
+            .as_ref()
             .map(|policy| policy.begin(&self.request, &self.connection))
             .unwrap_or_default();
         // Retain the admitted host and connection even without access logging.
@@ -72,14 +75,15 @@ impl HostExecution {
         let mut request = self.request;
         // Borrow the pinned policy: no per-request Arc clone, and absent
         // configuration means no policy selection or CORS/header processing.
-        let (early_reply, exchange) = match self.exchange_policy.as_ref()
+        let (early_reply, exchange) = match self
+            .exchange_policy
+            .as_ref()
             .and_then(|policy| policy.select(request.uri().path()))
         {
             Some(pipeline) => {
                 let (mut head, body) = request.into_parts();
-                let (reply, scope) = pipeline.prepare_head(
-                    &mut head, ExchangeState::default(),
-                );
+                let (reply, scope) =
+                    pipeline.prepare_head(&mut head, ExchangeState::default());
                 request = Request::from_parts(head, body);
                 (reply, Some(scope))
             }
@@ -97,7 +101,8 @@ impl HostExecution {
         // the time to the reply's head. The listener's and the host's values,
         // narrowed; the runner behind may narrow them again for its own queue
         // and its own head. Unwritten, neither is kept.
-        let Some(_place) = context.0.admission_policy.enter(&self.admission).await
+        let Some(_place) =
+            context.0.admission_policy.enter(&self.admission).await
         else {
             #[cfg(feature = "access-log")]
             access.replied(StatusCode::SERVICE_UNAVAILABLE);
@@ -113,7 +118,9 @@ impl HostExecution {
         #[cfg(feature = "access-log")]
         access.admitted();
         // Head-timing ownership is irrelevant when no timeout was declared.
-        let head_timeout = context.0.admission_policy
+        let head_timeout = context
+            .0
+            .admission_policy
             .head_timeout_for(|| timing_owner(&owner));
         let answering = async move {
             if let Some(response) = early_reply {

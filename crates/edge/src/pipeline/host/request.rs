@@ -31,11 +31,14 @@ impl<S, R> HostPipeline<S, R> {
             if let ControlFlow::Break(response) =
                 (step.action)(head, &mut state)
             {
-                return (Some(response), PreparedResponse {
-                    pipeline: self,
-                    state,
-                    scope: step.scope,
-                });
+                return (
+                    Some(response),
+                    PreparedResponse {
+                        pipeline: self,
+                        state,
+                        scope: step.scope,
+                    },
+                );
             }
         }
         (None, PreparedResponse { pipeline: self, state, scope: self.complete })

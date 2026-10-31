@@ -10,18 +10,30 @@ use crate::pipeline::other::OtherHandler;
 
 #[test]
 fn rest_namespaces_do_not_claim_unrelated_paths() {
-    let publish = Endpoints::Publish(HashSet::from(["/apps/example/events".into()]));
-    for path in ["/apps/example", "/apps/example/events/", "/apps/other/events", "/assets/app.js"] {
+    let publish =
+        Endpoints::Publish(HashSet::from(["/apps/example/events".into()]));
+    for path in [
+        "/apps/example",
+        "/apps/example/events/",
+        "/apps/other/events",
+        "/assets/app.js",
+    ] {
         assert!(!publish.accepts(path), "{path}");
     }
     assert!(publish.accepts("/apps/example/events"));
 
     for (path, accepted) in [
-        ("/app/example", true), ("/apps/example", true),
-        ("/apps/example/events", true), ("/apps/example/channels/one", true),
-        ("/app/", false), ("/app/example/extra", false),
-        ("/apps/", false), ("/apps/example/", false),
-        ("/application/example", false), ("/assets/app.js", false), ("app/example", false),
+        ("/app/example", true),
+        ("/apps/example", true),
+        ("/apps/example/events", true),
+        ("/apps/example/channels/one", true),
+        ("/app/", false),
+        ("/app/example/extra", false),
+        ("/apps/", false),
+        ("/apps/example/", false),
+        ("/application/example", false),
+        ("/assets/app.js", false),
+        ("app/example", false),
     ] {
         assert_eq!(Endpoints::Http.accepts(path), accepted, "{path}");
     }
@@ -30,7 +42,10 @@ fn rest_namespaces_do_not_claim_unrelated_paths() {
 struct Echo(Arc<AtomicUsize>);
 
 impl OtherHandler for Echo {
-    fn call(&self, request: Request<RouteBody>) -> RouteFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> RouteFuture {
         self.0.fetch_add(1, Ordering::Relaxed);
         let mut response = RouteResponse::new(request.into_body());
         *response.status_mut() = StatusCode::NOT_FOUND;
@@ -42,14 +57,20 @@ impl OtherHandler for Echo {
 async fn rest_claims_only_its_paths_and_never_reinterprets_a_handled_404() {
     let calls = Arc::new(AtomicUsize::new(0));
     let rest = Rest {
-        endpoints: Endpoints::Publish(HashSet::from(["/apps/example/events".into()])),
+        endpoints: Endpoints::Publish(HashSet::from([
+            "/apps/example/events".into()
+        ])),
         owner: OtherService::new(Echo(calls.clone())),
     };
-    for (uri, handled) in [("/assets/app.js", false), ("/apps/example/events?x=1", true)] {
+    for (uri, handled) in
+        [("/assets/app.js", false), ("/apps/example/events?x=1", true)]
+    {
         let payload = Bytes::from(vec![0, 255, 13, 10]);
         let address = payload.as_ptr();
-        let request = Request::builder().uri(uri)
-            .body(claviron_http::bytes_body(payload)).unwrap();
+        let request = Request::builder()
+            .uri(uri)
+            .body(claviron_http::bytes_body(payload))
+            .unwrap();
         let body = match rest.call(request).await {
             ServiceResult::Handled(response) => {
                 assert!(handled);

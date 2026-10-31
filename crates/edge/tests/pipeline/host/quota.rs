@@ -60,39 +60,52 @@ fn quota_layer_shares_debt_and_cancellation_does_not_refund_admission() {
             .uri("/public?raw=%2F")
             .body(BodyOwner { drops: drops.clone() })
             .unwrap();
-        request.extensions_mut()
+        request
+            .extensions_mut()
             .insert(RealIpExt("192.0.2.1".parse().unwrap()));
         request
     };
     let mut head = request().into_parts().0;
     // The custom layer and native admission share the existing authority.
-    assert_eq!(quotas.check(&mut head).unwrap(), Some(Snapshot { limit: 1, remaining: 0 }));
-    let ServiceResult::Handled(reply) = pipeline.prepare_with_state(
-        request(), QuotaState::default(),
-    ) else {
+    assert_eq!(
+        quotas.check(&mut head).unwrap(),
+        Some(Snapshot { limit: 1, remaining: 0 })
+    );
+    let ServiceResult::Handled(reply) =
+        pipeline.prepare_with_state(request(), QuotaState::default())
+    else {
         panic!("a second plan must not create a fresh budget");
     };
-    assert_eq!(reply.response.into_response().status(), http::StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        reply.response.into_response().status(),
+        http::StatusCode::TOO_MANY_REQUESTS
+    );
     assert_eq!(drops.load(Ordering::Relaxed), 2);
 
     let quotas = self::quotas();
     let pipeline = QuotaPolicy::new(&quotas).into_pipeline();
     drop(quotas);
-    let ServiceResult::Unhandled(prepared) = pipeline.prepare_with_state(
-        request(), QuotaState::default(),
-    ) else {
+    let ServiceResult::Unhandled(prepared) =
+        pipeline.prepare_with_state(request(), QuotaState::default())
+    else {
         panic!("the prepared plan must own its store independently");
     };
-    assert_eq!(prepared.state.snapshot(), Some(Snapshot { limit: 1, remaining: 0 }));
+    assert_eq!(
+        prepared.state.snapshot(),
+        Some(Snapshot { limit: 1, remaining: 0 })
+    );
     assert_eq!(prepared.head().uri, "/public?raw=%2F");
     assert_eq!(drops.load(Ordering::Relaxed), 2);
     drop(prepared);
     assert_eq!(drops.load(Ordering::Relaxed), 3);
-    let ServiceResult::Handled(reply) = pipeline.prepare_with_state(
-        request(), QuotaState::default(),
-    ) else {
+    let ServiceResult::Handled(reply) =
+        pipeline.prepare_with_state(request(), QuotaState::default())
+    else {
         panic!("cancelling an admitted request must not refund its charge");
     };
-    assert_eq!(reply.response.into_response().status(), http::StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        reply.response.into_response().status(),
+        http::StatusCode::TOO_MANY_REQUESTS
+    );
     assert_eq!(drops.load(Ordering::Relaxed), 4);
 }

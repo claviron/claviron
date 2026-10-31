@@ -45,10 +45,17 @@ pub struct RouteDispatch<H> {
 impl<H> RouteDispatch<H> {
     /// Select once by longest segment prefix, then check only that entry.
     /// The returned borrow belongs to the table, not to the request head.
-    pub fn select(&self, request: &RuleContext<'_>) -> &H {
+    pub fn select(
+        &self,
+        request: &RuleContext<'_>,
+    ) -> &H {
         match self.entries.find(request.uri.path()) {
             Some(route) => {
-                if route.conditions.iter().all(|condition| condition.accepts(request)) {
+                if route
+                    .conditions
+                    .iter()
+                    .all(|condition| condition.accepts(request))
+                {
                     &route.pipeline
                 } else {
                     &self.rejected

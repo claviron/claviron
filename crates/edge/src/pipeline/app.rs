@@ -9,16 +9,18 @@ use http::Request;
 use std::future::Future;
 use tower::ServiceExt;
 
-use super::other::{OtherHandler, OtherService};
 use super::host::{
-    ApplicationHandler, HostHandler,
-    HostHandlerFuture, HostRequest,
+    ApplicationHandler, HostHandler, HostHandlerFuture, HostRequest,
 };
+use super::other::{OtherHandler, OtherService};
 
 struct AxumApplication(Router);
 
 impl OtherHandler for AxumApplication {
-    fn call(&self, request: Request<RouteBody>) -> RouteFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> RouteFuture {
         Box::pin(ApplicationHandler::call(self.0.clone(), request).map(Ok))
     }
 }
@@ -28,11 +30,16 @@ pub(crate) fn owner(router: Router) -> OtherService {
 }
 
 impl ApplicationHandler for Router {
-    fn call(self, request: Request<RouteBody>) -> impl Future<Output = RouteResponse> + Send {
-        self.oneshot(request.map(axum::body::Body::new)).map(|reply| match reply {
-            Ok(response) => claviron_http::from_axum_response(response),
-            Err(never) => match never {},
-        })
+    fn call(
+        self,
+        request: Request<RouteBody>,
+    ) -> impl Future<Output = RouteResponse> + Send {
+        self.oneshot(request.map(axum::body::Body::new)).map(
+            |reply| match reply {
+                Ok(response) => claviron_http::from_axum_response(response),
+                Err(never) => match never {},
+            },
+        )
     }
 }
 
@@ -43,9 +50,14 @@ pub fn application(router: Router) -> Arc<dyn HostHandler> {
 }
 
 impl HostHandler for AxumApplication {
-    fn call(&self, request: HostRequest) -> HostHandlerFuture {
-        Box::pin(ApplicationHandler::call(self.0.clone(), request.into_request())
-            .map(ServiceResult::Handled))
+    fn call(
+        &self,
+        request: HostRequest,
+    ) -> HostHandlerFuture {
+        Box::pin(
+            ApplicationHandler::call(self.0.clone(), request.into_request())
+                .map(ServiceResult::Handled),
+        )
     }
 }
 

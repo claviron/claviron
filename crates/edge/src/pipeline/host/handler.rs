@@ -42,7 +42,8 @@ impl HostRequest {
 }
 
 pub type HostHandlerResult = ServiceResult<RouteResponse, HostRequest>;
-pub type HostHandlerFuture = Pin<Box<dyn Future<Output = HostHandlerResult> + Send>>;
+pub type HostHandlerFuture =
+    Pin<Box<dyn Future<Output = HostHandlerResult> + Send>>;
 
 /// A prepared Rust host handler.
 ///
@@ -51,7 +52,10 @@ pub type HostHandlerFuture = Pin<Box<dyn Future<Output = HostHandlerResult> + Se
 /// another application. Runtime heterogeneous registration erases each active
 /// application's future here; absent contributions install no stage.
 pub trait HostHandler: Send + Sync + 'static {
-    fn call(&self, request: HostRequest) -> HostHandlerFuture;
+    fn call(
+        &self,
+        request: HostRequest,
+    ) -> HostHandlerFuture;
 }
 
 struct Composition<H> {
@@ -82,10 +86,16 @@ impl<H> Clone for ApplicationStage<H> {
 }
 
 impl<H> ApplicationStage<H> {
-    pub fn new(backend: H, applications: Vec<Arc<dyn HostHandler>>) -> Self {
-        Self { inner: Arc::new(Composition {
-            applications: applications.into_boxed_slice(), backend,
-        }) }
+    pub fn new(
+        backend: H,
+        applications: Vec<Arc<dyn HostHandler>>,
+    ) -> Self {
+        Self {
+            inner: Arc::new(Composition {
+                applications: applications.into_boxed_slice(),
+                backend,
+            }),
+        }
     }
 }
 
@@ -93,7 +103,10 @@ impl<H> ApplicationStage<H>
 where
     H: ApplicationHandler + Clone + Sync + 'static,
 {
-    pub fn handle(self, request: Request<RouteBody>) -> impl Future<Output = RouteResponse> + Send {
+    pub fn handle(
+        self,
+        request: Request<RouteBody>,
+    ) -> impl Future<Output = RouteResponse> + Send {
         // The async traversal owns a concrete call; it clones the terminal
         // only after every host handler has returned the original request.
         self.execute(request, H::call)
@@ -101,7 +114,11 @@ where
 }
 
 impl<H: Clone + Send + Sync + 'static> ApplicationStage<H> {
-    async fn execute<C, F>(self, request: Request<RouteBody>, call: C) -> RouteResponse
+    async fn execute<C, F>(
+        self,
+        request: Request<RouteBody>,
+        call: C,
+    ) -> RouteResponse
     where
         C: FnOnce(H, Request<RouteBody>) -> F + Send,
         F: Future<Output = RouteResponse> + Send,
@@ -121,7 +138,10 @@ impl<H> ApplicationHandler for ApplicationStage<H>
 where
     H: ApplicationHandler + Clone + Sync + 'static,
 {
-    fn call(self, request: Request<RouteBody>) -> impl Future<Output = RouteResponse> + Send {
+    fn call(
+        self,
+        request: Request<RouteBody>,
+    ) -> impl Future<Output = RouteResponse> + Send {
         self.handle(request)
     }
 }
@@ -130,7 +150,10 @@ impl<H> OtherHandler for ApplicationStage<H>
 where
     H: ApplicationHandler + Clone + Sync + 'static,
 {
-    fn call(&self, request: Request<RouteBody>) -> RouteFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> RouteFuture {
         Box::pin(self.clone().handle(request).map(Ok))
     }
 }

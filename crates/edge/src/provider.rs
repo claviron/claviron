@@ -195,8 +195,6 @@ pub fn register_http_config_with_capabilities(
     state: &AppState,
     capabilities: ListenerCapabilities,
 ) -> claviron_runtime::registry::Result<()> {
-    #[cfg(feature = "axum")]
-    claviron_http::routing::register(state)?;
     state.bind_config_environment::<HttpConfigProvider>()?;
     let config = HttpConfigProvider::with_capabilities(
         http_config_path(state),

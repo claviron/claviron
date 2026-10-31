@@ -20,9 +20,16 @@ fn host() -> VhostCtx {
     }
 }
 
-fn native_pipeline(connection: &Arc<ConnCtx>, host: &VhostCtx, ingress: &HostIngress) -> HostPipeline<HostRequestState, crate::service::HostResponse> {
+fn native_pipeline(
+    connection: &Arc<ConnCtx>,
+    host: &VhostCtx,
+    ingress: &HostIngress,
+) -> HostPipeline<HostRequestState, crate::service::HostResponse> {
     let access = Arc::new(crate::VhostResolver::default());
-    access.upsert_host(host.vhost_key.0.as_ref().clone(), host.vhost_config.clone());
+    access.upsert_host(
+        host.vhost_key.0.as_ref().clone(),
+        host.vhost_config.clone(),
+    );
     HostPipeline::for_host(connection, host, ingress, access)
 }
 
@@ -182,7 +189,10 @@ fn host_identity_follows_ingress_and_keeps_single_body_ownership() {
     ) else {
         panic!("deny must reject before identity")
     };
-    assert_eq!(reply.response, crate::service::HostResponse::Rejected(RequestRejection::PathDenied));
+    assert_eq!(
+        reply.response,
+        crate::service::HostResponse::Rejected(RequestRejection::PathDenied)
+    );
     assert!(reply.state.identity().connection().is_none());
     assert_eq!(dropped.load(Ordering::Relaxed), 2);
     drop(reply);

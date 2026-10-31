@@ -12,10 +12,12 @@ use std::sync::{Arc, RwLock};
 
 use crate::ext::ConnCtx;
 use crate::session::SessionSpawner;
+use crate::{
+    RouteBody, RouteResponse, ServiceResult, bytes_body, empty_body, err_status,
+};
 use async_trait::async_trait;
 #[cfg(feature = "axum")]
 use axum::{body::Body, extract::State, middleware::Next};
-use crate::{RouteBody, RouteResponse, ServiceResult, bytes_body, empty_body, err_status};
 use claviron_runtime::AppState;
 use claviron_runtime::registry::{Error, Result};
 use claviron_types::Host;
@@ -236,8 +238,14 @@ pub struct H1UpgradeRegistry {
 impl H1UpgradeRegistry {
     /// Capture one host's exact endpoints while preparing its connection plan.
     /// Native dispatch borrows this immutable map without a registry lock.
-    pub fn snapshot_for_host(&self, host: &Host) -> HashMap<Arc<str>, H1UpgradeBinding> {
-        self.routes.read().expect("h1 upgrade registry lock poisoned").iter()
+    pub fn snapshot_for_host(
+        &self,
+        host: &Host,
+    ) -> HashMap<Arc<str>, H1UpgradeBinding> {
+        self.routes
+            .read()
+            .expect("h1 upgrade registry lock poisoned")
+            .iter()
             .filter(|(key, _)| &key.host == host)
             .map(|(key, binding)| (key.path.clone(), binding.clone()))
             .collect()
@@ -338,9 +346,18 @@ pub async fn h1_upgrade_middleware(
         return next.run(req).await;
     };
 
-    match try_h1_upgrade(state.app_state, state.host, binding, req.map(crate::boxed_body)).await {
+    match try_h1_upgrade(
+        state.app_state,
+        state.host,
+        binding,
+        req.map(crate::boxed_body),
+    )
+    .await
+    {
         ServiceResult::Handled(response) => crate::into_axum_response(response),
-        ServiceResult::Unhandled(request) => next.run(request.map(Body::new)).await,
+        ServiceResult::Unhandled(request) => {
+            next.run(request.map(Body::new)).await
+        }
     }
 }
 
@@ -364,7 +381,9 @@ pub async fn try_h1_upgrade(
             handler = handler.name(),
             "H1 upgrade request missing connection context"
         );
-        return ServiceResult::Handled(err_status(StatusCode::INTERNAL_SERVER_ERROR));
+        return ServiceResult::Handled(err_status(
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ));
     };
 
     let Some(sessions) = req.extensions().get::<SessionSpawner>().cloned()
@@ -373,7 +392,9 @@ pub async fn try_h1_upgrade(
             handler = handler.name(),
             "H1 upgrade request missing session owner"
         );
-        return ServiceResult::Handled(err_status(StatusCode::INTERNAL_SERVER_ERROR));
+        return ServiceResult::Handled(err_status(
+            StatusCode::INTERNAL_SERVER_ERROR,
+        ));
     };
 
     let ctx = H1UpgradeContext {
@@ -419,7 +440,9 @@ pub async fn try_h1_upgrade(
 
     if let Err(error) = submitted {
         debug!(handler = handler_name, %error, "H1 session hand-off rejected");
-        return ServiceResult::Handled(err_status(StatusCode::SERVICE_UNAVAILABLE));
+        return ServiceResult::Handled(err_status(
+            StatusCode::SERVICE_UNAVAILABLE,
+        ));
     }
 
     ServiceResult::Handled(response)

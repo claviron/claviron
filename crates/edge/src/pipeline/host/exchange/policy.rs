@@ -78,7 +78,10 @@ impl ExchangePolicy {
 }
 
 impl ExchangeRules {
-    fn same_as(&self, other: &Self) -> bool {
+    fn same_as(
+        &self,
+        other: &Self,
+    ) -> bool {
         self.layer.same_as(&other.layer)
     }
     fn compile(
@@ -124,8 +127,8 @@ impl ExchangeRules {
         set.sort_unstable_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
         unset.sort_unstable_by(|a, b| a.as_str().cmp(b.as_str()));
         let layer = ExchangeLayer::new(cors.cloned(), set, unset);
-        let pipeline = (!layer.is_empty())
-            .then(|| layer.clone().into_pipeline());
+        let pipeline =
+            (!layer.is_empty()).then(|| layer.clone().into_pipeline());
         Self { layer, pipeline }
     }
 }

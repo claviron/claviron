@@ -5,8 +5,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use claviron_edge::pipeline::host::{
+    HostHandler, HostHandlerFuture, HostRequest,
+};
 use claviron_edge::{Host, HostConfig, Routable, VhostDocument};
-use claviron_edge::pipeline::host::{HostHandler, HostHandlerFuture, HostRequest};
 use claviron_http::ServiceResult;
 use claviron_runtime::congif::{self, ConfigFile, ConfigStore, Configurable};
 use claviron_runtime::registry::{Component, Reloadable};
@@ -153,7 +155,9 @@ impl Routable for BenchService {
         _host: Arc<HostConfig>,
     ) -> registry::Result<Option<Arc<dyn HostHandler>>> {
         Ok(Some(Arc::new(BenchRoutes {
-            handler: claviron_edge::pipeline::app::application(crate::bench::routes()),
+            handler: claviron_edge::pipeline::app::application(
+                crate::bench::routes(),
+            ),
         })))
     }
 }
@@ -163,10 +167,15 @@ struct BenchRoutes {
 }
 
 impl HostHandler for BenchRoutes {
-    fn call(&self, request: HostRequest) -> HostHandlerFuture {
+    fn call(
+        &self,
+        request: HostRequest,
+    ) -> HostHandlerFuture {
         let path = request.head().uri.path();
-        if path == "/bench" || path.starts_with("/bench/")
-            || path == "/_bench" || path.starts_with("/_bench/")
+        if path == "/bench"
+            || path.starts_with("/bench/")
+            || path == "/_bench"
+            || path.starts_with("/_bench/")
         {
             self.handler.call(request)
         } else {

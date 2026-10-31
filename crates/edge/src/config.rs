@@ -1,9 +1,4 @@
-//! Pure HTTP edge declarations shared without the edge runtime.
-//!
-//! This currently includes per-host configuration (`HostConfig` + sub-types).
-//! Lives below claviron-edge so downstream consumers (files, registry CLI,
-//! gRPC admin, transport drivers) can read declarations without pulling the
-//! edge runtime — and without creating cycles.
+//! Host and route declarations, independent of provider boot and backend preparation.
 
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -42,7 +37,7 @@ pub use claviron_http::policy::{
 };
 pub use claviron_http::tuning::RouterConfig;
 #[cfg(feature = "php")]
-use claviron_php::{PhpConfig, PhpRuntime};
+use claviron_php::PhpConfig;
 #[cfg(feature = "broadcast")]
 use claviron_pusher::PusherConfig;
 pub use claviron_tls::auth::{ClientAuthMode, ClientAuthPolicy};
@@ -291,56 +286,6 @@ impl HostConfig {
     ) -> bool {
         self.allows_listener(listener)
             && self.transport.allows_protocol(protocol)
-    }
-
-    /// Boot-time composition: produces effective native PHP declarations.
-    ///
-    /// Host preparation runs once per changed host, so this work is paid at
-    /// setup — not on every request. The resulting `PhpRuntime` is the
-    /// runtime-optimized, immutable shape that the request hot path
-    /// actually consumes (root + indexes resolved, env wrapped in Arc, etc).
-    ///
-    /// - `dir`: prepared route mapping, unless PHP explicitly supplies `dir`.
-    ///   URI-derived disk paths have that mapping's URL prefix removed; a
-    ///   pinned `entry_script` is already document-directory relative.
-    /// - `indexes`: route-level list wins; otherwise host's `index:`
-    ///   filtered to `.php` candidates, or `["index.php"]` as last resort.
-    ///
-    /// Build every PHP runtime declared on this host, regardless of `runner:`
-    /// kind. The native Embed compiler sorts by path-prefix length and
-    /// prepares a distinct owner for `PhpRuntime::php_runner`,
-    /// so a single host can mix `runner: script` and `runner: fcgi` routes —
-    /// most-specific match wins independent of runner.
-    #[cfg(feature = "php")]
-    pub fn build_runtimes(
-        &self,
-        state: &claviron_runtime::AppState,
-    ) -> Vec<PhpRuntime> {
-        self.php
-            .as_deref()
-            .unwrap_or(&[])
-            .iter()
-            .map(|template| {
-                let mut runtime = PhpRuntime::from_config(
-                    state,
-                    template,
-                    self.root(),
-                    self.indexes(),
-                );
-                if let Some(mapping) = &self.files.mapping {
-                    if template.dir.is_none() {
-                        runtime.dir = mapping.directory().to_path_buf();
-                    }
-                    runtime.mapping = Some(
-                        claviron_http::config::mapping::RouteMapping::new(
-                            mapping.prefix().clone(),
-                            runtime.dir.clone(),
-                        ),
-                    );
-                }
-                runtime
-            })
-            .collect()
     }
 
     pub fn indexes(&self) -> &[String] {

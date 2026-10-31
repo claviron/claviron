@@ -8,7 +8,7 @@ use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::transport::{
-    OtherHandler, OtherService, HostAppRegistry, HostAppResolver,
+    HostAppRegistry, HostAppResolver, OtherHandler, OtherService,
 };
 use bytes::Bytes;
 use claviron_http::session::SessionOwner;

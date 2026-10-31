@@ -17,17 +17,22 @@ struct State {
 }
 
 impl AsRef<IdentityState> for State {
-    fn as_ref(&self) -> &IdentityState { &self.identity }
+    fn as_ref(&self) -> &IdentityState {
+        &self.identity
+    }
 }
 
 impl AsMut<AccessLogState> for State {
-    fn as_mut(&mut self) -> &mut AccessLogState { &mut self.log }
+    fn as_mut(&mut self) -> &mut AccessLogState {
+        &mut self.log
+    }
 }
 
 #[test]
 fn explicit_access_log_opt_out_contributes_no_pipeline_actions() {
     let policy = AccessLogLayer::new(
-        HostKey(Arc::new("example.test".parse().unwrap())), Some("off"),
+        HostKey(Arc::new("example.test".parse().unwrap())),
+        Some("off"),
     );
     assert!(policy.is_none());
     let mut builder = HostPipelineBuilder::<State>::new();
@@ -61,16 +66,22 @@ fn inactive_access_record_keeps_head_and_cancellation_owned_by_the_response() {
     });
     let mut state = AccessLogState::default();
     state.admitted();
-    let mut response = RouteResponse::new(boxed_body(http_body_util::StreamBody::new(source)));
+    let mut response =
+        RouteResponse::new(boxed_body(http_body_util::StreamBody::new(source)));
     *response.status_mut() = StatusCode::CREATED;
-    response.headers_mut().insert("x-example", HeaderValue::from_static("kept"));
+    response
+        .headers_mut()
+        .insert("x-example", HeaderValue::from_static("kept"));
     let mut response = state.finish(response);
     assert_eq!(response.status(), StatusCode::CREATED);
     assert_eq!(response.headers()["x-example"], "kept");
     assert_eq!(polls.load(Ordering::Relaxed), 0);
     assert_eq!(drops.load(Ordering::Relaxed), 0);
-    assert!(Pin::new(response.body_mut())
-        .poll_frame(&mut Context::from_waker(Waker::noop())).is_pending());
+    assert!(
+        Pin::new(response.body_mut())
+            .poll_frame(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
     drop(response);
     assert_eq!(polls.load(Ordering::Relaxed), 1);
     assert_eq!(drops.load(Ordering::Relaxed), 1);

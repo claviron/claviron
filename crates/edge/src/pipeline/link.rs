@@ -20,7 +20,9 @@
 
 use std::sync::Arc;
 
-use claviron_http::{RouteBody, RouteResponse, ServiceResult, boxed_body, err_status};
+use claviron_http::{
+    RouteBody, RouteResponse, ServiceResult, boxed_body, err_status,
+};
 use futures_util::StreamExt;
 use http::Request;
 
@@ -64,13 +66,22 @@ impl LinkBackend {
         state: &AppState,
         routes: &[claviron_http::config::routes::OrbitRouteConfig],
     ) -> Option<Self> {
-        if routes.is_empty() { return None; }
-        let mut routes: Vec<_> = routes.iter().map(|route| LinkRoute {
-            path: route.path.clone(),
-            target: prepare_target(state, route.fleet_name, route.application.clone().into()),
-            requests: route.requests,
-            shutdown: state.shutdown_token(),
-        }).collect();
+        if routes.is_empty() {
+            return None;
+        }
+        let mut routes: Vec<_> = routes
+            .iter()
+            .map(|route| LinkRoute {
+                path: route.path.clone(),
+                target: prepare_target(
+                    state,
+                    route.fleet_name,
+                    route.application.clone().into(),
+                ),
+                requests: route.requests,
+                shutdown: state.shutdown_token(),
+            })
+            .collect();
         // Preserve stable ascending mount insertion followed by LIFO dispatch.
         routes.sort_by(|a, b| match (&a.path, &b.path) {
             (None, None) => std::cmp::Ordering::Equal,
@@ -82,27 +93,38 @@ impl LinkBackend {
         Some(Self { routes: routes.into() })
     }
 
-    fn select(&self, path: &str) -> Option<&LinkRoute> {
+    fn select(
+        &self,
+        path: &str,
+    ) -> Option<&LinkRoute> {
         self.routes.iter().find(|route| {
-            route.path.as_ref().is_none_or(|prefix| prefix.has_path_segment(path))
+            route
+                .path
+                .as_ref()
+                .is_none_or(|prefix| prefix.has_path_segment(path))
         })
     }
 }
 
 impl DispatchStep for LinkBackend {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         let Some(route) = self.select(request.uri().path()) else {
             return DispatchFuture::ready(ServiceResult::Unhandled(request));
         };
         let Some(target) = route.target.clone() else {
-            return DispatchFuture::ready(ServiceResult::Handled(
-                unavailable("the Link route has no prepared destination"),
-            ));
+            return DispatchFuture::ready(ServiceResult::Handled(unavailable(
+                "the Link route has no prepared destination",
+            )));
         };
         let requests = route.requests;
         let shutdown = route.shutdown.clone();
         DispatchFuture::new(async move {
-            ServiceResult::Handled(dispatch(target, requests, shutdown, request).await)
+            ServiceResult::Handled(
+                dispatch(target, requests, shutdown, request).await,
+            )
         })
     }
 }
@@ -195,7 +217,9 @@ async fn dispatch(
         (Some(websocket::Input::new(request_body)), None)
     } else if body_follows {
         let declared = http_body::Body::size_hint(&body).exact();
-        let whole = policy.delivery(BodyNeed::Stream, declared, false).takes_whole(declared);
+        let whole = policy
+            .delivery(BodyNeed::Stream, declared, false)
+            .takes_whole(declared);
         // The task retains independent upload backpressure. Its abort-on-drop
         // owner stays with this head wait, then with the response body.
         (None, Some(body::upload(body, request_body, whole)))
@@ -315,13 +339,18 @@ fn exchange_headers(
 fn unavailable(reason: &str) -> RouteResponse {
     tracing::debug!("Link dispatch unavailable: {reason}");
     let mut response = err_status(StatusCode::SERVICE_UNAVAILABLE);
-    response.headers_mut().insert(http::header::RETRY_AFTER, http::HeaderValue::from_static("1"));
+    response
+        .headers_mut()
+        .insert(http::header::RETRY_AFTER, http::HeaderValue::from_static("1"));
     response
 }
 
 fn gateway_failure() -> RouteResponse {
     let mut response = err_status(StatusCode::BAD_GATEWAY);
-    response.headers_mut().insert(http::header::CONNECTION, http::HeaderValue::from_static("close"));
+    response.headers_mut().insert(
+        http::header::CONNECTION,
+        http::HeaderValue::from_static("close"),
+    );
     response
 }
 

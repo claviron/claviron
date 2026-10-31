@@ -22,10 +22,10 @@ use claviron_http::config::routes::LuaRouteConfig;
 use claviron_http::ext::PathPrefix;
 use claviron_http::policy::HttpPolicyOverride;
 use claviron_http::{RouteBody, ServiceResult};
-use http::Request;
 use claviron_lua::serve::{LuaApplicationAdapter, LuaApplications};
+use http::Request;
 
-use crate::pipeline::host::{DispatchStep, DispatchFuture};
+use crate::pipeline::host::{DispatchFuture, DispatchStep};
 
 struct Mount {
     path: Option<PathPrefix>,
@@ -48,13 +48,20 @@ impl LuaBackend {
         if routes.is_empty() {
             return None;
         }
-        let mut mounts: Vec<_> = routes.iter().map(|route| Mount {
-            path: route.path.clone(),
-            adapter: LuaApplicationAdapter::new(
-                service.clone(), route.application.as_str(),
-                HttpPolicyOverride { requests: route.requests, responses: route.responses },
-            ),
-        }).collect();
+        let mut mounts: Vec<_> = routes
+            .iter()
+            .map(|route| Mount {
+                path: route.path.clone(),
+                adapter: LuaApplicationAdapter::new(
+                    service.clone(),
+                    route.application.as_str(),
+                    HttpPolicyOverride {
+                        requests: route.requests,
+                        responses: route.responses,
+                    },
+                ),
+            })
+            .collect();
         // Preserve the former stable mount precedence: longer first, explicit
         // root before a catch-all, and later declarations first on equal keys.
         mounts.sort_by(|a, b| match (&a.path, &b.path) {
@@ -67,15 +74,24 @@ impl LuaBackend {
         Some(Self { mounts: mounts.into() })
     }
 
-    fn select(&self, path: &str) -> Option<&Mount> {
+    fn select(
+        &self,
+        path: &str,
+    ) -> Option<&Mount> {
         self.mounts.iter().find(|mount| {
-            mount.path.as_ref().is_none_or(|prefix| prefix.has_path_segment(path))
+            mount
+                .path
+                .as_ref()
+                .is_none_or(|prefix| prefix.has_path_segment(path))
         })
     }
 }
 
 impl DispatchStep for LuaBackend {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         let backend = self.clone();
         DispatchFuture::new(async move {
             let Some(mount) = backend.select(request.uri().path()) else {

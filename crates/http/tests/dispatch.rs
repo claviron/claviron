@@ -12,7 +12,10 @@ struct Check {
 }
 
 impl RouteCondition for Check {
-    fn accepts(&self, _: &RuleContext<'_>) -> bool {
+    fn accepts(
+        &self,
+        _: &RuleContext<'_>,
+    ) -> bool {
         self.calls.fetch_add(1, Ordering::Relaxed);
         self.allowed
     }
@@ -45,15 +48,18 @@ fn only_the_longest_segment_entry_is_inspected() {
     let calls = Arc::new(AtomicUsize::new(0));
     let dispatch = RouteDispatch {
         entries: Arc::new(RouteTable::new([
-            entry("/api", "parent", vec![Arc::new(Check {
-                calls: calls.clone(), allowed: false,
-            })]),
+            entry(
+                "/api",
+                "parent",
+                vec![Arc::new(Check { calls: calls.clone(), allowed: false })],
+            ),
             entry("/api/users", "users", Vec::new()),
         ])),
         fallback: Owner("fallback"),
         rejected: Owner("rejected"),
     };
-    let request = Request::builder().uri("/api/users/1?view=summary").body(()).unwrap();
+    let request =
+        Request::builder().uri("/api/users/1?view=summary").body(()).unwrap();
     let owner = select(&dispatch, &request);
     assert_eq!(owner.0, "users");
     assert!(std::ptr::eq(
@@ -72,13 +78,19 @@ fn a_rejected_entry_does_not_try_a_parent_or_later_conditions() {
     let later = Arc::new(AtomicUsize::new(0));
     let dispatch = RouteDispatch {
         entries: Arc::new(RouteTable::new([
-            entry("/", "parent", vec![Arc::new(Check {
-                calls: parent.clone(), allowed: true,
-            })]),
-            entry("/private", "private", vec![
-                Arc::new(Check { calls: denied.clone(), allowed: false }),
-                Arc::new(Check { calls: later.clone(), allowed: true }),
-            ]),
+            entry(
+                "/",
+                "parent",
+                vec![Arc::new(Check { calls: parent.clone(), allowed: true })],
+            ),
+            entry(
+                "/private",
+                "private",
+                vec![
+                    Arc::new(Check { calls: denied.clone(), allowed: false }),
+                    Arc::new(Check { calls: later.clone(), allowed: true }),
+                ],
+            ),
         ])),
         fallback: Owner("fallback"),
         rejected: Owner("rejected"),
@@ -93,10 +105,16 @@ fn a_rejected_entry_does_not_try_a_parent_or_later_conditions() {
 struct WriteOnly;
 
 impl RouteCondition for WriteOnly {
-    fn accepts(&self, request: &RuleContext<'_>) -> bool {
+    fn accepts(
+        &self,
+        request: &RuleContext<'_>,
+    ) -> bool {
         *request.method == Method::POST
             && request.uri.query() == Some("mode=write")
-            && request.headers.get("x-example-mode").is_some_and(|value| value == "write")
+            && request
+                .headers
+                .get("x-example-mode")
+                .is_some_and(|value| value == "write")
     }
 }
 
@@ -114,9 +132,11 @@ impl Drop for OriginalBody {
 #[test]
 fn selection_borrows_the_head_without_retaining_or_adapting_the_body() {
     let dispatch = RouteDispatch {
-        entries: Arc::new(RouteTable::new([
-            entry("/api", "writer", vec![Arc::new(WriteOnly)]),
-        ])),
+        entries: Arc::new(RouteTable::new([entry(
+            "/api",
+            "writer",
+            vec![Arc::new(WriteOnly)],
+        )])),
         fallback: Owner("fallback"),
         rejected: Owner("rejected"),
     };

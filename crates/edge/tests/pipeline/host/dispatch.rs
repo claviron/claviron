@@ -25,7 +25,8 @@ impl Body for Frames {
     type Error = Infallible;
 
     fn poll_frame(
-        mut self: Pin<&mut Self>, _: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        _: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Bytes>, Infallible>>> {
         self.counts.polls.fetch_add(1, Ordering::Relaxed);
         Poll::Ready(self.frames.pop_front().map(Ok))
@@ -33,7 +34,9 @@ impl Body for Frames {
 }
 
 impl Drop for Frames {
-    fn drop(&mut self) { self.counts.drops.fetch_add(1, Ordering::Relaxed); }
+    fn drop(&mut self) {
+        self.counts.drops.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 fn request(counts: &Arc<Counts>) -> (Request<RouteBody>, *const u8) {
@@ -58,7 +61,10 @@ impl Clone for Backend {
 }
 
 impl ApplicationHandler for Backend {
-    fn call(self, request: Request<RouteBody>) -> impl Future<Output = RouteResponse> + Send {
+    fn call(
+        self,
+        request: Request<RouteBody>,
+    ) -> impl Future<Output = RouteResponse> + Send {
         self.0.calls.fetch_add(1, Ordering::Relaxed);
         std::future::ready(Response::new(request.into_body()))
     }
@@ -67,9 +73,14 @@ impl ApplicationHandler for Backend {
 struct Pass(Arc<AtomicUsize>);
 
 impl DispatchStep for Pass {
-    fn call(&self, mut request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        mut request: Request<RouteBody>,
+    ) -> DispatchFuture {
         self.0.fetch_add(1, Ordering::Relaxed);
-        request.headers_mut().append("x-example-pass", HeaderValue::from_static("yes"));
+        request
+            .headers_mut()
+            .append("x-example-pass", HeaderValue::from_static("yes"));
         DispatchFuture::ready(ServiceResult::Unhandled(request))
     }
 }
@@ -79,9 +90,10 @@ fn unhandled_contributions_pass_original_data_and_trailers_without_reading() {
     let counts = Arc::new(Counts::default());
     let first = Arc::new(AtomicUsize::new(0));
     let second = Arc::new(AtomicUsize::new(0));
-    let pipeline = DispatchChain::new(Backend(counts.clone()), vec![
-        Arc::new(Pass(first.clone())), Arc::new(Pass(second.clone())),
-    ]);
+    let pipeline = DispatchChain::new(
+        Backend(counts.clone()),
+        vec![Arc::new(Pass(first.clone())), Arc::new(Pass(second.clone()))],
+    );
     let (request, address) = request(&counts);
     let mut answering = Box::pin(pipeline.handle(request));
     let mut cx = Context::from_waker(Waker::noop());
@@ -95,11 +107,13 @@ fn unhandled_contributions_pass_original_data_and_trailers_without_reading() {
     assert_eq!(counts.clones.load(Ordering::Relaxed), 1);
     assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
     let mut body = response.into_body();
-    let Poll::Ready(Some(Ok(frame))) = Pin::new(&mut body).poll_frame(&mut cx) else {
+    let Poll::Ready(Some(Ok(frame))) = Pin::new(&mut body).poll_frame(&mut cx)
+    else {
         panic!("the original data frame must remain available");
     };
     assert_eq!(frame.into_data().unwrap().as_ptr(), address);
-    let Poll::Ready(Some(Ok(frame))) = Pin::new(&mut body).poll_frame(&mut cx) else {
+    let Poll::Ready(Some(Ok(frame))) = Pin::new(&mut body).poll_frame(&mut cx)
+    else {
         panic!("the original trailers must remain available");
     };
     assert_eq!(frame.into_trailers().unwrap()["x-example-end"], "complete");
@@ -110,7 +124,10 @@ fn unhandled_contributions_pass_original_data_and_trailers_without_reading() {
 struct Claim;
 
 impl DispatchStep for Claim {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         let mut response = Response::new(request.into_body());
         *response.status_mut() = StatusCode::NOT_FOUND;
         DispatchFuture::ready(ServiceResult::Handled(response))
@@ -121,9 +138,10 @@ impl DispatchStep for Claim {
 fn handled_404_does_not_run_later_contributions_or_clone_the_backend() {
     let counts = Arc::new(Counts::default());
     let later = Arc::new(AtomicUsize::new(0));
-    let pipeline = DispatchChain::new(Backend(counts.clone()), vec![
-        Arc::new(Claim), Arc::new(Pass(later.clone())),
-    ]);
+    let pipeline = DispatchChain::new(
+        Backend(counts.clone()),
+        vec![Arc::new(Claim), Arc::new(Pass(later.clone()))],
+    );
     let (request, _) = request(&counts);
     let mut answering = Box::pin(pipeline.handle(request));
     let mut cx = Context::from_waker(Waker::noop());
@@ -143,7 +161,10 @@ fn handled_404_does_not_run_later_contributions_or_clone_the_backend() {
 struct Pending(Arc<AtomicUsize>);
 
 impl DispatchStep for Pending {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         self.0.fetch_add(1, Ordering::Relaxed);
         DispatchFuture::new(futures_util::future::poll_fn(move |_| {
             let _owned = &request;
@@ -157,14 +178,20 @@ fn cancellation_releases_the_unread_body_before_and_during_dispatch() {
     for poll in [false, true] {
         let counts = Arc::new(Counts::default());
         let calls = Arc::new(AtomicUsize::new(0));
-        let pipeline = DispatchChain::new(Backend(counts.clone()), vec![
-            Arc::new(Pending(calls.clone())),
-        ]);
+        let pipeline = DispatchChain::new(
+            Backend(counts.clone()),
+            vec![Arc::new(Pending(calls.clone()))],
+        );
         let generation = Arc::downgrade(&pipeline.plan);
         let (request, _) = request(&counts);
         let mut answering = Box::pin(pipeline.handle(request));
         if poll {
-            assert!(answering.as_mut().poll(&mut Context::from_waker(Waker::noop())).is_pending());
+            assert!(
+                answering
+                    .as_mut()
+                    .poll(&mut Context::from_waker(Waker::noop()))
+                    .is_pending()
+            );
         }
         assert!(generation.upgrade().is_some());
         assert_eq!(calls.load(Ordering::Relaxed), usize::from(poll));

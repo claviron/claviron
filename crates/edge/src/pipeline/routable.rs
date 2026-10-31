@@ -6,10 +6,10 @@ use claviron_runtime::AppState;
 use claviron_runtime::registry::{AnyComponent, Result};
 use claviron_types::Host;
 
-use super::apps::OtherFactory;
-use super::host::HostHandler;
 #[cfg(feature = "axum")]
 use super::apps::AxumRouterFactory;
+use super::apps::OtherFactory;
+use super::host::HostHandler;
 use crate::config::HostConfig;
 
 /// Provider-owned Rust applications bound to selected edge hosts at preparation.
@@ -19,9 +19,7 @@ pub trait Routable: AnyComponent<AppState> {
     /// Directive codecs and compilers owned by this provider. Enumerated only
     /// while preparing a host snapshot; never consulted during dispatch.
     /// Native host extensions do not require the Axum application capability.
-    fn route_extensions(
-        &self
-    ) -> Vec<Arc<dyn super::ext::RouteExtension>> {
+    fn route_extensions(&self) -> Vec<Arc<dyn super::ext::RouteExtension>> {
         Vec::new()
     }
 

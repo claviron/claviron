@@ -181,7 +181,10 @@ fn alias_remap_and_host_removal_cannot_reuse_an_old_policy() {
         &next.policy.host.vhost_config
     ));
     assert_ne!(first.policy.host.vhost_key, next.policy.host.vhost_key);
-    cache.access.upsert_host(next.policy.host.vhost_key.0.as_ref().clone(), next.policy.host.vhost_config.clone());
+    cache.access.upsert_host(
+        next.policy.host.vhost_key.0.as_ref().clone(),
+        next.policy.host.vhost_config.clone(),
+    );
     let metadata = next
         .policy
         .pipeline

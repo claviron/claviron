@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use claviron_http::ext::PathPrefix;
 
-use crate::service::RequestRejection;
 use crate::config::acl::{AccessLimiter, AclConfig};
+use crate::service::RequestRejection;
 
 pub(crate) struct CompiledAcl {
     rules: Box<[(PathPrefix, AccessLimiter)]>,

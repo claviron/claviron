@@ -20,7 +20,10 @@ pub struct UpstreamStage {
 }
 
 impl UpstreamStage {
-    pub fn new(app: UpstreamApp, policy: UpstreamRequestPolicy) -> Self {
+    pub fn new(
+        app: UpstreamApp,
+        policy: UpstreamRequestPolicy,
+    ) -> Self {
         Self { app, policy }
     }
 
@@ -31,7 +34,8 @@ impl UpstreamStage {
         policy: UpstreamRequestPolicy,
     ) -> Option<Self> {
         let name = config?.name();
-        let Some(provider) = state.registry_ref().resolve::<UpstreamProvider>() else {
+        let Some(provider) = state.registry_ref().resolve::<UpstreamProvider>()
+        else {
             tracing::error!(%host, upstream = name,
                 "host declares upstream but UpstreamProvider is not registered");
             return None;
@@ -46,19 +50,33 @@ impl UpstreamStage {
 }
 
 impl DispatchStep for UpstreamStage {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         let path = request.uri().path();
-        let service = self.app.select_explicit(path).or_else(|| self.app.select_root(path));
+        let service = self
+            .app
+            .select_explicit(path)
+            .or_else(|| self.app.select_root(path));
         let Some(service) = service else {
             // This configured owner retains its explicit excludes and final
             // 404; a miss must not enter another backend or read the body.
-            return DispatchFuture::ready(ServiceResult::Handled(err_status(StatusCode::NOT_FOUND)));
+            return DispatchFuture::ready(ServiceResult::Handled(err_status(
+                StatusCode::NOT_FOUND,
+            )));
         };
         let policy = self.policy;
         DispatchFuture::new(async move {
-            ServiceResult::Handled(call_upstream_service(
-                service, request, policy.allow_h1_upgrade, policy.allow_connect_protocol,
-            ).await)
+            ServiceResult::Handled(
+                call_upstream_service(
+                    service,
+                    request,
+                    policy.allow_h1_upgrade,
+                    policy.allow_connect_protocol,
+                )
+                .await,
+            )
         })
     }
 }

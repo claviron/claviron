@@ -1,11 +1,11 @@
 use super::*;
+use crate::HostConfig;
 use axum::body::{Body, to_bytes};
-use http::Request;
 use claviron_files::{FileSite, ResourceAdapter};
 use claviron_http::{RequestContext, RouteResponse, bytes_body};
-use http::StatusCode;
 use claviron_runtime::AppState;
-use crate::HostConfig;
+use http::Request;
+use http::StatusCode;
 
 struct Fallback;
 
@@ -24,14 +24,24 @@ impl claviron_files::Handler for Fallback {
 struct Resource(Arc<ResourceAdapter>);
 
 impl HostHandler for Resource {
-    fn call(&self, request: HostRequest) -> HostHandlerFuture {
+    fn call(
+        &self,
+        request: HostRequest,
+    ) -> HostHandlerFuture {
         let request = request.into_request();
-        let site = request.extensions().get::<crate::config::SelectedRoute>().unwrap().0.clone();
+        let site = request
+            .extensions()
+            .get::<crate::config::SelectedRoute>()
+            .unwrap()
+            .0
+            .clone();
         let canonical = request.extensions().get::<Arc<HostConfig>>().unwrap();
         assert!(!Arc::ptr_eq(canonical, &site));
         let adapter = self.0.clone();
         Box::pin(async move {
-            ServiceResult::Handled(adapter.handle_with_site(request, site.as_ref()).await.unwrap())
+            ServiceResult::Handled(
+                adapter.handle_with_site(request, site.as_ref()).await.unwrap(),
+            )
         })
     }
 }

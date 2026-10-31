@@ -19,33 +19,51 @@ impl http_body::Body for UnreadBody {
     type Data = bytes::Bytes;
     type Error = std::convert::Infallible;
 
-    fn poll_frame(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
         panic!("native Link selection must not poll an unclaimed body");
     }
 }
 
 impl Drop for UnreadBody {
-    fn drop(&mut self) { self.0.fetch_add(1, Ordering::Relaxed); }
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 #[test]
 fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
-    use super::{DispatchStep, LinkBackend, LinkRoute, RequestPolicyOverride, ServiceResult};
-    let backend = LinkBackend { routes: vec![LinkRoute {
-        path: Some(serde_yaml::from_str("/api").unwrap()),
-        target: None,
-        requests: RequestPolicyOverride::default(),
-        shutdown: CancellationToken::new(),
-    }].into() };
-    for (path, handled) in [("/apiary", false), ("/elsewhere", false), ("/api/item", true)] {
+    use super::{
+        DispatchStep, LinkBackend, LinkRoute, RequestPolicyOverride,
+        ServiceResult,
+    };
+    let backend = LinkBackend {
+        routes: vec![LinkRoute {
+            path: Some(serde_yaml::from_str("/api").unwrap()),
+            target: None,
+            requests: RequestPolicyOverride::default(),
+            shutdown: CancellationToken::new(),
+        }]
+        .into(),
+    };
+    for (path, handled) in
+        [("/apiary", false), ("/elsewhere", false), ("/api/item", true)]
+    {
         let drops = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let request = http::Request::builder().uri(path)
-            .body(claviron_http::boxed_body(UnreadBody(drops.clone()))).unwrap();
+        let request = http::Request::builder()
+            .uri(path)
+            .body(claviron_http::boxed_body(UnreadBody(drops.clone())))
+            .unwrap();
         let mut call = std::pin::pin!(backend.call(request));
         match poll_once(call.as_mut()) {
             Poll::Ready(ServiceResult::Handled(response)) => {
                 assert!(handled);
-                assert_eq!(response.status(), http::StatusCode::SERVICE_UNAVAILABLE);
+                assert_eq!(
+                    response.status(),
+                    http::StatusCode::SERVICE_UNAVAILABLE
+                );
                 assert_eq!(response.headers()["retry-after"], "1");
                 assert_eq!(drops.load(Ordering::Relaxed), 1);
             }

@@ -53,10 +53,7 @@ impl AccessLogTarget {
         if channel == Some(OFF) {
             return None;
         }
-        Some(Self {
-            log: ACCESS_LOG.get()?,
-            channel: channel.map(Arc::from),
-        })
+        Some(Self { log: ACCESS_LOG.get()?, channel: channel.map(Arc::from) })
     }
 
     pub(crate) fn channel(&self) -> Option<ChannelId> {
@@ -175,13 +172,20 @@ impl AccessGuard {
         response.map(|body| self.wrap_body(body))
     }
 
-    pub(crate) fn record_head(&mut self, status: StatusCode, headers: &HeaderMap) {
+    pub(crate) fn record_head(
+        &mut self,
+        status: StatusCode,
+        headers: &HeaderMap,
+    ) {
         self.status = status;
         self.grpc_status = grpc_status(headers);
         self.head = Some(Instant::now());
     }
 
-    pub(crate) fn wrap_body(mut self, body: RouteBody) -> RouteBody {
+    pub(crate) fn wrap_body(
+        mut self,
+        body: RouteBody,
+    ) -> RouteBody {
         // An empty body is never polled.
         self.complete = body.is_end_stream();
         AccessBody { inner: body, guard: self }.boxed_unsync()

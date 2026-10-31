@@ -5,12 +5,10 @@ use super::*;
 use crate::deny::DenyService;
 use crate::service::{HostIngress, RequestArrival, VhostCtx};
 
-fn fixture() -> (
-    HostPipeline<HostRequestState, HostResponse>,
-    Arc<VhostResolver>,
-    HostKey,
-) {
-    let config: Arc<crate::HostConfig> = Arc::new(serde_yaml::from_str("root: public").unwrap());
+fn fixture()
+-> (HostPipeline<HostRequestState, HostResponse>, Arc<VhostResolver>, HostKey) {
+    let config: Arc<crate::HostConfig> =
+        Arc::new(serde_yaml::from_str("root: public").unwrap());
     let canonical = HostKey(Arc::new("app.test".parse().unwrap()));
     let access = Arc::new(VhostResolver::default());
     access.upsert_host(canonical.0.as_ref().clone(), config.clone());
@@ -31,13 +29,10 @@ fn fixture() -> (
         vhost_config: config,
         application: None,
     };
-    let ingress = HostIngress {
-        proxy: None,
-        deny: Arc::new(DenyService::empty()),
-    };
-    let pipeline = HostPipeline::for_host(
-        &connection, &host, &ingress, access.clone(),
-    );
+    let ingress =
+        HostIngress { proxy: None, deny: Arc::new(DenyService::empty()) };
+    let pipeline =
+        HostPipeline::for_host(&connection, &host, &ingress, access.clone());
     (pipeline, access, canonical)
 }
 
@@ -57,9 +52,12 @@ fn access_retains_admitted_rules_until_the_request_is_dropped() {
     assert!(matches!(open.access, PolicySnapshot::Open));
     access.upsert_host(
         canonical.0.as_ref().clone(),
-        Arc::new(serde_yaml::from_str(
-            "root: public\nacl: {'/private': {policy: deny}}",
-        ).unwrap()),
+        Arc::new(
+            serde_yaml::from_str(
+                "root: public\nacl: {'/private': {policy: deny}}",
+            )
+            .unwrap(),
+        ),
     );
     let admitted = pipeline.admit(request(), state()).unwrap();
     let PolicySnapshot::Rules(policy) = &admitted.access else {
@@ -68,17 +66,21 @@ fn access_retains_admitted_rules_until_the_request_is_dropped() {
     let generation = Arc::downgrade(policy);
     access.upsert_host(
         canonical.0.as_ref().clone(),
-        Arc::new(serde_yaml::from_str(
-            "root: public\nacl: {'/': {policy: deny}}",
-        ).unwrap()),
+        Arc::new(
+            serde_yaml::from_str("root: public\nacl: {'/': {policy: deny}}")
+                .unwrap(),
+        ),
     );
     assert!(matches!(
         pipeline.admit(request(), state()),
         Err(HostResponse::Rejected(RequestRejection::AccessDenied))
     ));
-    assert!(admitted.access.check(
-        &admitted.head.uri, "192.0.2.1".parse().unwrap(),
-    ).is_ok());
+    assert!(
+        admitted
+            .access
+            .check(&admitted.head.uri, "192.0.2.1".parse().unwrap(),)
+            .is_ok()
+    );
     assert_eq!(&admitted.head.uri, "/public?raw=%2F");
     assert!(generation.upgrade().is_some());
     drop(admitted);
@@ -108,9 +110,9 @@ fn removed_canonical_cannot_inherit_a_default_or_reassigned_alias() {
     ));
     access.upsert_host(
         "other.test".parse().unwrap(),
-        Arc::new(serde_yaml::from_str(
-            "root: public\naliases: [app.test]",
-        ).unwrap()),
+        Arc::new(
+            serde_yaml::from_str("root: public\naliases: [app.test]").unwrap(),
+        ),
     );
     let (resolved, _) = access.resolve_exact(&canonical.0).unwrap();
     assert_eq!(resolved, "other.test".parse().unwrap());
@@ -129,7 +131,8 @@ fn access_requires_prepared_identity() {
     let pipeline = builder.build();
     assert!(matches!(
         pipeline.admit(
-            request(), HostRequestState::new(RequestArrival::Established),
+            request(),
+            HostRequestState::new(RequestArrival::Established),
         ),
         Err(HostResponse::Rejected(RequestRejection::MissingIdentity))
     ));

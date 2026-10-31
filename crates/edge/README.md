@@ -3,8 +3,8 @@
 HTTP host admission, routing, application dispatch, and optional native transports.
 
 The edge decides which virtual host owns a request, applies that host's admission
-policy, and selects its application. Its opt-in [TCP](docs/tcp/README.md) and
-[QUIC](docs/quic/README.md) modules own native wire protocols and connection
+policy, and selects its application. Its opt-in [TCP](src/tcp/mod.rs) and
+[QUIC](src/quic/mod.rs) modules own native wire protocols and connection
 lifecycle separately from the shared hosting pipeline.
 
 Applications normally use `claviron::edge` through the root crate's `edge`

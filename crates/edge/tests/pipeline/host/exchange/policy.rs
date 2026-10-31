@@ -1,10 +1,16 @@
 use super::*;
-use claviron_http::config::HttpSnapshot;
 use claviron_http::RouteResponse;
+use claviron_http::config::HttpSnapshot;
 
-fn apply_policy(policy: &ExchangePolicy, path: &str) -> RouteResponse {
-    let (mut head, ()) = http::Request::builder().uri(path).body(()).unwrap().into_parts();
-    let (reply, scope) = policy.select(path).unwrap()
+fn apply_policy(
+    policy: &ExchangePolicy,
+    path: &str,
+) -> RouteResponse {
+    let (mut head, ()) =
+        http::Request::builder().uri(path).body(()).unwrap().into_parts();
+    let (reply, scope) = policy
+        .select(path)
+        .unwrap()
         .prepare_head(&mut head, ExchangeState::default());
     assert!(reply.is_none());
     scope.finish(RouteResponse::new(claviron_http::empty_body()))

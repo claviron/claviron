@@ -50,17 +50,17 @@ mod access;
 mod access_log;
 mod admission;
 mod application;
-mod binding;
 mod backend;
-pub(crate) mod compile;
+mod binding;
 mod builder;
+pub(crate) mod compile;
 mod dispatch;
 mod exchange;
-mod extension;
 mod execution;
+mod extension;
 mod files;
-mod identity;
 mod handler;
+mod identity;
 pub(crate) mod ingress;
 #[cfg(feature = "rate-limit")]
 mod quota;
@@ -75,25 +75,27 @@ pub(crate) use access::{PolicySnapshot, RequestPolicy};
 pub use access_log::{AccessLogLayer, AccessLogState};
 pub use admission::AdmissionPolicy;
 pub use application::ApplicationHandler;
-pub use dispatch::{DispatchChain, DispatchFuture, DispatchResult, DispatchStep};
-pub(crate) use dispatch::compose_dispatch_other;
 pub(crate) use binding::HostPolicy;
+pub(crate) use dispatch::compose_dispatch_other;
+pub use dispatch::{
+    DispatchChain, DispatchFuture, DispatchResult, DispatchStep,
+};
 pub use exchange::{ExchangeLayer, ExchangePolicy, ExchangeState};
 pub(crate) use execution::HostExecution;
 pub(crate) use extension::prepare_layers;
-pub use files::{StaticStage, TryFilesStage};
 pub(crate) use files::fallback_config;
-pub use identity::{IdentityPolicy, IdentityState};
-pub use handler::{
-    HostHandler, ApplicationStage, HostHandlerFuture,
-    HostRequest, HostHandlerResult,
-};
+pub use files::{StaticStage, TryFilesStage};
 pub(crate) use handler::compose_other;
+pub use handler::{
+    ApplicationStage, HostHandler, HostHandlerFuture, HostHandlerResult,
+    HostRequest,
+};
+pub use identity::{IdentityPolicy, IdentityState};
 pub use ingress::{IngressPolicy, IngressState};
 #[cfg(feature = "rate-limit")]
-pub use quota::{HostQuotas, QuotaPolicy, QuotaState};
-#[cfg(feature = "rate-limit")]
 pub(crate) use quota::QuotaRegistrations;
+#[cfg(feature = "rate-limit")]
+pub use quota::{HostQuotas, QuotaPolicy, QuotaState};
 pub use reply::ReplyPolicy;
 pub use state::HostRequestState;
 pub(crate) use state::IdentifiedRequest;

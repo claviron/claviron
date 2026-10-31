@@ -6,9 +6,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use claviron_edge::VhostResolver;
 use claviron_edge::deny::DenyService;
 use claviron_edge::transport::{
-    RustRouter, OtherHandler, OtherService, HostIngress, HostResponse,
-    HostService, RequestArrival, RequestAuthority, RequestRejection,
-    VhostTable, resolve_request_authority, resolve_sni_from_table,
+    HostIngress, HostResponse, HostService, OtherHandler, OtherService,
+    RequestArrival, RequestAuthority, RequestRejection, RustRouter, VhostTable,
+    resolve_request_authority, resolve_sni_from_table,
 };
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;

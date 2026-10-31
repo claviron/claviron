@@ -7,12 +7,12 @@
 use std::sync::Arc;
 
 use claviron_files::StaticMount;
-use claviron_http::{RequestContext, RouteBody, ServiceResult};
-use http::Request;
 use claviron_http::config::files::FilesConfig;
 use claviron_http::ext::RealIpExt;
+use claviron_http::{RequestContext, RouteBody, ServiceResult};
+use http::Request;
 
-use super::{DispatchStep, DispatchFuture};
+use super::{DispatchFuture, DispatchStep};
 use crate::HostConfig;
 
 /// One explicit, prepared static mount. The file service owns mapping/security.
@@ -22,22 +22,33 @@ pub struct StaticStage {
 }
 
 impl StaticStage {
-    pub fn new(root: std::path::PathBuf, mount: claviron_http::config::statics::StaticConfig) -> Self {
+    pub fn new(
+        root: std::path::PathBuf,
+        mount: claviron_http::config::statics::StaticConfig,
+    ) -> Self {
         Self { mount: Arc::new(StaticMount::new(root, mount)) }
     }
 }
 
 impl DispatchStep for StaticStage {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         let mount = self.mount.clone();
         DispatchFuture::new(async move {
             let context = RequestContext {
-                uri: request.uri(), headers: request.headers(),
+                uri: request.uri(),
+                headers: request.headers(),
                 real_ip: request.extensions().get::<RealIpExt>().map(|ip| ip.0),
             };
             match mount.try_handle(context).await {
-                ServiceResult::Handled(response) => ServiceResult::Handled(response),
-                ServiceResult::Unhandled(_) => ServiceResult::Unhandled(request),
+                ServiceResult::Handled(response) => {
+                    ServiceResult::Handled(response)
+                }
+                ServiceResult::Unhandled(_) => {
+                    ServiceResult::Unhandled(request)
+                }
             }
         })
     }
@@ -57,12 +68,25 @@ impl TryFilesStage {
 }
 
 impl DispatchStep for TryFilesStage {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         let site = self.site.clone();
         DispatchFuture::new(async move {
-            match claviron_files::try_files_for_site(site.as_ref(), request.uri(), request.headers()).await {
-                ServiceResult::Handled(response) => ServiceResult::Handled(response),
-                ServiceResult::Unhandled(_) => ServiceResult::Unhandled(request),
+            match claviron_files::try_files_for_site(
+                site.as_ref(),
+                request.uri(),
+                request.headers(),
+            )
+            .await
+            {
+                ServiceResult::Handled(response) => {
+                    ServiceResult::Handled(response)
+                }
+                ServiceResult::Unhandled(_) => {
+                    ServiceResult::Unhandled(request)
+                }
             }
         })
     }
@@ -73,7 +97,10 @@ pub(super) fn scope_steps(config: &HostConfig) -> Vec<Arc<dyn DispatchStep>> {
     files.root = config.root();
     let mut steps: Vec<Arc<dyn DispatchStep>> = Vec::new();
     for mount in files.statics.iter().flatten() {
-        steps.push(Arc::new(StaticStage::new(files.root.clone(), mount.clone())));
+        steps.push(Arc::new(StaticStage::new(
+            files.root.clone(),
+            mount.clone(),
+        )));
     }
     if let Some(probe) = TryFilesStage::new(Arc::new(files)) {
         steps.push(Arc::new(probe));

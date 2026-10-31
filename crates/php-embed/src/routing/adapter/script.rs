@@ -6,8 +6,8 @@ use claviron_php::PhpRuntime;
 use http::Request;
 use tokio::sync::mpsc::Sender;
 
-use crate::{PhpScriptService, SapiGatewayError};
 use crate::routing::proxy::upstream_sapi_gateway;
+use crate::{PhpScriptService, SapiGatewayError};
 
 #[derive(Clone)]
 pub struct PhpScriptAdapter {
@@ -53,9 +53,16 @@ impl PhpScriptAdapter {
     pub async fn try_handle(
         self,
         req: Request<RouteBody>,
-    ) -> Result<ServiceResult<RouteResponse, Request<RouteBody>>, SapiGatewayError> {
+    ) -> Result<
+        ServiceResult<RouteResponse, Request<RouteBody>>,
+        SapiGatewayError,
+    > {
         crate::routing::proxy::try_php_proxy(
-            self.php, self.runtime, req, self.exchange_tx,
-        ).await
+            self.php,
+            self.runtime,
+            req,
+            self.exchange_tx,
+        )
+        .await
     }
 }

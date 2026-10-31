@@ -154,8 +154,12 @@ fn host_dispatch_applies_prepared_reply_limits_before_stream_delivery() {
         };
         assert_eq!(response.status(), StatusCode::CREATED);
         let mut body = response.into_body();
-        let Poll::Ready(Some(Err(error))) = Pin::new(&mut body).poll_frame(&mut cx) else {
-            panic!("the configured response limit must reject the oversized frame");
+        let Poll::Ready(Some(Err(error))) =
+            Pin::new(&mut body).poll_frame(&mut cx)
+        else {
+            panic!(
+                "the configured response limit must reject the oversized frame"
+            );
         };
         assert_eq!(
             error.downcast_ref::<claviron_http::body::BodyLimit>(),
@@ -220,7 +224,9 @@ fn host_execution_cancelled_queue_releases_body_and_binding_before_admission() {
         let polls = Arc::new(AtomicUsize::new(0));
         let dropped = Arc::new(AtomicUsize::new(0));
         let body = streaming_body(
-            Arc::new(AtomicBool::new(false)), polls.clone(), dropped.clone(),
+            Arc::new(AtomicBool::new(false)),
+            polls.clone(),
+            dropped.clone(),
         );
         let queued = prepare(&waiting).map_body(|_| body);
         let generation = Arc::downgrade(&queued.service.policy);

@@ -29,14 +29,20 @@ impl AccessLogState {
     }
 
     /// Complete an edge-generated empty reply and release the record.
-    pub fn replied(self, status: StatusCode) {
+    pub fn replied(
+        self,
+        status: StatusCode,
+    ) {
         if let Some(guard) = self.guard {
             guard.replied(status);
         }
     }
 
     /// Transfer the record to the response stream without collecting it.
-    pub fn finish(self, response: RouteResponse) -> RouteResponse {
+    pub fn finish(
+        self,
+        response: RouteResponse,
+    ) -> RouteResponse {
         match self.guard {
             Some(guard) => guard.wrap(response),
             None => response,
@@ -58,7 +64,10 @@ pub struct AccessLogLayer {
 }
 
 impl AccessLogLayer {
-    pub fn new(canonical: HostKey, channel: Option<&str>) -> Option<Self> {
+    pub fn new(
+        canonical: HostKey,
+        channel: Option<&str>,
+    ) -> Option<Self> {
         Some(Self { target: AccessLogTarget::prepare(channel)?, canonical })
     }
 
@@ -68,7 +77,12 @@ impl AccessLogLayer {
         request: &Request<B>,
         connection: &Arc<ConnCtx>,
     ) -> AccessLogState {
-        self.start(request.method(), request.uri().path(), request.version(), connection)
+        self.start(
+            request.method(),
+            request.uri().path(),
+            request.version(),
+            connection,
+        )
     }
 
     fn start(
@@ -98,10 +112,22 @@ impl<S> HostLayer<S> for AccessLogLayer
 where
     S: AsRef<IdentityState> + AsMut<AccessLogState>,
 {
-    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
         layer.before(move |head, state| {
-            let record = state.as_ref().connection()
-                .map(|connection| self.start(&head.method, head.uri.path(), head.version, connection))
+            let record = state
+                .as_ref()
+                .connection()
+                .map(|connection| {
+                    self.start(
+                        &head.method,
+                        head.uri.path(),
+                        head.version,
+                        connection,
+                    )
+                })
                 .unwrap_or_default();
             *state.as_mut() = record;
             ControlFlow::Continue(())
@@ -111,11 +137,9 @@ where
                 guard.record_head(head.status, &head.headers);
             }
         });
-        layer.body(|body, state| {
-            match state.as_mut().guard.take() {
-                Some(guard) => guard.wrap_body(body),
-                None => body,
-            }
+        layer.body(|body, state| match state.as_mut().guard.take() {
+            Some(guard) => guard.wrap_body(body),
+            None => body,
         });
         Ok(())
     }

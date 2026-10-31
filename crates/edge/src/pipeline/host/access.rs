@@ -5,8 +5,8 @@ use std::sync::Arc;
 use claviron_http::ext::HostKey;
 
 use super::*;
-use crate::service::{HostResponse, RequestRejection};
 use crate::VhostResolver;
+use crate::service::{HostResponse, RequestRejection};
 
 mod acl;
 mod policy;
@@ -43,17 +43,28 @@ pub struct AccessPolicy {
 }
 
 impl AccessPolicy {
-    pub fn new(resolver: Arc<VhostResolver>, canonical: HostKey) -> Self {
+    pub fn new(
+        resolver: Arc<VhostResolver>,
+        canonical: HostKey,
+    ) -> Self {
         Self { resolver, canonical }
     }
 
-    pub(super) fn register<S>(self, layer: &mut HostLayerBuilder<S, HostResponse>)
-    where
+    pub(super) fn register<S>(
+        self,
+        layer: &mut HostLayerBuilder<S, HostResponse>,
+    ) where
         S: AsRef<IdentityState> + AsMut<AccessState>,
     {
         layer.before(move |head, state| {
-            let Some(ip) = state.as_ref().connection().and_then(|connection| connection.real_ip) else {
-                return ControlFlow::Break(RequestRejection::MissingIdentity.into());
+            let Some(ip) = state
+                .as_ref()
+                .connection()
+                .and_then(|connection| connection.real_ip)
+            else {
+                return ControlFlow::Break(
+                    RequestRejection::MissingIdentity.into(),
+                );
             };
             let snapshot = self.resolver.request_policy(&self.canonical.0);
             let result = snapshot.check(&head.uri, ip);
@@ -70,7 +81,10 @@ impl<S> HostLayer<S, HostResponse> for AccessPolicy
 where
     S: AsRef<IdentityState> + AsMut<AccessState>,
 {
-    fn prepare(self, layer: &mut HostLayerBuilder<S, HostResponse>) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S, HostResponse>,
+    ) -> crate::Result<()> {
         self.register(layer);
         Ok(())
     }

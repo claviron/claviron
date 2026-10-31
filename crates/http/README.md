@@ -15,8 +15,8 @@ contracts: using HTTP primitives does not require a multi-vhost server.
 ## Where it fits
 
 - `claviron-http` defines the common request/response boundary and HTTP policy.
-- Edge's [TCP module](../edge/docs/tcp/README.md) drives HTTP/1.1 and HTTP/2.
-- Edge's [QUIC module](../edge/docs/quic/README.md) drives HTTP/3.
+- Edge's [TCP module](../edge/src/tcp/mod.rs) drives HTTP/1.1 and HTTP/2.
+- Edge's [QUIC module](../edge/src/quic/mod.rs) drives HTTP/3.
 - [claviron-tls](../tls/README.md) supplies certificate and TLS policy machinery.
 - Edge compiles host routing and admission; Runner composes a single application.
 

@@ -27,7 +27,10 @@ impl LuaApplicationAdapter {
         route: HttpPolicyOverride,
     ) -> Self {
         let application = application.into();
-        if service.as_ref().is_some_and(|service| !service.is_declared(&application)) {
+        if service
+            .as_ref()
+            .is_some_and(|service| !service.is_declared(&application))
+        {
             tracing::warn!(application = %application, "Lua route names an application absent from lua.yaml; it answers 503 until one is declared");
         }
         Self { service, application, route }
@@ -39,13 +42,19 @@ impl LuaApplicationAdapter {
 
     /// Transfer the existing body directly into the current Lua application.
     /// Body delivery, admission, execution and cancellation remain engine-owned.
-    pub async fn handle(&self, request: Request<RouteBody>) -> RouteResponse {
-        let Some(application) = self.service.as_ref()
+    pub async fn handle(
+        &self,
+        request: Request<RouteBody>,
+    ) -> RouteResponse {
+        let Some(application) = self
+            .service
+            .as_ref()
             .and_then(|service| service.get(&self.application))
         else {
             let mut response = err_status(StatusCode::SERVICE_UNAVAILABLE);
             response.headers_mut().insert(
-                http::header::RETRY_AFTER, http::HeaderValue::from_static("1"),
+                http::header::RETRY_AFTER,
+                http::HeaderValue::from_static("1"),
             );
             return response;
         };

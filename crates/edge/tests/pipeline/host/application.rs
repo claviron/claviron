@@ -88,11 +88,15 @@ impl ApplicationHandler<OriginalBody> for Owner {
 struct RecordReply(Arc<Counts>);
 
 impl HostLayer for RecordReply {
-    fn prepare(self, layer: &mut HostLayerBuilder) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder,
+    ) -> crate::Result<()> {
         layer.after(move |head, _| {
             self.0.replies.fetch_add(1, Ordering::Relaxed);
             head.headers.insert(
-                "x-example-reply", HeaderValue::from_static("complete"),
+                "x-example-reply",
+                HeaderValue::from_static("complete"),
             );
         });
         Ok(())
@@ -109,7 +113,10 @@ fn request(counts: &Arc<Counts>) -> (Request<OriginalBody>, *const u8) {
     let bytes = Bytes::from(vec![0, 255, 13, 10]);
     let address = bytes.as_ptr();
     (
-        Request::new(OriginalBody { frame: Some(bytes), counts: counts.clone() }),
+        Request::new(OriginalBody {
+            frame: Some(bytes),
+            counts: counts.clone(),
+        }),
         address,
     )
 }
@@ -175,7 +182,8 @@ fn typed_application_transfers_original_payload_and_finishes_response_scope() {
     assert_eq!(response.headers()["x-example-reply"], "complete");
 
     let mut body = response.into_body();
-    let Poll::Ready(Some(Ok(frame))) = Pin::new(&mut body).poll_frame(&mut cx) else {
+    let Poll::Ready(Some(Ok(frame))) = Pin::new(&mut body).poll_frame(&mut cx)
+    else {
         panic!("the original payload must remain available in the response");
     };
     let bytes = frame.into_data().unwrap();

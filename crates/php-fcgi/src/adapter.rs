@@ -51,9 +51,16 @@ impl PhpFpmAdapter {
     pub async fn try_handle(
         self,
         req: Request<RouteBody>,
-    ) -> Result<ServiceResult<RouteResponse, Request<RouteBody>>, crate::GatewayError> {
+    ) -> Result<
+        ServiceResult<RouteResponse, Request<RouteBody>>,
+        crate::GatewayError,
+    > {
         crate::proxy::try_fcgi_proxy(
-            self.php, self.runtime, req, self.exchange_tx,
-        ).await
+            self.php,
+            self.runtime,
+            req,
+            self.exchange_tx,
+        )
+        .await
     }
 }

@@ -9,7 +9,7 @@ use claviron_http::{RouteBody, RouteFuture, RouteResponse, ServiceResult};
 use futures_util::FutureExt;
 use http::Request;
 
-use super::{ApplicationHandler, HostHandler, ApplicationStage};
+use super::{ApplicationHandler, ApplicationStage, HostHandler};
 use crate::pipeline::other::{OtherHandler, OtherService};
 
 pub type DispatchResult = ServiceResult<RouteResponse, Request<RouteBody>>;
@@ -27,7 +27,9 @@ impl DispatchFuture {
         Self { inner: futures_util::future::Either::Left(ready(result)) }
     }
 
-    pub fn new(work: impl Future<Output = DispatchResult> + Send + 'static) -> Self {
+    pub fn new(
+        work: impl Future<Output = DispatchResult> + Send + 'static
+    ) -> Self {
         Self { inner: futures_util::future::Either::Right(Box::pin(work)) }
     }
 }
@@ -35,7 +37,10 @@ impl DispatchFuture {
 impl Future for DispatchFuture {
     type Output = DispatchResult;
 
-    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
         self.get_mut().inner.poll_unpin(context)
     }
 }
@@ -44,7 +49,10 @@ impl Future for DispatchFuture {
 /// and its unread body to the next owner. A handled status, including 404,
 /// never means fallthrough. This is not a Rust application interceptor.
 pub trait DispatchStep: Send + Sync + 'static {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture;
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture;
 }
 
 struct Plan<H> {
@@ -63,17 +71,27 @@ pub struct DispatchChain<H> {
 }
 
 impl<H> Clone for DispatchChain<H> {
-    fn clone(&self) -> Self { Self { plan: self.plan.clone() } }
+    fn clone(&self) -> Self {
+        Self { plan: self.plan.clone() }
+    }
 }
 
 impl<H> DispatchChain<H> {
-    pub fn new(terminal: H, steps: Vec<Arc<dyn DispatchStep>>) -> Self {
-        Self { plan: Arc::new(Plan { steps: steps.into_boxed_slice(), terminal }) }
+    pub fn new(
+        terminal: H,
+        steps: Vec<Arc<dyn DispatchStep>>,
+    ) -> Self {
+        Self {
+            plan: Arc::new(Plan { steps: steps.into_boxed_slice(), terminal }),
+        }
     }
 }
 
 impl<H: ApplicationHandler + Clone + Sync + 'static> DispatchChain<H> {
-    pub async fn handle(self, mut request: Request<RouteBody>) -> RouteResponse {
+    pub async fn handle(
+        self,
+        mut request: Request<RouteBody>,
+    ) -> RouteResponse {
         for step in &self.plan.steps {
             request = match step.call(request).await {
                 ServiceResult::Handled(response) => return response,
@@ -84,14 +102,24 @@ impl<H: ApplicationHandler + Clone + Sync + 'static> DispatchChain<H> {
     }
 }
 
-impl<H: ApplicationHandler + Clone + Sync + 'static> ApplicationHandler for DispatchChain<H> {
-    fn call(self, request: Request<RouteBody>) -> impl Future<Output = RouteResponse> + Send {
+impl<H: ApplicationHandler + Clone + Sync + 'static> ApplicationHandler
+    for DispatchChain<H>
+{
+    fn call(
+        self,
+        request: Request<RouteBody>,
+    ) -> impl Future<Output = RouteResponse> + Send {
         self.handle(request)
     }
 }
 
-impl<H: ApplicationHandler + Clone + Sync + 'static> OtherHandler for DispatchChain<H> {
-    fn call(&self, request: Request<RouteBody>) -> RouteFuture {
+impl<H: ApplicationHandler + Clone + Sync + 'static> OtherHandler
+    for DispatchChain<H>
+{
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> RouteFuture {
         Box::pin(self.clone().handle(request).map(Ok))
     }
 }
@@ -110,7 +138,10 @@ pub(crate) fn compose_dispatch_other(
     if applications.is_empty() {
         OtherService::new(dispatch)
     } else {
-        OtherService::new(ApplicationStage::new(dispatch, applications.to_vec()))
+        OtherService::new(ApplicationStage::new(
+            dispatch,
+            applications.to_vec(),
+        ))
     }
 }
 

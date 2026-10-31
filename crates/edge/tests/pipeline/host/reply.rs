@@ -15,15 +15,19 @@ use super::*;
 #[test]
 fn reply_preparation_registers_only_declared_body_limits() {
     assert!(ReplyPolicy::new(ResponsePolicy::unlimited()).is_none());
-    assert!(ReplyPolicy::new(ResponsePolicy {
-        write_timeout: Some(Duration::from_secs(1)),
-        buffer_size: Some(1024),
-        ..ResponsePolicy::unlimited()
-    }).is_none());
+    assert!(
+        ReplyPolicy::new(ResponsePolicy {
+            write_timeout: Some(Duration::from_secs(1)),
+            buffer_size: Some(1024),
+            ..ResponsePolicy::unlimited()
+        })
+        .is_none()
+    );
     let policy = ReplyPolicy::new(ResponsePolicy {
         max_body_size: Some(7),
         ..ResponsePolicy::unlimited()
-    }).unwrap();
+    })
+    .unwrap();
     let mut builder = HostPipelineBuilder::<()>::new();
     builder.layer(policy).unwrap();
     let pipeline = builder.build();
@@ -35,7 +39,8 @@ fn reply_preparation_registers_only_declared_body_limits() {
     let policy = ReplyPolicy::new(ResponsePolicy {
         body_idle_timeout: Some(Duration::from_secs(1)),
         ..ResponsePolicy::unlimited()
-    }).unwrap();
+    })
+    .unwrap();
     let response = policy.finish(RouteResponse::new(empty_body()));
     assert!(response.body().is_end_stream());
 }
@@ -72,12 +77,14 @@ fn direct_and_composed_reply_guards_keep_frames_trailers_and_drop_ownership() {
         let policy = ReplyPolicy::new(ResponsePolicy {
             max_body_size: Some(PAYLOAD.len()),
             ..ResponsePolicy::unlimited()
-        }).unwrap();
+        })
+        .unwrap();
         let polls = Arc::new(AtomicUsize::new(0));
         let drops = Arc::new(AtomicUsize::new(0));
         let make_response = || {
             let mut trailers = http::HeaderMap::new();
-            trailers.insert("x-finished", http::HeaderValue::from_static("yes"));
+            trailers
+                .insert("x-finished", http::HeaderValue::from_static("yes"));
             let body = boxed_body(Frames {
                 frames: VecDeque::from([
                     Frame::data(Bytes::from_static(PAYLOAD)),
@@ -86,8 +93,11 @@ fn direct_and_composed_reply_guards_keep_frames_trailers_and_drop_ownership() {
                 polls: polls.clone(),
                 drops: drops.clone(),
             });
-            Response::builder().status(StatusCode::CREATED)
-                .header("x-example", "kept").body(body).unwrap()
+            Response::builder()
+                .status(StatusCode::CREATED)
+                .header("x-example", "kept")
+                .body(body)
+                .unwrap()
         };
         let response = if composed {
             let mut builder = HostPipelineBuilder::<()>::new();
@@ -106,11 +116,15 @@ fn direct_and_composed_reply_guards_keep_frames_trailers_and_drop_ownership() {
         assert_eq!(response.headers()["x-example"], "kept");
         let mut body = response.into_body();
         let mut cx = Context::from_waker(Waker::noop());
-        let Poll::Ready(Some(Ok(frame))) = Pin::new(&mut body).poll_frame(&mut cx) else {
+        let Poll::Ready(Some(Ok(frame))) =
+            Pin::new(&mut body).poll_frame(&mut cx)
+        else {
             panic!("the data frame must be forwarded");
         };
         assert_eq!(frame.into_data().unwrap().as_ptr(), PAYLOAD.as_ptr());
-        let Poll::Ready(Some(Ok(frame))) = Pin::new(&mut body).poll_frame(&mut cx) else {
+        let Poll::Ready(Some(Ok(frame))) =
+            Pin::new(&mut body).poll_frame(&mut cx)
+        else {
             panic!("the trailers must be forwarded");
         };
         assert_eq!(frame.into_trailers().unwrap()["x-finished"], "yes");

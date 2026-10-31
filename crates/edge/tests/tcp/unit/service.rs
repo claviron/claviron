@@ -3,8 +3,8 @@ use std::time::Duration;
 
 use crate::deny::DenyService;
 use crate::transport::{
-    AnyAuthenticated, RustRouter, OtherService, H2ConnectAccept,
-    H2ConnectHandler, H2ConnectReject, H2ConnectResult, HostIngress,
+    AnyAuthenticated, H2ConnectAccept, H2ConnectHandler, H2ConnectReject,
+    H2ConnectResult, HostIngress, OtherService, RustRouter,
     resolve_sni_from_table,
 };
 use async_trait::async_trait;

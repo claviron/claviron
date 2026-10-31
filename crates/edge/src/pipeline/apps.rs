@@ -18,9 +18,9 @@ use tracing::error;
 
 use crate::VhostResolver;
 use crate::config::HostConfig;
+use crate::pipeline::host::{HostHandler, compose_other};
 use crate::pipeline::other::OtherService;
 use crate::pipeline::routable::Routable;
-use crate::pipeline::host::{HostHandler, compose_other};
 use crate::pipeline::routable::{HostBindingProvider, RouteBinding};
 
 /// Rust request execution selected for one host publication.
@@ -47,14 +47,17 @@ impl RustRouter {
     }
 }
 
-use crate::pipeline::ext::{RouteContext, RouteEffect, RouteExtension, RouteLayer};
+use crate::pipeline::ext::{
+    RouteContext, RouteEffect, RouteExtension, RouteLayer,
+};
 pub use claviron_http::admission::Admission;
 
 /// Prepared route-extension effects, resolved once during host composition.
 #[derive(Default)]
 pub(crate) struct ResolvedRouteExtensions {
     pub(crate) handler: Option<Arc<dyn HostHandler>>,
-    pub(crate) conditions: Vec<Arc<dyn claviron_http::dispatch::RouteCondition>>,
+    pub(crate) conditions:
+        Vec<Arc<dyn claviron_http::dispatch::RouteCondition>>,
     pub(crate) layers: Vec<Arc<dyn RouteLayer>>,
 }
 
@@ -342,14 +345,18 @@ impl Binding {
     ) -> Result<RustRouter> {
         let app = match self {
             Self::Other(factory) => RustRouter::Other(factory(
-                state.clone(), canonical.clone(), host_cfg.clone(),
+                state.clone(),
+                canonical.clone(),
+                host_cfg.clone(),
             )?),
             #[cfg(feature = "axum")]
             Self::Axum(factory) => RustRouter::Axum(factory(state.clone())),
         };
         #[cfg(feature = "websocket")]
         let websocket = super::host::WebSocketStage::prepare(
-            state, canonical, &host_cfg,
+            state,
+            canonical,
+            &host_cfg,
             build_h1_upgrade_registry(canonical, h1_upgrades)?,
         );
         let owner = match &app {
@@ -359,11 +366,15 @@ impl Binding {
         };
         let prepared = compose_other(owner.clone(), applications);
         #[cfg(feature = "websocket")]
-        let prepared = super::host::compose_websocket_other(prepared, websocket);
+        let prepared =
+            super::host::compose_websocket_other(prepared, websocket);
         let layered = super::host::prepare_layers(prepared, layers)
             .map_err(|error| Error::msg(error.to_string()))?;
         let unchanged = match (&owner, &layered) {
-            (OtherService::Handler(original), OtherService::Handler(prepared)) => Arc::ptr_eq(original, prepared),
+            (
+                OtherService::Handler(original),
+                OtherService::Handler(prepared),
+            ) => Arc::ptr_eq(original, prepared),
             (OtherService::Noop, OtherService::Noop) => true,
             _ => false,
         };
@@ -690,38 +701,57 @@ impl HostAppRegistry {
         #[cfg(feature = "websocket")]
         let mut h1_upgrades = Vec::new();
 
-        let local_routables = self.routables.read()
-            .expect("host app routables lock poisoned").clone();
+        let local_routables = self
+            .routables
+            .read()
+            .expect("host app routables lock poisoned")
+            .clone();
         for routable in &local_routables {
             if !routable.match_host(canonical, host_cfg.as_ref()) {
                 continue;
             }
             if let Some(application) = Arc::clone(routable).application(
-                state, canonical, Arc::clone(&host_cfg),
+                state,
+                canonical,
+                Arc::clone(&host_cfg),
             )? {
                 applications.push(application);
             }
-            layers.extend(Arc::clone(routable).layers(state, canonical, Arc::clone(&host_cfg))?);
+            layers.extend(Arc::clone(routable).layers(
+                state,
+                canonical,
+                Arc::clone(&host_cfg),
+            )?);
             #[cfg(feature = "websocket")]
-            h1_upgrades.extend(routable.h1_upgrades(canonical, Arc::clone(&host_cfg))?);
+            h1_upgrades.extend(
+                routable.h1_upgrades(canonical, Arc::clone(&host_cfg))?,
+            );
         }
 
-        let local_bindings = self.binding_providers.read()
-            .expect("host binding providers lock poisoned").clone();
+        let local_bindings = self
+            .binding_providers
+            .read()
+            .expect("host binding providers lock poisoned")
+            .clone();
         for provider in &local_bindings {
             if !provider.match_host(canonical, host_cfg.as_ref()) {
                 continue;
             }
-            let Some(binding) = provider.binding(canonical, Arc::clone(&host_cfg))? else {
+            let Some(binding) =
+                provider.binding(canonical, Arc::clone(&host_cfg))?
+            else {
                 continue;
             };
             if let Some((previous, _)) = exclusive.as_ref() {
                 return Err(Error::msg(format!(
                     "multiple exclusive host binding providers matched host '{}': '{}' and '{}'",
-                    canonical, previous, provider.name(),
+                    canonical,
+                    previous,
+                    provider.name(),
                 )));
             }
-            exclusive = Some((provider.name(), Binding::from_route_binding(binding)));
+            exclusive =
+                Some((provider.name(), Binding::from_route_binding(binding)));
         }
 
         Ok(RoutableHostBinding {
@@ -864,7 +894,11 @@ impl HostAppRegistry {
                 &mut routable.h1_upgrades,
             )?;
             #[cfg(all(feature = "lua", feature = "webtransport"))]
-            super::embed::lua::append_webtransport_routes(state, canonical, &record.config)?;
+            super::embed::lua::append_webtransport_routes(
+                state,
+                canonical,
+                &record.config,
+            )?;
             #[cfg(all(feature = "orbit", feature = "webtransport"))]
             super::link::webtransport::bind(state, canonical, &record.config)?;
             #[cfg(feature = "broadcast")]
@@ -891,10 +925,11 @@ impl HostAppRegistry {
             let standalone = matches!(&binding, Some(Binding::Axum(_)));
             #[cfg(not(feature = "axum"))]
             let standalone = false;
-            let exchange_policy = crate::pipeline::host::ExchangePolicy::compile(
-                &record.config,
-                default_headers,
-            );
+            let exchange_policy =
+                crate::pipeline::host::ExchangePolicy::compile(
+                    &record.config,
+                    default_headers,
+                );
             let server_header = default_server.clone().or_else(|| {
                 (!standalone).then(|| {
                     http::HeaderValue::from_static(
@@ -964,10 +999,15 @@ fn build_default_app(
     #[cfg(feature = "websocket")]
     let websocket = build_h1_upgrade_registry(canonical, h1_upgrades)?;
     super::host::compile::prepare(
-        state, canonical, host_cfg, applications, layers,
+        state,
+        canonical,
+        host_cfg,
+        applications,
+        layers,
         #[cfg(feature = "websocket")]
         websocket,
-    ).map(RustRouter::Other)
+    )
+    .map(RustRouter::Other)
 }
 
 #[cfg(feature = "websocket")]

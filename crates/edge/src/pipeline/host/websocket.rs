@@ -3,7 +3,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use claviron_http::upgrade::{H1UpgradeBinding, H1UpgradeRegistry, try_h1_upgrade};
+use claviron_http::upgrade::{
+    H1UpgradeBinding, H1UpgradeRegistry, try_h1_upgrade,
+};
 use claviron_http::{RouteBody, ServiceResult};
 use claviron_runtime::AppState;
 use claviron_types::Host;
@@ -25,7 +27,11 @@ pub struct WebSocketStage {
 }
 
 impl WebSocketStage {
-    pub fn new(state: AppState, host: Host, registry: &H1UpgradeRegistry) -> Option<Self> {
+    pub fn new(
+        state: AppState,
+        host: Host,
+        registry: &H1UpgradeRegistry,
+    ) -> Option<Self> {
         let bindings = registry.snapshot_for_host(&host);
         (!bindings.is_empty()).then_some(Self { state, host, bindings })
     }
@@ -36,18 +42,24 @@ impl WebSocketStage {
         config: &HostConfig,
         local: Option<Arc<H1UpgradeRegistry>>,
     ) -> Option<Arc<Self>> {
-        if !config.transport.allows_protocol(claviron_http::listener::HttpProtocol::H1)
+        if !config
+            .transport
+            .allows_protocol(claviron_http::listener::HttpProtocol::H1)
             || !config.transport.h1.upgrade
         {
             return None;
         }
-        let registry = local.or_else(|| state.registry_ref().resolve::<H1UpgradeRegistry>())?;
+        let registry = local
+            .or_else(|| state.registry_ref().resolve::<H1UpgradeRegistry>())?;
         Self::new(state.clone(), host.clone(), &registry).map(Arc::new)
     }
 }
 
 impl DispatchStep for WebSocketStage {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         let Some(binding) = self.bindings.get(request.uri().path()) else {
             return DispatchFuture::ready(ServiceResult::Unhandled(request));
         };
@@ -55,7 +67,8 @@ impl DispatchStep for WebSocketStage {
         if !handler.is_upgrade(&request) {
             return DispatchFuture::ready(ServiceResult::Unhandled(request));
         }
-        let (state, host, binding) = (self.state.clone(), self.host.clone(), binding.clone());
+        let (state, host, binding) =
+            (self.state.clone(), self.host.clone(), binding.clone());
         DispatchFuture::new(try_h1_upgrade(state, host, binding, request))
     }
 }
@@ -65,7 +78,9 @@ pub(crate) fn compose_websocket_other(
     websocket: Option<Arc<WebSocketStage>>,
 ) -> OtherService {
     match websocket {
-        Some(websocket) => OtherService::new(DispatchChain::new(owner, vec![websocket])),
+        Some(websocket) => {
+            OtherService::new(DispatchChain::new(owner, vec![websocket]))
+        }
         None => owner,
     }
 }

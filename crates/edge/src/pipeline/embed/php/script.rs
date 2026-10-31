@@ -4,9 +4,11 @@ use claviron_php_embed::{PhpScriptAdapter, PhpScriptService};
 struct Script(PhpScriptAdapter);
 
 pub(super) fn prepare(
-    state: &AppState, runtime: Arc<PhpRuntime>,
+    state: &AppState,
+    runtime: Arc<PhpRuntime>,
 ) -> Option<Arc<dyn DispatchStep>> {
-    let Some(service) = state.registry_ref().resolve::<PhpScriptService>() else {
+    let Some(service) = state.registry_ref().resolve::<PhpScriptService>()
+    else {
         tracing::error!("PhpScriptService not registered");
         return None;
     };
@@ -14,16 +16,24 @@ pub(super) fn prepare(
 }
 
 impl DispatchStep for Script {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         let adapter = self.0.clone();
         DispatchFuture::new(async move {
             match adapter.try_handle(request).await {
-                Ok(ServiceResult::Handled(response)) => ServiceResult::Handled(response),
+                Ok(ServiceResult::Handled(response)) => {
+                    ServiceResult::Handled(response)
+                }
                 Ok(ServiceResult::Unhandled(request)) => {
                     // The native resolver returned before polling the body.
                     ServiceResult::Unhandled(request)
                 }
-                Err(error) => ServiceResult::Handled(gateway_error(error.status_code(), error)),
+                Err(error) => ServiceResult::Handled(gateway_error(
+                    error.status_code(),
+                    error,
+                )),
             }
         })
     }

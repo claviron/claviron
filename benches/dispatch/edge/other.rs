@@ -1,7 +1,7 @@
 //! Prepared Edge host admission and Other dispatch, without transport I/O.
 
 use claviron::edge::transport::{
-    RustRouter, OtherHandler, OtherService, RequestArrival,
+    OtherHandler, OtherService, RequestArrival, RustRouter,
 };
 use claviron::http::{RouteBody, RouteFuture, boxed_body};
 use criterion::{Criterion, criterion_group, criterion_main};

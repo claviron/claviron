@@ -111,7 +111,8 @@ impl StaticMount {
         config: StaticConfig,
     ) -> Self {
         let mapping = claviron_http::config::mapping::RouteMapping::new(
-            config.path.clone(), root.join(&config.dir),
+            config.path.clone(),
+            root.join(&config.dir),
         );
         Self { mapping, config }
     }

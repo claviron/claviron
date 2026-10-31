@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::config::HostConfig;
 use crate::transport::{
-    OtherHandler, OtherService, HostAppRegistry, HostAppResolver,
+    HostAppRegistry, HostAppResolver, OtherHandler, OtherService,
 };
 use axum::Router;
 use axum::routing::any;
@@ -587,10 +587,8 @@ async fn plaintext_policy_and_client_auth_fail_closed() {
 #[tokio::test]
 async fn upgrade_permission_is_checked_for_each_keepalive_host() {
     let fixture = Fixture::new().await;
-    fixture.host(
-        "other.test",
-        "transport: {non_ssl: serve, h1: {upgrade: true}}",
-    );
+    fixture
+        .host("other.test", "transport: {non_ssl: serve, h1: {upgrade: true}}");
     let mut wire = fixture.connect().await;
     for (host, expected) in [
         ("app.test", StatusCode::FORBIDDEN),

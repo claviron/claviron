@@ -2,22 +2,52 @@
 
 use std::sync::Arc;
 
-use claviron_http::ext::PathPrefix;
-use claviron_http::{RouteBody, RouteResponse, ServiceResult, bytes_body};
 #[cfg(feature = "php_embed")]
 use claviron_http::empty_body;
+use claviron_http::ext::PathPrefix;
+use claviron_http::{RouteBody, RouteResponse, ServiceResult, bytes_body};
 use claviron_php::{PhpRunner, PhpRuntime};
 use claviron_runtime::AppState;
 use http::{Request, Response, StatusCode};
 
-use crate::pipeline::host::{DispatchStep, DispatchFuture};
+use crate::HostConfig;
+use crate::pipeline::host::{DispatchFuture, DispatchStep};
 
 #[cfg(feature = "php_embed")]
 mod app;
-#[cfg(feature = "php_embed")]
-mod script;
 #[cfg(feature = "php_fcgi")]
 mod fcgi;
+#[cfg(feature = "php_embed")]
+mod script;
+
+// Resolve route mappings and PHP defaults before selecting runner owners.
+fn prepare_runtimes(state: &AppState, config: &HostConfig) -> Vec<PhpRuntime> {
+    config.php
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .map(|template| {
+            let mut runtime = PhpRuntime::from_config(
+                state,
+                template,
+                config.root(),
+                config.indexes(),
+            );
+            if let Some(mapping) = &config.files.mapping {
+                if template.dir.is_none() {
+                    runtime.dir = mapping.directory().to_path_buf();
+                }
+                runtime.mapping = Some(
+                    claviron_http::config::mapping::RouteMapping::new(
+                        mapping.prefix().clone(),
+                        runtime.dir.clone(),
+                    ),
+                );
+            }
+            runtime
+        })
+        .collect()
+}
 
 struct Mount {
     path: Option<PathPrefix>,
@@ -32,19 +62,29 @@ pub struct PhpBackend {
 }
 
 impl PhpBackend {
-    pub fn new(state: &AppState, runtimes: Vec<PhpRuntime>) -> Option<Self> {
-        let mounts = runtimes.into_iter().filter_map(|runtime| {
-            let path = runtime.path.clone();
-            let owner = match runtime.php_runner {
-                #[cfg(feature = "php_embed")]
-                PhpRunner::Script => script::prepare(state, Arc::new(runtime)),
-                #[cfg(feature = "php_embed")]
-                PhpRunner::Application => Some(app::prepare(state, runtime)),
-                #[cfg(feature = "php_fcgi")]
-                PhpRunner::Fcgi => fcgi::prepare(state, Arc::new(runtime)),
-            }?;
-            Some(Mount { path, owner })
-        }).collect();
+    pub fn new(
+        state: &AppState,
+        config: &HostConfig,
+    ) -> Option<Self> {
+        let mounts = prepare_runtimes(state, config)
+            .into_iter()
+            .filter_map(|runtime| {
+                let path = runtime.path.clone();
+                let owner = match runtime.php_runner {
+                    #[cfg(feature = "php_embed")]
+                    PhpRunner::Script => {
+                        script::prepare(state, Arc::new(runtime))
+                    }
+                    #[cfg(feature = "php_embed")]
+                    PhpRunner::Application => {
+                        Some(app::prepare(state, runtime))
+                    }
+                    #[cfg(feature = "php_fcgi")]
+                    PhpRunner::Fcgi => fcgi::prepare(state, Arc::new(runtime)),
+                }?;
+                Some(Mount { path, owner })
+            })
+            .collect();
         Self::from_mounts(mounts)
     }
 
@@ -66,7 +106,10 @@ impl PhpBackend {
 }
 
 impl DispatchStep for PhpBackend {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         let backend = self.clone();
         DispatchFuture::new(async move {
             let mut request = request;
@@ -77,7 +120,9 @@ impl DispatchStep for PhpBackend {
                     continue;
                 }
                 request = match mount.owner.call(request).await {
-                    ServiceResult::Handled(response) => return ServiceResult::Handled(response),
+                    ServiceResult::Handled(response) => {
+                        return ServiceResult::Handled(response);
+                    }
                     ServiceResult::Unhandled(request) => request,
                 };
             }
@@ -87,11 +132,16 @@ impl DispatchStep for PhpBackend {
 }
 
 /// Preserve the former gateway error's status and text without an Axum conversion.
-fn gateway_error(status: StatusCode, error: impl std::fmt::Display) -> RouteResponse {
+fn gateway_error(
+    status: StatusCode,
+    error: impl std::fmt::Display,
+) -> RouteResponse {
     let mut response = Response::new(bytes_body(error.to_string().into()));
     *response.status_mut() = status;
-    response.headers_mut().insert(http::header::CONTENT_TYPE,
-        http::HeaderValue::from_static("text/plain; charset=utf-8"));
+    response.headers_mut().insert(
+        http::header::CONTENT_TYPE,
+        http::HeaderValue::from_static("text/plain; charset=utf-8"),
+    );
     response
 }
 
@@ -100,12 +150,17 @@ struct UnavailableApplication;
 
 #[cfg(feature = "php_embed")]
 impl DispatchStep for UnavailableApplication {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         drop(request);
         let mut response = Response::new(empty_body());
         *response.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
-        response.headers_mut().insert(http::header::RETRY_AFTER,
-            http::HeaderValue::from_static("1"));
+        response.headers_mut().insert(
+            http::header::RETRY_AFTER,
+            http::HeaderValue::from_static("1"),
+        );
         DispatchFuture::ready(ServiceResult::Handled(response))
     }
 }

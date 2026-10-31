@@ -7,8 +7,8 @@ use claviron_http::ext::PathPrefix;
 use http::{HeaderValue, StatusCode, Uri};
 
 use super::acl::CompiledAcl;
-use crate::service::{HostResponse, RequestRejection};
 use crate::config::{HostConfig, RedirectConfig};
+use crate::service::{HostResponse, RequestRejection};
 
 pub(crate) struct RequestPolicy {
     checks: Box<[AccessCheck]>,
@@ -27,13 +27,20 @@ impl RequestPolicy {
         }
         if let Some(acl) = CompiledAcl::from_entries(
             config.routes.iter().filter_map(|(prefix, route)| {
-                route.route_acl.as_ref().map(|acl| (prefix.clone(), acl.clone()))
+                route
+                    .route_acl
+                    .as_ref()
+                    .map(|acl| (prefix.clone(), acl.clone()))
             }),
         ) {
             checks.push(AccessCheck::Acl(acl));
         }
         checks.extend(
-            config.redirect.as_deref().unwrap_or_default().iter()
+            config
+                .redirect
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
                 .map(|rule| AccessCheck::Redirect(RedirectRule::compile(rule))),
         );
         if checks.is_empty() {
@@ -43,15 +50,24 @@ impl RequestPolicy {
         }
     }
 
-    pub(crate) fn check(&self, uri: &Uri, ip: IpAddr) -> Result<(), HostResponse> {
+    pub(crate) fn check(
+        &self,
+        uri: &Uri,
+        ip: IpAddr,
+    ) -> Result<(), HostResponse> {
         for check in &self.checks {
             match check {
                 AccessCheck::Acl(acl) => acl.check(uri.path(), ip)?,
                 AccessCheck::Redirect(rule) => {
                     if rule.path.has_path_segment(uri.path()) {
-                        let location = rule.target.render(uri)
+                        let location = rule
+                            .target
+                            .render(uri)
                             .map_err(|_| RequestRejection::InvalidRedirect)?;
-                        return Err(HostResponse::Redirect { status: rule.status, location });
+                        return Err(HostResponse::Redirect {
+                            status: rule.status,
+                            location,
+                        });
                     }
                 }
             }

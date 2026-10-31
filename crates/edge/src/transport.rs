@@ -37,9 +37,9 @@ pub use crate::pipeline::other::{OtherHandler, OtherService};
 /// Applications mounted on a host, and the connection-level handlers a
 /// transport dispatches to before routing: CONNECT and WebTransport.
 pub use crate::pipeline::{
-    AnyAuthenticated, RustRouter, AuthContext, H2ConnectAccept, H2ConnectBinding,
+    AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
-    HostAppRegistry, HostAppResolver,
+    HostAppRegistry, HostAppResolver, RustRouter,
 };
 #[cfg(feature = "webtransport")]
 pub use crate::pipeline::{WebTransportBinding, WebTransportRegistry};

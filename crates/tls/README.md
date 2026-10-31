@@ -5,7 +5,7 @@ Claviron services.
 
 This crate prepares the certificate and policy machinery used by TLS endpoints.
 It does not open listeners or select HTTP routes. The
-[Hyper](../edge/docs/tcp/README.md) and [H3](../edge/docs/quic/README.md) transports own their
+[Hyper](../edge/src/tcp/mod.rs) and [H3](../edge/src/quic/mod.rs) transports own their
 handshakes and connections; [Edge](../edge/README.md) owns host admission and
 application selection after those connections establish their identity.
 

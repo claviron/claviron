@@ -34,7 +34,9 @@ impl AsMut<IdentityState> for IdentityState {
 }
 
 impl AsRef<IdentityState> for IdentityState {
-    fn as_ref(&self) -> &IdentityState { self }
+    fn as_ref(&self) -> &IdentityState {
+        self
+    }
 }
 
 /// Prepares one identity action from the accepted connection and listener

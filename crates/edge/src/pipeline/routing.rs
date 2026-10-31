@@ -5,6 +5,10 @@
 
 pub use claviron_http::config::routes::RouteTable;
 
-pub use claviron_http::dispatch::{ConfiguredRoute, RouteDispatch, RouteCondition, RuleContext};
+pub use claviron_http::dispatch::{
+    ConfiguredRoute, RouteCondition, RouteDispatch, RuleContext,
+};
 
-pub use super::ext::{RouteContext, RouteEffect, RouteExtension, RouteLayer, directive};
+pub use super::ext::{
+    RouteContext, RouteEffect, RouteExtension, RouteLayer, directive,
+};

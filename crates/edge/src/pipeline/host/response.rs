@@ -40,7 +40,10 @@ impl<S> PreparedReply<'_, S> {
 
 impl<S, R> PreparedResponse<'_, S, R> {
     /// Apply the armed response actions once, without collecting its body.
-    pub fn finish(self, response: RouteResponse) -> RouteResponse {
+    pub fn finish(
+        self,
+        response: RouteResponse,
+    ) -> RouteResponse {
         self.pipeline.finish(response, self.state, self.scope)
     }
 }
