@@ -130,23 +130,29 @@ pub(crate) trait HeadOnlyReply {}
 impl HeadOnlyReply for RequestRejection {}
 impl HeadOnlyReply for HostResponse {}
 
-impl<B, S, R: HeadOnlyReply> PreparedRequest<'_, B, S, R> {
+impl<B, S, R> PreparedRequest<'_, B, S, R> {
     /// Typed rejection plans cannot register response hooks. Transfer their
     /// unclaimed request and phase state without discarding response work.
-    pub(crate) fn into_parts_and_state(self) -> (RequestParts, B, S) {
+    pub(crate) fn into_parts_and_state(self) -> (RequestParts, B, S)
+    where
+        R: HeadOnlyReply,
+    {
         (self.head, self.body, self.state)
     }
 }
 
 #[cfg(feature = "rate-limit")]
-impl<S, R: HeadOnlyReply> HostPipeline<S, R> {
+impl<S, R> HostPipeline<S, R> {
     /// Continue a head-only plan without assembling, moving or erasing a body.
     /// Typed plans cannot register response hooks, so none are discarded here.
     pub(crate) fn check_head(
         &self,
         head: &mut RequestParts,
         state: &mut S,
-    ) -> Result<(), R> {
+    ) -> Result<(), R>
+    where
+        R: HeadOnlyReply,
+    {
         for step in &self.before {
             if let ControlFlow::Break(reply) = (step.action)(head, state) {
                 return Err(reply);
