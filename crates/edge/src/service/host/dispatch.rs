@@ -206,13 +206,12 @@ impl DispatchRequest {
         request.extensions_mut().insert(claviron_http::ext::ReceivedAt(
             std::time::SystemTime::now(),
         ));
-        let requests = self.policy.requests;
         // Admission, on every path to the host: a place among the requests it
         // serves at once, waited for up to the request's `queue_timeout`, and
         // the time to the reply's head. The listener's and the host's values,
         // narrowed; the runner behind may narrow them again for its own queue
         // and its own head. Unwritten, neither is kept.
-        let Some(_place) = self.admission.enter(requests.queue_timeout).await
+        let Some(_place) = context.0.admission_policy.enter(&self.admission).await
         else {
             #[cfg(feature = "access-log")]
             if let Some(access) = access {
@@ -232,8 +231,8 @@ impl DispatchRequest {
             access.admitted();
         }
         // Head-timing ownership is irrelevant when no timeout was declared.
-        let head_timeout =
-            requests.head_timeout.filter(|_| !owner.times_its_head());
+        let head_timeout = context.0.admission_policy
+            .head_timeout_for(|| owner.times_its_head());
         let answering = async move {
             if let Some(response) = early_reply {
                 return response;

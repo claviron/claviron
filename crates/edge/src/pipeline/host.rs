@@ -25,6 +25,8 @@
 //! With `rate-limit`, `QuotaPolicy` prepares the selected application's rate
 //! admission after access. [`ExchangeLayer`] prepares configured CORS and reply
 //! headers. [`ReplyPolicy`] prepares only declared response-body guards.
+//! [`AdmissionPolicy`] supplies prepared queue/head timing to HTTP's existing
+//! asynchronous admission boundary, outside synchronous head actions.
 //! Application dispatch remains owned by `HostService`.
 
 use std::ops::ControlFlow;
@@ -36,6 +38,7 @@ use http::{
 };
 
 mod access;
+mod admission;
 mod builder;
 mod exchange;
 mod identity;
@@ -46,6 +49,7 @@ mod reply;
 mod state;
 
 pub use access::{AccessPolicy, AccessState};
+pub use admission::AdmissionPolicy;
 pub use exchange::{ExchangeLayer, ExchangeState};
 pub use identity::{IdentityPolicy, IdentityState};
 pub use ingress::{IngressPolicy, IngressState};

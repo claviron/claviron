@@ -122,6 +122,16 @@ and dropping the body releases its original source. Idle timers still start
 only when HTTP polls a guarded body. Transport write limits, buffering and
 queue/head deadlines retain their existing owners.
 
+`AdmissionPolicy` prepares queue/head timing from the same effective request
+policy. It borrows the selected application's `Admission` capacity instead of
+keeping a semaphore in cached connection metadata. `enter` returns HTTP's
+existing future directly; its permit still lives until the reply head or
+cancellation. Backend timing ownership is queried only for a declared head
+limit, so a backend enforcing that limit is not timed twice. The existing
+HTTP head future retains first-poll deadline and cancellation behavior.
+This asynchronous execution stage stays outside synchronous `HostLayer` head
+actions; it adds no erased layer future, task or implicit duration.
+
 ## Keep the boundary useful
 
 Native transports adapt their request bodies to `RouteBody`; bypass handlers
@@ -155,6 +165,7 @@ always faster or should replace routing everywhere.
 - [Prepared quota policy](../../crates/edge/src/pipeline/host/quota.rs).
 - [CORS and response-header layer](../../crates/edge/src/pipeline/host/exchange.rs).
 - [Response-body policy](../../crates/edge/src/pipeline/host/reply.rs).
+- [Prepared admission timing](../../crates/edge/src/pipeline/host/admission.rs).
 - [Shared host admission and dispatch](../../crates/edge/src/service/host.rs).
 
 Use `BYPASS_PIPELINE` as the search key for this application-first composition.
