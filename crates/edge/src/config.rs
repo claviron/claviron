@@ -330,6 +330,11 @@ impl HostConfig {
         self.access_log.as_deref()
     }
 
+    #[cfg(feature = "php")]
+    pub fn php(&self) -> &[PhpConfig] {
+        self.php.as_deref().unwrap_or(&[])
+    }
+
     #[cfg(feature = "lua")]
     pub fn lua(&self) -> &[LuaRouteConfig] {
         self.lua.as_deref().unwrap_or(&[])

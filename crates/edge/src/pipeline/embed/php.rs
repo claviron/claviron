@@ -22,9 +22,7 @@ mod script;
 
 // Resolve route mappings and PHP defaults before selecting runner owners.
 fn prepare_runtimes(state: &AppState, config: &HostConfig) -> Vec<PhpRuntime> {
-    config.php
-        .as_deref()
-        .unwrap_or(&[])
+    config.php()
         .iter()
         .map(|template| {
             let mut runtime = PhpRuntime::from_config(
