@@ -16,15 +16,17 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 HISTORY = ROOT / ".benchmarks" / "http"
 BENCHMARKS = {
-    "dispatch-hyper": ("dispatch/hyper/request", "decoded-request-to-consumed-response"),
-    "dispatch-axum": ("dispatch/axum/request", "decoded-request-to-consumed-response"),
-    "dispatch-edge-other": ("dispatch/edge/other/request", "decoded-request-to-consumed-response"),
-    "dispatch-edge-axum": ("dispatch/edge/axum/request", "decoded-request-to-consumed-response"),
-    "dispatch-edge-pipeline": ("dispatch/edge/pipeline/request", "decoded-request-to-consumed-response"),
-    "http1-hyper": ("transport/http1/hyper/request", "persistent-loopback-http1-round-trip"),
-    "http1-axum": ("transport/http1/axum/request", "persistent-loopback-http1-round-trip"),
+    "dispatch-hyper": ("dispatch/native/hyper/json/request", "decoded-request-json-response"),
+    "dispatch-axum": ("dispatch/native/axum/json/request", "decoded-request-json-response"),
+    "dispatch-edge-other": ("dispatch/edge/other/plain/host", "decoded-request-plain-host-overhead"),
+    "dispatch-edge-axum": ("dispatch/edge/axum/plain/host", "decoded-request-plain-host-overhead"),
+    "dispatch-edge-pipeline": ("dispatch/edge/pipeline/plain/host", "decoded-request-plain-host-overhead"),
+    "dispatch-edge-json": ("dispatch/edge/json/request", "decoded-request-json-response"),
+    "http1-hyper": ("transport/http1/native/hyper/json/request", "persistent-loopback-http1-round-trip"),
+    "http1-axum": ("transport/http1/native/axum/json/request", "persistent-loopback-http1-round-trip"),
     "http1-edge": ("transport/http1/edge/request", "persistent-loopback-http1-round-trip"),
 }
+PLAIN_TARGETS = {"dispatch-edge-other", "dispatch-edge-axum", "dispatch-edge-pipeline"}
 # Keep code generation and optional adapter availability identical across targets.
 FEATURES = ["edge", "axum"]
 
@@ -100,11 +102,15 @@ def compatible(first, second):
             and first.get("controls") == second.get("controls"))
 
 
-def mean_time(record):
-    mean = record["estimates_ns"]["mean"]["point_estimate"]
+def estimate_mean(estimates):
+    mean = estimates["mean"]["point_estimate"]
     if not math.isfinite(mean) or mean <= 0:
         raise RuntimeError("measurement must have a finite, positive mean")
     return mean
+
+
+def mean_time(record):
+    return estimate_mean(record["estimates_ns"])
 
 
 def read_estimates(directory, benchmark):
@@ -157,7 +163,7 @@ def main():
         "source": source,
         "artifact_sha256": file_digest(executable),
         "controls": {
-            "schema": 3,
+            "schema": 4,
             "boundary": BENCHMARKS[args.target][1],
             "workload_sha256": {
                 path.relative_to(ROOT).as_posix(): file_digest(path)
@@ -215,12 +221,27 @@ def main():
         save_record(metadata, record)
         record["estimates_ns"] = read_estimates(directory / "criterion", record["benchmark"])
         mean_time(record)
+        if args.target in PLAIN_TARGETS:
+            group = record["benchmark"].rsplit("/", 1)[0]
+            record["components_ns"] = {
+                case: read_estimates(directory / "criterion", f"{group}/{case}")
+                for case in ("native", "prepare")
+            }
+            for estimates in record["components_ns"].values():
+                estimate_mean(estimates)
         record["status"] = "passed"
     save_record(metadata, record)
     if record["status"] != "passed":
         raise RuntimeError(f"run is invalid ({record['status']}); retained at {metadata}")
     mean = mean_time(record)
     print(f"{run_id}: {mean:.3f} ns/request")
+    if args.target in PLAIN_TARGETS:
+        native = estimate_mean(record["components_ns"]["native"])
+        prepare = estimate_mean(record["components_ns"]["prepare"])
+        print(f"Native owner: {native:.3f} ns/request")
+        print(f"Synchronous host preparation, without application execution: {prepare:.3f} ns/request")
+        print(f"Host minus native: {mean - native:+.3f} ns/request")
+        print("This delta includes response completion; it is not an exclusive pre-handler timer.")
     if baseline:
         old_mean = mean_time(baseline)
         print(f"Compared with {baseline['run_id']}: {old_mean:.3f} -> {mean:.3f} ns/request "

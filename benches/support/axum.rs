@@ -7,3 +7,9 @@ pub fn router() -> Router {
         Json(super::json::payload(&request)).into_response()
     }))
 }
+
+pub fn plain_router() -> Router {
+    Router::new().route(super::plain::PATH, get(|request: Request| async move {
+        super::plain::response(request)
+    }))
+}

@@ -2,11 +2,11 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
-#[path = "../../support/mod.rs"]
+#[path = "../../../support/mod.rs"]
 pub mod support;
 
 fn benchmark(criterion: &mut Criterion) {
-    support::http1::run(criterion, "transport/http1/axum", support::http1::axum);
+    support::http1::run(criterion, "transport/http1/native/axum/json", support::http1::axum);
 }
 
 criterion_group!(benches, benchmark);

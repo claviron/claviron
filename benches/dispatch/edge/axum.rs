@@ -1,25 +1,21 @@
-//! Prepared host admission followed by the application-owned Axum router.
+//! One Axum router called natively and through its registered Edge binding.
 
-use std::convert::Infallible;
-
-use claviron::edge::transport::RequestArrival;
-use claviron::http::boxed_body;
 use criterion::{Criterion, criterion_group, criterion_main};
 use futures_util::FutureExt;
+use hyper::service::Service;
+use hyper_util::service::TowerToHyperService;
 
 #[path = "../../support/mod.rs"]
 pub mod support;
 
 fn benchmark(criterion: &mut Criterion) {
-    let host = support::edge::axum();
-    let service = hyper::service::service_fn(move |request: support::json::Input| {
-        host.prepare(request, RequestArrival::Established)
-            .expect("fixture must pass host admission")
-            .map_body(boxed_body)
-            .dispatch()
-            .map(Ok::<_, Infallible>)
-    });
-    support::decoded::run(criterion, "dispatch/edge/axum", service);
+    let router = support::axum::plain_router();
+    let host = support::edge::axum(router.clone());
+    let native = TowerToHyperService::new(router);
+    support::plain::run(
+        criterion, "dispatch/edge/axum/plain", host,
+        |request| native.call(request).map(|Ok(response)| response),
+    );
 }
 
 criterion_group!(benches, benchmark);

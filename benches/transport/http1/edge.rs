@@ -14,7 +14,7 @@ use hyper::body::Incoming;
 pub mod support;
 
 fn benchmark(criterion: &mut Criterion) {
-    let host = support::edge::pipeline();
+    let host = support::edge::json_pipeline();
     support::http1::run(criterion, "transport/http1/edge", || {
         support::http1::hyper(hyper::service::service_fn(move |request: Request<Incoming>| {
             host.prepare(request, RequestArrival::Established)

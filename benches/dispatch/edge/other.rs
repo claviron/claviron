@@ -1,25 +1,23 @@
-//! Prepared Edge host admission and Other dispatch, without transport I/O.
+//! Native Hyper handler versus the registered Other owner behind host policy.
 
-use claviron::edge::transport::RequestArrival;
-use claviron::http::boxed_body;
+use std::convert::Infallible;
+use std::future::ready;
+
 use criterion::{Criterion, criterion_group, criterion_main};
 use futures_util::FutureExt;
-use std::convert::Infallible;
+use hyper::service::Service;
 
 #[path = "../../support/mod.rs"]
 pub mod support;
 
 fn benchmark(criterion: &mut Criterion) {
-    let host = support::edge::other();
-    let service =
-        hyper::service::service_fn(move |request: support::json::Input| {
-            let prepared = host
-                .prepare(request, RequestArrival::Established)
-                .expect("fixture must pass host admission")
-                .map_body(boxed_body);
-            prepared.dispatch().map(Ok::<_, Infallible>)
-        });
-    support::decoded::run(criterion, "dispatch/edge/other", service);
+    let native = hyper::service::service_fn(|request: support::plain::Input| {
+        ready(Ok::<_, Infallible>(support::plain::response(request)))
+    });
+    support::plain::run(
+        criterion, "dispatch/edge/other/plain", support::edge::other(),
+        |request| native.call(request).map(|Ok(response)| response),
+    );
 }
 
 criterion_group!(benches, benchmark);

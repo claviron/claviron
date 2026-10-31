@@ -10,4 +10,5 @@ pub mod decoded;
 pub mod edge;
 pub mod http1;
 pub mod json;
+pub mod plain;
 pub mod setup;

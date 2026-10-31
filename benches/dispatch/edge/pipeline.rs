@@ -1,25 +1,23 @@
-//! Configured native host plan with one registered Routable JSON contribution.
+//! Native Hyper handler versus a config/Routable-compiled host plan.
 
 use std::convert::Infallible;
+use std::future::ready;
 
-use claviron::edge::transport::RequestArrival;
-use claviron::http::boxed_body;
 use criterion::{Criterion, criterion_group, criterion_main};
 use futures_util::FutureExt;
+use hyper::service::Service;
 
 #[path = "../../support/mod.rs"]
 pub mod support;
 
 fn benchmark(criterion: &mut Criterion) {
-    let host = support::edge::pipeline();
-    let service = hyper::service::service_fn(move |request: support::json::Input| {
-        host.prepare(request, RequestArrival::Established)
-            .expect("fixture must pass host admission")
-            .map_body(boxed_body)
-            .dispatch()
-            .map(Ok::<_, Infallible>)
+    let native = hyper::service::service_fn(|request: support::plain::Input| {
+        ready(Ok::<_, Infallible>(support::plain::response(request)))
     });
-    support::decoded::run(criterion, "dispatch/edge/pipeline", service);
+    support::plain::run(
+        criterion, "dispatch/edge/pipeline/plain", support::edge::pipeline(),
+        |request| native.call(request).map(|Ok(response)| response),
+    );
 }
 
 criterion_group!(benches, benchmark);

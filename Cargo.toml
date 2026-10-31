@@ -259,14 +259,14 @@ required-features = ["edge"]
 
 [[bench]]
 name = "dispatch-hyper"
-path = "benches/dispatch/hyper.rs"
+path = "benches/dispatch/native/hyper.rs"
 harness = false
 test = false
 required-features = ["edge"]
 
 [[bench]]
 name = "dispatch-axum"
-path = "benches/dispatch/axum.rs"
+path = "benches/dispatch/native/axum.rs"
 harness = false
 test = false
 required-features = ["edge", "axum"]
@@ -286,15 +286,22 @@ test = false
 required-features = ["edge"]
 
 [[bench]]
+name = "dispatch-edge-json"
+path = "benches/dispatch/edge/json.rs"
+harness = false
+test = false
+required-features = ["edge"]
+
+[[bench]]
 name = "http1-hyper"
-path = "benches/transport/http1/hyper.rs"
+path = "benches/transport/http1/native/hyper.rs"
 harness = false
 test = false
 required-features = ["edge"]
 
 [[bench]]
 name = "http1-axum"
-path = "benches/transport/http1/axum.rs"
+path = "benches/transport/http1/native/axum.rs"
 harness = false
 test = false
 required-features = ["edge", "axum"]

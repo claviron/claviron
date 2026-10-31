@@ -1,21 +1,19 @@
-//! Native Hyper HTTP/1.1 server over an isolated persistent loopback connection.
+//! Bare Hyper service on a decoded HTTP/1.1 request; see support for boundaries.
 
 use std::convert::Infallible;
 use std::future::ready;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use hyper::body::Incoming;
-use http::Request;
 
 #[path = "../../support/mod.rs"]
 pub mod support;
 
 fn benchmark(criterion: &mut Criterion) {
-    support::http1::run(criterion, "transport/http1/hyper", || {
-        support::http1::hyper(hyper::service::service_fn(|request: Request<Incoming>| {
+    let service =
+        hyper::service::service_fn(|request: support::json::Input| {
             ready(Ok::<_, Infallible>(support::json::response(request)))
-        }))
-    });
+        });
+    support::decoded::run(criterion, "dispatch/native/hyper/json", service);
 }
 
 criterion_group!(benches, benchmark);
