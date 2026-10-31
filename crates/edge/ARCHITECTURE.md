@@ -106,6 +106,18 @@ and rejection for `config::HostConfigExt`.
 - [`lua/origin.rs`](src/pipeline/embed/lua/origin.rs) — Shared browser-origin
   admission using the requested authority and accepted transport scheme.
 
+### [`quic/mod.rs`](src/quic/mod.rs) and `quic/`
+
+- [`types.rs`](src/quic/types.rs) — H3 provider registration, Congif environment
+  binding, listener snapshots and per-host TLS policy preparation.
+- [`error.rs`](src/quic/error.rs) — Normal closure and interrupted-stream
+  classification, separate from protocol failures.
+- [`listener/drain.rs`](src/quic/listener/drain.rs) — Join connection-owned
+  stream tasks after completion, explicit force or driver panic.
+- [`wt.rs`](src/quic/wt.rs) — Authorize and hand native H3 sessions to handlers.
+- [`wt/streams.rs`](src/quic/wt/streams.rs) — Bounded per-session stream input;
+  saturated or ended sessions never block the connection driver.
+
 ## `tests/`
 
 ### [`provider.rs`](tests/provider.rs)

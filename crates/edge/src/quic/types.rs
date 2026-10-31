@@ -271,6 +271,7 @@ impl ConfigObserver for H3Server {
 
 impl Register<AppState> for H3Server {
     fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
+        state.bind_config_environment::<Self>()?;
         claviron_tls::orbit::register(state)?;
         if !state.is_master() {
             state
