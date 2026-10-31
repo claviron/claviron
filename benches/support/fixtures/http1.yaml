@@ -1,0 +1,12 @@
+listeners:
+  plain:
+    transport: tcp
+    tls: false
+    listen: 127.0.0.1:0
+    protocols: [h1]
+    requests:
+      max_body_size: off
+      body_read_timeout: off
+      head_timeout: null
+    h1:
+      header_read_timeout: null

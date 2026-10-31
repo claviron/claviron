@@ -22,12 +22,27 @@ pub struct Hosts {
 
 impl Hosts {
     pub fn load() -> Self {
+        Self::parse(
+            include_str!("fixtures/http.yaml"),
+            include_str!("fixtures/vhosts.yaml"),
+        )
+    }
+
+    pub fn http1() -> Self {
+        Self::parse(
+            include_str!("fixtures/http1.yaml"),
+            include_str!("fixtures/http1-vhosts.yaml"),
+        )
+    }
+
+    fn parse(
+        http: &str,
+        vhosts: &str,
+    ) -> Self {
         let http: HttpSnapshot =
-            serde_yaml::from_str(include_str!("fixtures/http.yaml"))
-                .expect("valid benchmark HTTP fixture");
-        let table: VhostTable =
-            serde_yaml::from_str(include_str!("fixtures/vhosts.yaml"))
-                .expect("valid benchmark vhost fixture");
+            serde_yaml::from_str(http).expect("valid benchmark HTTP fixture");
+        let table: VhostTable = serde_yaml::from_str(vhosts)
+            .expect("valid benchmark vhost fixture");
         table
             .validate_listeners(Some(&http))
             .expect("benchmark hosts reference configured listeners");

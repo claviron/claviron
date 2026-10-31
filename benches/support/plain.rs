@@ -42,7 +42,7 @@ pub fn response<B>(request: Request<B>) -> Response<Full<Bytes>> {
         .unwrap()
 }
 
-async fn consume<B>(response: Response<B>)
+pub async fn consume<B>(response: Response<B>)
 where
     B: Body<Data = Bytes>,
     B::Error: Debug,
@@ -66,12 +66,19 @@ pub fn run<C, F, B>(
     B::Error: Debug,
 {
     let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all().build().unwrap();
+        .enable_all()
+        .build()
+        .unwrap();
     runtime.block_on(async {
         consume(native(request()).await).await;
-        consume(host.prepare(request(), RequestArrival::Established)
-            .expect("fixture must pass host admission")
-            .map_body(boxed_body).dispatch().await).await;
+        consume(
+            host.prepare(request(), RequestArrival::Established)
+                .expect("fixture must pass host admission")
+                .map_body(boxed_body)
+                .dispatch()
+                .await,
+        )
+        .await;
     });
     let mut group = criterion.benchmark_group(name);
     group.throughput(Throughput::Elements(1));
@@ -85,8 +92,10 @@ pub fn run<C, F, B>(
     group.bench_function("prepare", |bencher| {
         bencher.iter_batched(
             request,
-            |request| host.prepare(black_box(request), RequestArrival::Established)
-                .expect("fixture must pass host admission"),
+            |request| {
+                host.prepare(black_box(request), RequestArrival::Established)
+                    .expect("fixture must pass host admission")
+            },
             BatchSize::SmallInput,
         );
     });
@@ -94,9 +103,12 @@ pub fn run<C, F, B>(
         bencher.to_async(&runtime).iter_batched(
             request,
             |request| async {
-                let reply = host.prepare(black_box(request), RequestArrival::Established)
+                let reply = host
+                    .prepare(black_box(request), RequestArrival::Established)
                     .expect("fixture must pass host admission")
-                    .map_body(boxed_body).dispatch().await;
+                    .map_body(boxed_body)
+                    .dispatch()
+                    .await;
                 consume(reply).await;
             },
             BatchSize::SmallInput,

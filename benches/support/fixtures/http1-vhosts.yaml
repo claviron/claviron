@@ -1,0 +1,7 @@
+benchmark.test:
+  root: public
+  aliases: [alias.benchmark.test]
+  access_log: "off"
+  transport:
+    non_ssl: serve
+    protocols: [h1]

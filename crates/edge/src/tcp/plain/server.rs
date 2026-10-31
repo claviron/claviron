@@ -67,6 +67,24 @@ impl HttpServer {
         Self { current: ListenerSnapshots::default(), state }
     }
 
+    /// Prepare the native cleartext handler without binding or booting a server.
+    /// Accepted streams use the same request and drain path as `serve`.
+    pub fn connection_handler(
+        &self,
+        config: &HttpServerConfig,
+        listener: &claviron_http::ListenerId,
+        vhosts: Arc<VhostResolver>,
+    ) -> claviron_runtime::registry::Result<super::ConnectionHandler> {
+        let snapshot = build_snapshots(config, &self.state)?
+            .remove(listener)
+            .ok_or_else(|| {
+            claviron_runtime::registry::Error::msg(format!(
+                "cleartext listener '{listener}' is not configured"
+            ))
+        })?;
+        Ok(super::ConnectionHandler::new(snapshot, vhosts, self.state.clone()))
+    }
+
     pub async fn serve(
         self: Arc<Self>,
         vhosts: Arc<VhostResolver>,

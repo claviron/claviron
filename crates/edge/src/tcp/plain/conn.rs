@@ -4,6 +4,7 @@
 //! context, and hand each request to `handler.rs` until the peer or a shutdown
 //! ends it.
 
+use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -20,79 +21,117 @@ use tracing::{debug, warn};
 use super::handler::H1Service;
 use super::server::{HttpServer, ServerSnapshot};
 
+/// A prepared cleartext listener's native handler for accepted TCP streams.
+/// The caller owns acceptance, connection capacity and session drain. Each
+/// stream keeps the native host-selection cache, HTTP driver and shutdown path.
+#[derive(Clone)]
+pub struct ConnectionHandler {
+    snapshot: Arc<ServerSnapshot>,
+    vhosts: Arc<VhostResolver>,
+    state: AppState,
+}
+
+impl ConnectionHandler {
+    pub(super) fn new(
+        snapshot: Arc<ServerSnapshot>,
+        vhosts: Arc<VhostResolver>,
+        state: AppState,
+    ) -> Self {
+        Self { snapshot, vhosts, state }
+    }
+
+    /// Serve one accepted stream until peer completion or its owned drain.
+    /// No provider boot, socket bind or new connection permit is performed.
+    pub fn serve(
+        self,
+        stream: TcpStream,
+        peer: SocketAddr,
+        scope: ConnectionScope,
+    ) -> impl Future<Output = ()> + Send {
+        let Self { snapshot, vhosts, state } = self;
+        serve(stream, peer, snapshot, vhosts, state, scope)
+    }
+}
+
 impl HttpServer {
-    pub(super) async fn handle_connection(
+    pub(super) fn handle_connection(
         stream: TcpStream,
         peer: SocketAddr,
         snapshot: Arc<ServerSnapshot>,
         vhosts: Arc<VhostResolver>,
         state: AppState,
         scope: ConnectionScope,
-    ) {
-        if let Err(error) = crate::tcp::protocol::socket(&stream, &snapshot.tcp)
-        {
-            warn!(listener = %snapshot.listener.id, %error, "TCP socket setup failed");
+    ) -> impl Future<Output = ()> + Send {
+        ConnectionHandler::new(snapshot, vhosts, state)
+            .serve(stream, peer, scope)
+    }
+}
+
+async fn serve(
+    stream: TcpStream,
+    peer: SocketAddr,
+    snapshot: Arc<ServerSnapshot>,
+    vhosts: Arc<VhostResolver>,
+    state: AppState,
+    scope: ConnectionScope,
+) {
+    if let Err(error) = crate::tcp::protocol::socket(&stream, &snapshot.tcp) {
+        warn!(listener = %snapshot.listener.id, %error, "TCP socket setup failed");
+        return;
+    }
+    let local = match stream.local_addr() {
+        Ok(local) => local,
+        Err(error) => {
+            warn!(listener = %snapshot.listener.id, %error, "H1 local address unavailable");
             return;
         }
-        let local = match stream.local_addr() {
-            Ok(local) => local,
-            Err(error) => {
-                warn!(listener = %snapshot.listener.id, %error, "H1 local address unavailable");
-                return;
-            }
-        };
-        let ctx = Arc::new(ConnCtx {
-            state: Default::default(),
-            listener: snapshot.listener.id.clone(),
-            proto: Some(HttpProtocol::H1),
-            remote: peer,
-            local_ip: local.ip(),
-            local_port: local.port(),
-            // A direct client is its own real address for the connection's
-            // life; only behind a trusted proxy does it vary per request.
-            real_ip: snapshot.listener.proxy.is_none().then_some(peer.ip()),
-            country_code: crate::tcp::geo::country_code(peer.ip()),
-            tls: None,
-        });
-        let service = H1Service::new(
-            snapshot.clone(),
-            vhosts,
-            state,
-            ctx,
-            scope.sessions(),
-        );
-        let service = service_fn(move |req| service.call(req));
-        let stream = crate::tcp::io::TcpIo::new(stream);
-        let errors = stream.clone();
-        let connection = crate::tcp::protocol::h1(&snapshot.h1)
-            .serve_connection(TokioIo::new(stream), service)
-            .with_upgrades();
-        tokio::pin!(connection);
-        let serving = async {
-            tokio::select! {
-                biased;
-                _ = scope.permit().wait_graceful_shutdown() => {
-                    connection.as_mut().graceful_shutdown();
-                    tokio::select! {
-                        result = connection.as_mut() => Some(result),
-                        _ = scope.permit().wait_forced_shutdown() => None
-                    }
-                }
-                result = connection.as_mut() => Some(result)
-            }
-        };
-        let result = tokio::select! {
+    };
+    let ctx = Arc::new(ConnCtx {
+        state: Default::default(),
+        listener: snapshot.listener.id.clone(),
+        proto: Some(HttpProtocol::H1),
+        remote: peer,
+        local_ip: local.ip(),
+        local_port: local.port(),
+        // A direct client is its own real address for the connection's
+        // life; only behind a trusted proxy does it vary per request.
+        real_ip: snapshot.listener.proxy.is_none().then_some(peer.ip()),
+        country_code: crate::tcp::geo::country_code(peer.ip()),
+        tls: None,
+    });
+    let service =
+        H1Service::new(snapshot.clone(), vhosts, state, ctx, scope.sessions());
+    let service = service_fn(move |req| service.call(req));
+    let stream = crate::tcp::io::TcpIo::new(stream);
+    let errors = stream.clone();
+    let connection = crate::tcp::protocol::h1(&snapshot.h1)
+        .serve_connection(TokioIo::new(stream), service)
+        .with_upgrades();
+    tokio::pin!(connection);
+    let serving = async {
+        tokio::select! {
             biased;
-            error = errors.failed() => {
-                debug!(listener = %snapshot.listener.id, %error, "H1 socket failed");
-                None
-            },
-            result = serving => result,
-        };
-        if let Some(Err(error)) = result
-            && !error.is_user()
-        {
-            debug!(listener = %snapshot.listener.id, %error, "H1 connection ended");
+            _ = scope.permit().wait_graceful_shutdown() => {
+                connection.as_mut().graceful_shutdown();
+                tokio::select! {
+                    result = connection.as_mut() => Some(result),
+                    _ = scope.permit().wait_forced_shutdown() => None
+                }
+            }
+            result = connection.as_mut() => Some(result)
         }
+    };
+    let result = tokio::select! {
+        biased;
+        error = errors.failed() => {
+            debug!(listener = %snapshot.listener.id, %error, "H1 socket failed");
+            None
+        },
+        result = serving => result,
+    };
+    if let Some(Err(error)) = result
+        && !error.is_user()
+    {
+        debug!(listener = %snapshot.listener.id, %error, "H1 connection ended");
     }
 }

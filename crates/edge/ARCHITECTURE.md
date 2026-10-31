@@ -191,8 +191,8 @@ Features compile capabilities; declarations and registration select what runs.
 ### `tcp/plain/`
 
 - [`plain.rs`](src/tcp/plain.rs) — Cleartext H1 driver exports.
-- [`server.rs`](src/tcp/plain/server.rs) — HttpServer configuration, snapshots and runnable registration.
-- [`conn.rs`](src/tcp/plain/conn.rs) — Socket/context setup, H1 driving and connection drain.
+- [`server.rs`](src/tcp/plain/server.rs) — HttpServer configuration, snapshots and runnable registration; `connection_handler` prepares a typed listener without binding or provider boot.
+- [`conn.rs`](src/tcp/plain/conn.rs) — Socket/context setup, H1 driving and connection drain; public `ConnectionHandler` serves caller-accepted streams through the same native path.
 - [`handler.rs`](src/tcp/plain/handler.rs) — Per-request cleartext host selection, non-SSL policy and native dispatch.
 - [`redirect.rs`](src/tcp/plain/redirect.rs) — HTTPS redirect using validated authority and the declared port.
 - [`acme.rs`](src/tcp/plain/acme.rs) — Optional HTTP-01 token validation and challenge-directory reads.

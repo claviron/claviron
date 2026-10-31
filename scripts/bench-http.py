@@ -25,6 +25,11 @@ BENCHMARKS = {
     "http1-hyper": ("transport/http1/native/hyper/json/request", "persistent-loopback-http1-round-trip"),
     "http1-axum": ("transport/http1/native/axum/json/request", "persistent-loopback-http1-round-trip"),
     "http1-edge": ("transport/http1/edge/request", "persistent-loopback-http1-round-trip"),
+    "http1-plain-hyper": ("transport/http1/native/hyper/plain/request", "native-loopback-http1-plain-round-trip"),
+    "http1-plain-axum": ("transport/http1/native/axum/plain/request", "native-loopback-http1-plain-round-trip"),
+    "http1-plain-edge-other": ("transport/http1/edge/other/plain/request", "native-loopback-http1-plain-round-trip"),
+    "http1-plain-edge-axum": ("transport/http1/edge/axum/plain/request", "native-loopback-http1-plain-round-trip"),
+    "http1-plain-edge-routable": ("transport/http1/edge/routable/plain/request", "native-loopback-http1-plain-round-trip"),
 }
 PLAIN_TARGETS = {"dispatch-edge-other", "dispatch-edge-axum", "dispatch-edge-pipeline"}
 # Keep code generation and optional adapter availability identical across targets.
