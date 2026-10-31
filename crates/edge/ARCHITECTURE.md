@@ -75,6 +75,10 @@ Host declaration loading and immutable publication; no request-body execution.
 
 ### `pipeline/`
 
+- [`apps.rs`](src/pipeline/apps.rs) — Retained Rust factories, Routable and
+  directive registration; per-host application preparation and snapshot reuse.
+  Duplicate snapshot bindings fail without replacing the existing owner.
+
 #### [`app.rs`](src/pipeline/app.rs)
 
 Optional Axum adapter (`axum` feature): `Router` implements `ApplicationHandler`;

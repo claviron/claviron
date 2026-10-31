@@ -7,6 +7,19 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::pipeline::host::{HostHandlerFuture, HostLayerBuilder, HostRequest};
 
+#[test]
+fn duplicate_snapshot_binding_keeps_the_original_application() {
+    let host: Host = "example.test".parse().unwrap();
+    let mut snapshot = HostAppSnapshot::default();
+    let mut first: HostApp = RustRouter::Other(OtherService::Noop).into();
+    first.server_header = Some(http::HeaderValue::from_static("first"));
+    snapshot.insert(host.clone(), first).unwrap();
+    let mut second: HostApp = RustRouter::Other(OtherService::Noop).into();
+    second.server_header = Some(http::HeaderValue::from_static("second"));
+    assert!(snapshot.insert(host.clone(), second).is_err());
+    assert_eq!(snapshot.resolve(&host).unwrap().server_header.unwrap(), "first");
+}
+
 struct Tag;
 
 impl RouteLayer for Tag {

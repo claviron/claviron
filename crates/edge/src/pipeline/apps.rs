@@ -159,14 +159,18 @@ impl HostAppSnapshot {
         host: Host,
         app: impl Into<HostApp>,
     ) -> Result<()> {
-        let app = app.into();
-        if self.map.insert(host.clone(), app).is_some() {
-            return Err(Error::msg(format!(
-                "duplicate vhost router binding for host '{}'",
-                host
-            )));
+        match self.map.entry(host) {
+            std::collections::hash_map::Entry::Occupied(entry) => {
+                Err(Error::msg(format!(
+                    "duplicate vhost router binding for host '{}'",
+                    entry.key()
+                )))
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(app.into());
+                Ok(())
+            }
         }
-        Ok(())
     }
 }
 
