@@ -99,7 +99,8 @@ and rejection for `config::HostConfigExt`.
   Nonmatching requests return synchronously with the unread body; only a
   selected adapter creates an asynchronous call. Engine execution belongs to Lua.
 - [`lua/websocket.rs`](src/pipeline/embed/lua/websocket.rs) — Lua H1 upgrades
-  and H2 CONNECT handoff from flat and prefix-scoped declarations.
+  and H2 CONNECT handoff from flat and prefix-scoped declarations. H2 and H3
+  revalidate endpoint ownership and origin against their admitted host config.
 - [`lua/webtransport.rs`](src/pipeline/embed/lua/webtransport.rs) — Lua H3
   session admission and native stream handoff, rechecking the selected route.
 - [`lua/origin.rs`](src/pipeline/embed/lua/origin.rs) — Shared browser-origin

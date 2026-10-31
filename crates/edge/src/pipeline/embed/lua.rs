@@ -114,6 +114,22 @@ fn mounted_websocket_path(
     }
 }
 
+#[cfg(any(feature = "websocket", feature = "webtransport"))]
+fn configured_route<'a>(
+    host: &'a crate::HostConfig,
+    path: &str,
+    application: &str,
+) -> Option<&'a LuaRouteConfig> {
+    let selected = host.routes.find(path).map(|route| &**route).unwrap_or(host);
+    selected.lua().iter().find(|route| {
+        route.application == application
+            && route.websockets().iter().any(|socket| {
+                mounted_websocket_path(route.path.as_ref(), &socket.path)
+                    .as_ref() == path
+            })
+    })
+}
+
 #[cfg(all(test, feature = "websocket"))]
 #[path = "../../../tests/pipeline/embed/lua/socket_path.rs"]
 mod socket_path_tests;

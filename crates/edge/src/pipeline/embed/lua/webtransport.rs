@@ -12,6 +12,7 @@ use claviron_types::Host;
 use http::StatusCode;
 
 use crate::HostConfig;
+use super::configured_route;
 use crate::pipeline::{
     AnyAuthenticated, AuthContext, H3WebTransportSession, WebTransportAccept,
     WebTransportHandler, WebTransportRegistry, WebTransportReject,
@@ -55,22 +56,6 @@ struct Handler {
     service: Arc<LuaApplications>,
     application: Arc<str>,
     path: Arc<str>,
-}
-
-fn configured_route<'a>(
-    host: &'a HostConfig,
-    path: &str,
-    application: &str,
-) -> Option<&'a claviron_http::config::routes::LuaRouteConfig> {
-    let selected = host.routes.find(path).map(|route| &**route).unwrap_or(host);
-    selected.lua().iter().find(|route| {
-        route.application == application
-            && route.websockets().iter().any(|socket| {
-                super::mounted_websocket_path(route.path.as_ref(), &socket.path)
-                    .as_ref()
-                    == path
-            })
-    })
 }
 
 #[async_trait]

@@ -9,7 +9,7 @@ use claviron_runtime::{
 };
 use claviron_types::Host;
 
-use super::{mounted_websocket_path, origin::allows_origin};
+use super::{configured_route, mounted_websocket_path, origin::allows_origin};
 use crate::HostConfig;
 use crate::pipeline::{H1UpgradeHandler, H1UpgradeRoute};
 
@@ -43,7 +43,6 @@ pub(crate) fn append_routes(
                     canonical.clone(),
                     path,
                     Arc::new(LuaWebSocketConnectHandler {
-                        origin: application.origin,
                         service: service.clone(),
                         application: Arc::from(
                             application.application.as_str(),
@@ -58,7 +57,6 @@ pub(crate) fn append_routes(
 
 /// A Lua application's WebSocket over HTTP/2 extended CONNECT (RFC 8441).
 struct LuaWebSocketConnectHandler {
-    origin: claviron_http::config::routes::lua::LuaSocketOriginPolicy,
     service: Arc<claviron_lua::serve::LuaApplications>,
     application: Arc<str>,
 }
@@ -74,8 +72,10 @@ impl crate::H2ConnectHandler for LuaWebSocketConnectHandler {
         _state: &AppState,
         ctx: &crate::AuthContext,
     ) -> crate::H2ConnectResult {
+        let route = configured_route(&ctx.host_config, &ctx.path, &self.application)
+            .ok_or_else(|| crate::H2ConnectReject::new(http::StatusCode::NOT_FOUND))?;
         if !allows_origin(
-            self.origin,
+            route.origin,
             &ctx.headers,
             &ctx.uri,
             &ctx.conn.scheme(),
