@@ -17,14 +17,14 @@
 mod error;
 mod listener;
 mod tls;
-mod types;
+mod server;
 
 // Native request/response stream adapter; host dispatch lives in vhosts.
 mod request;
 mod wt;
 
 use claviron_runtime::{AppState, Register};
-pub use types::H3Server;
+pub use server::H3Server;
 pub fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
     <H3Server as Register<AppState>>::register(state)
 }

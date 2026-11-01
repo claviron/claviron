@@ -40,7 +40,7 @@ use tracing::{debug, error, info, warn};
 use crate::quic::request::{
     H3RequestHandler, RequestBodyMode, send_status_response,
 };
-use crate::quic::types::{H3Server, ServerSnapshot};
+use crate::quic::server::{H3Server, ServerSnapshot};
 
 enum StreamCompletion {
     Request,
@@ -61,14 +61,14 @@ fn bind_socket(
 impl H3Server {
     pub(crate) async fn run_listeners(
         self: Arc<Self>,
-        deps: Arc<crate::quic::types::Deps>,
+        deps: Arc<crate::quic::server::Deps>,
         context: RunContext,
     ) -> Result<()> {
-        let groups = crate::quic::types::build_snapshots(
+        let groups = crate::quic::server::build_snapshots(
             self.state.config_reader().snapshot::<Self>()?.as_ref(),
             &deps,
         )?;
-        let generation = crate::quic::types::prepare_vhosts(&deps, &groups, || {
+        let generation = crate::quic::server::prepare_vhosts(&deps, &groups, || {
             self.current.start(groups.clone())
         })?;
         self.serve_groups(generation.groups(), deps, context).await
@@ -77,17 +77,17 @@ impl H3Server {
     pub(crate) async fn run_listener(
         self: Arc<Self>,
         id: &ListenerId,
-        deps: Arc<crate::quic::types::Deps>,
+        deps: Arc<crate::quic::server::Deps>,
         context: RunContext,
     ) -> Result<()> {
-        let groups = crate::quic::types::build_snapshots(
+        let groups = crate::quic::server::build_snapshots(
             self.state.config_reader().snapshot::<Self>()?.as_ref(),
             &deps,
         )?;
         let snapshot = groups.get(id).cloned().ok_or_else(|| {
             Error::msg(format!("QUIC listener '{id}' is not configured"))
         })?;
-        let generation = crate::quic::types::prepare_vhosts(&deps, &groups, || {
+        let generation = crate::quic::server::prepare_vhosts(&deps, &groups, || {
             self.current.start_listener(snapshot)
         })?;
         self.serve_groups(generation.groups(), deps, context).await
@@ -96,7 +96,7 @@ impl H3Server {
     async fn serve_groups(
         &self,
         groups: &BTreeMap<ListenerId, Arc<ServerSnapshot>>,
-        deps: Arc<crate::quic::types::Deps>,
+        deps: Arc<crate::quic::server::Deps>,
         context: RunContext,
     ) -> Result<()> {
         let mut bound = Vec::new();
@@ -154,7 +154,7 @@ impl H3Server {
         initial: Arc<ServerSnapshot>,
         endpoints: Vec<Endpoint>,
         context: &RunContext,
-        deps: Arc<crate::quic::types::Deps>,
+        deps: Arc<crate::quic::server::Deps>,
     ) {
         let listener = &initial.listener;
         let gate = Gate::new(
@@ -252,7 +252,7 @@ impl H3Server {
     /// Snapshot, dependencies and bound address are captured at admission.
     async fn handle_connection(
         state: claviron_runtime::AppState,
-        deps: Arc<crate::quic::types::Deps>,
+        deps: Arc<crate::quic::server::Deps>,
         accepted: crate::quic::tls::AcceptedQuic,
         permit: Permit,
         local_addr: SocketAddr,
@@ -288,7 +288,7 @@ impl H3Server {
 
     async fn accept_streams(
         state: claviron_runtime::AppState,
-        deps: Arc<crate::quic::types::Deps>,
+        deps: Arc<crate::quic::server::Deps>,
         accepted: crate::quic::tls::AcceptedQuic,
         permit: &Arc<Permit>,
         local_addr: SocketAddr,

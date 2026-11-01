@@ -237,7 +237,7 @@ Empty contributions keep the direct Rust owner; disabled file steps allocate no 
 ### `quic/`
 
 - [`mod.rs`](src/quic/mod.rs) — Native H3 driver exports.
-- [`types.rs`](src/quic/types.rs) — H3 configuration owner, environment binding, snapshots and named listener lifetimes.
+- [`server`](src/quic/server.rs) — H3 configuration owner, environment binding, snapshots and named listener lifetimes.
 - [`tls.rs`](src/quic/tls.rs) — Deferred SNI authentication and coherent host/TLS selector views.
 - [`listener.rs`](src/quic/listener.rs) — Endpoint groups, connection capacity, concurrent request/session stream driving.
 - [`listener/drain.rs`](src/quic/listener/drain.rs) — Join connection-owned children on completion, explicit force or panic.
