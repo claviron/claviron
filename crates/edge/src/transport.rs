@@ -50,6 +50,8 @@ pub use crate::pipeline::{WebTransportBinding, WebTransportRegistry};
 /// response — the transport's actual reason for depending on this crate.
 pub use crate::service::{
     HostRejection, HostResponse, HostService, PreparedRequest, RequestArrival,
-    RequestAuthority, RequestRejection, VhostBindings, VhostCtx,
+    RequestAuthority, RequestRejection, VhostCtx,
     resolve_request_authority, resolve_sni_from_table,
 };
+#[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+pub(crate) mod tls;

@@ -68,8 +68,9 @@ impl H3Server {
             self.state.config_reader().snapshot::<Self>()?.as_ref(),
             &deps,
         )?;
-        let generation = self.current.start(groups.clone())?;
-        crate::quic::types::prepare_vhosts(&deps, &groups)?;
+        let generation = crate::quic::types::prepare_vhosts(&deps, &groups, || {
+            self.current.start(groups.clone())
+        })?;
         self.serve_groups(generation.groups(), deps, context).await
     }
 
@@ -86,8 +87,9 @@ impl H3Server {
         let snapshot = groups.get(id).cloned().ok_or_else(|| {
             Error::msg(format!("QUIC listener '{id}' is not configured"))
         })?;
-        let generation = self.current.start_listener(snapshot)?;
-        crate::quic::types::prepare_vhosts(&deps, &groups)?;
+        let generation = crate::quic::types::prepare_vhosts(&deps, &groups, || {
+            self.current.start_listener(snapshot)
+        })?;
         self.serve_groups(generation.groups(), deps, context).await
     }
 
@@ -316,7 +318,10 @@ impl H3Server {
             .as_ref()
             .and_then(|hd| hd.server_name.as_deref().map(Arc::<str>::from));
 
-        let vctx = match accepted.hosts.resolve_sni(server_name.as_deref()) {
+        let vctx = match crate::transport::resolve_sni_from_table(
+            &accepted.hosts,
+            server_name.as_deref(),
+        ) {
             Ok(ext) => {
                 if !ext.vhost_config.allows_transport(&snapshot.listener.id, H3)
                 {
@@ -342,11 +347,7 @@ impl H3Server {
             }
         };
 
-        let app = match vctx
-            .application
-            .clone()
-            .or_else(|| deps.app_resolver.resolve(&vctx.vhost_key))
-        {
+        let app = match vctx.application.clone() {
             Some(app) => app,
             None => {
                 warn!(

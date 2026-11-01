@@ -59,6 +59,7 @@ impl ListenerSnapshot for ServerSnapshot {
 /// What the listeners serve with, each a hard requirement.
 pub(crate) type ServerDeps = (
     Arc<CertResolver>,
+    // Preserve application preparation order; requests use the captured publication.
     Arc<HostAppResolver>,
     Arc<VhostResolver>,
     Arc<WebTransportRegistry>,
@@ -68,7 +69,6 @@ pub(crate) type ServerDeps = (
 
 pub(crate) struct Deps {
     pub(crate) cert_resolver: Arc<CertResolver>,
-    pub(crate) app_resolver: Arc<HostAppResolver>,
     pub(crate) vhost_resolver: Arc<VhostResolver>,
     pub(crate) web_transport: Arc<WebTransportRegistry>,
 
@@ -80,7 +80,7 @@ impl Deps {
     fn bind(
         (
             cert_resolver,
-            app_resolver,
+            _,
             vhost_resolver,
             web_transport,
             sessions,
@@ -92,7 +92,6 @@ impl Deps {
         })?;
         Ok(Arc::new(Self {
             cert_resolver,
-            app_resolver,
             vhost_resolver,
             web_transport,
             tls_sessions,
@@ -171,24 +170,23 @@ pub(crate) fn build_snapshots(
     Ok(groups)
 }
 
-pub(crate) fn prepare_vhosts(
+pub(crate) fn prepare_vhosts<R>(
     deps: &Deps,
     groups: &BTreeMap<ListenerId, Arc<ServerSnapshot>>,
-) -> Result<(), Error> {
+    commit: impl FnOnce() -> Result<R, Error>,
+) -> Result<R, Error> {
     let initial: BTreeMap<_, _> = groups
         .iter()
-        .map(|(id, group)| (id.clone(), group.tls_accept.prepared_policy()))
+        .map(|(id, group)| (id.clone(), group.tls_accept.template()))
         .collect();
     let certificates = deps.cert_resolver.clone();
     deps.vhost_resolver
-        .prepare_publications(
+        .prepare_publications_with(
             move |table, previous: Option<&VhostTlsPolicies>| {
                 let mut policies = BTreeMap::new();
                 for (id, template) in &initial {
                     let old = previous
-                        .and_then(|previous| previous.0.get(id))
-                        .or(Some(template))
-                        .map(Arc::as_ref);
+                        .and_then(|previous| previous.0.get(id));
                     let policy = H3TlsAccept::prepare_policy(
                         template,
                         table,
@@ -197,10 +195,11 @@ pub(crate) fn prepare_vhosts(
                         id,
                     )
                     .map_err(crate::Error::other)?;
-                    policies.insert(id.clone(), Arc::new(policy));
+                    policies.insert(id.clone(), policy);
                 }
                 Ok(VhostTlsPolicies(policies))
             },
+            || commit().map_err(crate::Error::other),
         )
         .map_err(|error| Error::msg(error.to_string()))
 }
@@ -277,8 +276,8 @@ impl ConfigObserver for H3Server {
             self.resolve_deps(&self.state).map_err(congif::Error::msg)?;
         let snapshot = build_snapshots(config, deps.as_ref())
             .map_err(congif::Error::msg)?;
-        self.current.publish(snapshot.clone()).map_err(congif::Error::msg)?;
-        prepare_vhosts(&deps, &snapshot).map_err(congif::Error::msg)?;
+        prepare_vhosts(&deps, &snapshot, || self.current.publish(snapshot.clone()))
+            .map_err(congif::Error::msg)?;
         self.configure_instances(config);
         info!("🔁 H3Server reconfigured");
         Ok(())
@@ -342,8 +341,7 @@ impl Reloadable<AppState> for H3Server {
         let deps = self.resolve_deps(state)?;
         let config = state.config_reader().snapshot::<Self>()?;
         let snapshot = build_snapshots(&config, deps.as_ref())?;
-        self.current.publish(snapshot.clone())?;
-        prepare_vhosts(&deps, &snapshot)?;
+        prepare_vhosts(&deps, &snapshot, || self.current.publish(snapshot.clone()))?;
         self.configure_instances(&config);
         info!("🔁 H3Server reloaded");
         Ok(())

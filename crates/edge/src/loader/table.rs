@@ -52,6 +52,12 @@ impl VhostTable {
         self.prepared.get(&std::any::TypeId::of::<T>())?.clone().downcast().ok()
     }
 
+    /// Borrow prepared data while retaining this publication's owner.
+    #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+    pub(crate) fn prepared_ref<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.prepared.get(&std::any::TypeId::of::<T>())?.downcast_ref()
+    }
+
     #[cfg(feature = "server")]
     pub(crate) fn set_prepared(
         &mut self,

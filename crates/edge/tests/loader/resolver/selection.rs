@@ -2,7 +2,7 @@ use super::*;
 use crate::pipeline::other::{OtherHandler, OtherService};
 use crate::pipeline::{Admission, HostApp, HostAppSnapshot, RustRouter};
 use crate::service::{
-    VhostBindings, VhostCtx, resolve_request_authority, resolve_sni_from_table,
+    VhostCtx, resolve_request_authority, resolve_sni_from_table,
 };
 use claviron_http::authority::RequestAuthority;
 use claviron_http::{RouteBody, RouteFuture};
@@ -80,7 +80,6 @@ fn host_selection_alias_default_and_sni_share_the_bound_application() {
     let resolver = resolver();
     install(&resolver);
     let table = resolver.snapshot();
-    let bindings = VhostBindings::new(table.clone(), table.clone());
     for (name, canonical, marker) in [
         ("a.test", "a.test", "first"),
         ("alias.test", "a.test", "first"),
@@ -88,8 +87,7 @@ fn host_selection_alias_default_and_sni_share_the_bound_application() {
     ] {
         let cleartext = resolve(&table, name).unwrap();
         let sni = resolve_sni_from_table(&table, Some(name)).unwrap();
-        let tls = bindings.resolve_sni(Some(name)).unwrap();
-        for ctx in [&cleartext, &sni, &tls] {
+        for ctx in [&cleartext, &sni] {
             assert_selected(ctx, canonical, marker);
             assert!(Arc::ptr_eq(
                 &ctx.vhost_config,
@@ -117,16 +115,15 @@ fn host_selection_reload_keeps_old_contexts_and_applies_alias_removal_and_recrea
  {
     let resolver = resolver();
     install(&resolver);
-    let transport_policy = resolver.snapshot();
+    let accepted_table = resolver.snapshot();
     let accepted = resolve(&resolver.snapshot(), "alias.test").unwrap();
     resolver.upsert_alias(host("alias.test"), host("b.test")).unwrap();
     let moved = resolve(&resolver.snapshot(), "alias.test").unwrap();
     assert_selected(&accepted, "a.test", "first");
     assert_selected(&moved, "b.test", "second");
-    let alias_only =
-        VhostBindings::new(transport_policy.clone(), resolver.snapshot());
+    let alias_only = resolver.snapshot();
     assert_selected(
-        &alias_only.resolve_sni(Some("alias.test")).unwrap(),
+        &resolve_sni_from_table(&alias_only, Some("alias.test")).unwrap(),
         "b.test",
         "second",
     );
@@ -140,9 +137,16 @@ fn host_selection_reload_keeps_old_contexts_and_applies_alias_removal_and_recrea
     assert!(Arc::ptr_eq(&latest.vhost_config, &replacement));
     assert!(!Arc::ptr_eq(&moved.vhost_config, &replacement));
     assert_selected(&moved, "b.test", "second");
-    let stale_transport =
-        VhostBindings::new(transport_policy, resolver.snapshot());
-    assert!(stale_transport.resolve_sni(Some("alias.test")).is_err());
+    assert_selected(
+        &resolve_sni_from_table(&accepted_table, Some("alias.test")).unwrap(),
+        "a.test",
+        "first",
+    );
+    assert_selected(
+        &resolve_sni_from_table(&alias_only, Some("alias.test")).unwrap(),
+        "b.test",
+        "second",
+    );
 
     assert!(resolver.delete_host(&host("b.test")));
     assert_selected(

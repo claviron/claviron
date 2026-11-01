@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
-use crate::transport::{VhostBindings, VhostCtx, VhostResolver, VhostTable};
+use crate::transport::{VhostCtx, VhostResolver, VhostTable, resolve_sni_from_table};
+use crate::transport::tls::TlsHost;
 use claviron_http::ListenerId;
 use claviron_http::config::{ListenerConfig, TcpListenerConfig};
 use claviron_runtime::registry::Error;
@@ -15,20 +16,22 @@ use claviron_tls::orbit::SessionDomain;
 use claviron_types::Host;
 use tokio::net::TcpStream;
 use tokio_rustls::LazyConfigAcceptor;
-use tokio_rustls::rustls::{self, ServerConfig};
+use tokio_rustls::rustls;
 use tokio_rustls::server::TlsStream;
 
 /// SNI selects both host authentication and the listener/host ALPN intersection.
 /// Host and TLS policy are captured together; a reload cannot switch auth policy
 /// underneath an already accepted connection.
 #[derive(Clone)]
-pub(crate) struct TlsAccept(Arc<TlsConfigResolver>);
+pub(crate) struct TlsAccept {
+    live: Arc<VhostResolver>,
+    listener: ListenerId,
+}
 
-pub(super) struct VhostTlsPolicies(pub BTreeMap<ListenerId, Arc<TlsPolicy>>);
+pub(super) struct VhostTlsPolicies(pub BTreeMap<ListenerId, TlsPolicy>);
 
 pub(super) struct TlsPolicy {
-    table: Arc<VhostTable>,
-    by_host: HashMap<Host, Arc<ServerConfig>>,
+    by_host: HashMap<Host, TlsHost>,
 }
 
 pub(crate) struct AcceptedTls {
@@ -37,25 +40,8 @@ pub(crate) struct AcceptedTls {
 }
 
 impl TlsAccept {
-    pub(super) fn prepared_policy(&self) -> Arc<TlsPolicy> {
-        Arc::new(TlsPolicy {
-            table: self.0.table.clone(),
-            by_host: self.0.by_host.clone(),
-        })
-    }
-    pub(crate) fn build(
-        deps: &super::server::Deps,
-        listener: &ListenerConfig,
-        tcp: &TcpListenerConfig,
-    ) -> Result<Self, Error> {
-        let table = deps.vhost_resolver.snapshot();
-        let policy = Self::prepare_policy(deps, listener, tcp, &table, None)?;
-        Ok(Self(Arc::new(TlsConfigResolver {
-            table: policy.table,
-            by_host: policy.by_host,
-            live: deps.vhost_resolver.clone(),
-            listener: Some(listener.id.clone()),
-        })))
+    pub(crate) fn new(live: Arc<VhostResolver>, listener: ListenerId) -> Self {
+        Self { live, listener }
     }
 
     pub(super) fn prepare_policy(
@@ -79,64 +65,72 @@ impl TlsAccept {
             if protocols.is_empty() {
                 continue;
             }
-            if let Some(previous) = previous
-                && previous
-                    .table
-                    .canonical_config(canonical)
-                    .is_some_and(|old| old.same_tls_policy(host))
-                && let Some(config) = previous.by_host.get(canonical)
-            {
-                by_host.insert(canonical.clone(), config.clone());
-                continue;
-            }
             let auth = &host.tls.client_auth;
-            let config = if auth.is_required() {
-                let ca = auth.ca_bundle.as_deref().ok_or_else(|| {
+            let retained = previous
+                .and_then(|previous| previous.by_host.get(canonical))
+                .filter(|old| old.declaration.same_tls_policy(host));
+            let config = if let Some(old) = retained {
+                old.config.clone()
+            } else {
+                let config = if auth.is_required() {
+                    let ca = auth.ca_bundle.as_deref().ok_or_else(|| {
+                        Error::msg(format!(
+                            "TLS host {canonical}: required client auth needs ca_bundle"
+                        ))
+                    })?;
+                    let policy = subject_policy_for_host(
+                        &canonical.to_string(),
+                        auth.organization.as_deref(),
+                        auth.unit.as_deref(),
+                    )?;
+                    let alpns = protocols
+                        .iter()
+                        .flat_map(|protocol| {
+                            protocol.alpn_versions().iter().map(|alpn| alpn.to_vec())
+                        })
+                        .collect();
+                    // mTLS never shares public resumption storage.
+                    create_auth_config_with_revocations(
+                        ca,
+                        deps.cert_resolver.clone(),
+                        alpns,
+                        policy.as_ref(),
+                        deps.revocations.clone(),
+                    )
+                } else {
+                    create_tls_config(&protocols, deps.cert_resolver.clone()).map(|mut config| {
+                        config.session_storage = deps.tls_sessions.storage(domain.clone());
+                        config
+                    })
+                }
+                .map_err(|error| {
                     Error::msg(format!(
-                        "TLS host {canonical}: required client auth needs ca_bundle"
+                        "TLS listener '{}' host {canonical}: {error}", listener.id
                     ))
                 })?;
-                let policy = subject_policy_for_host(
-                    &canonical.to_string(),
-                    auth.organization.as_deref(),
-                    auth.unit.as_deref()
-                )?;
-                let alpns = protocols
-                    .iter()
-                    .flat_map(|protocol| protocol.alpn_versions().iter().map(|alpn| alpn.to_vec()))
-                    .collect();
-                // mTLS never shares public resumption storage.
-                create_auth_config_with_revocations(ca, deps.cert_resolver.clone(), alpns, policy.as_ref(), deps.revocations.clone())
-            } else {
-                create_tls_config(&protocols, deps.cert_resolver.clone()).map(|mut config| {
-                    config.session_storage = deps.tls_sessions.storage(domain.clone());
-                    config
-                })
-            }
-            .map_err(|error| {
-                Error::msg(format!("TLS listener '{}' host {canonical}: {error}", listener.id))
-            })?;
-            by_host.insert(canonical.clone(), Arc::new(config));
+                Arc::new(config)
+            };
+            by_host.insert(canonical.clone(), TlsHost {
+                declaration: host.clone(),
+                config,
+            });
         }
-        Ok(TlsPolicy { table: Arc::new(table.declarations_only()), by_host })
+        Ok(TlsPolicy { by_host })
     }
 
     pub(crate) async fn accept(
         &self,
         stream: TcpStream,
     ) -> io::Result<AcceptedTls> {
-        let names = self.0.live.snapshot();
-        let policies = names.prepared::<VhostTlsPolicies>();
-        let current = self
-            .0
-            .listener
-            .as_ref()
-            .and_then(|listener| policies.as_ref()?.0.get(listener));
-        let (table, by_host) = match current {
-            Some(policy) => (&policy.table, &policy.by_host),
-            None => (&self.0.table, &self.0.by_host),
-        };
-        let hosts = VhostBindings::new(table.clone(), names);
+        // Both host routing and TLS policy belong to this captured publication.
+        let hosts = self.live.snapshot();
+        let policy = hosts
+            .prepared_ref::<VhostTlsPolicies>()
+            .and_then(|policies| policies.0.get(&self.listener))
+            .ok_or_else(|| io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!("TLS listener '{}' has no published host policy", self.listener),
+            ))?;
         let start = LazyConfigAcceptor::new(
             rustls::server::Acceptor::default(),
             crate::tcp::io::TcpIo::new(stream),
@@ -144,21 +138,21 @@ impl TlsAccept {
         .await?;
         let sni = start.client_hello().server_name().map(str::to_owned);
         tracing::debug!(
-            listener = ?self.0.listener,
+            listener = ?self.listener,
             server_name = sni.as_deref().unwrap_or("<absent>"),
             offered_alpn = ?start.client_hello().alpn().map(|protocols| {
                 protocols.map(String::from_utf8_lossy).collect::<Vec<_>>()
             }),
             "TLS ClientHello ALPN offered",
         );
-        let host = hosts.resolve_sni(sni.as_deref()).map_err(|error| {
+        let host = resolve_sni_from_table(&hosts, sni.as_deref()).map_err(|error| {
             io::Error::new(io::ErrorKind::PermissionDenied, error.to_string())
         })?;
         // Named, so a refusal says which host was asked for: the name is the
         // only thing that tells a misrouted client from a missing binding.
-        let config = by_host
+        let config = policy.by_host
             .get(host.vhost_key.0.as_ref())
-            .cloned()
+            .map(|host| host.config.clone())
             .ok_or_else(|| {
                 io::Error::new(
                     io::ErrorKind::PermissionDenied,
@@ -191,12 +185,6 @@ fn allowed_protocols(
         .collect()
 }
 
-struct TlsConfigResolver {
-    table: Arc<VhostTable>,
-    live: Arc<VhostResolver>,
-    by_host: HashMap<Host, Arc<ServerConfig>>,
-    listener: Option<ListenerId>,
-}
 fn subject_policy_for_host(
     host: &str,
     organization: Option<&str>,

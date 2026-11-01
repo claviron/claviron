@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::transport::{VhostBindings, VhostResolver, VhostTable};
-use arc_swap::ArcSwap;
+use crate::transport::{VhostResolver, VhostTable};
+use crate::transport::tls::TlsHost;
 use claviron_http::ListenerId;
 use claviron_http::config::QuicConfig;
 use claviron_runtime::registry::{Error, Result};
@@ -26,32 +26,29 @@ fn h3_alpns() -> Vec<Vec<u8>> {
 
 #[derive(Clone)]
 pub(crate) struct H3TlsAccept {
-    policy: Arc<H3TlsPolicy>,
+    template: Arc<H3TlsTemplate>,
     live: Arc<VhostResolver>,
-    current: Arc<ArcSwap<H3Handshake>>,
-    listener: Option<ListenerId>,
+    listener: ListenerId,
 }
 
-pub(crate) struct VhostTlsPolicies(pub BTreeMap<ListenerId, Arc<H3TlsPolicy>>);
+pub(crate) struct VhostTlsPolicies(pub BTreeMap<ListenerId, H3TlsPolicy>);
 
-pub(crate) struct H3TlsPolicy {
+pub(crate) struct H3TlsTemplate {
     base: Arc<RustlsServerConfig>,
     rejected: Arc<RustlsServerConfig>,
-    by_host: Arc<HashMap<Host, Arc<RustlsServerConfig>>>,
-    table: Arc<VhostTable>,
+    endpoint: ServerConfig,
     config: QuicConfig,
     revocations: Arc<Revocations>,
 }
 
-struct H3Handshake {
-    config: ServerConfig,
-    names: Arc<VhostTable>,
-    hosts: VhostBindings,
+pub(crate) struct H3TlsPolicy {
+    hosts: Arc<HashMap<Host, Option<TlsHost>>>,
+    config: Arc<ServerConfig>,
 }
 
 pub(crate) struct AcceptedQuic {
     pub connection: Connection,
-    pub hosts: VhostBindings,
+    pub hosts: Arc<VhostTable>,
 }
 /// QUIC derives its Initial packet keys from AES-128-GCM (RFC 9001 §5.2), so a
 /// cipher policy that filters that suite out leaves QUIC with no way to start a
@@ -83,29 +80,6 @@ impl H3TlsAccept {
             base_tls,
             EarlyDataTransport::from_enabled(cfg.enable_early_data),
         );
-        let table = vhost_resolver.snapshot();
-        let mut by_host = HashMap::new();
-        for (canonical, record) in table.canonical_entries() {
-            let host = &record.config;
-            if !host.allows_transport(listener, H3) {
-                continue;
-            }
-            let auth = &host.tls.client_auth;
-            let config = if auth.is_required() {
-                build_auth_config_for_host(
-                    &canonical.to_string(),
-                    auth.ca_bundle.as_deref(),
-                    auth.organization.as_deref(),
-                    auth.unit.as_deref(),
-                    cert_resolver.clone(),
-                    cfg,
-                    revocations.clone(),
-                )?
-            } else {
-                base_tls.clone()
-            };
-            by_host.insert(canonical.clone(), config);
-        }
         // The deferred selector cannot return Result. Its reject branch must
         // forbid resumption as well as certificate selection.
         let mut rejected = base_tls.as_ref().clone();
@@ -114,152 +88,131 @@ impl H3TlsAccept {
             Arc::new(rustls::server::NoServerSessionStorage {});
         rejected.max_early_data_size = 0;
         let rejected = Arc::new(rejected);
-        let policy = Arc::new(H3TlsPolicy {
+        // The endpoint needs transport parameters before an Incoming exists.
+        // Its rejecting selector cannot admit a connection without a published policy.
+        let refusal = rejected.clone();
+        let endpoint = handshake_config(
+            base_tls.clone(),
+            Arc::new(move |_| refusal.clone()),
+            cfg,
+        )?;
+        let template = Arc::new(H3TlsTemplate {
             base: base_tls,
             rejected,
-            by_host: Arc::new(by_host),
-            table: Arc::new(table.declarations_only()),
+            endpoint,
             config: cfg.clone(),
             revocations,
         });
-        let current = Arc::new(ArcSwap::from_pointee(policy.handshake(table)?));
         Ok(Self {
-            policy,
+            template,
             live: vhost_resolver,
-            current,
-            listener: Some(listener.clone()),
+            listener: listener.clone(),
         })
     }
-    pub(crate) fn prepared_policy(&self) -> Arc<H3TlsPolicy> {
-        self.policy.clone()
+    pub(crate) fn template(&self) -> Arc<H3TlsTemplate> {
+        self.template.clone()
     }
 
     pub(crate) fn prepare_policy(
-        template: &H3TlsPolicy,
+        template: &H3TlsTemplate,
         table: &VhostTable,
         previous: Option<&H3TlsPolicy>,
         certificates: Arc<CertResolver>,
         listener: &ListenerId,
     ) -> Result<H3TlsPolicy> {
-        let mut by_host = HashMap::new();
+        let mut hosts = HashMap::new();
         for (canonical, record) in table.canonical_entries() {
             let host = &record.config;
-            if !host.allows_transport(listener, H3) {
-                continue;
-            }
-            if let Some(previous) = previous
-                && previous
-                    .table
-                    .canonical_config(canonical)
-                    .is_some_and(|old| old.same_tls_policy(host))
-                && let Some(config) = previous.by_host.get(canonical)
-            {
-                by_host.insert(canonical.clone(), config.clone());
-                continue;
-            }
+            let retained = previous
+                .and_then(|previous| previous.hosts.get(canonical))
+                .and_then(Option::as_ref)
+                .filter(|old| old.declaration.same_tls_policy(host));
             let auth = &host.tls.client_auth;
-            let config = if auth.is_required() {
-                build_auth_config_for_host(
-                    &canonical.to_string(),
-                    auth.ca_bundle.as_deref(),
-                    auth.organization.as_deref(),
-                    auth.unit.as_deref(),
-                    certificates.clone(),
-                    &template.config,
-                    template.revocations.clone(),
-                )?
+            let policy = if !host.allows_transport(listener, H3) {
+                None
             } else {
-                template.base.clone()
+                let config = if let Some(old) = retained {
+                    old.config.clone()
+                } else if auth.is_required() {
+                    build_auth_config_for_host(
+                        &canonical.to_string(),
+                        auth.ca_bundle.as_deref(),
+                        auth.organization.as_deref(),
+                        auth.unit.as_deref(),
+                        certificates.clone(),
+                        &template.config,
+                        template.revocations.clone(),
+                    )?
+                } else {
+                    template.base.clone()
+                };
+                Some(TlsHost { declaration: host.clone(), config })
             };
-            by_host.insert(canonical.clone(), config);
+            // Preserve disabled exact names: they must not fall back to another host.
+            for name in table.host_keys_for_canonical(canonical) {
+                hosts.insert(name, policy.clone());
+            }
         }
-        let policy = H3TlsPolicy {
-            base: template.base.clone(),
-            rejected: template.rejected.clone(),
-            by_host: Arc::new(by_host),
-            table: Arc::new(table.declarations_only()),
-            config: template.config.clone(),
-            revocations: template.revocations.clone(),
-        };
-        // Validate the deferred selector before the table becomes visible.
-        policy.handshake(Arc::new(table.declarations_only()))?;
-        Ok(policy)
+        let fallback = hosts.iter()
+            .find(|(name, _)| name.as_single() == Some("default"))
+            .and_then(|(_, host)| host.as_ref())
+            .map(|host| host.config.clone());
+        let hosts = Arc::new(hosts);
+        let lookup = hosts.clone();
+        let rejected = template.rejected.clone();
+        let selector: quinn_deferred_config::Selector =
+            Arc::new(move |hello: &ClientHelloView<'_>| {
+                let selected = hello.server_name
+                    .and_then(|name| name.parse::<Host>().ok())
+                    .and_then(|name| match lookup.get(&name) {
+                        Some(host) => host.as_ref().map(|host| &host.config),
+                        None => fallback.as_ref(),
+                    });
+                selected.cloned().unwrap_or_else(|| rejected.clone())
+            });
+        let config = handshake_config(template.base.clone(), selector, &template.config)?;
+        Ok(H3TlsPolicy { hosts, config: Arc::new(config) })
     }
     pub(crate) fn base_config(&self) -> ServerConfig {
-        self.current.load().config.clone()
+        self.template.endpoint.clone()
     }
     pub(crate) async fn accept(
         &self,
         incoming: Incoming,
     ) -> Result<AcceptedQuic> {
-        let names = self.live.snapshot();
-        let policies = names.prepared::<VhostTlsPolicies>();
-        let policy = self
-            .listener
-            .as_ref()
-            .and_then(|id| policies.as_ref()?.0.get(id))
-            .unwrap_or(&self.policy);
-        let cached = self.current.load_full();
-        let captured = if Arc::ptr_eq(&names, &cached.names) {
-            cached
-        } else {
-            // Rebuild only the cheap selector/QUIC envelope after name-view
-            // publication, never re-read CA files or rebuild host TLS configs.
-            // Competing accepts may cache different immutable views; each
-            // connection still retains exactly the one used by its selector.
-            let next = Arc::new(policy.handshake(names)?);
-            self.current.store(next.clone());
-            next
-        };
+        // Move this owner through the handshake; routing cannot load a newer view.
+        let hosts = self.live.snapshot();
+        let policy = hosts
+            .prepared_ref::<VhostTlsPolicies>()
+            .and_then(|policies| policies.0.get(&self.listener))
+            .ok_or_else(|| Error::msg(format!(
+                "H3 listener '{}' has no published host policy", self.listener
+            )))?;
         let connection = incoming
-            .accept_with(Arc::new(captured.config.clone()))
+            .accept_with(policy.config.clone())
             .map_err(|error| Error::msg(format!("H3 accept: {error}")))?
             .await
             .map_err(|error| Error::msg(format!("H3 handshake: {error}")))?;
-        Ok(AcceptedQuic { connection, hosts: captured.hosts.clone() })
+        Ok(AcceptedQuic { connection, hosts })
     }
 }
 
-impl H3TlsPolicy {
-    fn handshake(
-        &self,
-        names: Arc<VhostTable>,
-    ) -> Result<H3Handshake> {
-        let hosts = VhostBindings::new(self.table.clone(), names.clone());
-        let lookup = hosts.clone();
-        let by_host = self.by_host.clone();
-        let rejected = self.rejected.clone();
-        let selector: quinn_deferred_config::Selector =
-            Arc::new(move |hello: &ClientHelloView<'_>| {
-                // Only the canonical key: it picks the host's TLS config.
-                // Routing (VhostCtx, app, ingress) comes from the single
-                // `resolve_sni` after the handshake, on this same view.
-                lookup
-                    .handshake_key(hello.server_name)
-                    .and_then(|key| by_host.get(key).cloned())
-                    .unwrap_or_else(|| rejected.clone())
-            });
-        let crypto = DeferredServerConfig::new(self.base.clone(), selector)
-            .map_err(|error| {
-                // QUIC derives its Initial packet keys from AES-128-GCM (RFC 9001
-                // §5.2), so a cipher policy that filters that suite out leaves QUIC
-                // with nothing to start a connection with. rustls reports this as
-                // `NoInitialCipherSuite`, which does not say where to look.
-                if matches!(
-                    error,
-                    quinn::crypto::rustls::NoInitialCipherSuite { .. }
-                ) {
-                    return Error::msg(QUIC_INITIAL_SUITE_MISSING);
-                }
-
-                Error::msg(format!("H3 deferred config: {error:?}"))
-            })?;
-        let config = build_quinn_server_config_with_crypto(
-            Arc::new(crypto),
-            &self.config,
-        )?;
-        Ok(H3Handshake { config, names, hosts })
-    }
+fn handshake_config(
+    base: Arc<RustlsServerConfig>,
+    selector: quinn_deferred_config::Selector,
+    config: &QuicConfig,
+) -> Result<ServerConfig> {
+    let crypto = DeferredServerConfig::new(base, selector)
+        .map_err(|error| {
+            if matches!(
+                error,
+                quinn::crypto::rustls::NoInitialCipherSuite { .. }
+            ) {
+                return Error::msg(QUIC_INITIAL_SUITE_MISSING);
+            }
+            Error::msg(format!("H3 deferred config: {error:?}"))
+        })?;
+    build_quinn_server_config_with_crypto(Arc::new(crypto), config)
 }
 #[derive(Debug)]
 struct RejectCertificates;

@@ -120,12 +120,13 @@ impl HttpsServer {
     ) -> Result<(), Error> {
         let deps = Deps::bind(deps)?;
         let http = self.state.config_reader().snapshot::<Self>()?;
-        let groups = build_snapshots(&http, &deps)?;
+        let groups = build_snapshots(&http, &deps);
         let snapshot = groups.get(id).cloned().ok_or_else(|| {
             Error::msg(format!("TLS listener '{id}' is not configured"))
         })?;
-        let generation = self.current.start_listener(snapshot)?;
-        prepare_vhosts(&http, &deps, &groups)?;
+        let generation = prepare_vhosts(&http, &deps, || {
+            self.current.start_listener(snapshot)
+        })?;
         let server = self.clone();
         crate::tcp::listener::serve(
             &self.current,
@@ -159,9 +160,10 @@ impl HttpsServer {
         // this driver needs no boot hook to receive them or bind its sockets.
         let deps = Deps::bind(deps)?;
         let http = self.state.config_reader().snapshot::<Self>()?;
-        let groups = build_snapshots(&http, &deps)?;
-        let generation = self.current.start(groups.clone())?;
-        prepare_vhosts(&http, &deps, &groups)?;
+        let groups = build_snapshots(&http, &deps);
+        let generation = prepare_vhosts(&http, &deps, || {
+            self.current.start(groups)
+        })?;
         let server = self.clone();
         crate::tcp::listener::serve(
             &self.current,
@@ -178,7 +180,7 @@ impl HttpsServer {
 pub(crate) fn build_snapshots(
     http: &HttpSnapshot,
     deps: &Deps,
-) -> Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>, Error> {
+) -> BTreeMap<ListenerId, Arc<ServerSnapshot>> {
     let mut groups = BTreeMap::new();
     for (id, listener) in &http.listeners {
         let ListenerSettings::Tcp(config) = &listener.settings else {
@@ -187,7 +189,7 @@ pub(crate) fn build_snapshots(
         if !matches!(config.security, TcpSecurity::Tls { .. }) {
             continue;
         }
-        let tls_accept = TlsAccept::build(deps, listener, config)?;
+        let tls_accept = TlsAccept::new(deps.vhost_resolver.clone(), id.clone());
         groups.insert(
             id.clone(),
             Arc::new(ServerSnapshot {
@@ -197,22 +199,18 @@ pub(crate) fn build_snapshots(
             }),
         );
     }
-    Ok(groups)
+    groups
 }
 
-fn prepare_vhosts(
+fn prepare_vhosts<R>(
     http: &HttpSnapshot,
     deps: &Deps,
-    groups: &BTreeMap<ListenerId, Arc<ServerSnapshot>>,
-) -> Result<(), Error> {
+    commit: impl FnOnce() -> Result<R, Error>,
+) -> Result<R, Error> {
     let listeners = http.listeners.clone();
     let serving = deps.clone();
-    let initial: BTreeMap<_, _> = groups
-        .iter()
-        .map(|(id, group)| (id.clone(), group.tls_accept.prepared_policy()))
-        .collect();
     deps.vhost_resolver
-        .prepare_publications(
+        .prepare_publications_with(
             move |table, previous: Option<&VhostTlsPolicies>| {
                 let mut policies = BTreeMap::new();
                 for (id, listener) in &listeners {
@@ -224,24 +222,20 @@ fn prepare_vhosts(
                         continue;
                     }
                     let old = previous
-                        .and_then(|previous| previous.0.get(id))
-                        .or_else(|| initial.get(id))
-                        .map(Arc::as_ref);
+                        .and_then(|previous| previous.0.get(id));
                     policies.insert(
                         id.clone(),
-                        Arc::new(
-                            TlsAccept::prepare_policy(
-                                &serving, listener, config, table, old,
-                            )
-                            .map_err(crate::Error::other)?,
-                        ),
+                        TlsAccept::prepare_policy(
+                            &serving, listener, config, table, old,
+                        )
+                        .map_err(crate::Error::other)?,
                     );
                 }
                 Ok(VhostTlsPolicies(policies))
             },
+            || commit().map_err(crate::Error::other),
         )
-        .map_err(|error| Error::msg(error.to_string()))?;
-    Ok(())
+        .map_err(|error| Error::msg(error.to_string()))
 }
 
 /// Resolved inputs owned by this transport, excluding sibling listeners.
@@ -313,10 +307,9 @@ impl ConfigObserver for HttpsServer {
     ) -> congif::Result<()> {
         let deps =
             self.resolve_deps(&self.state).map_err(congif::Error::msg)?;
-        let groups =
-            build_snapshots(config, &deps).map_err(congif::Error::msg)?;
-        self.current.publish(groups.clone()).map_err(congif::Error::msg)?;
-        prepare_vhosts(config, &deps, &groups).map_err(congif::Error::msg)?;
+        let groups = build_snapshots(config, &deps);
+        prepare_vhosts(config, &deps, || self.current.publish(groups))
+            .map_err(congif::Error::msg)?;
         self.configure_instances(config);
         info!("🔁 HttpsServer listener policies reloaded");
         Ok(())
@@ -372,9 +365,8 @@ impl Reloadable<AppState> for HttpsServer {
     ) -> Result<(), Error> {
         let deps = self.resolve_deps(state)?;
         let http = state.config_reader().snapshot::<Self>()?;
-        let groups = build_snapshots(&http, &deps)?;
-        self.current.publish(groups.clone())?;
-        prepare_vhosts(&http, &deps, &groups)?;
+        let groups = build_snapshots(&http, &deps);
+        prepare_vhosts(&http, &deps, || self.current.publish(groups))?;
         self.configure_instances(&http);
         info!("🔁 HttpsServer listener policies reloaded");
         Ok(())

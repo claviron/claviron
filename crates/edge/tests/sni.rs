@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use claviron_edge::transport::{
-    HostRejection, VhostBindings, VhostTable, resolve_sni_from_table,
+    HostRejection, VhostTable, resolve_sni_from_table,
 };
 use tracing::span::{Attributes, Id, Record};
 use tracing::{Event, Level, Metadata, Subscriber};
@@ -70,26 +70,21 @@ fn name_churn_keeps_configured_bindings_without_warning_history() {
         )
         .unwrap()
     );
-    let bindings = VhostBindings::new(table.clone(), table.clone());
     let fallback = table.canonical_config(&"default".parse().unwrap()).unwrap();
     let warnings = Arc::new(AtomicUsize::new(0));
 
     tracing::subscriber::with_default(WarnCount(warnings.clone()), || {
         for name in ["app.test", "alias.test"] {
-            let bound = bindings.resolve_sni(Some(name)).unwrap();
+            let bound = resolve_sni_from_table(&table, Some(name)).unwrap();
             assert_eq!(bound.vhost_key.0.to_string(), "app.test");
             assert_eq!(bound.hostname.0.to_string(), name);
         }
         for index in 0..2048 {
             let name = format!("unmapped-{index}.test");
-            for bound in [
-                bindings.resolve_sni(Some(&name)).unwrap(),
-                resolve_sni_from_table(&table, Some(&name)).unwrap(),
-            ] {
-                assert_eq!(bound.hostname.0.to_string(), name);
-                assert_eq!(bound.vhost_key.0.to_string(), "default");
-                assert!(Arc::ptr_eq(&bound.vhost_config, &fallback));
-            }
+            let bound = resolve_sni_from_table(&table, Some(&name)).unwrap();
+            assert_eq!(bound.hostname.0.to_string(), name);
+            assert_eq!(bound.vhost_key.0.to_string(), "default");
+            assert!(Arc::ptr_eq(&bound.vhost_config, &fallback));
             assert!(table.resolve_exact(&name.parse().unwrap()).is_none());
         }
     });
@@ -108,21 +103,16 @@ fn name_churn_keeps_configured_bindings_without_warning_history() {
 fn unknown_names_without_a_catchall_do_not_become_bindings() {
     let table: Arc<VhostTable> =
         Arc::new(serde_yaml::from_str("app.test: {root: public}").unwrap());
-    let bindings = VhostBindings::new(table.clone(), table.clone());
     for index in 0..2048 {
         let name = format!("unhosted-{index}.test");
-        assert!(matches!(
-            bindings.resolve_sni(Some(&name)),
-            Err(HostRejection::NotHosted(rejected)) if rejected == name
-        ));
         assert!(matches!(
             resolve_sni_from_table(&table, Some(&name)),
             Err(HostRejection::NotHosted(rejected)) if rejected == name
         ));
     }
-    assert!(matches!(bindings.resolve_sni(None), Err(HostRejection::Missing)));
+    assert!(matches!(resolve_sni_from_table(&table, None), Err(HostRejection::Missing)));
     assert!(matches!(
-        bindings.resolve_sni(Some("bad name")),
+        resolve_sni_from_table(&table, Some("bad name")),
         Err(HostRejection::Invalid(..))
     ));
     assert_eq!(table.host_count(), 1);

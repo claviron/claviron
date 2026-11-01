@@ -113,6 +113,18 @@ impl VhostResolver {
         + Sync
         + 'static,
     ) -> crate::Result<()> {
+        self.prepare_publications_with(prepare, || Ok(()))
+    }
+
+    /// Prepare first; a failed transport commit leaves this publication unchanged.
+    pub(crate) fn prepare_publications_with<T: Send + Sync + 'static, R>(
+        &self,
+        prepare: impl Fn(&VhostTable, Option<&T>) -> crate::Result<T>
+        + Send
+        + Sync
+        + 'static,
+        commit: impl FnOnce() -> crate::Result<R>,
+    ) -> crate::Result<R> {
         let _publication = self.publication.lock().map_err(|_| {
             crate::Error::other("vhost publication lock poisoned")
         })?;
@@ -127,16 +139,17 @@ impl VhostResolver {
         let mut preparations = self.preparations.write().map_err(|_| {
             crate::Error::other("vhost preparation lock poisoned")
         })?;
+        let mut next = current.as_ref().clone();
+        next.set_prepared(id, value);
+        let committed = commit()?;
         if let Some(entry) = preparations.iter_mut().find(|(key, _)| *key == id)
         {
             entry.1 = preparation;
         } else {
             preparations.push((id, preparation));
         }
-        let mut next = current.as_ref().clone();
-        next.set_prepared(id, value);
         self.publish_prepared(next);
-        Ok(())
+        Ok(committed)
     }
     pub(crate) fn register_hosts(
         &self,
