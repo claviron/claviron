@@ -79,7 +79,7 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 | `broadcast` | Pusher REST and broadcast session composition. |
 | `rate-limit`, `access-log` | Optional quota and access-record paths. |
 | `db`, `postgres` | Hosting alias hydration; PostgreSQL notification adapter. |
-| `metrics`, `geoip`, `acme` | HTTP metrics, peer country lookup, HTTP-01 support. |
+| `metrics`, `geoip` | HTTP metrics and peer country lookup. |
 
 Features compile capabilities; declarations and registration select what runs.
 Transport snapshots contain no URI-deny matcher or forwarded-client identity
@@ -87,6 +87,8 @@ executor. These behaviors require explicit host-layer composition.
 The ordinary TCP adapter performs no CONNECT registry lookup, session injection,
 body-limit selection or body deadline setup. CONNECT execution remains available
 on an explicitly selected `H2ConnectBinding`; pipeline attachment is separate.
+Cleartext transport snapshots retain only listener, TCP and H1 settings.
+HTTP-01 and non-SSL redirect/reject dispatch are not implicit transport paths.
 
 ## `src/`
 
@@ -213,9 +215,7 @@ on an explicitly selected `H2ConnectBinding`; pipeline attachment is separate.
 - [`plain.rs`](src/tcp/plain.rs) — Cleartext H1 driver exports.
 - [`server.rs`](src/tcp/plain/server.rs) — HttpServer configuration, snapshots and named listener registration; `connection_handler` prepares a typed listener without binding or provider boot.
 - [`conn.rs`](src/tcp/plain/conn.rs) — Socket/context setup, H1 driving and connection drain; public `ConnectionHandler` serves caller-accepted streams through the same native path.
-- [`handler.rs`](src/tcp/plain/handler.rs) — Per-request cleartext host selection, non-SSL policy and native dispatch.
-- [`redirect.rs`](src/tcp/plain/redirect.rs) — HTTPS redirect using validated authority and the declared port.
-- [`acme.rs`](src/tcp/plain/acme.rs) — Optional HTTP-01 token validation and challenge-directory reads.
+- [`handler.rs`](src/tcp/plain/handler.rs) — Cleartext authority selection and native host handoff.
 - [`error.rs`](src/tcp/plain/error.rs) — Cleartext driver errors.
 
 ### `tcp/secure/`
@@ -319,7 +319,6 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`unit/accept.rs`](tests/tcp/unit/accept.rs) — Retry growth, saturation and warning-state transitions.
 - [`unit/body.rs`](tests/tcp/unit/body.rs) — Ended/lazy bodies, trailers and configured guards.
 - [`unit/config.rs`](tests/tcp/unit/config.rs) — Sibling transport changes do not invalidate unrelated inputs.
-- [`unit/redirect.rs`](tests/tcp/unit/redirect.rs) — IPv6, query and declared redirect port.
 - [`unit/timeout.rs`](tests/tcp/unit/timeout.rs) — Driver-default, disabled and explicit header deadlines.
 - [`unit/tls.rs`](tests/tcp/unit/tls.rs) — Configured host ALPN selection without opening connections.
 

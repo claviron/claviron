@@ -1,11 +1,8 @@
-//! Cleartext H1 host applications, redirects and optional HTTP-01 handlers.
+//! Cleartext H1 transport and host selection.
 
-#[cfg(feature = "acme")]
-mod acme;
 mod conn;
 mod error;
 mod handler;
-mod redirect;
 mod server;
 
 pub use conn::ConnectionHandler;

@@ -3,8 +3,6 @@
 //! Connection driving is `conn.rs` and request handling is `handler.rs`, the
 //! same split the TLS driver uses, so one side is learned by reading the other.
 use std::collections::BTreeMap;
-use std::num::NonZeroU16;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -12,7 +10,6 @@ use crate::transport::VhostResolver;
 use crate::transport::instances::ListenerInstances;
 use async_trait::async_trait;
 use claviron_http::ListenerId;
-use claviron_http::acme::Http01ChallengeDirectory;
 use claviron_http::config::{
     H1Config, HttpSnapshot, ListenerCapabilities, ListenerConfig,
     ListenerSettings, PlainExecution, TcpConfig, TcpSecurity,
@@ -39,8 +36,6 @@ pub(super) struct ServerSnapshot {
     pub(super) listener: Arc<ListenerConfig>,
     pub(super) tcp: TcpConfig,
     pub(super) h1: H1Config,
-    pub(super) redirect_port: NonZeroU16,
-    pub(super) http01_directory: Option<Arc<PathBuf>>,
 }
 impl ListenerSnapshot for ServerSnapshot {
     fn listener_id(&self) -> &ListenerId {
@@ -106,7 +101,7 @@ impl HttpServer {
         context: RunContext,
     ) -> claviron_runtime::registry::Result<()> {
         let config = self.state.config_reader().snapshot::<Self>()?;
-        let snapshot = build_snapshots(&config, &self.state)?
+        let snapshot = build_snapshots(&config)?
             .remove(id)
             .ok_or_else(|| {
                 claviron_runtime::registry::Error::msg(format!(
@@ -140,7 +135,7 @@ impl HttpServer {
         listener: &claviron_http::ListenerId,
         vhosts: Arc<VhostResolver>,
     ) -> claviron_runtime::registry::Result<super::ConnectionHandler> {
-        let snapshot = build_snapshots(config, &self.state)?
+        let snapshot = build_snapshots(config)?
             .remove(listener)
             .ok_or_else(|| {
             claviron_runtime::registry::Error::msg(format!(
@@ -157,7 +152,6 @@ impl HttpServer {
     ) -> claviron_runtime::registry::Result<()> {
         let generation = self.current.start(build_snapshots(
             self.state.config_reader().snapshot::<Self>()?.as_ref(),
-            &self.state,
         )?)?;
         crate::tcp::listener::serve(
             &self.current,
@@ -180,7 +174,6 @@ impl HttpServer {
 
 pub(super) fn build_snapshots(
     http: &HttpSnapshot,
-    state: &AppState,
 ) -> claviron_runtime::registry::Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>>
 {
     let mut groups = BTreeMap::new();
@@ -188,7 +181,7 @@ pub(super) fn build_snapshots(
         let ListenerSettings::Tcp(config) = &listener.settings else {
             continue;
         };
-        let TcpSecurity::Cleartext { redirect_port, acme } = &config.security
+        let TcpSecurity::Cleartext { .. } = &config.security
         else {
             if !cfg!(feature = "tls") {
                 return Err(claviron_runtime::registry::Error::msg(format!(
@@ -197,34 +190,12 @@ pub(super) fn build_snapshots(
             }
             continue;
         };
-        let http01_directory = if *acme {
-            Some(
-                state
-                    .registry_ref()
-                    .resolve::<Http01ChallengeDirectory>()
-                    .ok_or_else(|| {
-                        claviron_runtime::registry::Error::msg(
-                            "HTTP-01 is enabled but AcmeService did not register its challenge directory"
-                        )
-                    })?
-                    .snapshot()
-                    .ok_or_else(|| {
-                        claviron_runtime::registry::Error::msg(
-                            "HTTP-01 is enabled but acme.yaml has not published challenges_dir"
-                        )
-                    })?
-            )
-        } else {
-            None
-        };
         groups.insert(
             id.clone(),
             Arc::new(ServerSnapshot {
                 listener: listener.clone(),
                 tcp: config.tcp.clone(),
                 h1: config.h1.clone(),
-                redirect_port: *redirect_port,
-                http01_directory,
             }),
         );
     }
@@ -307,7 +278,7 @@ impl ConfigObserver for HttpServer {
     ) -> congif::Result<()> {
         self.current
             .publish(
-                build_snapshots(config, &self.state)
+                build_snapshots(config)
                     .map_err(congif::Error::msg)?,
             )
             .map_err(congif::Error::msg)?;
@@ -366,7 +337,7 @@ impl Reloadable<AppState> for HttpServer {
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
         let config = state.config_reader().snapshot::<Self>()?;
-        self.current.publish(build_snapshots(config.as_ref(), &self.state)?)?;
+        self.current.publish(build_snapshots(config.as_ref())?)?;
         self.configure_instances(&config);
         info!("🔁 HttpServer listener policies reloaded");
         Ok(())

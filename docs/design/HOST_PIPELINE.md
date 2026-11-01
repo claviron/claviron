@@ -49,7 +49,7 @@ are explicit capabilities; the ordinary TCP adapter does not select them.
 | Transport | Host selection |
 | --- | --- |
 | TLS over TCP or QUIC | SNI selects the hostname, TLS/client-auth policy and application before the handshake completes. The connection retains that binding. |
-| Cleartext HTTP/1 | Each request resolves its authority against the current host table, including on keepalive. Host policy selects serving, redirect or rejection. |
+| Cleartext HTTP/1 | Each request resolves its authority against the current host table, including on keepalive. The transport performs no implicit redirect or HTTP-01 path interception. |
 
 A TLS request for a different hostname receives **421 Misdirected Request**.
 An alias or an overlapping certificate SAN does not permit switching hosts;
