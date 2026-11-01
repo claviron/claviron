@@ -73,10 +73,8 @@ impl ContextExtensions {
             config: host.vhost_config.clone(),
         };
         let mut template = Extensions::new();
-        if let Some(ip) = connection.real_ip {
-            template.insert(connection.clone());
-            template.insert(RealIpExt(ip));
-        }
+        template.insert(connection.clone());
+        template.insert(RealIpExt(connection.real_ip.unwrap_or_else(|| connection.remote.ip())));
         fixed.inject(&mut template);
         Self { template, fixed }
     }

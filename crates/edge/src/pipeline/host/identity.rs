@@ -5,7 +5,7 @@ use std::sync::Arc;
 use claviron_http::ext::ConnCtx;
 
 use super::*;
-use crate::service::{RequestRejection, VhostCtx};
+use crate::service::VhostCtx;
 
 pub(crate) mod extensions;
 use extensions::ContextExtensions;
@@ -47,13 +47,6 @@ impl IdentityPolicy {
         connection: Arc<ConnCtx>,
         host: &VhostCtx,
     ) -> Self {
-        let connection = if connection.real_ip.is_none() {
-            let mut direct = connection.as_ref().clone();
-            direct.real_ip = Some(connection.remote.ip());
-            Arc::new(direct)
-        } else {
-            connection
-        };
         let extensions = ContextExtensions::new(&connection, host);
         Self { connection, extensions }
     }
@@ -63,9 +56,7 @@ impl IdentityPolicy {
         layer: &mut HostLayerBuilder<S, R>,
     ) {
         let Self { connection, extensions } = self;
-        let ip = connection
-            .real_ip
-            .expect("accepted connection has a peer identity");
+        let ip = connection.real_ip.unwrap_or_else(|| connection.remote.ip());
         layer.before(move |head, state| {
             extensions.inject_fixed(head, &connection, ip);
             state.as_mut().connection = Some(connection.clone());
@@ -74,7 +65,7 @@ impl IdentityPolicy {
     }
 }
 
-impl<S: AsMut<IdentityState>, R: From<RequestRejection>> HostLayer<S, R>
+impl<S: AsMut<IdentityState>, R> HostLayer<S, R>
     for IdentityPolicy
 {
     fn prepare(

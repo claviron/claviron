@@ -60,9 +60,9 @@ impl QuotaPolicy {
         HostPipelineBuilder { layers: vec![layer] }.build()
     }
 
-    fn register<S: AsMut<QuotaState>>(
+    fn register<S: AsMut<QuotaState>, R: From<HostResponse>>(
         self,
-        layer: &mut HostLayerBuilder<S, HostResponse>,
+        layer: &mut HostLayerBuilder<S, R>,
     ) {
         if self.rules.is_empty() {
             return;
@@ -115,23 +115,23 @@ fn request_head(head: &RequestParts) -> RequestHead<'_> {
     }
 }
 
-fn record(
+fn record<R: From<HostResponse>>(
     result: Result<Option<Snapshot>, HostResponse>,
     state: &mut QuotaState,
-) -> ControlFlow<HostResponse> {
+) -> ControlFlow<R> {
     match result {
         Ok(snapshot) => {
             state.snapshot = snapshot;
             ControlFlow::Continue(())
         }
-        Err(reply) => ControlFlow::Break(reply),
+        Err(reply) => ControlFlow::Break(reply.into()),
     }
 }
 
-impl<S: AsMut<QuotaState>> HostLayer<S, HostResponse> for QuotaPolicy {
+impl<S: AsMut<QuotaState>, R: From<HostResponse>> HostLayer<S, R> for QuotaPolicy {
     fn prepare(
         self,
-        layer: &mut HostLayerBuilder<S, HostResponse>,
+        layer: &mut HostLayerBuilder<S, R>,
     ) -> crate::Result<()> {
         self.register(layer);
         Ok(())
