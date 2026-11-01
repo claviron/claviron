@@ -5,7 +5,6 @@ use crate::transport::HostRejection;
 #[derive(Debug)]
 pub(crate) enum ConnectionError {
     ApplicationUnavailable,
-    HostPolicyUnavailable,
     /// Hyper-level serving error
     Serve(hyper::Error),
     /// Physical TCP failure observed while an H1 response is idle.
@@ -40,9 +39,6 @@ impl Display for ConnectionError {
         match self {
             ConnectionError::ApplicationUnavailable => {
                 f.write_str("host application is unavailable")
-            }
-            ConnectionError::HostPolicyUnavailable => {
-                f.write_str("host access policy is unavailable")
             }
             ConnectionError::Socket(err) => {
                 write!(f, "Connection socket error: {err}")

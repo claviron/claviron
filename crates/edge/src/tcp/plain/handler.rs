@@ -28,7 +28,7 @@ impl H1Service {
         ctx: Arc<ConnCtx>,
     ) -> Self {
         let host_cache = CleartextHostCache::new(
-            ctx, vhosts.clone(), snapshot.listener.policy(),
+            ctx, snapshot.listener.policy(),
         );
         Self { vhosts, host_cache: RefCell::new(host_cache) }
     }
@@ -57,16 +57,12 @@ impl H1Service {
         let Some(mut host) = cache.resolve(request.authority(), &table) else {
             return Err(err_status(StatusCode::NOT_FOUND));
         };
-        // Cleartext cannot satisfy a required TLS client certificate.
-        if host.vhost_config.tls.client_auth.is_required() {
-            return Err(err_status(StatusCode::FORBIDDEN));
-        }
         let Some(app) = host.application.take() else {
             warn!(host = %request.authority().authority(), "H1 host application unavailable");
             return Err(err_status(StatusCode::SERVICE_UNAVAILABLE));
         };
         let host = cache.bind(app, host);
         drop(cache);
-        Ok(crate::tcp::service::dispatch(host.prepare_cleartext(request)))
+        Ok(crate::tcp::service::dispatch(host.request_cleartext(request)))
     }
 }

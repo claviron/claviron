@@ -30,11 +30,10 @@ mod extension;
 mod files;
 mod handler;
 mod identity;
-pub(crate) mod ingress;
+mod protocol;
 #[cfg(feature = "rate-limit")]
 mod quota;
 mod reply;
-mod state;
 #[cfg(feature = "websocket")]
 mod websocket;
 
@@ -57,14 +56,14 @@ pub use handler::{
     HostRequest,
 };
 pub use identity::{IdentityPolicy, IdentityState};
-pub use ingress::{IngressPolicy, IngressState};
+pub use protocol::{AuthorityLayer, RejectLayer, UpgradeLayer};
+#[cfg(feature = "http3")]
+pub use protocol::EarlyDataLayer;
 #[cfg(feature = "rate-limit")]
 pub(crate) use quota::QuotaRegistrations;
 #[cfg(feature = "rate-limit")]
 pub use quota::{HostQuotas, QuotaPolicy, QuotaState};
 pub use reply::ReplyPolicy;
-pub use state::HostRequestState;
-pub(crate) use state::IdentifiedRequest;
 #[cfg(feature = "websocket")]
 pub use websocket::WebSocketStage;
 mod request;

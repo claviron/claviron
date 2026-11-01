@@ -109,7 +109,7 @@ impl HttpsServer {
             proto,
         ));
 
-        let host = vhost_conn.bind_host(&self.state, proto, &snapshot.listener)?;
+        let host = vhost_conn.bind_host(proto, &snapshot.listener)?;
         let vhost_service = crate::tcp::service::service(host);
         let errors = tls_stream.get_ref().0.clone();
         let stream = TokioIo::new(tls_stream);

@@ -18,7 +18,7 @@ flowchart TD
     Loader --> Prepare[Prepare applications and transport policies]
     Prepare --> Publish[Publish one host table]
     Publish --> Transport[TCP or QUIC binding]
-    Transport --> Host[HostService: ingress, identity, live access]
+    Transport --> Host[HostService: accepted facts and request ownership]
     Host --> Session[Native CONNECT or session handler]
     Host --> Body[Native body adapter]
     Body --> Axum[Axum Rust router]
@@ -39,7 +39,7 @@ Host preparation runs before table publication. A rejected host candidate keeps
 the old table. Unchanged declarations retain identity and prepared applications.
 TLS/H3 retain the accepted binding; cleartext selects the current host/application
 per request. HostBinding observes publications to retire changed connections;
-ACL/redirect admission reads the current canonical-host policy per request.
+Host actions are prepared separately from transport binding.
 Accepted bodies, sessions and capacity remain with their native owners through
 drain; the [graceful ownership contract](../../docs/design/GRACEFUL_OWNERSHIP.md)
 defines termination authority. Configured quota changes currently require restart.
@@ -94,7 +94,8 @@ activity accounting, access logging, CORS, timestamps, admission/head deadlines,
 response identity, response-body guards or quota checks/headers. Their explicit
 layer APIs remain separate from the selected application call. Router publication
 retains only `RustRouter`; it does not allocate admission, exchange or quota
-policies alongside every application.
+policies alongside every application. Identity extensions and request-part
+checks require explicit layer composition; transport handoff does not install them.
 
 ## `src/`
 
@@ -129,8 +130,8 @@ policies alongside every application.
 - [`authority.rs`](src/service/authority.rs) — Validated cleartext authority and connection-local name identity reuse.
 - [`bindings.rs`](src/service/bindings.rs) — Pair live names with the captured TLS policy epoch.
 - [`extensions.rs`](src/service/extensions.rs) — VhostCtx and connection-time SNI selection/rejections.
-- [`host.rs`](src/service/host.rs) — HostService admission and direct PreparedRequest handoff; policy data stays in its retained binding.
-- [`host/cache.rs`](src/service/host/cache.rs) — Cleartext metadata cache; application selection and live access remain request-local.
+- [`host.rs`](src/service/host.rs) — HostService and native request handoff; no fixed Ingress/Identity/Access chain.
+- [`host/cache.rs`](src/service/host/cache.rs) — Cleartext metadata cache and current-publication owner selection.
 - [`host/dispatch.rs`](src/service/host/dispatch.rs) — Select Axum/Other before constructing the execution future.
 - [`response.rs`](src/service/response.rs) — Typed early host replies, before native wire framing.
 
@@ -159,9 +160,8 @@ extension insertion. Rust router and backend calls implement `HostLayer`.
 - [`builder.rs`](src/pipeline/host/builder.rs) — Flatten active actions once; failed layer preparation changes nothing.
 - [`request.rs`](src/pipeline/host/request.rs) — Head preparation, unread body transfer and deferred typed application call.
 - [`response.rs`](src/pipeline/host/response.rs) — Run only reached response/body actions, in reverse registration order.
-- [`state.rs`](src/pipeline/host/state.rs) — Ingress/identity/access phase state and native head-only handoff.
-- [`binding.rs`](src/pipeline/host/binding.rs) — Connection-owned host binding, narrowed policy data and prepared native plan.
-- [`ingress.rs`](src/pipeline/host/ingress.rs) — Protocol, authority, early-data and upgrade admission.
+- [`binding.rs`](src/pipeline/host/binding.rs) — Accepted connection facts and narrowed declaration data; no implicit actions.
+- [`protocol.rs`](src/pipeline/host/protocol.rs) — Independent authority, rejection, early-data and H1-upgrade layers.
 - [`identity.rs`](src/pipeline/host/identity.rs) — Shared accepted-connection identity and host metadata.
 - [`identity/extensions.rs`](src/pipeline/host/identity/extensions.rs) — Typed metadata in request-owned extension boxes.
 - [`access.rs`](src/pipeline/host/access.rs) — One live canonical-host policy selection and retained admitted generation.

@@ -39,8 +39,8 @@ pub use host::{
     DispatchFuture, DispatchResult,
     DispatchStep, ExchangeLayer, ExchangeState, HostHandler, HostHandlerFuture,
     HostHandlerResult, HostLayer, HostLayerBuilder, HostPipeline,
-    HostPipelineBuilder, HostRequest, HostRequestState, IdentityPolicy,
-    IdentityState, IngressPolicy, IngressState, ReplyPolicy, StaticStage,
+    HostPipelineBuilder, HostRequest, IdentityPolicy,
+    IdentityState, AuthorityLayer, RejectLayer, UpgradeLayer, ReplyPolicy, StaticStage,
     TryFilesStage,
 };
 #[cfg(feature = "rate-limit")]
@@ -52,3 +52,6 @@ pub use wt::{
     WebTransportBinding, WebTransportHandler, WebTransportRegistry,
     WebTransportReject, WebTransportResult, webtransport_session_ended,
 };
+
+#[cfg(feature = "http3")]
+pub use host::EarlyDataLayer;

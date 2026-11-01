@@ -12,9 +12,8 @@ use http::{Request, StatusCode};
 #[cfg(feature = "tcp")]
 use super::CleartextRequest;
 use super::extensions::VhostCtx;
-use super::{AuthorityError, HostResponse};
-use crate::VhostResolver;
-use crate::pipeline::host::{HostPolicy, HostRequestState, IdentifiedRequest};
+use super::AuthorityError;
+use crate::pipeline::host::HostPolicy;
 use crate::pipeline::{AuthContext, RustRouter};
 
 mod dispatch;
@@ -46,6 +45,10 @@ pub enum RequestRejection {
     TooEarly,
 }
 
+impl AsRef<RequestArrival> for RequestArrival {
+    fn as_ref(&self) -> &RequestArrival { self }
+}
+
 impl RequestRejection {
     pub fn status(self) -> StatusCode {
         match self {
@@ -66,13 +69,8 @@ impl RequestRejection {
     }
 }
 
-/// A pinned host binding for TLS, or one selected cleartext request. It has no
-/// socket/body driver. ACL and early host replies read live policy per request;
-/// accepted transport/authentication and application policy remain pinned.
-/// Immutable extension values are prepared with the binding; each admitted
-/// request receives its own map. Cleartext connections reuse only the last
-/// matching metadata binding, selecting the application from the current
-/// publication for every request.
+/// An accepted connection bound to a published request owner. This handoff
+/// retains transport facts and declarations; it installs no host actions.
 #[derive(Clone)]
 pub struct HostService {
     app: RustRouter,
@@ -84,70 +82,45 @@ impl HostService {
         app: impl Into<RustRouter>,
         connection: Arc<ConnCtx>,
         host: VhostCtx,
-        access: Arc<VhostResolver>,
         listener: HttpPolicy,
     ) -> Self {
-        Self {
-            app: app.into(),
-            policy: Arc::new(HostPolicy::new(
-                connection, host, access, listener,
-            )),
-        }
+        Self { app: app.into(), policy: Arc::new(HostPolicy::new(connection, host, listener)) }
     }
 
-    /// Check the head without polling its body, then inject a fresh request
-    /// identity. `Err` is a completed host reply (including redirects), not
-    /// necessarily a failure. Only `Ok` enters application/native dispatch.
-    pub fn prepare<B>(
-        &self,
-        request: Request<B>,
-        arrival: RequestArrival,
-    ) -> Result<PreparedRequest<B>, HostResponse> {
-        let request = self
-            .policy
-            .pipeline
-            .admit(request, HostRequestState::new(arrival))?;
-        self.clone().into_prepared(request)
+    /// Retain the original native body and accepted facts without executing
+    /// policies or populating extensions. Host actions belong to HostPipeline.
+    pub fn request<B>(&self, request: Request<B>, arrival: RequestArrival) -> PreparedRequest<B> {
+        self.clone().into_request(request, arrival)
     }
 
-    /// Reuse the authority validated for this cleartext host selection. The
-    /// receiving host still checks its binding, transport and live policy.
-    /// Cleartext selects an owned application per request, which moves into the
-    /// admitted request. Its immutable metadata binding may be shared with the
-    /// connection cache; neither that cache nor another request owns this body.
     #[cfg(feature = "tcp")]
-    pub(crate) fn prepare_cleartext<B>(
-        self,
-        request: CleartextRequest<B>,
-    ) -> Result<PreparedRequest<B>, HostResponse> {
-        let (request, authority) = request.into_parts();
-        let request =
-            self.policy.pipeline.admit_cleartext(request, authority)?;
-        self.into_prepared(request)
+    pub(crate) fn request_cleartext<B>(self, request: CleartextRequest<B>) -> PreparedRequest<B> {
+        let (request, _) = request.into_parts();
+        self.into_request(request, RequestArrival::Established)
     }
 
-    fn into_prepared<B>(
-        self,
-        identified: IdentifiedRequest<B>,
-    ) -> Result<PreparedRequest<B>, HostResponse> {
-        let IdentifiedRequest { head, body, connection, .. } = identified;
-        Ok(PreparedRequest {
-            request: Request::from_parts(head, body),
-            service: self,
-            connection,
-        })
+    fn into_request<B>(self, request: Request<B>, arrival: RequestArrival) -> PreparedRequest<B> {
+        PreparedRequest {
+            connection: self.policy.connection.clone(),
+            request, service: self, arrival,
+        }
     }
 }
 
-/// An admitted request keeps its app and policy generation while a driver
+/// A bound request keeps its owner and declaration generation while a driver
 /// adapts the body. Native CONNECT/session handlers may take ownership instead.
 pub struct PreparedRequest<B> {
     request: Request<B>,
     service: HostService,
     connection: Arc<ConnCtx>,
+    arrival: RequestArrival,
 }
 
 impl<B> PreparedRequest<B> {
+    pub fn arrival(&self) -> RequestArrival {
+        self.arrival
+    }
+
     pub fn request(&self) -> &Request<B> {
         &self.request
     }
@@ -197,6 +170,7 @@ impl<B> PreparedRequest<B> {
             request: self.request.map(map),
             service: self.service,
             connection: self.connection,
+            arrival: self.arrival,
         }
     }
 

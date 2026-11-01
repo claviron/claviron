@@ -432,13 +432,7 @@ impl H3RequestHandler {
         } else {
             RequestArrival::Established
         };
-        let prepared = match self.host.prepare(head, arrival) {
-            Ok(prepared) => prepared,
-            Err(reject) => {
-                send_host_response(&mut stream, reject).await;
-                return;
-            }
-        };
+        let prepared = self.host.request(head, arrival);
         // WebTransport has its native accept path in the listener. WebSocket
         // CONNECT is not implemented over H3; it must not enter body buffering.
         if unsupported_websocket_connect(prepared.request()) {

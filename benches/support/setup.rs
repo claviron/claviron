@@ -88,7 +88,6 @@ impl Hosts {
             app,
             connection,
             host,
-            self.vhosts.clone(),
             listener.policy(),
         )
     }

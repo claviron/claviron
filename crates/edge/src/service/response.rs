@@ -39,3 +39,15 @@ impl HostResponse {
         response
     }
 }
+
+impl From<HostResponse> for claviron_http::RouteResponse {
+    fn from(reply: HostResponse) -> Self {
+        reply.into_response().map(|()| claviron_http::empty_body())
+    }
+}
+
+impl From<RequestRejection> for claviron_http::RouteResponse {
+    fn from(reason: RequestRejection) -> Self {
+        HostResponse::from(reason).into()
+    }
+}

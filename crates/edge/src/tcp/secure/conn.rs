@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::config::HostConfig;
 use crate::transport::{
-    HostAppResolver, HostBinding, HostRejection, HostService, VhostCtx,
+    HostBinding, HostRejection, HostService, VhostCtx,
     VhostResolver,
 };
 use claviron_http::config::ListenerConfig;
@@ -73,25 +73,10 @@ impl TlsHostConnection {
     /// Bind the shared host dispatcher to Hyper without re-reading live policy.
     pub fn bind_host(
         &self,
-        state: &AppState,
         proto: Proto,
         listener: &ListenerConfig,
     ) -> Result<HostService, ConnectionError> {
-        let registry = state.registry_ref();
-
-        let access = registry
-            .resolve::<VhostResolver>()
-            .ok_or(ConnectionError::HostPolicyUnavailable)?;
-
-        let app = self
-            .vctx
-            .application
-            .clone()
-            .or_else(|| {
-                registry
-                    .resolve::<HostAppResolver>()
-                    .and_then(|resolver| resolver.resolve(&self.vctx.vhost_key))
-            })
+        let app = self.vctx.application.clone()
             .ok_or(ConnectionError::ApplicationUnavailable)?;
 
         let mut conn_ctx = (*self.ctx).clone();
@@ -101,7 +86,6 @@ impl TlsHostConnection {
             app,
             Arc::new(conn_ctx),
             self.vctx.clone(),
-            access,
             listener.policy(),
         );
         Ok(host)

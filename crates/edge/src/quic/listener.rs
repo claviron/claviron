@@ -38,7 +38,7 @@ use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
 use crate::quic::request::{
-    H3RequestHandler, RequestBodyMode, send_host_response, send_status_response,
+    H3RequestHandler, RequestBodyMode, send_status_response,
 };
 use crate::quic::types::{H3Server, ServerSnapshot};
 
@@ -374,7 +374,6 @@ impl H3Server {
             app,
             conn_ctx,
             vctx.clone(),
-            deps.vhost_resolver.clone(),
             snapshot.listener.policy(),
         );
         // Listener-level now, not H3's own: the same question is asked of
@@ -529,16 +528,7 @@ impl H3Server {
                             continue;
                         }
 
-                        let prepared = match host_service.prepare(h3_head, RequestArrival::Established) {
-                            Ok(prepared) => prepared,
-                            Err(reject) => {
-                                streams.spawn(async move {
-                                    send_host_response(&mut stream, reject).await;
-                                    StreamCompletion::Request
-                                });
-                                continue;
-                            }
-                        };
+                        let prepared = host_service.request(h3_head, RequestArrival::Established);
 
                         if !web_transport_enabled {
                             streams.spawn(async move {

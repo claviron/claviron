@@ -141,3 +141,21 @@ impl<S: AsMut<QuotaState>> HostLayer<S, HostResponse> for QuotaPolicy {
 #[cfg(test)]
 #[path = "../../../tests/pipeline/host/quota.rs"]
 mod tests;
+
+impl<S> HostPipeline<S, HostResponse> {
+    pub(crate) fn check_head(
+        &self,
+        head: &mut RequestParts,
+        state: &mut S,
+    ) -> Result<(), HostResponse> {
+        for step in &self.before {
+            let Action::Head(action) = &step.action else {
+                unreachable!("typed head decisions cannot register request actions")
+            };
+            if let ControlFlow::Break(reply) = action(head, state) {
+                return Err(reply);
+            }
+        }
+        Ok(())
+    }
+}
