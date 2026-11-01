@@ -47,7 +47,7 @@ impl RustRouter {
     }
 }
 
-use crate::pipeline::ext::{
+use crate::pipeline::extension::{
     RouteContext, RouteEffect, RouteExtension, RouteLayer,
 };
 pub use claviron_http::admission::Admission;

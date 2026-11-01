@@ -22,7 +22,7 @@ mod listener;
 // neither is anyone else's business, so neither is public. See `transport`.
 pub(crate) mod loader;
 pub mod pipeline;
-pub use pipeline::ext as extension;
+pub use pipeline::extension as extension;
 mod provider;
 pub(crate) mod service;
 #[cfg(feature = "rate-limit")]

@@ -3,7 +3,7 @@ autotests = false
 name = "claviron-edge"
 version.workspace = true
 publish.workspace = true
-edition.workspace= true
+edition.workspace = true
 description = "Protocol-independent HTTP host admission, routing, and application dispatch for Claviron"
 license.workspace = true
 repository.workspace = true
@@ -29,11 +29,9 @@ access-log = [
     "dep:claviron-logging",
     "claviron-logging/pipeline",
 ]
-websocket = ["claviron-http/websocket", "claviron-lua?/websocket", "dep:hyper"]
-
+websocket = ["tcp", "claviron-http/websocket", "claviron-lua?/websocket"]
 # Configured Pusher REST endpoints currently use an optional Rust router adapter.
 broadcast = ["axum", "dep:claviron-pusher", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
-
 php = ["dep:claviron-php"]
 php_fcgi = ["php", "dep:claviron-php-fcgi", "claviron-php?/php_fcgi"]
 php_embed = ["php", "dep:claviron-php-embed", "claviron-php?/php_embed"]
@@ -46,8 +44,6 @@ orbit = [
     "dep:tokio-util",
     # Edge owns the upgrade and protocol; Link carries whole messages.
     "claviron-http/websocket",
-    "dep:hyper",
-    "dep:hyper-util",
     "dep:fastwebsockets",
 ]
 # A selected Lua runtime contributes its configured H1/H2 WebSocket endpoints.
@@ -58,11 +54,7 @@ metrics = ["axum", "claviron-http/metrics"]
 http3 = ["claviron-http/http3"]
 webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport", "claviron-lua?/webtransport"]
 # Native drivers are opt-in; host declarations alone open no sockets.
-tcp = [
-    "claviron-types/ssl", "dep:claviron-sys",
-    "dep:hyper", "dep:hyper-util",
-    "dep:socket2",
-]
+tcp = ["claviron-types/ssl", "dep:claviron-sys", "dep:socket2", "dep:hyper", "dep:hyper-util"]
 tls = ["dep:rustls", "dep:tokio-rustls"]
 # Preserve the native H3 driver's existing WebTransport binding contract.
 quic = [

@@ -267,7 +267,7 @@ fn an_outer_policy_rejection_cannot_enter_the_native_application() {
     let counts = Arc::new(Counts::default());
     let calls = Arc::new(AtomicUsize::new(0));
     struct Reject;
-    impl crate::pipeline::ext::RouteLayer for Reject {
+    impl crate::pipeline::extension::RouteLayer for Reject {
         fn prepare(
             &self,
             layer: &mut super::super::HostLayerBuilder,

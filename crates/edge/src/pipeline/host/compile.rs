@@ -15,7 +15,7 @@ use super::owner::bind_other;
 use crate::pipeline::layers::{RouteSelectionLayer, scope_steps};
 use super::{HostHandler, HostPipelineBuilder};
 use crate::pipeline::apps::{HostAppRegistry, ResolvedRouteExtensions};
-use crate::pipeline::ext::{RouteContext, RouteLayer};
+use crate::pipeline::extension::{RouteContext, RouteLayer};
 use crate::pipeline::other::OtherService;
 use crate::HostConfig;
 

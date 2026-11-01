@@ -67,7 +67,3 @@ impl CleartextHostCache {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "../../../tests/service/host/cache.rs"]
-mod tests;

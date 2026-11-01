@@ -157,7 +157,7 @@ php_embed = ["php", "dep:claviron-php-embed", "claviron-php/php_embed", "claviro
 # ── Hosting / domains ────────────────────────────────────────────────
 # DB-managed vhost aliases and TLS certificates. This is an operational
 # hosting mode, not the generic ability to open a database connection.
-hosting = ["tls", "db", "dep:claviron-hosting", "claviron-hosting/server", "claviron-edge?/db"]
+hosting = ["tls", "db", "dep:claviron-hosting", "claviron-edge?/db"]
 
 # ── Misc ─────────────────────────────────────────────────────────────
 geoip = ["dep:claviron-geoip", "claviron-edge?/geoip"]

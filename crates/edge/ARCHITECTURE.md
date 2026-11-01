@@ -131,7 +131,7 @@ owns native framing and buffered/streamed body bounds during this transition.
 - [`pipeline.rs`](src/pipeline.rs) — Public native composition contracts and optional adapter exports.
 - [`apps.rs`](src/pipeline/apps.rs) — Retained factories, directives and per-host application snapshot preparation/reuse.
 - [`routable.rs`](src/pipeline/routable.rs) — Provider-owned contributions, native layers and exclusive host bindings.
-- [`ext.rs`](src/pipeline/ext.rs) — Typed directive codecs, conditions, handlers and cold layer compilation.
+- [`extention`](src/pipeline/extension.rs) — Typed directive codecs, conditions, handlers and cold layer compilation.
 - [`routing.rs`](src/pipeline/routing.rs) — Shared prefix dispatch and route-extension re-exports.
 - [`app.rs`](src/pipeline/app.rs) — Optional Axum ApplicationHandler/HostHandler adapter and HostConfigExt extractor.
 - [`connect.rs`](src/pipeline/connect.rs) — H2 CONNECT registry, explicit binding execution, authentication payload and session context.

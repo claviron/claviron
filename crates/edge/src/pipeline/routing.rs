@@ -9,6 +9,6 @@ pub use claviron_http::dispatch::{
     ConfiguredRoute, RouteCondition, RouteDispatch, RuleContext,
 };
 
-pub use super::ext::{
+pub use super::extension::{
     RouteContext, RouteEffect, RouteExtension, RouteLayer, directive,
 };

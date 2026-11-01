@@ -3,7 +3,7 @@ pub mod app;
 pub(crate) mod apps;
 mod connect;
 pub mod embed;
-pub mod ext;
+pub mod extension;
 pub mod host;
 pub mod layers;
 #[cfg(feature = "orbit")]

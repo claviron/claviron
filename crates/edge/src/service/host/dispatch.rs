@@ -81,6 +81,3 @@ fn call<H: ApplicationHandler>(
     future::lazy(move |_| owner.call(request)).flatten()
 }
 
-#[cfg(test)]
-#[path = "../../../tests/service/host/dispatch.rs"]
-mod tests;

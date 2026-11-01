@@ -119,7 +119,7 @@ async fn try_files_precedes_a_declared_php_application_without_starting_php() {
 #[tokio::test]
 async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
 {
-    use crate::pipeline::ext::{RouteCondition, RouteEffect};
+    use crate::pipeline::extension::{RouteCondition, RouteEffect};
     use axum::{Router, routing::any};
     struct Reject;
     impl RouteCondition for Reject {
@@ -134,7 +134,7 @@ async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
     let state = AppState::standalone("native-condition", directory.path());
     let registry = Arc::new(HostAppRegistry::default());
     registry
-        .register_route_extension(crate::pipeline::ext::directive::<bool, _>(
+        .register_route_extension(crate::pipeline::extension::directive::<bool, _>(
             "allowed",
             |_, _| Ok(RouteEffect::Condition(Arc::new(Reject))),
         ))

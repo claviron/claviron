@@ -1,4 +1,4 @@
-use crate::pipeline::ext::RouteLayer;
+use crate::pipeline::extension::RouteLayer;
 use super::{HostLayer, HostLayerBuilder};
 
 impl HostLayer for &dyn RouteLayer {
