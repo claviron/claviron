@@ -12,8 +12,6 @@ use crate::config::HostConfig;
 pub struct VhostRecord {
     pub canonical: Host,
     pub config: Arc<HostConfig>,
-    #[cfg(feature = "server")]
-    pub(crate) policy: Option<Arc<crate::pipeline::host::RequestPolicy>>,
 }
 
 /// One published name binding. Keep the declaration separately shareable:
@@ -337,16 +335,6 @@ impl VhostTable {
         use std::collections::hash_map::Entry;
 
         let next = Arc::make_mut(&mut self.inner);
-        // Aliases share their canonical's compiled request policy; compile only at
-        // table construction, never when a connection/request is accepted.
-        #[cfg(feature = "server")]
-        let policy = next
-            .get(&canonical)
-            .filter(|record| record.canonical == canonical)
-            .map(|record| record.policy.clone())
-            .unwrap_or_else(|| {
-                crate::pipeline::host::RequestPolicy::compile(&config)
-            });
         match next.entry(key) {
             Entry::Occupied(e) => {
                 tracing::trace!("Duplicate vhost entry: {}", e.key());
@@ -357,8 +345,6 @@ impl VhostTable {
                     record: Arc::new(VhostRecord {
                         canonical,
                         config,
-                        #[cfg(feature = "server")]
-                        policy,
                     }),
                     #[cfg(feature = "server")]
                     application: None,

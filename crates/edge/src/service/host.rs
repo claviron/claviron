@@ -39,7 +39,6 @@ pub enum RequestRejection {
     Misdirected,
     UpgradeForbidden,
     AccessDenied,
-    HostRemoved,
     AmbiguousPath,
     InvalidRedirect,
     TooEarly,
@@ -55,7 +54,7 @@ impl RequestRejection {
             Self::MissingProtocol
             | Self::MissingIdentity
             | Self::InvalidRedirect => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Misdirected | Self::HostRemoved => {
+            Self::Misdirected => {
                 StatusCode::MISDIRECTED_REQUEST
             }
             Self::UpgradeForbidden | Self::AccessDenied => {

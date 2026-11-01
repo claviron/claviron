@@ -35,7 +35,7 @@ pub use host::WebSocketStage;
 #[cfg(feature = "access-log")]
 pub use host::{AccessLogLayer, AccessLogState};
 pub use host::{
-    AccessPolicy, AccessState, AdmissionPolicy, ApplicationHandler,
+    AclLayer, RedirectLayer, AdmissionPolicy, ApplicationHandler,
     DispatchFuture, DispatchResult,
     DispatchStep, ExchangeLayer, ExchangeState, HostHandler, HostHandlerFuture,
     HostHandlerResult, HostLayer, HostLayerBuilder, HostPipeline,

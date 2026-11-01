@@ -299,26 +299,6 @@ impl VhostResolver {
         self.table.load_full()
     }
 
-    /// One current read per admission. Never resolve through an alias or
-    /// default fallback here: this key was fixed at the host/auth boundary.
-    pub(crate) fn request_policy(
-        &self,
-        canonical: &Host,
-    ) -> crate::pipeline::host::PolicySnapshot {
-        use crate::pipeline::host::PolicySnapshot;
-        let table = self.table.load();
-        match table
-            .record(canonical)
-            .filter(|record| &record.canonical == canonical)
-        {
-            None => PolicySnapshot::Removed,
-            Some(record) => match &record.policy {
-                None => PolicySnapshot::Open,
-                Some(policy) => PolicySnapshot::Rules(policy.clone()),
-            },
-        }
-    }
-
     pub fn resolve(
         &self,
         host: &Host,

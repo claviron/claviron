@@ -84,7 +84,7 @@ impl QuotaPolicy {
         &self,
         head: &RequestParts,
     ) -> Result<Option<Snapshot>, HostResponse> {
-        let paths = super::access::comparison_paths(head.uri.path())?;
+        let paths = super::acl::comparison_paths(head.uri.path())?;
         let selected = self.select(&paths.separated);
         if let Some(literal) = &paths.literal
             && selected.map(|rule| rule as *const _)

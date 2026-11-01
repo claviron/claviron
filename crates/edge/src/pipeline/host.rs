@@ -15,7 +15,8 @@ use http::{
     response::Parts as ResponseParts,
 };
 
-mod access;
+mod acl;
+mod redirect;
 #[cfg(feature = "access-log")]
 mod access_log;
 mod admission;
@@ -37,8 +38,8 @@ mod reply;
 #[cfg(feature = "websocket")]
 mod websocket;
 
-pub use access::{AccessPolicy, AccessState};
-pub(crate) use access::{PolicySnapshot, RequestPolicy};
+pub use acl::AclLayer;
+pub use redirect::RedirectLayer;
 #[cfg(feature = "access-log")]
 pub use access_log::{AccessLogLayer, AccessLogState};
 pub use admission::AdmissionPolicy;

@@ -96,6 +96,7 @@ layer APIs remain separate from the selected application call. Router publicatio
 retains only `RustRouter`; it does not allocate admission, exchange or quota
 policies alongside every application. Identity extensions and request-part
 checks require explicit layer composition; transport handoff does not install them.
+ACL and redirects have no live-policy side channel in the host resolver.
 
 ## `src/`
 
@@ -164,9 +165,9 @@ extension insertion. Rust router and backend calls implement `HostLayer`.
 - [`protocol.rs`](src/pipeline/host/protocol.rs) — Independent authority, rejection, early-data and H1-upgrade layers.
 - [`identity.rs`](src/pipeline/host/identity.rs) — Shared accepted-connection identity and host metadata.
 - [`identity/extensions.rs`](src/pipeline/host/identity/extensions.rs) — Typed metadata in request-owned extension boxes.
-- [`access.rs`](src/pipeline/host/access.rs) — One live canonical-host policy selection and retained admitted generation.
-- [`access/acl.rs`](src/pipeline/host/access/acl.rs) — Compiled segment ACLs and unambiguous comparison paths.
-- [`access/policy.rs`](src/pipeline/host/access/policy.rs) — ACL/redirect ordering and prepared redirect templates.
+- [`acl.rs`](src/pipeline/host/acl.rs) — Explicit ACL layer; borrow accepted identity or a selected forwarding result.
+- [`acl/path.rs`](src/pipeline/host/acl/path.rs) — Compiled segment ACLs and unambiguous comparison paths.
+- [`redirect.rs`](src/pipeline/host/redirect.rs) — Explicit redirect layer and prepared Location templates.
 - [`quota.rs`](src/pipeline/host/quota.rs) — Prepared rate admission and committed optional response snapshot.
 - [`quota/prepare.rs`](src/pipeline/host/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
 - [`exchange.rs`](src/pipeline/host/exchange.rs) — Configured CORS/header actions and request-local origin state.
