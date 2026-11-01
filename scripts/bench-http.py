@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure decoded dispatch or persistent HTTP/1 round trips; retain local results."""
+"""Measure dispatch, serial HTTP/1 RTT or concurrent server CPU; retain local results."""
 
 import argparse
 from datetime import datetime, timezone
@@ -15,6 +15,13 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 HISTORY = ROOT / ".benchmarks" / "http"
+CONCURRENT_TARGETS = {
+    "http1-concurrent-hyper": "hyper",
+    "http1-concurrent-axum": "axum",
+    "http1-concurrent-edge-other": "edge-other",
+    "http1-concurrent-edge-axum": "edge-axum",
+    "http1-concurrent-edge-routable": "edge-routable",
+}
 BENCHMARKS = {
     "dispatch-hyper": ("dispatch/native/hyper/json/request", "decoded-request-json-response"),
     "dispatch-axum": ("dispatch/native/axum/json/request", "decoded-request-json-response"),
@@ -24,13 +31,14 @@ BENCHMARKS = {
     "dispatch-edge-json": ("dispatch/edge/json/request", "decoded-request-json-response"),
     "http1-hyper": ("transport/http1/native/hyper/json/request", "persistent-loopback-http1-round-trip"),
     "http1-axum": ("transport/http1/native/axum/json/request", "persistent-loopback-http1-round-trip"),
-    "http1-edge": ("transport/http1/edge/request", "persistent-loopback-http1-round-trip"),
     "http1-plain-hyper": ("transport/http1/native/hyper/plain/request", "native-loopback-http1-plain-round-trip"),
     "http1-plain-axum": ("transport/http1/native/axum/plain/request", "native-loopback-http1-plain-round-trip"),
     "http1-plain-edge-other": ("transport/http1/edge/other/plain/request", "native-loopback-http1-plain-round-trip"),
     "http1-plain-edge-axum": ("transport/http1/edge/axum/plain/request", "native-loopback-http1-plain-round-trip"),
     "http1-plain-edge-routable": ("transport/http1/edge/routable/plain/request", "native-loopback-http1-plain-round-trip"),
 }
+BENCHMARKS.update({name: (f"transport/http1/concurrent/{owner}/plain", "concurrent-http1-server-process-cpu")
+                   for name, owner in CONCURRENT_TARGETS.items()})
 PLAIN_TARGETS = {"dispatch-edge-other", "dispatch-edge-axum", "dispatch-edge-pipeline"}
 # Keep code generation and optional adapter availability identical across targets.
 FEATURES = ["edge", "axum"]
@@ -81,7 +89,8 @@ def path_dependencies():
 
 
 def build(target):
-    args = ["cargo", "bench", "--bench", target, "--features", ",".join(FEATURES),
+    cargo_target = "http1-concurrent" if target in CONCURRENT_TARGETS else target
+    args = ["cargo", "bench", "--bench", cargo_target, "--features", ",".join(FEATURES),
             "--no-run", "--message-format=json-render-diagnostics"]
     executable = None
     with subprocess.Popen(args, cwd=ROOT, stdout=subprocess.PIPE, text=True) as process:
@@ -92,7 +101,7 @@ def build(target):
                 if rendered:
                     print(rendered, file=sys.stderr, end="")
             if (message.get("reason") == "compiler-artifact"
-                    and message["target"]["name"] == target
+                    and message["target"]["name"] == cargo_target
                     and "bench" in message["target"]["kind"]):
                 executable = message.get("executable")
         if process.wait():
@@ -115,6 +124,11 @@ def estimate_mean(estimates):
 
 
 def mean_time(record):
+    if record["target"] in CONCURRENT_TARGETS:
+        mean = record["measurements"]["server_cpu_ns_per_request"]
+        if not math.isfinite(mean) or mean <= 0:
+            raise RuntimeError("server CPU/request must be finite and positive")
+        return mean
     return estimate_mean(record["estimates_ns"])
 
 
@@ -133,16 +147,61 @@ def positive(value):
     return result
 
 
+def positive_int(value):
+    result = int(value)
+    if result <= 0:
+        raise argparse.ArgumentTypeError("must be greater than zero")
+    return result
+
+
+def validate_concurrent(report, args):
+    if (report.get("client_pid", 0) <= 0 or report.get("server_pid", 0) <= 0
+            or report["client_pid"] == report["server_pid"]):
+        raise RuntimeError("client and server must be separate processes")
+    expected = {"target": CONCURRENT_TARGETS[args.target], "connections": args.connections,
+                "server_threads": args.server_threads, "client_threads": args.client_threads}
+    if any(report.get(key) != value for key, value in expected.items()):
+        raise RuntimeError("server/client topology does not match requested controls")
+    samples = report.get("samples", [])
+    if len(samples) != args.samples or report.get("warmup_requests", 0) <= 0:
+        raise RuntimeError("incomplete warmup or sample count")
+    for sample in samples:
+        counts = sample.get("per_connection", [])
+        if (len(counts) != args.connections or any(count <= 0 for count in counts)
+                or sum(counts) != sample.get("requests")
+                or sample.get("wall_ns", 0) <= 0 or sample.get("server_cpu_ns", -1) < 0):
+            raise RuntimeError("invalid completed-request or CPU sample")
+    for key in ("requests", "wall_ns", "server_cpu_ns"):
+        if report.get(key, 0) <= 0 or report[key] != sum(sample[key] for sample in samples):
+            raise RuntimeError(f"inconsistent {key} total")
+    expected_cpu = report["server_cpu_ns"] / report["requests"]
+    expected_rate = report["requests"] * 1e9 / report["wall_ns"]
+    if not (math.isclose(report["server_cpu_ns_per_request"], expected_cpu)
+            and math.isclose(report["requests_per_second"], expected_rate)):
+        raise RuntimeError("reported CPU/request or throughput does not match raw samples")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("target", choices=BENCHMARKS)
     parser.add_argument("--warmup-seconds", type=positive, required=True)
     parser.add_argument("--measurement-seconds", type=positive, required=True)
     parser.add_argument("--samples", type=int, required=True)
+    parser.add_argument("--connections", type=positive_int)
+    parser.add_argument("--server-threads", type=positive_int)
+    parser.add_argument("--client-threads", type=positive_int)
     parser.add_argument("--compare", help="Compare with this local run ID, including the other target.")
     args = parser.parse_args()
-    # Criterion requires at least ten samples for its statistical analysis.
-    if args.samples < 10:
+    concurrent = args.target in CONCURRENT_TARGETS
+    topology = (args.connections, args.server_threads, args.client_threads)
+    if concurrent and not all(topology):
+        parser.error("concurrent targets require --connections, --server-threads and --client-threads")
+    if not concurrent and any(value is not None for value in topology):
+        parser.error("connection/thread options apply only to concurrent targets")
+    if args.samples <= 0:
+        parser.error("--samples must be positive")
+    # Only Criterion targets require at least ten statistical samples.
+    if not concurrent and args.samples < 10:
         parser.error("Criterion requires --samples >= 10")
 
     dependencies = path_dependencies()
@@ -168,7 +227,7 @@ def main():
         "source": source,
         "artifact_sha256": file_digest(executable),
         "controls": {
-            "schema": 4,
+            "schema": 5 if concurrent else 4,
             "boundary": BENCHMARKS[args.target][1],
             "workload_sha256": {
                 path.relative_to(ROOT).as_posix(): file_digest(path)
@@ -188,8 +247,8 @@ def main():
             "allocator": "system",
             "features": FEATURES,
             "profile": "bench",
-            "runtime": "tokio/current_thread",
-            "concurrency": 1,
+            "runtime": "tokio/multi_thread/separate-server-process" if concurrent else "tokio/current_thread",
+            "concurrency": args.connections if concurrent else 1,
             "warmup_seconds": args.warmup_seconds,
             "measurement_seconds": args.measurement_seconds,
             "samples": args.samples,
@@ -199,6 +258,8 @@ def main():
                             or key.startswith(("CARGO_PROFILE_", "CARGO_TARGET_", "MIMALLOC_", "MALLOC_", "Malloc"))},
         },
     }
+    if concurrent:
+        record["controls"].update(server_threads=args.server_threads, client_threads=args.client_threads)
     previous = [json.loads(path.read_text()) for path in sorted(HISTORY.glob("*/run.json"))]
     if args.compare:
         baseline = next((old for old in previous if old["run_id"] == args.compare), None)
@@ -212,7 +273,16 @@ def main():
     metadata = directory / "run.json"
     save_record(metadata, record)
     environment = dict(os.environ, CRITERION_HOME=str(directory / "criterion"))
-    arguments = [str(executable), "--bench", "--noplot",
+    if concurrent:
+        arguments = [str(executable), "--target", CONCURRENT_TARGETS[args.target],
+                     "--connections", str(args.connections),
+                     "--server-threads", str(args.server_threads),
+                     "--client-threads", str(args.client_threads),
+                     "--warmup-seconds", str(args.warmup_seconds),
+                     "--measurement-seconds", str(args.measurement_seconds),
+                     "--samples", str(args.samples), "--output", str(directory / "measurements.json")]
+    else:
+        arguments = [str(executable), "--bench", "--noplot",
                  "--warm-up-time", str(args.warmup_seconds),
                  "--measurement-time", str(args.measurement_seconds),
                  "--sample-size", str(args.samples)]
@@ -224,7 +294,12 @@ def main():
         record["status"] = "artifact_changed"
     elif result.returncode == 0:
         save_record(metadata, record)
-        record["estimates_ns"] = read_estimates(directory / "criterion", record["benchmark"])
+        if concurrent:
+            report = json.loads((directory / "measurements.json").read_text())
+            validate_concurrent(report, args)
+            record["measurements"] = report
+        else:
+            record["estimates_ns"] = read_estimates(directory / "criterion", record["benchmark"])
         mean_time(record)
         if args.target in PLAIN_TARGETS:
             group = record["benchmark"].rsplit("/", 1)[0]
@@ -239,7 +314,8 @@ def main():
     if record["status"] != "passed":
         raise RuntimeError(f"run is invalid ({record['status']}); retained at {metadata}")
     mean = mean_time(record)
-    print(f"{run_id}: {mean:.3f} ns/request")
+    metric = "server CPU ns/request" if concurrent else "ns/request"
+    print(f"{run_id}: {mean:.3f} {metric}")
     if args.target in PLAIN_TARGETS:
         native = estimate_mean(record["components_ns"]["native"])
         prepare = estimate_mean(record["components_ns"]["prepare"])

@@ -242,12 +242,14 @@ http-body-util.workspace = true
 hyper.workspace = true
 hyper-util = { workspace = true, features = ["service"] }
 serde = { workspace = true, features = ["derive"] }
+clap.workspace = true
 
 # ── TLS benchmark preparation ──────────────────────────────────────────
 rcgen.workspace = true
 rustls.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
+libc.workspace = true
 tempfile = "3"
 
 [[bench]]
@@ -307,13 +309,6 @@ test = false
 required-features = ["edge", "axum"]
 
 [[bench]]
-name = "http1-edge"
-path = "benches/transport/http1/edge.rs"
-harness = false
-test = false
-required-features = ["edge"]
-
-[[bench]]
 name = "http1-plain-hyper"
 path = "benches/transport/http1/native/hyper_plain.rs"
 harness = false
@@ -347,6 +342,13 @@ path = "benches/transport/http1/edge/routable.rs"
 harness = false
 test = false
 required-features = ["edge"]
+
+[[bench]]
+name = "http1-concurrent"
+path = "benches/transport/http1/concurrent.rs"
+harness = false
+test = false
+required-features = ["edge", "axum"]
 
 [workspace]
 members = [

@@ -3,8 +3,8 @@
 //! Binding, service preparation, TCP connect and the HTTP handshake are cold.
 //! Timing includes client request construction, both protocol drivers, socket IO
 //! and response consumption. These are round-trip times, not server CPU/request.
-//! Full Edge cases use the native accepted-stream handler, including request-time
-//! host selection and body adaptation. The older JSON handoff remains separate.
+//! Edge cases use the native accepted-stream handler, including request-time
+//! host selection and body adaptation.
 
 use std::convert::Infallible;
 use std::error::Error;
@@ -15,8 +15,9 @@ use std::time::Instant;
 
 use bytes::Bytes;
 use criterion::{Criterion, Throughput};
-use http::{Request, Response};
+use http::{Request, Response, StatusCode, header};
 use http_body::Body;
+use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::service::Service;
 use hyper_util::rt::TokioIo;
@@ -27,14 +28,14 @@ use tokio::task::JoinHandle;
 use super::{json, plain};
 
 pub struct Server {
-    address: SocketAddr,
-    stop: oneshot::Sender<()>,
-    task: JoinHandle<()>,
-    selects_host: bool,
+    pub(crate) address: SocketAddr,
+    pub(crate) stop: oneshot::Sender<()>,
+    pub(crate) task: JoinHandle<()>,
+    pub(crate) selects_host: bool,
 }
 
 impl Server {
-    async fn shutdown(self) {
+    pub(crate) async fn shutdown(self) {
         let _ = self.stop.send(());
         self.task.await.expect("HTTP benchmark server must finish cleanly");
     }
@@ -58,6 +59,9 @@ where
         stream.set_nodelay(true).unwrap();
         let connection = hyper::server::conn::http1::Builder::new()
             .keep_alive(true)
+            .half_close(false)
+            .pipeline_flush(false)
+            .header_read_timeout(None)
             .serve_connection(TokioIo::new(stream), service);
         tokio::pin!(connection);
         tokio::select! {
@@ -141,7 +145,7 @@ pub async fn edge(connection: super::edge::Connection) -> Server {
 }
 
 #[derive(Clone, Copy)]
-enum Workload {
+pub(crate) enum Workload {
     Json,
     Plain,
 }
@@ -213,35 +217,7 @@ fn run_workload<F, Started>(
                 .unwrap();
         (client, tokio::spawn(connection))
     });
-    runtime.block_on(async {
-        workload
-            .consume(client.send_request(workload.request()).await.unwrap())
-            .await;
-        if server.selects_host {
-            use http::{StatusCode, header};
-            use http_body_util::BodyExt;
-
-            let mut missing = workload.request();
-            missing
-                .headers_mut()
-                .insert(header::HOST, "missing.test".parse().unwrap());
-            let response = client.send_request(missing).await.unwrap();
-            assert_eq!(
-                response.status(),
-                StatusCode::NOT_FOUND,
-                "host selection must run on this existing connection"
-            );
-            response.into_body().collect().await.unwrap();
-            let mut alias = workload.request();
-            alias
-                .headers_mut()
-                .insert(header::HOST, "alias.benchmark.test".parse().unwrap());
-            workload.consume(client.send_request(alias).await.unwrap()).await;
-        }
-        workload
-            .consume(client.send_request(workload.request()).await.unwrap())
-            .await;
-    });
+    runtime.block_on(preflight(&mut client, workload, server.selects_host));
     let mut group = criterion.benchmark_group(name);
     group.throughput(Throughput::Elements(1));
     group.bench_function("request", |bencher| {
@@ -263,4 +239,37 @@ fn run_workload<F, Started>(
         driver.await.unwrap().unwrap();
         server.shutdown().await;
     });
+}
+
+pub(crate) async fn preflight(
+    client: &mut hyper::client::conn::http1::SendRequest<
+        http_body_util::Empty<Bytes>,
+    >,
+    workload: Workload,
+    selects_host: bool,
+) {
+    workload
+        .consume(client.send_request(workload.request()).await.unwrap())
+        .await;
+    let mut missing = workload.request();
+    missing.headers_mut().insert(header::HOST, "missing.test".parse().unwrap());
+    let response = client.send_request(missing).await.unwrap();
+    if selects_host {
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "host selection must run on this existing connection"
+        );
+        response.into_body().collect().await.unwrap();
+    } else {
+        workload.consume(response).await;
+    }
+    let mut alias = workload.request();
+    alias
+        .headers_mut()
+        .insert(header::HOST, "alias.benchmark.test".parse().unwrap());
+    workload.consume(client.send_request(alias).await.unwrap()).await;
+    workload
+        .consume(client.send_request(workload.request()).await.unwrap())
+        .await;
 }
