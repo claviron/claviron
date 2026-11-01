@@ -10,13 +10,13 @@ use super::*;
 
 pub struct RequestBodyLayer {
     max_size: Option<usize>,
-    idle: Option<Duration>,
+    read_timeout: Option<Duration>,
 }
 
 impl RequestBodyLayer {
     pub fn new(policy: RequestPolicy) -> Option<Self> {
-        (policy.max_body_size.is_some() || policy.body_idle_timeout.is_some())
-            .then_some(Self { max_size: policy.max_body_size, idle: policy.body_idle_timeout })
+        (policy.max_body_size.is_some() || policy.body_read_timeout.is_some())
+            .then_some(Self { max_size: policy.max_body_size, read_timeout: policy.body_read_timeout })
     }
 }
 
@@ -32,7 +32,7 @@ impl<S> HostLayer<S> for RequestBodyLayer {
                 return DispatchFuture::ready(ServiceResult::Unhandled(request));
             }
             let request = request.map(|body| {
-                GuardedBody::new(body, self.max_size, self.idle).boxed_unsync()
+                GuardedBody::new(body, self.max_size, self.read_timeout).boxed_unsync()
             });
             DispatchFuture::ready(ServiceResult::Unhandled(request))
         });
