@@ -14,32 +14,34 @@ HTTP host selection, native dispatch and optional TCP/QUIC drivers.
 
 ```mermaid
 flowchart TD
-    Config[Congif and registered host sources] --> Loader[Candidate host table]
-    Loader --> Prepare[Prepare applications and transport policies]
-    Prepare --> Publish[Publish one host table]
+    Config[Congif and host sources] --> Table[Candidate host table]
+    Table --> Compile[Compile configured scope owners]
+    Compile --> Publish[Publish host and owner together]
     Publish --> Transport[TCP or QUIC binding]
-    Transport --> Host[HostService: accepted facts and request ownership]
-    Host --> Session[Native CONNECT or session handler]
-    Host --> Body[Native body adapter]
-    Body --> Axum[Axum Rust router]
-    Body --> Other[Other Rust owner or configured dispatch]
-    Other --> Chain[Routable → Static → TryFiles → backend]
+    Transport --> Select[Host selection and native body adaptation]
+    Select --> Owner[Prepared request owner]
+    Owner --> Rust[Direct Axum or Other]
+    Owner --> Plan[HostPipeline]
+    Plan --> Scope[Configured route selection]
+    Plan --> Actions[Selected head, request and response actions]
 ```
 
-Configured H1 WebSocket endpoints precede the dispatch chain. Exclusive Rust
-owners compose their own files/backends; Other adds no implicit file handling.
-`Unhandled` transfers the same unread body; a handled status, including 404,
-never means fallthrough. Active head, request and response actions share a flat `HostPipeline` plan.
-A consuming action returns the original request on `Unhandled`. Response scope
-ends at the last entered layer. Absent layers install no callback or future.
+`HostLayer` is a cold preparation contract. Active head checks, asynchronous
+waits, consuming calls and response hooks share one flat plan. `Unhandled`
+transfers the same unread body; a handled status never signals fallthrough.
+Only reached layers shape a reply. Axum is an application adapter.
+
+The native compiler selects extensions, Rust contributions, WebSocket endpoints,
+Static, TryFiles and configured backends. Independent policy layers are prepared;
+automatic listener/host policy selection and native session handoff are not yet
+connected. Capacity acquisition and total reply-head timing are separate.
 
 ## Reload and ownership
 
 Host preparation runs before table publication. A rejected host candidate keeps
 the old table. Unchanged declarations retain identity and prepared applications.
 TLS/H3 retain the accepted binding; cleartext selects the current host/application
-per request. HostBinding observes publications to retire changed connections;
-Host actions are prepared separately from transport binding.
+per request. HostBinding observes publications to retire changed connections.
 Accepted bodies, sessions and capacity remain with their native owners through
 drain; the [graceful ownership contract](../../docs/design/GRACEFUL_OWNERSHIP.md)
 defines termination authority. Configured quota changes currently require restart.
@@ -82,21 +84,9 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 | `metrics`, `geoip` | HTTP metrics and peer country lookup. |
 
 Features compile capabilities; declarations and registration select what runs.
-Transport snapshots contain no URI-deny matcher or forwarded-client identity
-executor. These behaviors require explicit host-layer composition.
-The ordinary TCP adapter performs no CONNECT registry lookup, session injection,
-body-limit selection or body deadline setup. CONNECT execution remains available
-on an explicitly selected `H2ConnectBinding`; pipeline attachment is separate.
-Cleartext transport snapshots retain only listener, TCP and H1 settings.
-HTTP-01 and non-SSL redirect/reject dispatch are not implicit transport paths.
-The fixed `HostExecution` wrapper is removed. Dispatch does not implicitly add
-activity accounting, access logging, CORS, timestamps, admission/head deadlines,
-response identity, response-body guards or quota checks/headers. Their explicit
-layer APIs remain separate from the selected application call. Router publication
-retains only `RustRouter`; it does not allocate admission, exchange or quota
-policies alongside every application. Identity extensions and request-part
-checks require explicit layer composition; transport handoff does not install them.
-ACL and redirects have no live-policy side channel in the host resolver.
+Transport snapshots retain wire/listener settings. New policy execution uses
+explicit host layers; TCP handoff installs no fallback policy executor. H3 still
+owns native framing and buffered/streamed body bounds during this transition.
 
 ## `src/`
 
@@ -155,8 +145,8 @@ ACL and redirects have no live-policy side channel in the host resolver.
 Scope compilation puts extensions, WebSocket endpoints, Rust contributions,
 Static, TryFiles and configured backends into the same flat layer builder.
 There is no separate application/dispatch chain or automatic SelectedRoute
-extension insertion. Rust router and backend calls implement `HostLayer`. Empty contributions keep
-the direct Rust owner; disabled file steps allocate no prepared file owner.
+extension insertion. Rust router and backend calls implement `HostLayer`.
+Empty contributions keep the direct Rust owner; disabled file steps allocate no prepared file owner.
 
 - [`host.rs`](src/pipeline/host.rs) — HostLayer/HostPipeline types and typed request/reply capabilities.
 - [`builder.rs`](src/pipeline/host/builder.rs) — Flatten active actions once; failed layer preparation changes nothing.

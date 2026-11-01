@@ -1,137 +1,74 @@
 # HostPipeline
 
-Design identifier: `HOST_PIPELINE`.
+`HostLayer` prepares one host action at boot/reload. `HostPipelineBuilder`
+flattens the selected actions into an immutable plan. An omitted or empty layer
+leaves no runtime entry. Active actions use indirect calls.
 
-Claviron prepares a request path for each host at boot or reload. The plan
-contains its required checks, configured policies, Rust router and backends.
-This puts [APPLICATION_FIRST](APPLICATION_FIRST.md) into practice: one
-application can be presented through hosts with different policies.
-
-## One host, one plan
+## Preparation
 
 ```mermaid
-flowchart TD
-    Config["Host configuration + Rust registrations"] --> Plan["Build host plan<br/>Only active steps"]
-
-    TLS["TLS / QUIC<br/>SNI at connection acceptance"] --> Bound["Pin host + application"]
-    Plain["Cleartext HTTP<br/>Authority on each request"] --> Current["Resolve current host"]
-    Plan -. "accepted publication" .-> Bound
-    Plan -. "current publication" .-> Current
-
-    Bound --> Policy
-    Current --> Policy
-    Policy["Host checks and admission<br/>Authority · identity · ACL · quotas · CORS"] --> Scope
-    Scope["Select dispatch scope<br/>Entry conditions + supplied application layers"] --> WS
-
-    WS["WebSocket endpoint"] -->|Unmatched| App
-    App["Your Rust Router<br/>Axum and Other"] -->|Unhandled| Static
-    Static["Static mounts"] -->|Unhandled| TryFiles
-    TryFiles["TryFiles"] -->|Unhandled| Backend
-    Backend["Configured backend<br/>Embed · Upstream · Link"] -->|Unhandled| Fallback
-    Fallback["Directory index · SPA · 404"] --> Reply
-
-    WS -->|Handshake or rejection| Reply
-    App -->|Handled| Reply
-    Static -->|Handled| Reply
-    TryFiles -->|Handled| Reply
-    Backend -->|Handled| Reply
-    Reply["Response actions for entered steps<br/>Headers · CORS · body guards · accounting"] --> Client["Client"]
+flowchart LR
+    Config[Host and listener declarations] --> Builder[HostPipelineBuilder]
+    Rust[Rust registrations] --> Builder
+    Builder --> Plan[Only selected HostLayer actions]
+    Plan --> Head[Head checks and explicit waits]
+    Head --> Call[Request owners]
+    Call --> Reply[Reached response actions]
 ```
 
-Required host checks always run; optional steps are installed only when
-configured. A rejected route condition selects the
-original fallback scope, skipping that route's router contributions and
-WebSocket. WebTransport uses its native session entry point. H2 CONNECT bindings
-are explicit capabilities; the ordinary TCP adapter does not select them.
-
-## Connection binding
-
-| Transport | Host selection |
+| Layer | Work |
 | --- | --- |
-| TLS over TCP or QUIC | SNI selects the hostname, TLS/client-auth policy and application before the handshake completes. The connection retains that binding. |
-| Cleartext HTTP/1 | Each request resolves its authority against the current host table, including on keepalive. The transport performs no implicit redirect or HTTP-01 path interception. |
+| Authority / Reject / Upgrade / EarlyData | Request-part and selected transport policy. |
+| Identity / Proxy | Explicit typed metadata or trusted forwarding identity. |
+| Deny / ACL / Redirect | Configured request decisions. |
+| CORS / HeaderSet / HeaderClear | Origin admission and response headers. |
+| Capacity / Quota | Concurrent capacity or committed rate admission. |
+| RequestBody / Reply | Declared streaming size and idle bounds. |
+| AccessLog | Record and response-body lifetime. |
+| RouteSelection | One prefix/condition selection; omitted for a single scope. |
+| RustRouter / HostHandler | Axum or Other, or a fallthrough Rust contribution. |
+| Static / TryFiles / Embed / Upstream / Link | Prepared native request owners. |
+| Http01 / HttpsRedirect | Explicit challenge replies or HTTPS redirects. |
 
-A TLS request for a different hostname receives **421 Misdirected Request**.
-An alias or an overlapping certificate SAN does not permit switching hosts;
-ports do not change the hostname comparison. Invalid authority is rejected
-separately. A legal HTTP/1.0 request without authority can use its TLS binding.
-Unknown or absent SNI cannot select a hosted binding.
+The native compiler currently selects Rust contributions, route extensions,
+WebSocket endpoints, files and configured backends through this contract.
+Automatic listener/host policy selection and native session handoff are still
+being connected. Prepared policy APIs do not enforce themselves at transport
+handoff. Head-deadline integration is separate from capacity acquisition.
 
-Reload publishes a new plan for subsequent connections. Accepted TLS connections
-keep their host, authentication and application; live ACL/redirect rules can
-still change. Ending existing sessions requires an explicit lifecycle operation.
-Cleartext requests use the current publication and reuse prepared limits while
-the host binding is unchanged. Forwarding headers do not alter the accepted
-connection identity implicitly.
-Proxy identity and URI denial belong to explicitly selected host layers, not
-transport snapshots or a separate ingress bundle.
+## Execution and ownership
 
-## Request flow
+- Head actions borrow request parts. They cannot access the body.
+- An asynchronous head action borrows its prepared owner and request state;
+  the driver retains the untouched body while it waits.
+- A consuming action receives the request once. `Unhandled` returns that same
+  request and unread body. A handled status, including 404, ends dispatch.
+- Response hooks run in reverse order for entered layers only. A later layer
+  cannot decorate an earlier reply.
+- Cancellation drops the active future, request and state. Capacity remains
+  in its declared state until reply-head completion or cancellation. Response
+  guards retain only the resources transferred to their bodies.
 
-1. **Check the request.** Validate its host and transport, determine the client
-   IP, then apply configured ACL, redirects and rate limits.
-2. **Admit it.** CORS can answer a preflight or refuse an origin before the
-   application runs. Declared capacity and time limits govern admission and
-   waiting for response headers.
-3. **Call the owner.** WebSocket endpoints get first claim, followed by your
-   Rust router, Static, TryFiles and the configured backend. A handler that
-   answers ends dispatch, including when its answer is 404.
-4. **Send the reply.** Apply the reached steps' response headers, CORS and body
-   guards. Access logging follows the reply through streaming and completion.
-   Later steps do not decorate an earlier reply.
+The driver is a flat loop. There is no recursive `Next`, Tower wrapper chain,
+per-request registration, body decoding or implicit collection.
 
-Disabled policies add no step. Static and TryFiles share the files API; they
-are not repeated inside the backend. A matched but unavailable backend answers
-with its own error rather than silently trying another application.
+## Binding and reload
 
-## Your Rust Router
+Host preparation completes before table publication. Failed candidates keep
+the previous publication. TLS/QUIC retain the accepted host and owner; plain
+HTTP/1 selects the current host on each request. Connection retirement follows
+the existing binding lifecycle. The resolver retains no separate live ACL or
+redirect executor.
 
-`RustRouter` has two variants:
-
-| Variant | Request owner |
-| --- | --- |
-| `Axum` | An Axum router. |
-| `Other` | Another Rust router or handler, or the host's compiled dispatch plan. |
-
-Both retain host admission and response policy. Axum is an application adapter;
-files, Embed, Upstream and [Link](ORBIT_LINK.md) use their own request interfaces.
-Rust contributions can handle selected paths while an existing PHP, Lua or
-external application continues serving the rest.
-Whole-host routers own their reply; contributions within a configured host can
-yield `Unhandled` to its next step.
-
-Config extensions compile into native route conditions, Rust contributions or
-`HostPipeline` actions. They require no Axum router. Layers surround the selected
-WebSocket/application/backend path; inactive layers leave no execution step.
-
-## Request and body ownership
-
-Host checks inspect the head without collecting or decoding the body.
-`Unhandled` transfers the same request and unread body to the next owner.
-A terminal handler owns its reply; a response status never signals fallthrough.
-
-Cancellation drops the pending call and the request resources it owns.
-Admission capacity is held until response headers arrive or the call is
-cancelled; streaming bodies retain their transferred resources until completion
-or drop. A committed rate-limit charge is not refunded by cancellation.
-
-Body limits and buffering remain explicit policies. Streaming forwards data and
-trailers without requiring the host pipeline to collect the response.
+Forwarded identity is request-local `RealIpExt`. It does not rewrite physical
+socket, listener, TLS or protocol facts. URI denial and forwarding are explicit
+layers, never transport snapshot attributes.
 
 ## Code
 
-- Host selection: [TCP TLS](../../crates/edge/src/tcp/secure/tls.rs),
-  [QUIC](../../crates/edge/src/quic/tls.rs),
-  [authority checks](../../crates/edge/src/service/extensions.rs).
-- Host plan: [compiler](../../crates/edge/src/pipeline/host/compile.rs) and
-  [HostPipeline](../../crates/edge/src/pipeline/host.rs).
-- Rust routing: [RustRouter and registry](../../crates/edge/src/pipeline/apps.rs),
-  [Axum adapter](../../crates/edge/src/pipeline/app.rs).
-- Request handoff: [application dispatch](../../crates/edge/src/service/host/dispatch.rs).
-
-## Explicit execution
-
-The fixed execution wrapper is removed. Application calls do not install
-implicit policy or accounting. Layer preparation and attachment determine which
-request/response actions run; transport adapters do not supply a fallback policy
-executor.
+- [Types and contracts](../../crates/edge/src/pipeline/host.rs)
+- [Builder](../../crates/edge/src/pipeline/host/builder.rs)
+- [Execution and body ownership](../../crates/edge/src/pipeline/host/request.rs)
+- [Response scopes](../../crates/edge/src/pipeline/host/response.rs)
+- [Scope compiler](../../crates/edge/src/pipeline/host/compile.rs)
+- [Module index](../../crates/edge/ARCHITECTURE.md)
