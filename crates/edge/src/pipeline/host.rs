@@ -48,7 +48,7 @@ pub use proxy::ProxyLayer;
 pub use redirect::RedirectLayer;
 #[cfg(feature = "access-log")]
 pub use access_log::{AccessLogLayer, AccessLogState};
-pub use admission::AdmissionPolicy;
+pub use admission::{AdmissionPolicy, CapacityLayer, CapacityState};
 pub use application::ApplicationHandler;
 pub(crate) use binding::HostPolicy;
 pub use dispatch::{
@@ -86,10 +86,21 @@ type RequestAction =
 enum Action<S, R> {
     Head(HeadAction<S, R>),
     Request(RequestAction),
+    AsyncHead(Box<dyn AsyncHeadAction<S>>),
 }
 
 type ResponseAction<S> = Box<dyn Fn(&mut ResponseParts, &mut S) + Send + Sync>;
 type BodyAction<S> = Box<dyn Fn(RouteBody, &mut S) -> RouteBody + Send + Sync>;
+
+/// One active asynchronous head check. The future borrows its prepared owner
+/// and request state, so capacity declarations need no per-call owner clone.
+pub trait AsyncHeadAction<S>: Send + Sync + 'static {
+    fn call<'a>(
+        &'a self,
+        head: &'a mut RequestParts,
+        state: &'a mut S,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ControlFlow<RouteResponse>> + Send + 'a>>;
+}
 
 /// Cold preparation contract. An inactive layer contributes no actions.
 ///

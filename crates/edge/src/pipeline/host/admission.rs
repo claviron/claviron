@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use claviron_http::admission::{Admission, Place};
 use claviron_http::policy::RequestPolicy;
+use super::*;
 
 /// Immutable timing policy prepared after listener/host narrowing.
 ///
@@ -48,3 +49,54 @@ impl AdmissionPolicy {
 #[cfg(test)]
 #[path = "../../../tests/pipeline/host/admission.rs"]
 mod tests;
+
+/// A configured concurrency authority, prepared once and shared by connections.
+/// With no capacity declaration, the builder must not construct this layer.
+pub struct CapacityLayer {
+    admission: Admission,
+    queue_timeout: Option<Duration>,
+}
+
+impl CapacityLayer {
+    pub fn new(max_concurrent: usize, queue_timeout: Option<Duration>) -> Self {
+        Self { admission: Admission::limited(Some(max_concurrent)), queue_timeout }
+    }
+}
+
+/// Exists only in an execution state that selected capacity admission.
+#[derive(Default)]
+pub struct CapacityState {
+    place: Option<Place>,
+}
+
+impl AsMut<CapacityState> for CapacityState {
+    fn as_mut(&mut self) -> &mut Self { self }
+}
+
+impl<S: AsMut<CapacityState> + Send> AsyncHeadAction<S> for CapacityLayer {
+    fn call<'a>(
+        &'a self,
+        _: &'a mut RequestParts,
+        state: &'a mut S,
+    ) -> std::pin::Pin<Box<dyn Future<Output = ControlFlow<RouteResponse>> + Send + 'a>> {
+        Box::pin(async move {
+            match self.admission.enter(self.queue_timeout).await {
+                Some(place) => {
+                    state.as_mut().place = Some(place);
+                    ControlFlow::Continue(())
+                }
+                None => ControlFlow::Break(
+                    claviron_http::err_status(http::StatusCode::SERVICE_UNAVAILABLE),
+                ),
+            }
+        })
+    }
+}
+
+impl<S: AsMut<CapacityState> + Send> HostLayer<S> for CapacityLayer {
+    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
+        layer.before_async(self);
+        layer.after(|_, state| { state.as_mut().place.take(); });
+        Ok(())
+    }
+}

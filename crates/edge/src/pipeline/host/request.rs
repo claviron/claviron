@@ -98,6 +98,11 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
                         return pipeline.finish(response, state, step.scope);
                     }
                 }
+                Action::AsyncHead(action) => {
+                    if let ControlFlow::Break(response) = action.call(&mut head, &mut state).await {
+                        return pipeline.finish(response, state, step.scope);
+                    }
+                }
                 Action::Request(action) => {
                     match action(Request::from_parts(head, body)).await {
                         ServiceResult::Handled(response) => {
