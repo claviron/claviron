@@ -160,7 +160,7 @@ the direct Rust owner; disabled file steps allocate no prepared file owner.
 
 - [`host.rs`](src/pipeline/host.rs) — HostLayer/HostPipeline types and typed request/reply capabilities.
 - [`builder.rs`](src/pipeline/host/builder.rs) — Flatten active actions once; failed layer preparation changes nothing.
-- [`request.rs`](src/pipeline/host/request.rs) — Head preparation, unread body transfer and deferred typed application call.
+- [`request.rs`](src/pipeline/host/request.rs) — Flat head/async/request execution, unread body transfer and reached response scopes.
 - [`response.rs`](src/pipeline/host/response.rs) — Run only reached response/body actions, in reverse registration order.
 - [`binding.rs`](src/pipeline/host/binding.rs) — Accepted connection facts and narrowed declaration data; no implicit actions.
 - [`protocol.rs`](src/pipeline/host/protocol.rs) — Independent authority, rejection, early-data and H1-upgrade layers.

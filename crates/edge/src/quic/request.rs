@@ -4,7 +4,7 @@
 use std::pin::Pin;
 
 use super::error::{log_stream_error, request_interrupted};
-use crate::transport::{HostResponse, HostService, RequestArrival};
+use crate::transport::{HostService, RequestArrival};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use claviron_http::boxed_body;
 use futures_util::future::poll_fn;
@@ -175,15 +175,6 @@ pub(crate) async fn send_status_response<S>(
     let mut response = Response::new(());
     *response.status_mut() = status;
     send_head_response(stream, response).await;
-}
-
-pub(crate) async fn send_host_response<S>(
-    stream: &mut h3::server::RequestStream<S, Bytes>,
-    reply: HostResponse,
-) where
-    S: h3::quic::SendStream<Bytes>,
-{
-    send_head_response(stream, host_response(reply)).await;
 }
 
 async fn send_head_response<S>(
@@ -514,10 +505,6 @@ impl H3RequestHandler {
             }
         }
     }
-}
-
-fn host_response(reply: HostResponse) -> Response<()> {
-    reply.into_response()
 }
 
 fn unsupported_websocket_connect(request: &Request<()>) -> bool {

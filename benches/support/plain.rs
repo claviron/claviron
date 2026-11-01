@@ -3,8 +3,8 @@
 //! `native` uses Hyper/Axum; `host` uses the registered Edge owner. Both execute
 //! the same response function. Their difference includes preparation, ownership,
 //! body adaptation and response completion, not JSON serialization.
-//! `prepare` stops before async execution and never calls the application; it
-//! measures synchronous admission, not the entire pre-handler path.
+//! `bind` retains the accepted facts and request owner without executing layers.
+//! Only the full `host` call executes the configured plan.
 //! Request construction and prepared-capability destruction are outside timing.
 //! Completed responses are consumed in both full calls.
 
@@ -72,8 +72,7 @@ pub fn run<C, F, B>(
     runtime.block_on(async {
         consume(native(request()).await).await;
         consume(
-            host.prepare(request(), RequestArrival::Established)
-                .expect("fixture must pass host admission")
+            host.request(request(), RequestArrival::Established)
                 .map_body(boxed_body)
                 .dispatch()
                 .await,
@@ -89,13 +88,10 @@ pub fn run<C, F, B>(
             BatchSize::SmallInput,
         );
     });
-    group.bench_function("prepare", |bencher| {
+    group.bench_function("bind", |bencher| {
         bencher.iter_batched(
             request,
-            |request| {
-                host.prepare(black_box(request), RequestArrival::Established)
-                    .expect("fixture must pass host admission")
-            },
+            |request| host.request(black_box(request), RequestArrival::Established),
             BatchSize::SmallInput,
         );
     });
@@ -104,8 +100,7 @@ pub fn run<C, F, B>(
             request,
             |request| async {
                 let reply = host
-                    .prepare(black_box(request), RequestArrival::Established)
-                    .expect("fixture must pass host admission")
+                    .request(black_box(request), RequestArrival::Established)
                     .map_body(boxed_body)
                     .dispatch()
                     .await;
