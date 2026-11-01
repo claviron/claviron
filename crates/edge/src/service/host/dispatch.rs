@@ -1,11 +1,10 @@
 //! Select an application before constructing its host dispatch future.
 
 use super::*;
-use crate::pipeline::host::HostExecution;
+use crate::pipeline::host::ApplicationHandler;
+use futures_util::{FutureExt, future};
 #[cfg(all(feature = "tcp", feature = "axum"))]
 use claviron_http::RouteFuture;
-#[cfg(feature = "tcp")]
-use futures_util::FutureExt;
 #[cfg(feature = "axum")]
 use futures_util::future::Either;
 #[cfg(feature = "tcp")]
@@ -13,32 +12,8 @@ use std::convert::Infallible;
 use std::future::Future;
 
 impl PreparedRequest<RouteBody> {
-    fn into_dispatch(self) -> (RustRouter, HostExecution) {
-        let HostApp {
-            app,
-            admission,
-            exchange_policy,
-            server_header,
-            #[cfg(feature = "rate-limit")]
-            quotas,
-        } = self.service.app;
-        (
-            app,
-            HostExecution {
-                request: self.request,
-                host: self.service.policy,
-                connection: self.connection,
-                access: self.access,
-                policy: self.policy,
-                admission,
-                exchange_policy,
-                server_header,
-                #[cfg(feature = "rate-limit")]
-                quotas,
-                #[cfg(feature = "rate-limit")]
-                quota_snapshot: self.quota_snapshot,
-            },
-        )
+    fn into_dispatch(self) -> (RustRouter, Request<RouteBody>) {
+        (self.service.app.app, self.request)
     }
 
     /// Dispatch to the admitted application without allocating a host future.
@@ -46,15 +21,14 @@ impl PreparedRequest<RouteBody> {
     /// Each owner has its own concrete future. The unboxed sum returned here
     /// supports drivers that await inline; TCP uses `into_tcp_future` to keep
     /// its Other state independent of Axum without boxing it a second time.
-    /// The activity and admission guards remain owned until the reply's head,
-    /// including when the caller cancels or the handler panics.
+    /// The selected owner receives the request only when this future is polled.
     pub fn dispatch(self) -> impl Future<Output = RouteResponse> + Send {
         let (app, request) = self.into_dispatch();
         match app {
             #[cfg(feature = "axum")]
-            RustRouter::Axum(router) => Either::Left(request.dispatch(router)),
+            RustRouter::Axum(router) => Either::Left(call(router, request)),
             RustRouter::Other(service) => {
-                let answering = request.dispatch(service);
+                let answering = call(service, request);
                 #[cfg(feature = "axum")]
                 {
                     Either::Right(answering)
@@ -80,11 +54,11 @@ impl PreparedRequest<RouteBody> {
         match app {
             RustRouter::Axum(router) => {
                 let answering: RouteFuture =
-                    Box::pin(request.dispatch(router).map(Ok));
+                    Box::pin(call(router, request).map(Ok));
                 Either::Left(answering)
             }
             RustRouter::Other(service) => {
-                Either::Right(request.dispatch(service).map(Ok))
+                Either::Right(call(service, request).map(Ok))
             }
         }
     }
@@ -96,8 +70,15 @@ impl PreparedRequest<RouteBody> {
         self
     ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send {
         let (RustRouter::Other(service), request) = self.into_dispatch();
-        request.dispatch(service).map(Ok)
+        call(service, request).map(Ok)
     }
+}
+
+fn call<H: ApplicationHandler>(
+    owner: H,
+    request: Request<RouteBody>,
+) -> impl Future<Output = RouteResponse> + Send {
+    future::lazy(move |_| owner.call(request)).flatten()
 }
 
 #[cfg(test)]

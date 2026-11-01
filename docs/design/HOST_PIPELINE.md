@@ -127,4 +127,11 @@ trailers without requiring the host pipeline to collect the response.
   [HostPipeline](../../crates/edge/src/pipeline/host.rs).
 - Rust routing: [RustRouter and registry](../../crates/edge/src/pipeline/apps.rs),
   [Axum adapter](../../crates/edge/src/pipeline/app.rs).
-- Request lifetime: [HostExecution](../../crates/edge/src/pipeline/host/execution.rs).
+- Request handoff: [application dispatch](../../crates/edge/src/service/host/dispatch.rs).
+
+## Explicit execution
+
+The fixed execution wrapper is removed. Application calls do not install
+implicit policy or accounting. Layer preparation and attachment determine which
+request/response actions run; transport adapters do not supply a fallback policy
+executor.

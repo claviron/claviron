@@ -21,9 +21,8 @@ flowchart TD
     Transport --> Host[HostService: ingress, identity, live access, quota]
     Host --> Session[Native CONNECT or session handler]
     Host --> Body[Native body adapter]
-    Body --> Execute[HostExecution: admission and response policy]
-    Execute --> Axum[Axum Rust router]
-    Execute --> Other[Other Rust owner or configured dispatch]
+    Body --> Axum[Axum Rust router]
+    Body --> Other[Other Rust owner or configured dispatch]
     Other --> Chain[Routable → Static → TryFiles → backend]
 ```
 
@@ -89,6 +88,10 @@ body-limit selection or body deadline setup. CONNECT execution remains available
 on an explicitly selected `H2ConnectBinding`; pipeline attachment is separate.
 Cleartext transport snapshots retain only listener, TCP and H1 settings.
 HTTP-01 and non-SSL redirect/reject dispatch are not implicit transport paths.
+The fixed `HostExecution` wrapper is removed. Dispatch does not implicitly add
+activity accounting, access logging, CORS, timestamps, admission/head deadlines,
+response identity, response-body guards or quota response headers. Their explicit
+layer APIs remain separate from the selected application call.
 
 ## `src/`
 
@@ -149,7 +152,7 @@ HTTP-01 and non-SSL redirect/reject dispatch are not implicit transport paths.
 - [`request.rs`](src/pipeline/host/request.rs) — Head preparation, unread body transfer and deferred typed application call.
 - [`response.rs`](src/pipeline/host/response.rs) — Run only reached response/body actions, in reverse registration order.
 - [`state.rs`](src/pipeline/host/state.rs) — Ingress/identity/access phase state and native head-only handoff.
-- [`binding.rs`](src/pipeline/host/binding.rs) — Connection-owned policy, narrowed HTTP limits and prepared native plan.
+- [`binding.rs`](src/pipeline/host/binding.rs) — Connection-owned host binding, narrowed policy data and prepared native plan.
 - [`ingress.rs`](src/pipeline/host/ingress.rs) — Protocol, authority, early-data and upgrade admission.
 - [`identity.rs`](src/pipeline/host/identity.rs) — Shared accepted-connection identity and host metadata.
 - [`identity/extensions.rs`](src/pipeline/host/identity/extensions.rs) — Typed metadata in request-owned extension boxes.
@@ -171,7 +174,6 @@ HTTP-01 and non-SSL redirect/reject dispatch are not implicit transport paths.
 - [`backend.rs`](src/pipeline/host/backend.rs) — Prepare configured backend steps and residual index/SPA fallback.
 - [`files.rs`](src/pipeline/host/files.rs) — Separate Static and TryFiles steps using the shared files API.
 - [`extension.rs`](src/pipeline/host/extension.rs) — Apply only active provider-defined head/response layers.
-- [`execution.rs`](src/pipeline/host/execution.rs) — Execution admission, reply-head deadline, response policy and accounting.
 - [`websocket.rs`](src/pipeline/host/websocket.rs) — Prepared exact H1 endpoints before Rust/file/backend dispatch.
 
 ### `pipeline/embed/`

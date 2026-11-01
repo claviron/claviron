@@ -56,7 +56,6 @@ mod builder;
 pub(crate) mod compile;
 mod dispatch;
 mod exchange;
-mod execution;
 mod extension;
 mod files;
 mod handler;
@@ -81,7 +80,6 @@ pub use dispatch::{
     DispatchChain, DispatchFuture, DispatchResult, DispatchStep,
 };
 pub use exchange::{ExchangeLayer, ExchangePolicy, ExchangeState};
-pub(crate) use execution::HostExecution;
 pub(crate) use extension::prepare_layers;
 pub(crate) use files::fallback_config;
 pub use files::{StaticStage, TryFilesStage};
