@@ -61,34 +61,6 @@ pub(crate) struct ResolvedRouteExtensions {
     pub(crate) layers: Vec<Arc<dyn RouteLayer>>,
 }
 
-/// A host's application and what its requests are admitted under.
-#[derive(Clone)]
-pub struct HostApp {
-    pub app: RustRouter,
-    pub admission: Admission,
-    /// Optional, explicitly configured edge HTTP policy, independent of owner.
-    pub exchange_policy: Option<Arc<crate::pipeline::host::ExchangePolicy>>,
-    /// Baseline response identity, separate from optional CORS/header policy.
-    pub server_header: Option<http::HeaderValue>,
-    #[cfg(feature = "rate-limit")]
-    pub quotas: Option<Arc<crate::HostQuotas>>,
-}
-
-/// An application with no admission limit — a host built outside a
-/// snapshot, as tests and embedders do.
-impl From<RustRouter> for HostApp {
-    fn from(app: RustRouter) -> Self {
-        Self {
-            app,
-            admission: Admission::default(),
-            exchange_policy: None,
-            server_header: None,
-            #[cfg(feature = "rate-limit")]
-            quotas: None,
-        }
-    }
-}
-
 /// Immutable snapshot of `host → RustRouter` for a single boot/reload
 /// generation.
 ///
@@ -119,7 +91,7 @@ impl From<RustRouter> for HostApp {
 /// [`HostAppRegistry::build`].
 #[derive(Clone, Default)]
 pub struct HostAppSnapshot {
-    map: HashMap<Host, HostApp>,
+    map: HashMap<Host, RustRouter>,
     configs: HashMap<Host, Arc<HostConfig>>,
 }
 
@@ -132,14 +104,14 @@ impl HostAppSnapshot {
     pub fn resolve(
         &self,
         host: &Host,
-    ) -> Option<HostApp> {
+    ) -> Option<RustRouter> {
         let app = self.map.get(host).cloned();
         match app.as_ref() {
             Some(app) => {
                 tracing::debug!(
                     "resolved app for host={}, kind={}",
                     host,
-                    app.app.kind()
+                    app.kind()
                 )
             }
             None => tracing::debug!("no app resolved for host={}", host),
@@ -157,7 +129,7 @@ impl HostAppSnapshot {
     pub fn insert(
         &mut self,
         host: Host,
-        app: impl Into<HostApp>,
+        app: impl Into<RustRouter>,
     ) -> Result<()> {
         match self.map.entry(host) {
             std::collections::hash_map::Entry::Occupied(entry) => {
@@ -181,7 +153,7 @@ impl HostAppSnapshot {
 /// 1. **Boot:** registers routing preparation with [`VhostResolver`].
 ///    The ready `HostAppSnapshot` belongs to that table publication.
 /// 2. **Reload:** explicit reload rebuilds factories; watched vhost changes
-///    rebuild only changed host entries, retaining other admission handles.
+///    rebuild only changed host entries, retaining unchanged router owners.
 ///    A failed candidate never replaces the published host/router view.
 /// 3. **Hot path:** native admission captures the ready application with
 ///    its `VhostCtx`. Existing connections keep that value across reloads;
@@ -224,7 +196,7 @@ impl HostAppResolver {
     pub fn resolve(
         &self,
         key: &HostKey,
-    ) -> Option<HostApp> {
+    ) -> Option<RustRouter> {
         self.snapshot().resolve(key.0.as_ref())
     }
 }
@@ -808,28 +780,7 @@ impl HostAppRegistry {
         table: &crate::loader::table::VhostTable,
         previous: Option<&HostAppSnapshot>,
     ) -> Result<HostAppSnapshot> {
-        // The host defaults every host is admitted under, read once per build.
-        let http = state
-            .registry_ref()
-            .resolve::<crate::HttpConfigProvider>()
-            .map(|http| http.snapshot());
-        let router = http.as_ref().map(|http| &http.router);
-        let default_headers = http.as_ref().map(|http| http.headers.as_ref());
-        let default_server = default_headers
-            .and_then(|headers| headers.server.as_deref())
-            .map(http::HeaderValue::from_str)
-            .transpose()
-            .map_err(|error| {
-                Error::msg(format!("invalid Server header: {error}"))
-            })?;
         let mut snapshot = HostAppSnapshot::default();
-        #[cfg(feature = "rate-limit")]
-        let quotas = {
-            let mut quotas =
-                self.quotas.write().expect("quota registration lock poisoned");
-            quotas.seal(state.fleet_name(), table)?;
-            quotas.clone()
-        };
         let mut custom_bindings = HashMap::<Host, Binding>::new();
         let custom_bindings_snapshot =
             self.inner.read().expect("host app registry lock poisoned").clone();
@@ -850,18 +801,6 @@ impl HostAppRegistry {
         }
 
         for (canonical, record) in table.canonical_entries() {
-            #[cfg(feature = "rate-limit")]
-            let host_quotas = quotas.prepare(
-                state
-                    .registry_ref()
-                    .resolve::<claviron_runtime::ConfigCheck>()
-                    .is_some(),
-                canonical,
-                &record.config,
-                previous
-                    .and_then(|snapshot| snapshot.map.get(canonical))
-                    .map(|app| &app.quotas),
-            )?;
             if let Some(previous) = previous
                 && previous
                     .configs
@@ -925,22 +864,6 @@ impl HostAppRegistry {
                 None => routable.app.clone(),
             };
 
-            #[cfg(feature = "axum")]
-            let standalone = matches!(&binding, Some(Binding::Axum(_)));
-            #[cfg(not(feature = "axum"))]
-            let standalone = false;
-            let exchange_policy =
-                crate::pipeline::host::ExchangePolicy::compile(
-                    &record.config,
-                    default_headers,
-                );
-            let server_header = default_server.clone().or_else(|| {
-                (!standalone).then(|| {
-                    http::HeaderValue::from_static(
-                        claviron_http::config::host::DEFAULT_SERVER_HEADER,
-                    )
-                })
-            });
             let app = if let Some(binding) = binding {
                 binding.build_app(
                     state,
@@ -963,25 +886,6 @@ impl HostAppRegistry {
                 )?
             };
 
-            // One admission per canonical host, shared by its aliases: they
-            // are one host with several names.
-            let max_concurrent_requests = match router.as_ref() {
-                Some(router) => router.max_concurrent_requests_for(
-                    record.config.max_concurrent_requests,
-                ),
-                None => record
-                    .config
-                    .max_concurrent_requests
-                    .and_then(claviron_http::policy::Limit::value),
-            };
-            let app = HostApp {
-                app,
-                admission: Admission::limited(max_concurrent_requests),
-                exchange_policy,
-                server_header,
-                #[cfg(feature = "rate-limit")]
-                quotas: host_quotas,
-            };
             snapshot.configs.insert(canonical.clone(), record.config.clone());
             for host in table.host_keys_for_canonical(canonical) {
                 snapshot.insert(host, app.clone())?;

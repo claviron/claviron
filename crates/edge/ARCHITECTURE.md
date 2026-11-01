@@ -18,7 +18,7 @@ flowchart TD
     Loader --> Prepare[Prepare applications and transport policies]
     Prepare --> Publish[Publish one host table]
     Publish --> Transport[TCP or QUIC binding]
-    Transport --> Host[HostService: ingress, identity, live access, quota]
+    Transport --> Host[HostService: ingress, identity, live access]
     Host --> Session[Native CONNECT or session handler]
     Host --> Body[Native body adapter]
     Body --> Axum[Axum Rust router]
@@ -90,8 +90,10 @@ Cleartext transport snapshots retain only listener, TCP and H1 settings.
 HTTP-01 and non-SSL redirect/reject dispatch are not implicit transport paths.
 The fixed `HostExecution` wrapper is removed. Dispatch does not implicitly add
 activity accounting, access logging, CORS, timestamps, admission/head deadlines,
-response identity, response-body guards or quota response headers. Their explicit
-layer APIs remain separate from the selected application call.
+response identity, response-body guards or quota checks/headers. Their explicit
+layer APIs remain separate from the selected application call. Router publication
+retains only `RustRouter`; it does not allocate admission, exchange or quota
+policies alongside every application.
 
 ## `src/`
 

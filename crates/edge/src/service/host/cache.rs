@@ -43,7 +43,7 @@ impl CleartextHostCache {
 
     pub(crate) fn bind(
         &mut self,
-        app: HostApp,
+        app: RustRouter,
         mut host: VhostCtx,
     ) -> HostService {
         // The chosen application moves into this request, not the policy cache.

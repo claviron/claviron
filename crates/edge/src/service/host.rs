@@ -15,7 +15,7 @@ use super::extensions::VhostCtx;
 use super::{AuthorityError, HostResponse};
 use crate::VhostResolver;
 use crate::pipeline::host::{HostPolicy, HostRequestState, IdentifiedRequest};
-use crate::pipeline::{AuthContext, HostApp, RustRouter};
+use crate::pipeline::{AuthContext, RustRouter};
 
 mod dispatch;
 
@@ -75,13 +75,13 @@ impl RequestRejection {
 /// publication for every request.
 #[derive(Clone)]
 pub struct HostService {
-    app: HostApp,
+    app: RustRouter,
     policy: Arc<HostPolicy>,
 }
 
 impl HostService {
     pub fn new(
-        app: impl Into<HostApp>,
+        app: impl Into<RustRouter>,
         connection: Arc<ConnCtx>,
         host: VhostCtx,
         access: Arc<VhostResolver>,
@@ -131,12 +131,6 @@ impl HostService {
         identified: IdentifiedRequest<B>,
     ) -> Result<PreparedRequest<B>, HostResponse> {
         let IdentifiedRequest { head, body, connection, .. } = identified;
-        #[cfg(feature = "rate-limit")]
-        let mut head = head;
-        #[cfg(feature = "rate-limit")]
-        if let Some(quotas) = &self.app.quotas {
-            let _ = quotas.check(&mut head)?;
-        }
         Ok(PreparedRequest {
             request: Request::from_parts(head, body),
             service: self,

@@ -20,7 +20,7 @@ pub struct VhostCtx {
     /// The vhost configuration
     pub vhost_config: Arc<HostConfig>,
     /// Routing prepared with this host publication, pinned for the connection.
-    pub application: Option<crate::pipeline::HostApp>,
+    pub application: Option<crate::pipeline::RustRouter>,
 }
 
 /// Resolve against the same host snapshot used to select TLS authentication.

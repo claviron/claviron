@@ -16,7 +16,7 @@ pub mod upstream;
 mod wt;
 
 pub use apps::{
-    Admission, HostApp, HostAppRegistry, HostAppResolver, HostAppSnapshot,
+    Admission, HostAppRegistry, HostAppResolver, HostAppSnapshot,
     RustRouter,
 };
 #[cfg(feature = "websocket")]

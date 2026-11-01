@@ -29,8 +29,7 @@ impl ExchangePolicy {
         defaults: Option<&HostHeadersConfig>,
     ) -> Option<Arc<Self>> {
         let fallback = config.fallback().map(Arc::as_ref).unwrap_or(config);
-        // Server identity is already stamped by HostApp, without a policy
-        // selection. Only other global rewrites need exchange processing.
+        // Server identity is an explicit header action. Only other global rewrites need exchange processing.
         if defaults.is_none_or(|headers| {
             headers.set.is_empty() && headers.unset.is_empty()
         }) && fallback.headers.is_empty()

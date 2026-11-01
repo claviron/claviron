@@ -22,7 +22,7 @@ pub struct VhostRecord {
 struct VhostEntry {
     record: Arc<VhostRecord>,
     #[cfg(feature = "server")]
-    application: Option<crate::pipeline::HostApp>,
+    application: Option<crate::pipeline::RustRouter>,
 }
 
 impl Deref for VhostEntry {
@@ -176,7 +176,7 @@ impl VhostTable {
     pub(crate) fn resolve_with_application(
         &self,
         host: &Host,
-    ) -> Option<(&VhostRecord, Option<&crate::pipeline::HostApp>)> {
+    ) -> Option<(&VhostRecord, Option<&crate::pipeline::RustRouter>)> {
         self.resolve_entry(host)
             .map(|entry| (entry.record.as_ref(), entry.application.as_ref()))
     }

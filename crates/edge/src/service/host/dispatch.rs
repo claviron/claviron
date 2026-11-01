@@ -13,7 +13,7 @@ use std::future::Future;
 
 impl PreparedRequest<RouteBody> {
     fn into_dispatch(self) -> (RustRouter, Request<RouteBody>) {
-        (self.service.app.app, self.request)
+        (self.service.app, self.request)
     }
 
     /// Dispatch to the admitted application without allocating a host future.
