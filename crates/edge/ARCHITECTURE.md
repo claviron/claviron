@@ -165,6 +165,8 @@ extension insertion. Rust router and backend calls implement `HostLayer`.
 - [`protocol.rs`](src/pipeline/host/protocol.rs) — Independent authority, rejection, early-data and H1-upgrade layers.
 - [`identity.rs`](src/pipeline/host/identity.rs) — Shared accepted-connection identity and host metadata.
 - [`identity/extensions.rs`](src/pipeline/host/identity/extensions.rs) — Typed metadata in request-owned extension boxes.
+- [`deny.rs`](src/pipeline/host/deny.rs) — Explicit nonempty URI matcher; no transport snapshot or proof wrapper.
+- [`proxy.rs`](src/pipeline/host/proxy.rs) — Trusted-peer forwarding layer; only request RealIpExt changes.
 - [`acl.rs`](src/pipeline/host/acl.rs) — Explicit ACL layer; borrow accepted identity or a selected forwarding result.
 - [`acl/path.rs`](src/pipeline/host/acl/path.rs) — Compiled segment ACLs and unambiguous comparison paths.
 - [`redirect.rs`](src/pipeline/host/redirect.rs) — Explicit redirect layer and prepared Location templates.

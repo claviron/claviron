@@ -16,6 +16,8 @@ use http::{
 };
 
 mod acl;
+mod deny;
+mod proxy;
 mod redirect;
 #[cfg(feature = "access-log")]
 mod access_log;
@@ -40,6 +42,8 @@ mod reply;
 mod websocket;
 
 pub use acl::AclLayer;
+pub use deny::DenyLayer;
+pub use proxy::ProxyLayer;
 pub use redirect::RedirectLayer;
 #[cfg(feature = "access-log")]
 pub use access_log::{AccessLogLayer, AccessLogState};

@@ -20,6 +20,7 @@ acme = ["claviron-http/acme"]
 server = [
     "claviron-http/server",
     "dep:futures-util",
+    "dep:regex",
 ]
 # Optional Rust application/router adapters; native host compilation is independent.
 axum = [
@@ -112,6 +113,8 @@ async-trait.workspace = true
 futures-util = { workspace = true, optional = true }
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"], optional = true }
+
+regex = { workspace = true, optional = true }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
