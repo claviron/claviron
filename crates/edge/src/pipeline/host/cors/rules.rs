@@ -5,9 +5,9 @@ use http::{HeaderMap, HeaderValue, Method, StatusCode};
 use crate::config::cors::{CorsConfig, CorsPolicy};
 
 pub(super) fn check(
-    cors: &CorsConfig,
     method: &Method,
     headers: &HeaderMap,
+    allows: impl FnOnce(&str) -> bool,
 ) -> (Option<RouteResponse>, Option<HeaderValue>) {
     let origin = headers
         .get(http::header::ORIGIN)
@@ -17,7 +17,7 @@ pub(super) fn check(
         return (None, None);
     };
 
-    if !cors.allows_origin(origin) {
+    if !allows(origin) {
         let mut response = RouteResponse::new(empty_body());
         *response.status_mut() = StatusCode::FORBIDDEN;
         return (Some(response), None);

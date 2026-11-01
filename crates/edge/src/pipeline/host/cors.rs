@@ -1,6 +1,5 @@
 //! CORS admission and response shaping, installed only for a declared policy.
 
-use std::sync::Arc;
 use claviron_http::config::cors::{CorsConfig, CorsPolicy};
 use http::HeaderValue;
 use super::*;
@@ -38,19 +37,36 @@ impl<S: AsMut<CorsState>> HostLayer<S> for CorsLayer {
             });
             return Ok(());
         }
-        let config = Arc::new(self.config);
-        let request_config = config.clone();
-        layer.before(move |head, state| {
-            let (reply, origin) = rules::check(&request_config, &head.method, &head.headers);
-            state.as_mut().origin = origin;
-            match reply {
-                Some(reply) => ControlFlow::Break(reply),
-                None => ControlFlow::Continue(()),
+        let config = self.config;
+        match &config.policy {
+            CorsPolicy::Permissive => register_check(layer, |_| true),
+            CorsPolicy::Allowlist => {
+                let matcher = regex::RegexSet::new(&config.origins)
+                    .map_err(|error| crate::Error::Invalid(format!("invalid CORS origin pattern: {error}")))?;
+                let origins = config.origins.clone();
+                register_check(layer, move |origin| {
+                    origins.iter().any(|allowed| allowed == origin) || matcher.is_match(origin)
+                });
             }
-        });
+            CorsPolicy::Disabled => unreachable!("disabled policy was prepared separately"),
+        }
         layer.after(move |head, state| {
             rules::finish(&config, state.as_mut().origin.as_ref(), &mut head.headers);
         });
         Ok(())
     }
+}
+
+fn register_check<S: AsMut<CorsState>>(
+    layer: &mut HostLayerBuilder<S>,
+    allows: impl Fn(&str) -> bool + Send + Sync + 'static,
+) {
+    layer.before(move |head, state| {
+        let (reply, origin) = rules::check(&head.method, &head.headers, &allows);
+        state.as_mut().origin = origin;
+        match reply {
+            Some(reply) => ControlFlow::Break(reply),
+            None => ControlFlow::Continue(()),
+        }
+    });
 }

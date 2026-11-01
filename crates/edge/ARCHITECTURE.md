@@ -172,7 +172,7 @@ extension insertion. Rust router and backend calls implement `HostLayer`.
 - [`redirect.rs`](src/pipeline/host/redirect.rs) — Explicit redirect layer and prepared Location templates.
 - [`quota.rs`](src/pipeline/host/quota.rs) — Prepared rate admission and committed optional response snapshot.
 - [`quota/prepare.rs`](src/pipeline/host/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
-- [`cors.rs`](src/pipeline/host/cors.rs) — Explicit CORS layer and its request-owned accepted origin.
+- [`cors.rs`](src/pipeline/host/cors.rs) — Explicit CORS layer, boot-compiled origin matcher and request-owned accepted origin.
 - [`cors/rules.rs`](src/pipeline/host/cors/rules.rs) — Origin admission, preflight response and CORS response headers.
 - [`headers.rs`](src/pipeline/host/headers.rs) — Separate Set/Clear layers and cold header inheritance.
 - [`admission.rs`](src/pipeline/host/admission.rs) — Prepared queue/head timing over application-owned capacity.
