@@ -21,6 +21,8 @@ server = [
     "claviron-http/server",
     "dep:futures-util",
     "dep:regex",
+    "dep:http-body",
+    "dep:http-body-util",
 ]
 # Optional Rust application/router adapters; native host compilation is independent.
 axum = [

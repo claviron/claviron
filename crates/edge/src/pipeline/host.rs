@@ -38,6 +38,7 @@ mod protocol;
 #[cfg(feature = "rate-limit")]
 mod quota;
 mod reply;
+mod request_body;
 #[cfg(feature = "websocket")]
 mod websocket;
 
@@ -71,6 +72,7 @@ pub(crate) use quota::QuotaRegistrations;
 #[cfg(feature = "rate-limit")]
 pub use quota::{HostQuotas, QuotaPolicy, QuotaState};
 pub use reply::ReplyPolicy;
+pub use request_body::RequestBodyLayer;
 #[cfg(feature = "websocket")]
 pub use websocket::WebSocketStage;
 mod request;

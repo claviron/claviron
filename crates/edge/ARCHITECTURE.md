@@ -176,6 +176,7 @@ extension insertion. Rust router and backend calls implement `HostLayer`.
 - [`cors/rules.rs`](src/pipeline/host/cors/rules.rs) — Origin admission, preflight response and CORS response headers.
 - [`headers.rs`](src/pipeline/host/headers.rs) — Separate Set/Clear layers and cold header inheritance.
 - [`admission.rs`](src/pipeline/host/admission.rs) — Prepared queue/head timing over application-owned capacity.
+- [`request_body.rs`](src/pipeline/host/request_body.rs) — Explicit size/idle bounds; empty bodies keep their original owner.
 - [`reply.rs`](src/pipeline/host/reply.rs) — Explicit response size/idle guards; absent limits install no guard.
 - [`access_log.rs`](src/pipeline/host/access_log.rs) — Optional access-channel selection and record/body lifetime transfer.
 - [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
