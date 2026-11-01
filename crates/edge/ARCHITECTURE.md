@@ -29,8 +29,9 @@ flowchart TD
 Configured H1 WebSocket endpoints precede the dispatch chain. Exclusive Rust
 owners compose their own files/backends; Other adds no implicit file handling.
 `Unhandled` transfers the same unread body; a handled status, including 404,
-never means fallthrough. Active head/response actions use indirect calls;
-absent layers install no callback or per-layer future.
+never means fallthrough. Active head, request and response actions share a flat `HostPipeline` plan.
+A consuming action returns the original request on `Unhandled`. Response scope
+ends at the last entered layer. Absent layers install no callback or future.
 
 ## Reload and ownership
 

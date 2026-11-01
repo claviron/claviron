@@ -15,12 +15,24 @@ impl<S, R> HostLayerBuilder<S, R> {
         + Sync
         + 'static,
     ) -> &mut Self {
-        self.before.push(Box::new(action));
+        self.before.push(Action::Head(Box::new(action)));
         self
     }
 }
 
 impl<S> HostLayerBuilder<S> {
+    /// Transfer the request to one prepared asynchronous owner. Unhandled must
+    /// return that same request; a response status never means fallthrough.
+    /// A ready miss needs no future allocation. Only active work is erased by
+    /// the owner's DispatchFuture; this callback is allocated at preparation.
+    pub fn request(
+        &mut self,
+        action: impl Fn(Request<RouteBody>) -> DispatchFuture + Send + Sync + 'static,
+    ) -> &mut Self {
+        self.before.push(Action::Request(Box::new(action)));
+        self
+    }
+
     /// Register a response-head action, without moving or borrowing its body.
     ///
     /// Entered response actions run in reverse registration order.
@@ -82,7 +94,7 @@ impl<S, R> HostPipelineBuilder<S, R> {
                 layer
                     .before
                     .into_iter()
-                    .map(|action| PreparedHeadAction { action, scope }),
+                    .map(|action| PreparedAction { action, scope }),
             );
         }
         let complete = ReplyScope { after: after.len(), body: body.len() };

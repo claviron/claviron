@@ -157,7 +157,10 @@ impl<S, R> HostPipeline<S, R> {
         R: HeadOnlyReply,
     {
         for step in &self.before {
-            if let ControlFlow::Break(reply) = (step.action)(head, state) {
+            let Action::Head(action) = &step.action else {
+                unreachable!("typed head decisions cannot register request actions")
+            };
+            if let ControlFlow::Break(reply) = action(head, state) {
                 return Err(reply);
             }
         }
