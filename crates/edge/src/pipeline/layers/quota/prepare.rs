@@ -15,7 +15,8 @@ use http::request::Parts;
 use crate::Host;
 use crate::config::{HostConfig, quota::RateLimitConfig};
 use crate::loader::table::VhostTable;
-use crate::pipeline::host::{HostPipeline, QuotaPolicy, QuotaState};
+use crate::pipeline::host::HostPipeline;
+use crate::pipeline::layers::{QuotaPolicy, QuotaState};
 use crate::service::HostResponse;
 
 trait Admission: Send + Sync {

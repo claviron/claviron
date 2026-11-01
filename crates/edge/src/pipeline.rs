@@ -5,6 +5,7 @@ mod connect;
 pub mod embed;
 pub mod ext;
 pub mod host;
+pub mod layers;
 #[cfg(feature = "orbit")]
 pub mod link;
 pub mod other;
@@ -30,21 +31,24 @@ pub use connect::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
 };
-#[cfg(feature = "websocket")]
-pub use host::WebSocketStage;
-#[cfg(feature = "access-log")]
-pub use host::{AccessLogLayer, AccessLogState};
 pub use host::{
-    AclLayer, DenyLayer, ProxyLayer, RedirectLayer, HttpsRedirectLayer, AdmissionPolicy, CapacityLayer, CapacityState, AsyncHeadAction, ApplicationHandler,
-    DispatchFuture, DispatchResult,
-    DispatchStep, CorsLayer, CorsState, HeaderClearLayer, HeaderSetLayer, prepare_headers, HostHandler, HostHandlerFuture,
-    HostHandlerResult, HostLayer, HostLayerBuilder, HostPipeline,
-    HostPipelineBuilder, HostRequest, IdentityPolicy,
-    IdentityState, AuthorityLayer, RejectLayer, UpgradeLayer, ReplyPolicy, RequestBodyLayer, RouteSelectionLayer, StaticStage,
-    TryFilesStage,
+    ApplicationHandler, AsyncHeadAction, DispatchFuture, DispatchResult,
+    DispatchStep, HostHandler, HostHandlerFuture, HostHandlerResult,
+    HostLayerBuilder, HostPipeline, HostPipelineBuilder, HostRequest,
 };
+#[cfg(feature = "access-log")]
+pub use layers::{AccessLogLayer, AccessLogState};
+pub use layers::{
+    AclLayer, AdmissionPolicy, AuthorityLayer, CapacityLayer, CapacityState,
+    CorsLayer, CorsState, DenyLayer, HeaderClearLayer, HeaderSetLayer, HostLayer,
+    HttpsRedirectLayer, IdentityPolicy, IdentityState, ProxyLayer, RedirectLayer,
+    ReplyPolicy, RequestBodyLayer, RouteSelectionLayer, StaticStage,
+    TryFilesStage, UpgradeLayer, prepare_headers,
+};
+#[cfg(feature = "websocket")]
+pub use layers::WebSocketStage;
 #[cfg(feature = "rate-limit")]
-pub use host::{QuotaPolicy, QuotaState};
+pub use layers::{QuotaPolicy, QuotaState};
 pub use routable::{HostBindingProvider, Routable, RouteBinding};
 #[cfg(feature = "webtransport")]
 pub use wt::{
@@ -54,7 +58,7 @@ pub use wt::{
 };
 
 #[cfg(feature = "http3")]
-pub use host::EarlyDataLayer;
+pub use layers::EarlyDataLayer;
 
 #[cfg(feature = "acme")]
-pub use host::Http01Layer;
+pub use layers::Http01Layer;

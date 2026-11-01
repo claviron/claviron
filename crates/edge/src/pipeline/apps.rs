@@ -329,7 +329,7 @@ impl Binding {
             Self::Axum(factory) => RustRouter::Axum(factory(state.clone())),
         };
         #[cfg(feature = "websocket")]
-        let websocket = super::host::WebSocketStage::prepare(
+        let websocket = super::layers::WebSocketStage::prepare(
             state,
             canonical,
             &host_cfg,
@@ -445,7 +445,7 @@ pub struct HostAppRegistry {
     route_extensions: RwLock<Vec<Arc<dyn RouteExtension>>>,
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
     #[cfg(feature = "rate-limit")]
-    quotas: RwLock<crate::pipeline::host::QuotaRegistrations>,
+    quotas: RwLock<crate::pipeline::layers::QuotaRegistrations>,
 }
 
 impl HostAppRegistry {

@@ -57,7 +57,7 @@ impl QuotaPolicy {
     ) -> HostPipeline<QuotaState, HostResponse> {
         let mut layer = HostLayerBuilder::default();
         self.register(&mut layer);
-        HostPipelineBuilder { layers: vec![layer] }.build()
+        HostPipelineBuilder::from(layer).build()
     }
 
     fn register<S: AsMut<QuotaState>, R: From<HostResponse>>(
@@ -142,20 +142,3 @@ impl<S: AsMut<QuotaState>, R: From<HostResponse>> HostLayer<S, R> for QuotaPolic
 #[path = "../../../tests/pipeline/host/quota.rs"]
 mod tests;
 
-impl<S> HostPipeline<S, HostResponse> {
-    pub(crate) fn check_head(
-        &self,
-        head: &mut RequestParts,
-        state: &mut S,
-    ) -> Result<(), HostResponse> {
-        for step in &self.before {
-            let Action::Head(action) = &step.action else {
-                unreachable!("typed head decisions cannot register request actions")
-            };
-            if let ControlFlow::Break(reply) = action(head, state) {
-                return Err(reply);
-            }
-        }
-        Ok(())
-    }
-}

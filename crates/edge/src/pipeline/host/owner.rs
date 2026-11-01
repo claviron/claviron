@@ -5,18 +5,8 @@ use std::sync::Arc;
 use claviron_http::{RouteBody, RouteFuture, ServiceResult};
 use http::Request;
 
-use super::{HostLayer, HostLayerBuilder, HostPipeline, HostPipelineBuilder};
-use crate::pipeline::ext::RouteLayer;
+use super::{HostPipeline, HostPipelineBuilder};
 use crate::pipeline::other::{OtherHandler, OtherService};
-
-impl HostLayer for &dyn RouteLayer {
-    fn prepare(
-        self,
-        layer: &mut HostLayerBuilder,
-    ) -> crate::Result<()> {
-        RouteLayer::prepare(self, layer)
-    }
-}
 
 impl OtherHandler for Arc<HostPipeline> {
     fn call(&self, request: Request<RouteBody>) -> RouteFuture {

@@ -2,15 +2,13 @@
 
 use std::future::{Future, Ready, ready};
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use claviron_http::{RouteBody, RouteFuture, RouteResponse, ServiceResult};
 use futures_util::FutureExt;
 use http::Request;
 
-use super::{HostHandlerFuture, HostLayer, HostLayerBuilder};
-use crate::pipeline::RustRouter;
+use super::HostHandlerFuture;
 
 pub type DispatchResult = ServiceResult<RouteResponse, Request<RouteBody>>;
 
@@ -36,11 +34,11 @@ impl DispatchFuture {
         Self { inner: Work::Request(Box::pin(work)) }
     }
 
-    pub(super) fn application(work: HostHandlerFuture) -> Self {
+    pub(in crate::pipeline) fn application(work: HostHandlerFuture) -> Self {
         Self { inner: Work::Application(work) }
     }
 
-    pub(super) fn response(work: RouteFuture) -> Self {
+    pub(in crate::pipeline) fn response(work: RouteFuture) -> Self {
         Self { inner: Work::Response(work) }
     }
 }
@@ -74,31 +72,6 @@ impl Future for DispatchFuture {
 /// call contract also serves PHP's selected runner without another plan.
 pub trait DispatchStep: Send + Sync + 'static {
     fn call(&self, request: Request<RouteBody>) -> DispatchFuture;
-}
-
-impl<S> HostLayer<S> for Arc<dyn DispatchStep> {
-    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
-        layer.request(move |request| self.call(request));
-        Ok(())
-    }
-}
-
-impl<S> HostLayer<S> for RustRouter {
-    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
-        match self {
-            Self::Other(owner) => {
-                layer.request(move |request| DispatchFuture::response(owner.handle(request)));
-            }
-            #[cfg(feature = "axum")]
-            Self::Axum(router) => {
-                use super::ApplicationHandler;
-                layer.request(move |request| {
-                    DispatchFuture::response(Box::pin(router.clone().call(request).map(Ok)))
-                });
-            }
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]

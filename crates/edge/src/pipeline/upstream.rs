@@ -81,13 +81,4 @@ impl DispatchStep for UpstreamStage {
     }
 }
 
-impl<S> crate::pipeline::host::HostLayer<S> for UpstreamStage {
-    fn prepare(
-        self,
-        layer: &mut crate::pipeline::host::HostLayerBuilder<S>,
-    ) -> crate::Result<()> {
-        layer.request(move |request| DispatchStep::call(&self, request));
-        Ok(())
-    }
-}
 

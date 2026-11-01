@@ -11,9 +11,9 @@ use claviron_runtime::{
 use claviron_types::Host;
 
 use super::backend::BackendPlan;
-use super::extension::bind_other;
-use super::files::scope_steps;
-use super::{HostHandler, HostPipelineBuilder, RouteSelectionLayer};
+use super::owner::bind_other;
+use crate::pipeline::layers::{RouteSelectionLayer, scope_steps};
+use super::{HostHandler, HostPipelineBuilder};
 use crate::pipeline::apps::{HostAppRegistry, ResolvedRouteExtensions};
 use crate::pipeline::ext::{RouteContext, RouteLayer};
 use crate::pipeline::other::OtherService;
@@ -26,7 +26,7 @@ struct Compiler<'a> {
     layers: &'a [Arc<dyn RouteLayer>],
     registry: Option<Arc<HostAppRegistry>>,
     #[cfg(feature = "websocket")]
-    websocket: Option<Arc<super::WebSocketStage>>,
+    websocket: Option<Arc<crate::pipeline::layers::WebSocketStage>>,
 }
 
 impl Compiler<'_> {
@@ -90,7 +90,7 @@ pub(crate) fn prepare(
         layers,
         registry: state.registry_ref().resolve::<HostAppRegistry>(),
         #[cfg(feature = "websocket")]
-        websocket: super::WebSocketStage::prepare(
+        websocket: crate::pipeline::layers::WebSocketStage::prepare(
             state, host, &config, websocket,
         ),
     };

@@ -92,7 +92,7 @@ impl DispatchStep for TryFilesStage {
     }
 }
 
-pub(super) fn scope_steps(config: &HostConfig) -> Vec<Arc<dyn DispatchStep>> {
+pub(in crate::pipeline) fn scope_steps(config: &HostConfig) -> Vec<Arc<dyn DispatchStep>> {
     let mut files = config.files.clone();
     files.root = config.root();
     let mut steps: Vec<Arc<dyn DispatchStep>> = Vec::new();
@@ -121,7 +121,7 @@ pub(crate) fn fallback_config(config: &HostConfig) -> FilesConfig {
 #[path = "../../../tests/pipeline/host/files.rs"]
 mod tests;
 
-impl<S> crate::pipeline::host::HostLayer<S> for StaticStage {
+impl<S> super::HostLayer<S> for StaticStage {
     fn prepare(
         self,
         layer: &mut crate::pipeline::host::HostLayerBuilder<S>,
@@ -131,7 +131,7 @@ impl<S> crate::pipeline::host::HostLayer<S> for StaticStage {
     }
 }
 
-impl<S> crate::pipeline::host::HostLayer<S> for TryFilesStage {
+impl<S> super::HostLayer<S> for TryFilesStage {
     fn prepare(
         self,
         layer: &mut crate::pipeline::host::HostLayerBuilder<S>,

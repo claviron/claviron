@@ -15,74 +15,24 @@ use http::{
     response::Parts as ResponseParts,
 };
 
-mod acl;
-mod deny;
-mod proxy;
-mod redirect;
-#[cfg(feature = "access-log")]
-mod access_log;
-mod admission;
+use super::layers::HostLayer;
+
 mod application;
 mod backend;
 mod binding;
 mod builder;
 pub(crate) mod compile;
 mod dispatch;
-mod cors;
-mod headers;
-#[cfg(feature = "acme")]
-mod http01;
-mod extension;
-mod files;
 mod handler;
-mod identity;
-mod protocol;
-#[cfg(feature = "rate-limit")]
-mod quota;
-mod reply;
-mod request_body;
-mod selection;
-#[cfg(feature = "websocket")]
-mod websocket;
-
-pub use acl::AclLayer;
-pub use deny::DenyLayer;
-pub use proxy::ProxyLayer;
-pub use redirect::{RedirectLayer, HttpsRedirectLayer};
-#[cfg(feature = "acme")]
-pub use http01::Http01Layer;
-#[cfg(feature = "access-log")]
-pub use access_log::{AccessLogLayer, AccessLogState};
-pub use admission::{AdmissionPolicy, CapacityLayer, CapacityState};
-pub use application::ApplicationHandler;
-pub(crate) use binding::HostPolicy;
-pub use dispatch::{
-    DispatchFuture, DispatchResult, DispatchStep,
-};
-pub use cors::{CorsLayer, CorsState};
-pub use headers::{HeaderClearLayer, HeaderSetLayer, prepare_headers};
-pub(crate) use extension::bind_other;
-pub(crate) use files::fallback_config;
-pub use files::{StaticStage, TryFilesStage};
-pub use handler::{
-    HostHandler, HostHandlerFuture, HostHandlerResult,
-    HostRequest,
-};
-pub use identity::{IdentityPolicy, IdentityState};
-pub use protocol::{AuthorityLayer, RejectLayer, UpgradeLayer};
-#[cfg(feature = "http3")]
-pub use protocol::EarlyDataLayer;
-#[cfg(feature = "rate-limit")]
-pub(crate) use quota::QuotaRegistrations;
-#[cfg(feature = "rate-limit")]
-pub use quota::{HostQuotas, QuotaPolicy, QuotaState};
-pub use reply::ReplyPolicy;
-pub use request_body::RequestBodyLayer;
-pub use selection::RouteSelectionLayer;
-#[cfg(feature = "websocket")]
-pub use websocket::WebSocketStage;
+mod owner;
 mod request;
 mod response;
+
+pub use application::ApplicationHandler;
+pub(crate) use binding::HostPolicy;
+pub use dispatch::{DispatchFuture, DispatchResult, DispatchStep};
+pub use handler::{HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest};
+pub(crate) use owner::bind_other;
 
 type HeadAction<S, R> =
     Box<dyn Fn(&mut RequestParts, &mut S) -> ControlFlow<R> + Send + Sync>;
@@ -106,19 +56,6 @@ pub trait AsyncHeadAction<S>: Send + Sync + 'static {
         head: &'a mut RequestParts,
         state: &'a mut S,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ControlFlow<RouteResponse>> + Send + 'a>>;
-}
-
-/// Cold preparation contract. An inactive layer contributes no actions.
-///
-/// Failure discards this layer's contributions without changing the pipeline
-/// builder. Layer preparation never receives a request or a body. `R` preserves
-/// a typed early decision. Consuming request and response hooks require
-/// `RouteResponse`.
-pub trait HostLayer<S = (), R = RouteResponse> {
-    fn prepare(
-        self,
-        layer: &mut HostLayerBuilder<S, R>,
-    ) -> crate::Result<()>;
 }
 
 /// Actions contributed by one logical layer, allocated only while building.

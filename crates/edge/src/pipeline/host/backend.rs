@@ -2,19 +2,13 @@
 
 use std::sync::Arc;
 
-use claviron_files::{FileSite, try_handle_files};
-use claviron_http::config::files::FilesConfig;
-use claviron_http::ext::RealIpExt;
-use claviron_http::{
-    RequestContext, RouteBody, RouteFuture, ServiceResult, err_status,
-};
 use claviron_runtime::AppState;
 use claviron_types::Host;
-use http::{Request, StatusCode};
 
-use super::{DispatchStep, fallback_config};
+use super::DispatchStep;
+use crate::pipeline::layers::prepare_fallback;
 use crate::HostConfig;
-use crate::pipeline::other::{OtherHandler, OtherService};
+use crate::pipeline::other::OtherService;
 
 #[derive(Clone)]
 pub(super) struct BackendPlan {
@@ -28,12 +22,7 @@ impl BackendPlan {
         host: &Host,
         config: &HostConfig,
     ) -> Self {
-        let files = fallback_config(config);
-        let terminal = if files.spa.is_none() && !files.has_static_index() {
-            OtherService::new(NotFound)
-        } else {
-            OtherService::new(FileFallback { state: state.clone(), files: Arc::new(files) })
-        };
+        let terminal = prepare_fallback(state, config);
         let steps = std::iter::empty::<Arc<dyn DispatchStep>>();
         #[cfg(feature = "orbit")]
         let steps = steps.chain(
@@ -79,52 +68,3 @@ impl BackendPlan {
     }
 }
 
-struct NotFound;
-
-impl OtherHandler for NotFound {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-    ) -> RouteFuture {
-        drop(request);
-        Box::pin(std::future::ready(Ok(err_status(StatusCode::NOT_FOUND))))
-    }
-}
-
-#[derive(Clone)]
-struct FileFallback {
-    state: AppState,
-    files: Arc<FilesConfig>,
-}
-
-impl OtherHandler for FileFallback {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-    ) -> RouteFuture {
-        let owner = self.clone();
-        Box::pin(async move {
-            let context = RequestContext {
-                uri: request.uri(),
-                headers: request.headers(),
-                real_ip: request.extensions().get::<RealIpExt>().map(|ip| ip.0),
-            };
-            let response = match try_handle_files(
-                &owner.state,
-                owner.files.as_ref(),
-                context,
-            )
-            .await
-            {
-                Ok(ServiceResult::Handled(response)) => response,
-                Ok(ServiceResult::Unhandled(_)) => {
-                    err_status(StatusCode::NOT_FOUND)
-                }
-                Err(status) => err_status(status),
-            };
-            // Retain the original body across file work and release it once.
-            drop(request);
-            Ok(response)
-        })
-    }
-}

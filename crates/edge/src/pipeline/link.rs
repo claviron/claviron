@@ -397,13 +397,4 @@ fn prepare_target(
     }
 }
 
-impl<S> crate::pipeline::host::HostLayer<S> for LinkBackend {
-    fn prepare(
-        self,
-        layer: &mut crate::pipeline::host::HostLayerBuilder<S>,
-    ) -> crate::Result<()> {
-        layer.request(move |request| DispatchStep::call(&self, request));
-        Ok(())
-    }
-}
 

@@ -167,13 +167,4 @@ impl DispatchStep for UnavailableApplication {
 #[path = "../../../tests/pipeline/embed/php.rs"]
 mod tests;
 
-impl<S> crate::pipeline::host::HostLayer<S> for PhpBackend {
-    fn prepare(
-        self,
-        layer: &mut crate::pipeline::host::HostLayerBuilder<S>,
-    ) -> crate::Result<()> {
-        layer.request(move |request| DispatchStep::call(&self, request));
-        Ok(())
-    }
-}
 

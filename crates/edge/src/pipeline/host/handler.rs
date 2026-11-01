@@ -2,12 +2,10 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 
 use claviron_http::{RouteBody, RouteResponse, ServiceResult};
 use http::{Request, request::Parts};
 
-use super::{DispatchFuture, HostLayer, HostLayerBuilder};
 
 /// An unclaimed request with its original body still inaccessible.
 ///
@@ -20,7 +18,7 @@ pub struct HostRequest {
 }
 
 impl HostRequest {
-    pub(super) fn new(request: Request<RouteBody>) -> Self {
+    pub(in crate::pipeline) fn new(request: Request<RouteBody>) -> Self {
         let (head, body) = request.into_parts();
         Self { head, body }
     }
@@ -54,15 +52,6 @@ pub trait HostHandler: Send + Sync + 'static {
         &self,
         request: HostRequest,
     ) -> HostHandlerFuture;
-}
-
-impl<S> HostLayer<S> for Arc<dyn HostHandler> {
-    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
-        layer.request(move |request| {
-            DispatchFuture::application(self.call(HostRequest::new(request)))
-        });
-        Ok(())
-    }
 }
 
 #[cfg(test)]

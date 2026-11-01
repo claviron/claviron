@@ -119,3 +119,9 @@ impl<S, R> HostPipelineBuilder<S, R> {
         }
     }
 }
+
+impl<S, R> From<HostLayerBuilder<S, R>> for HostPipelineBuilder<S, R> {
+    fn from(layer: HostLayerBuilder<S, R>) -> Self {
+        Self { layers: vec![layer] }
+    }
+}
