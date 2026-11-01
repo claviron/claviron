@@ -17,7 +17,7 @@ pub(super) fn check(
         return (None, None);
     };
 
-    if !cors.enabled() || !cors.allows_origin(origin) {
+    if !cors.allows_origin(origin) {
         let mut response = RouteResponse::new(empty_body());
         *response.status_mut() = StatusCode::FORBIDDEN;
         return (Some(response), None);

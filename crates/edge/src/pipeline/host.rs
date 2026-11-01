@@ -26,7 +26,8 @@ mod binding;
 mod builder;
 pub(crate) mod compile;
 mod dispatch;
-mod exchange;
+mod cors;
+mod headers;
 mod extension;
 mod files;
 mod handler;
@@ -48,7 +49,8 @@ pub(crate) use binding::HostPolicy;
 pub use dispatch::{
     DispatchFuture, DispatchResult, DispatchStep,
 };
-pub use exchange::{ExchangeLayer, ExchangePolicy, ExchangeState};
+pub use cors::{CorsLayer, CorsState};
+pub use headers::{HeaderClearLayer, HeaderSetLayer, prepare_headers};
 pub(crate) use extension::bind_other;
 pub(crate) use files::fallback_config;
 pub use files::{StaticStage, TryFilesStage};

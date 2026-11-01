@@ -37,7 +37,7 @@ pub use host::{AccessLogLayer, AccessLogState};
 pub use host::{
     AclLayer, RedirectLayer, AdmissionPolicy, ApplicationHandler,
     DispatchFuture, DispatchResult,
-    DispatchStep, ExchangeLayer, ExchangeState, HostHandler, HostHandlerFuture,
+    DispatchStep, CorsLayer, CorsState, HeaderClearLayer, HeaderSetLayer, prepare_headers, HostHandler, HostHandlerFuture,
     HostHandlerResult, HostLayer, HostLayerBuilder, HostPipeline,
     HostPipelineBuilder, HostRequest, IdentityPolicy,
     IdentityState, AuthorityLayer, RejectLayer, UpgradeLayer, ReplyPolicy, StaticStage,
