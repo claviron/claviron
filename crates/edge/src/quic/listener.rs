@@ -4,11 +4,13 @@
 
 mod drain;
 
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::transport::{HostIngress, HostService, RequestArrival};
 use bytes::Bytes;
+use claviron_http::ListenerId;
 use claviron_http::config::ListenerSettings;
 use claviron_http::ext::{
     ClientAuthStatus, ConnCtx, TlsClientCertInfo, TlsInfo,
@@ -68,9 +70,36 @@ impl H3Server {
         )?;
         let generation = self.current.start(groups.clone())?;
         crate::quic::types::prepare_vhosts(&deps, &groups)?;
+        self.serve_groups(generation.groups(), deps, context).await
+    }
+
+    pub(crate) async fn run_listener(
+        self: Arc<Self>,
+        id: &ListenerId,
+        deps: Arc<crate::quic::types::Deps>,
+        context: RunContext,
+    ) -> Result<()> {
+        let groups = crate::quic::types::build_snapshots(
+            self.state.config_reader().snapshot::<Self>()?.as_ref(),
+            &deps,
+        )?;
+        let snapshot = groups.get(id).cloned().ok_or_else(|| {
+            Error::msg(format!("QUIC listener '{id}' is not configured"))
+        })?;
+        let generation = self.current.start_listener(snapshot)?;
+        crate::quic::types::prepare_vhosts(&deps, &groups)?;
+        self.serve_groups(generation.groups(), deps, context).await
+    }
+
+    async fn serve_groups(
+        &self,
+        groups: &BTreeMap<ListenerId, Arc<ServerSnapshot>>,
+        deps: Arc<crate::quic::types::Deps>,
+        context: RunContext,
+    ) -> Result<()> {
         let mut bound = Vec::new();
         // Complete all binds before any task can accept traffic.
-        for snapshot in generation.groups().values() {
+        for snapshot in groups.values() {
             let mut endpoints = Vec::new();
             for addr in &snapshot.listener.listen {
                 let socket = bind_socket(*addr, self.state.run_mode())

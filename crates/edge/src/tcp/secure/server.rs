@@ -1,9 +1,10 @@
 //! TLS TCP listener groups; sockets and gates belong to each run generation.
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::deny::DenyService;
 use crate::transport::VhostResolver;
+use crate::transport::instances::ListenerInstances;
 use async_trait::async_trait;
 use claviron_http::ListenerId;
 use claviron_http::config::{
@@ -17,7 +18,7 @@ use claviron_runtime::congif::{
 use claviron_runtime::registry::{
     Component, Error, Reloadable, Resolve, Runnable, priority,
 };
-use claviron_runtime::{AppState, Register, RunContext};
+use claviron_runtime::{AppState, Register, RunContext, RunnableInstance};
 use claviron_tls::orbit::{FleetServerSessions, FleetServerSessionsProvider};
 use claviron_tls::resolver::CertResolver;
 use claviron_tls::revocation::Revocations;
@@ -44,6 +45,13 @@ impl ListenerSnapshot for ServerSnapshot {
     ) -> bool {
         self.listener.same_binding(&other.listener)
     }
+
+    fn binding_conflicts(
+        &self,
+        other: &Self,
+    ) -> bool {
+        self.listener.binding_conflicts(&other.listener)
+    }
 }
 impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
     fn listener(&self) -> &ListenerConfig {
@@ -54,6 +62,7 @@ impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
 pub struct HttpsServer {
     pub(crate) state: AppState,
     pub(crate) current: ListenerSnapshots<ServerSnapshot>,
+    instances: Mutex<ListenerInstances<HttpsListener>>,
 }
 /// What the listeners serve with, each a hard requirement.
 pub(crate) type ServerDeps = (
@@ -88,8 +97,52 @@ impl Deps {
 }
 impl HttpsServer {
     pub fn empty(state: AppState) -> Self {
-        Self { state, current: ListenerSnapshots::default() }
+        Self {
+            state,
+            current: ListenerSnapshots::default(),
+            instances: Mutex::default(),
+        }
     }
+    fn configure_instances(
+        &self,
+        config: &HttpsServerConfig,
+    ) {
+        self.instances
+            .lock()
+            .expect("TLS listener declarations poisoned")
+            .reconcile(config.listeners.keys(), |id| HttpsListener {
+                id: id.clone(),
+                name: format!("Listener:{id}").into(),
+            });
+    }
+
+    async fn serve_listener(
+        self: Arc<Self>,
+        id: &ListenerId,
+        deps: ServerDeps,
+        context: RunContext,
+    ) -> Result<(), Error> {
+        let deps = Deps::bind(deps)?;
+        let http = self.state.config_reader().snapshot::<Self>()?;
+        let groups = build_snapshots(&http, &deps)?;
+        let snapshot = groups.get(id).cloned().ok_or_else(|| {
+            Error::msg(format!("TLS listener '{id}' is not configured"))
+        })?;
+        let generation = self.current.start_listener(snapshot)?;
+        prepare_vhosts(&http, &deps, &groups)?;
+        let server = self.clone();
+        crate::tcp::listener::serve(
+            &self.current,
+            generation.groups(),
+            &context,
+            self.state.run_mode(),
+            move |snapshot, stream, peer, permit| {
+                server.clone().handle_connection(snapshot, stream, peer, permit)
+            },
+        )
+        .await
+    }
+
     /// A reload or a source change receives no component dependencies; it
     /// resolves the ones `run` is handed.
     fn resolve_deps(
@@ -220,6 +273,7 @@ impl TryFrom<HttpSnapshot> for HttpsServerConfig {
                 if matches!(tcp.security, TcpSecurity::Tls { .. }))
         });
         config.watchdog = None;
+        config.plain_execution = Default::default();
         #[cfg(feature = "metrics")]
         {
             config.metrics = Arc::default();
@@ -244,9 +298,10 @@ impl Configurable for HttpsServer {
 
     async fn configure(
         &self,
-        _config: &Self::Config,
+        config: &Self::Config,
     ) -> congif::Result<()> {
         // Binding waits until run: sibling runtime dependencies must be ready.
+        self.configure_instances(config);
         Ok(())
     }
     fn as_config_observer(
@@ -268,6 +323,7 @@ impl ConfigObserver for HttpsServer {
             build_snapshots(config, &deps).map_err(congif::Error::msg)?;
         self.current.publish(groups.clone()).map_err(congif::Error::msg)?;
         prepare_vhosts(config, &deps, &groups).map_err(congif::Error::msg)?;
+        self.configure_instances(config);
         info!("🔁 HttpsServer listener policies reloaded");
         Ok(())
     }
@@ -300,10 +356,15 @@ impl Component<AppState> for HttpsServer {
     fn as_configurable(&self) -> Option<&dyn congif::ConfigRegistration> {
         Some(self)
     }
-    fn as_runnable(
-        self: Arc<Self>
-    ) -> Option<Arc<dyn Runnable<AppState, Self::Deps>>> {
-        Some(self)
+    fn runnables(self: Arc<Self>) -> Vec<RunnableInstance<AppState>> {
+        self.instances
+            .lock()
+            .expect("TLS listener declarations poisoned")
+            .iter()
+            .map(|instance| {
+                RunnableInstance::new(instance.name.clone(), instance.clone())
+            })
+            .collect()
     }
 }
 #[async_trait]
@@ -320,18 +381,24 @@ impl Reloadable<AppState> for HttpsServer {
         let groups = build_snapshots(&http, &deps)?;
         self.current.publish(groups.clone())?;
         prepare_vhosts(&http, &deps, &groups)?;
+        self.configure_instances(&http);
         info!("🔁 HttpsServer listener policies reloaded");
         Ok(())
     }
 }
+struct HttpsListener {
+    id: ListenerId,
+    name: Arc<str>,
+}
+
 #[async_trait]
-impl Runnable<AppState, ServerDeps> for HttpsServer {
+impl Runnable<AppState, (Arc<HttpsServer>, ServerDeps)> for HttpsListener {
     async fn run(
         self: Arc<Self>,
-        deps: ServerDeps,
+        (server, deps): (Arc<HttpsServer>, ServerDeps),
         _state: AppState,
         context: RunContext,
     ) -> Result<(), Error> {
-        self.serve(deps, context).await
+        server.serve_listener(&self.id, deps, context).await
     }
 }

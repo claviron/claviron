@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn plain_execution_defaults_to_shared_and_converts_to_generic_execution() {
+    use claviron_runtime::{ExecutionDomain, ExecutionSpec, ExecutorSpec};
+    for (yaml, expected) in [
+        ("{}", PlainExecution::Shared),
+        ("plain_execution: shared", PlainExecution::Shared),
+        ("plain_execution: current_thread", PlainExecution::CurrentThread),
+    ] {
+        let config: HttpSnapshot = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.plain_execution, expected);
+        let spec: ExecutionSpec = expected.into();
+        let executor = match expected {
+            PlainExecution::Shared => ExecutorSpec::Inherit,
+            PlainExecution::CurrentThread => {
+                ExecutorSpec::Shared(ExecutionDomain::of::<PlainExecution>())
+            }
+        };
+        assert_eq!(spec.executor, executor);
+    }
+}
+
+#[test]
+fn plain_execution_rejects_unknown_and_mistyped_modes() {
+    for value in ["null", "false", "4", "multi_thread", "{}", "[]"] {
+        let source = format!("plain_execution: {value}");
+        assert!(serde_yaml::from_str::<HttpSnapshot>(&source).is_err());
+    }
+}
+
+#[test]
 fn tcp_backlog_is_inherited_and_overridden_per_listener() {
     let inherited =
         "defaults:\n  listener:\n    tcp: {backlog: 17, nodelay: false}\n";
@@ -117,4 +146,23 @@ fn connection_limits_are_only_applied_when_declared() {
             "defaults={defaults:?}, local={local:?}"
         );
     }
+}
+
+#[test]
+fn plain_execution_domains_are_scoped_to_listener_identity() {
+    let first = "first".parse().unwrap();
+    let second = "second".parse().unwrap();
+    let configured = PlainExecution::CurrentThread;
+    assert_eq!(
+        configured.for_listener(&first),
+        configured.for_listener(&first)
+    );
+    assert_ne!(
+        configured.for_listener(&first),
+        configured.for_listener(&second)
+    );
+    assert_eq!(
+        PlainExecution::Shared.for_listener(&first),
+        claviron_runtime::ExecutionSpec::default()
+    );
 }

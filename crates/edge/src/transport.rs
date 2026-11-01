@@ -25,6 +25,9 @@
 //! an application author looking at `OtherService` are looking at the same
 //! `OtherService`. What differs is which of them has to know where it lives.
 
+#[cfg(any(feature = "tcp", feature = "quic"))]
+pub(crate) mod instances;
+
 /// A single host's configuration, read by the TLS layer for its certificate
 /// and protocol policy.
 pub use crate::config::HostConfig;

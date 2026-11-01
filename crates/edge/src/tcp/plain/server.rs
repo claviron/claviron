@@ -5,23 +5,27 @@
 use std::collections::BTreeMap;
 use std::num::NonZeroU16;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use crate::deny::DenyService;
 use crate::transport::VhostResolver;
+use crate::transport::instances::ListenerInstances;
 use async_trait::async_trait;
 use claviron_http::ListenerId;
 use claviron_http::acme::Http01ChallengeDirectory;
 use claviron_http::config::{
     H1Config, HttpSnapshot, ListenerCapabilities, ListenerConfig,
-    ListenerSettings, TcpConfig, TcpSecurity,
+    ListenerSettings, PlainExecution, TcpConfig, TcpSecurity,
 };
 use claviron_http::listener::{ListenerSnapshot, ListenerSnapshots};
 use claviron_runtime::congif::{
     self, ConfigFile, ConfigObserver, Configurable, Format,
 };
 use claviron_runtime::registry::{Component, Reloadable, Runnable, priority};
-use claviron_runtime::{AppState, Register, RunContext};
+use claviron_runtime::{
+    AppState, ExecutionSpec, Register, RunContext, RunnableInstance,
+};
 use tracing::info;
 
 /// One cleartext listener, as this driver needs it.
@@ -51,6 +55,13 @@ impl ListenerSnapshot for ServerSnapshot {
     ) -> bool {
         self.listener.same_binding(&other.listener)
     }
+
+    fn binding_conflicts(
+        &self,
+        other: &Self,
+    ) -> bool {
+        self.listener.binding_conflicts(&other.listener)
+    }
 }
 impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
     fn listener(&self) -> &ListenerConfig {
@@ -61,10 +72,68 @@ impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
 pub struct HttpServer {
     state: AppState,
     current: ListenerSnapshots<ServerSnapshot>,
+    instances: Mutex<ListenerInstances<HttpListener>>,
 }
 impl HttpServer {
     pub fn empty(state: AppState) -> Self {
-        Self { current: ListenerSnapshots::default(), state }
+        Self {
+            current: ListenerSnapshots::default(),
+            state,
+            instances: Mutex::default(),
+        }
+    }
+
+    fn configure_instances(
+        &self,
+        config: &HttpServerConfig,
+    ) {
+        let mut instances =
+            self.instances.lock().expect("HTTP listener declarations poisoned");
+        instances.reconcile(config.listeners.keys(), |id| HttpListener {
+            id: id.clone(),
+            name: format!("Listener:{id}").into(),
+            current_thread: AtomicBool::new(false),
+        });
+        for instance in instances.iter() {
+            instance
+                .current_thread
+                .store(config.current_thread(), Ordering::Relaxed);
+        }
+    }
+
+    async fn serve_listener(
+        self: Arc<Self>,
+        id: &ListenerId,
+        vhosts: Arc<VhostResolver>,
+        context: RunContext,
+    ) -> claviron_runtime::registry::Result<()> {
+        let config = self.state.config_reader().snapshot::<Self>()?;
+        let snapshot = build_snapshots(&config, &self.state)?
+            .remove(id)
+            .ok_or_else(|| {
+                claviron_runtime::registry::Error::msg(format!(
+                    "cleartext listener '{id}' is not configured"
+                ))
+            })?;
+        let generation = self.current.start_listener(snapshot)?;
+        let state = self.state.clone();
+        crate::tcp::listener::serve(
+            &self.current,
+            generation.groups(),
+            &context,
+            self.state.run_mode(),
+            move |snapshot, stream, peer, permit| {
+                Self::handle_connection(
+                    stream,
+                    peer,
+                    snapshot,
+                    vhosts.clone(),
+                    state.clone(),
+                    permit,
+                )
+            },
+        )
+        .await
     }
 
     /// Prepare the native cleartext handler without binding or booting a server.
@@ -175,6 +244,13 @@ pub(super) fn build_snapshots(
 #[serde(try_from = "HttpSnapshot")]
 pub struct HttpServerConfig(HttpSnapshot);
 
+impl HttpServerConfig {
+    fn current_thread(&self) -> bool {
+        self.plain_execution == PlainExecution::CurrentThread
+            && !self.listeners.is_empty()
+    }
+}
+
 impl std::ops::Deref for HttpServerConfig {
     type Target = HttpSnapshot;
     fn deref(&self) -> &HttpSnapshot {
@@ -218,9 +294,10 @@ impl Configurable for HttpServer {
 
     async fn configure(
         &self,
-        _config: &Self::Config,
+        config: &Self::Config,
     ) -> congif::Result<()> {
         // Binding waits until run: sibling runtime dependencies must be ready.
+        self.configure_instances(config);
         Ok(())
     }
     fn as_config_observer(
@@ -242,6 +319,7 @@ impl ConfigObserver for HttpServer {
                     .map_err(congif::Error::msg)?,
             )
             .map_err(congif::Error::msg)?;
+        self.configure_instances(config);
         info!("🔁 HttpServer listener policies reloaded");
         Ok(())
     }
@@ -275,10 +353,15 @@ impl Component<AppState> for HttpServer {
     fn as_configurable(&self) -> Option<&dyn congif::ConfigRegistration> {
         Some(self)
     }
-    fn as_runnable(
-        self: Arc<Self>
-    ) -> Option<Arc<dyn Runnable<AppState, Self::Deps>>> {
-        Some(self)
+    fn runnables(self: Arc<Self>) -> Vec<RunnableInstance<AppState>> {
+        self.instances
+            .lock()
+            .expect("HTTP listener declarations poisoned")
+            .iter()
+            .map(|instance| {
+                RunnableInstance::new(instance.name.clone(), instance.clone())
+            })
+            .collect()
     }
 }
 #[async_trait]
@@ -290,22 +373,45 @@ impl Reloadable<AppState> for HttpServer {
         &self,
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
-        self.current.publish(build_snapshots(
-            state.config_reader().snapshot::<Self>()?.as_ref(),
-            &self.state,
-        )?)?;
+        let config = state.config_reader().snapshot::<Self>()?;
+        self.current.publish(build_snapshots(config.as_ref(), &self.state)?)?;
+        self.configure_instances(&config);
         info!("🔁 HttpServer listener policies reloaded");
         Ok(())
     }
 }
+struct HttpListener {
+    id: ListenerId,
+    name: Arc<str>,
+    current_thread: AtomicBool,
+}
+
 #[async_trait]
-impl Runnable<AppState, (Arc<VhostResolver>,)> for HttpServer {
+impl Runnable<AppState, (Arc<HttpServer>, Arc<VhostResolver>)>
+    for HttpListener
+{
+    fn execution_spec(
+        &self,
+        _state: &AppState,
+    ) -> ExecutionSpec {
+        let selected = if self.current_thread.load(Ordering::Relaxed) {
+            PlainExecution::CurrentThread
+        } else {
+            PlainExecution::Shared
+        };
+        selected.for_listener(&self.id)
+    }
+
     async fn run(
         self: Arc<Self>,
-        (vhosts,): (Arc<VhostResolver>,),
+        (server, vhosts): (Arc<HttpServer>, Arc<VhostResolver>),
         _state: AppState,
         context: RunContext,
     ) -> claviron_runtime::registry::Result<()> {
-        self.serve(vhosts, context).await
+        server.serve_listener(&self.id, vhosts, context).await
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/tcp/unit/execution.rs"]
+mod execution_tests;

@@ -89,7 +89,7 @@ where
 {
     // Stop admission only within this generation before waiting for any drain.
     // The runtime owns the process-level consequence of the returned failure.
-    let context = RunContext::new(parent.cancellation_token().child_token());
+    let context = parent.child();
     let mut running = FuturesUnordered::new();
     for (group, sockets) in bound {
         running.push(serve_group(

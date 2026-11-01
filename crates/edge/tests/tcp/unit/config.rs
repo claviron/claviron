@@ -50,3 +50,15 @@ fn sibling_transport_changes_do_not_invalidate_tls() {
     .unwrap();
     assert!(original != changed);
 }
+
+#[cfg(feature = "tls")]
+#[test]
+fn plain_execution_does_not_invalidate_tls() {
+    let source = include_str!("../fixtures/listeners.yaml");
+    let original = serde_yaml::from_str::<HttpsServerConfig>(source).unwrap();
+    let changed = serde_yaml::from_str::<HttpsServerConfig>(&format!(
+        "plain_execution: current_thread\n{source}"
+    ))
+    .unwrap();
+    assert!(original == changed);
+}

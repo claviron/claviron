@@ -18,6 +18,12 @@ response-header policy belong to `edge-config` and `edge`, not here.
 Application-specific middleware and its response policy live in the consuming
 framework, not in this primitive crate.
 
+`config::PlainExecution` is the `http.yaml` field `plain_execution`: `shared`
+(default) or `current_thread`. It converts to the generic runtime execution
+specification; `for_listener` selects a named domain for each cleartext listener.
+Edge owns applying it to the listener generation. Domains are retained until
+all process providers finalize; TLS/QUIC execution is unaffected.
+
 The role is *hub*: every transport listener in the workspace and
 every middleware-bearing crate downstream pulls types from here.
 The pure CORS/header declarations in `config` have no Axum requirement;
@@ -314,18 +320,22 @@ no listeners. `HttpSnapshot` implements Deserialize through `HttpYaml::resolve`:
 inheritance and listener validation finish before Congif compares or publishes
 candidates.
 
-Hyper/H3 consume these named groups. `ListenerSnapshots<S>` coordinates each
-transport's policy publication with its active generation. It holds no sockets
-or tasks: an `ActiveListeners` guard spans the transport-owned bind/accept/drain
-lifetime. Accepted connections retain their selected snapshot.
+Hyper/H3 consume these named groups. `ListenerSnapshots<S>` coordinates policy
+publication with active generations by listener identity. It holds no sockets
+or tasks: `start_listener` returns an `ActiveListeners` guard spanning that
+listener's bind/accept/drain lifetime. Starting or dropping a sibling guard
+cannot replace or clear another listener's ownership. Accepted connections
+retain their selected snapshot.
 
-While a generation runs, changing group membership, transport/security mode,
-bind addresses or gate limits fails reload with a restart-required error and
-does not publish the candidate to that transport. Parser/TLS/proxy policy can
-reload for new connections. Start always rebuilds from the provider's latest
-desired configuration, including after a rejected topology reload. Desired
-`HttpSnapshot` publication and running transport publication are distinct;
-there is no cross-provider atomic reload transaction.
+Candidates may add/remove listener identities. Removal stops policy lookup for
+new admissions; the owning runnable still drains accepted work before releasing
+its generation. Changing a running listener's bind/gate geometry fails publication.
+Reassigning the same explicit transport address to a different identity is also
+rejected while its old generation remains active. Parser/TLS/proxy policy can
+reload for new connections. Start rebuilds from the provider's latest desired
+configuration, including after a rejected topology reload. Desired HttpSnapshot
+publication and running transport publication remain distinct; there is no
+cross-provider atomic reload transaction.
 
 The facade registers the edge-owned reader with immutable `ListenerCapabilities`.
 Unavailable TLS/H3 transports reject the candidate before publication, at

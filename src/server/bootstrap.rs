@@ -1,4 +1,5 @@
 #[cfg(any(
+    feature = "edge",
     all(
         feature = "postgres",
         feature = "hosting",
@@ -38,6 +39,12 @@ pub async fn start_services(
     // Fleet dispatch is shared server infrastructure, including for extensions.
     claviron_orbit::placement::OrbitDispatcher::register(&state)?;
     let mut runtime = Runtime::default();
+    #[cfg(feature = "edge")]
+    {
+        runtime = runtime.with_execution_driver(Arc::new(
+            claviron_runtime::execution::CurrentThreadDriver::default(),
+        ))?;
+    }
     if let Some(dispatcher) =
         registry.resolve::<claviron_orbit::placement::OrbitDispatcher>()
     {
@@ -205,7 +212,13 @@ pub async fn start_services(
 
     // Even an unsuccessful drain has joined every runnable. Each run() future
     // owns its graceful teardown; finalize only after that boundary.
-    let finalization = registry.finalize_all(&state).await?;
+    let finalization = registry.finalize_all(&state).await;
+    // Shared I/O drivers outlive provider cleanup, even if cleanup fails.
+    let execution_finalization = runtime.finalize_execution().await;
+    if let Err(error) = &execution_finalization {
+        error!(%error, "execution driver finalization failed");
+    }
+    let finalization = finalization?;
     #[cfg(feature = "supervisor")]
     let mut failed_finalizers = 0usize;
     for failure in finalization.failures() {
@@ -237,6 +250,7 @@ pub async fn start_services(
 
     runtime_result?;
     drain_result?;
+    execution_finalization?;
     if finalization.failures().is_empty() {
         if is_worker {
             tracing::info!(

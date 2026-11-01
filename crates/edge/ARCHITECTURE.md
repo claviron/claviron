@@ -44,6 +44,21 @@ Accepted bodies, sessions and capacity remain with their native owners through
 drain; the [graceful ownership contract](../../docs/design/GRACEFUL_OWNERSHIP.md)
 defines termination authority. Configured quota changes currently require restart.
 
+`HttpServer`, `HttpsServer` and `H3Server` remain configuration/DI owners.
+Each declares one `Listener:<id>` runnable per configured listener. Unchanged
+allocations retain their management identity; removals cancel and drain only
+that listener. Re-adding a draining declaration retains its handle. Changing
+transport ownership requires stopping the old instance and reconciling before
+starting the replacement. All addresses of one listener share its gate and
+run generation; sibling listeners have independent lifetimes.
+
+`http.yaml` may select `plain_execution: current_thread`: each cleartext
+listener gets a named, process-local executor domain reused across its
+generations. Its reactor survives provider finalization for pooled I/O cleanup.
+The default `shared` uses ambient Tokio; TLS/H2/H3 execution is unchanged.
+Bind, accept and connection tasks stay on the selected executor. Execution
+changes apply to the next instance start/restart, never an active connection.
+
 Relative disk paths remain process-working-directory relative. Prefix mappings
 inherit the nearest declared `path`; URL-derived dot segments are rejected.
 Policy-only children retain applicable static mounts and mount-relative rules
@@ -79,6 +94,7 @@ Features compile capabilities; declarations and registration select what runs.
 - [`access.rs`](src/access.rs) — Optional access-record producer and response-body accounting guard.
 - [`listener.rs`](src/listener.rs) — Hosting alias notifications and atomic candidate updates; PostgreSQL NOTIFY or hosting events.
 - [`transport.rs`](src/transport.rs) — Public transport-facing re-exports; loader and service remain internal.
+- [`transport/instances.rs`](src/transport/instances.rs) — Cold listener declarations, retained handles and weak references to draining instances.
 
 ### `config/`
 
@@ -191,7 +207,7 @@ Features compile capabilities; declarations and registration select what runs.
 ### `tcp/plain/`
 
 - [`plain.rs`](src/tcp/plain.rs) — Cleartext H1 driver exports.
-- [`server.rs`](src/tcp/plain/server.rs) — HttpServer configuration, snapshots and runnable registration; `connection_handler` prepares a typed listener without binding or provider boot.
+- [`server.rs`](src/tcp/plain/server.rs) — HttpServer configuration, snapshots and named listener registration; `connection_handler` prepares a typed listener without binding or provider boot.
 - [`conn.rs`](src/tcp/plain/conn.rs) — Socket/context setup, H1 driving and connection drain; public `ConnectionHandler` serves caller-accepted streams through the same native path.
 - [`handler.rs`](src/tcp/plain/handler.rs) — Per-request cleartext host selection, non-SSL policy and native dispatch.
 - [`redirect.rs`](src/tcp/plain/redirect.rs) — HTTPS redirect using validated authority and the declared port.
@@ -201,7 +217,7 @@ Features compile capabilities; declarations and registration select what runs.
 ### `tcp/secure/`
 
 - [`secure.rs`](src/tcp/secure.rs) — TLS H1/H2 driver exports.
-- [`server.rs`](src/tcp/secure/server.rs) — HttpsServer lifecycle and listener/TLS policy preparation.
+- [`server.rs`](src/tcp/secure/server.rs) — HttpsServer configuration owner, named listener lifetimes and TLS policy preparation.
 - [`tls.rs`](src/tcp/secure/tls.rs) — ClientHello/SNI authentication, ALPN intersection and TLS policy epochs.
 - [`conn.rs`](src/tcp/secure/conn.rs) — Verified TLS metadata and the accepted host/application binding.
 - [`handler.rs`](src/tcp/secure/handler.rs) — TLS handshake deadline, H1/H2 driving and graceful/forced connection drain.
@@ -210,7 +226,7 @@ Features compile capabilities; declarations and registration select what runs.
 ### `quic/`
 
 - [`mod.rs`](src/quic/mod.rs) — Native H3 driver exports.
-- [`types.rs`](src/quic/types.rs) — H3 configuration owner, environment binding, snapshots and runnable lifecycle.
+- [`types.rs`](src/quic/types.rs) — H3 configuration owner, environment binding, snapshots and named listener lifetimes.
 - [`tls.rs`](src/quic/tls.rs) — Deferred SNI authentication and coherent host/TLS selector views.
 - [`listener.rs`](src/quic/listener.rs) — Endpoint groups, connection capacity, concurrent request/session stream driving.
 - [`listener/drain.rs`](src/quic/listener/drain.rs) — Join connection-owned children on completion, explicit force or panic.
@@ -225,6 +241,8 @@ Test files mirror their owning modules. They exercise parsing, routing, body
 ownership and isolated state transitions without provider boot or live listeners.
 
 ### Entry and configuration
+
+- [`transport/instances.rs`](tests/transport/instances.rs) — Retain unchanged/draining listener identities and release retired allocations.
 
 - [`authority.rs`](tests/authority.rs) — Authority rejection precedes body/auth/application dispatch.
 - [`deny.rs`](tests/deny.rs) — Deny proof identity and unchanged request ownership.

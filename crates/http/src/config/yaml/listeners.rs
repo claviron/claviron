@@ -135,6 +135,19 @@ impl ListenerConfig {
 }
 
 impl ListenerConfig {
+    /// Two logical listeners cannot own the same explicit transport bind.
+    /// Port zero requests separate ephemeral sockets and is not a collision.
+    pub fn binding_conflicts(
+        &self,
+        other: &Self,
+    ) -> bool {
+        self.transport() == other.transport()
+            && self
+                .listen
+                .iter()
+                .any(|addr| addr.port() != 0 && other.listen.contains(addr))
+    }
+
     pub fn transport(&self) -> ListenerTransport {
         match self.settings {
             ListenerSettings::Tcp(_) => ListenerTransport::Tcp,

@@ -14,6 +14,11 @@ pub trait ListenerSnapshot {
         &self,
         other: &Self,
     ) -> bool;
+    /// Whether both snapshots would compete for the same non-ephemeral bind.
+    fn binding_conflicts(
+        &self,
+        other: &Self,
+    ) -> bool;
 }
 
 type Groups<S> = BTreeMap<ListenerId, Arc<S>>;
@@ -23,12 +28,15 @@ type Groups<S> = BTreeMap<ListenerId, Arc<S>>;
 /// accepted connections only load the lock-free current snapshot.
 pub struct ListenerSnapshots<S> {
     current: ArcSwapOption<Groups<S>>,
-    active: Mutex<Option<Arc<Groups<S>>>>,
+    active: Mutex<Groups<S>>,
 }
 
 impl<S> Default for ListenerSnapshots<S> {
     fn default() -> Self {
-        Self { current: ArcSwapOption::empty(), active: Mutex::new(None) }
+        Self {
+            current: ArcSwapOption::empty(),
+            active: Mutex::new(BTreeMap::new()),
+        }
     }
 }
 
@@ -49,19 +57,16 @@ impl<S: ListenerSnapshot> ListenerSnapshots<S> {
             .active
             .lock()
             .map_err(|_| Error::msg("listener lifecycle lock poisoned"))?;
-        if let Some(active) = active.as_ref() {
-            if active.len() != candidate.len() {
-                return Err(Error::msg(
-                    "listener groups changed; service restart required",
-                ));
-            }
-            for (id, previous) in active.iter() {
-                if !candidate
-                    .get(id)
-                    .is_some_and(|next| previous.same_binding(next))
-                {
+        for (id, previous) in active.iter() {
+            for (next_id, next) in &candidate {
+                if id == next_id && !previous.same_binding(next) {
                     return Err(Error::msg(format!(
                         "listener '{id}' bind/gate changed; service restart required"
+                    )));
+                }
+                if id != next_id && previous.binding_conflicts(next) {
+                    return Err(Error::msg(format!(
+                        "listener '{next_id}' conflicts with running listener '{id}'; stop it before changing ownership"
                     )));
                 }
             }
@@ -81,12 +86,47 @@ impl<S: ListenerSnapshot> ListenerSnapshots<S> {
             .active
             .lock()
             .map_err(|_| Error::msg("listener lifecycle lock poisoned"))?;
-        if active.is_some() {
+        if !active.is_empty() {
             return Err(Error::msg("listener generation is already running"));
         }
         let groups = Arc::new(candidate);
-        *active = Some(groups.clone());
+        *active = groups.as_ref().clone();
         self.current.store(Some(groups.clone()));
+        Ok(ActiveListeners { owner: self, groups })
+    }
+
+    /// Start one independently managed listener without replacing its siblings.
+    /// The guard owns this listener's bind/gate generation through drain.
+    pub fn start_listener(
+        &self,
+        snapshot: Arc<S>,
+    ) -> Result<ActiveListeners<'_, S>> {
+        let id = snapshot.listener_id().clone();
+        let mut active = self
+            .active
+            .lock()
+            .map_err(|_| Error::msg("listener lifecycle lock poisoned"))?;
+        if active.contains_key(&id) {
+            return Err(Error::msg(format!(
+                "listener '{id}' is already running"
+            )));
+        }
+        for (other_id, other) in active.iter() {
+            if other.binding_conflicts(&snapshot) {
+                return Err(Error::msg(format!(
+                    "listener '{id}' conflicts with running listener '{other_id}'"
+                )));
+            }
+        }
+        let groups = Arc::new(BTreeMap::from([(id.clone(), snapshot.clone())]));
+        let mut current = self
+            .current
+            .load_full()
+            .map(|groups| groups.as_ref().clone())
+            .unwrap_or_default();
+        current.insert(id.clone(), snapshot.clone());
+        active.insert(id, snapshot);
+        self.current.store(Some(Arc::new(current)));
         Ok(ActiveListeners { owner: self, groups })
     }
 }
@@ -105,7 +145,14 @@ impl<S> ActiveListeners<'_, S> {
 impl<S> Drop for ActiveListeners<'_, S> {
     fn drop(&mut self) {
         if let Ok(mut active) = self.owner.active.lock() {
-            *active = None;
+            for (id, snapshot) in self.groups.iter() {
+                if active
+                    .get(id)
+                    .is_some_and(|owned| Arc::ptr_eq(owned, snapshot))
+                {
+                    active.remove(id);
+                }
+            }
         }
     }
 }

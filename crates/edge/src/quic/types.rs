@@ -3,9 +3,10 @@
 //! run owns one fresh bind/admission/drain generation.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::deny::DenyService;
+use crate::transport::instances::ListenerInstances;
 use crate::transport::{HostAppResolver, VhostResolver, WebTransportRegistry};
 use async_trait::async_trait;
 use claviron_http::ListenerId;
@@ -20,7 +21,7 @@ use claviron_runtime::congif::{
 use claviron_runtime::registry::{
     Component, Error, Reloadable, Resolve, Runnable, priority,
 };
-use claviron_runtime::{AppState, Register, RunContext};
+use claviron_runtime::{AppState, Register, RunContext, RunnableInstance};
 use claviron_tls::orbit::{FleetServerSessions, FleetServerSessionsProvider};
 use claviron_tls::resolver::CertResolver;
 use claviron_tls::revocation::Revocations;
@@ -49,6 +50,13 @@ impl ListenerSnapshot for ServerSnapshot {
         other: &Self,
     ) -> bool {
         self.listener.same_binding(&other.listener)
+    }
+
+    fn binding_conflicts(
+        &self,
+        other: &Self,
+    ) -> bool {
+        self.listener.binding_conflicts(&other.listener)
     }
 }
 
@@ -100,12 +108,30 @@ impl Deps {
 pub struct H3Server {
     pub(crate) state: AppState,
     pub(crate) current: ListenerSnapshots<ServerSnapshot>,
+    instances: Mutex<ListenerInstances<H3Listener>>,
 }
 
 impl H3Server {
     /// Lightweight constructor (no I/O, no registry lookups).
     pub fn empty(state: AppState) -> Self {
-        Self { state, current: ListenerSnapshots::default() }
+        Self {
+            state,
+            current: ListenerSnapshots::default(),
+            instances: Mutex::default(),
+        }
+    }
+
+    fn configure_instances(
+        &self,
+        config: &H3ServerConfig,
+    ) {
+        self.instances
+            .lock()
+            .expect("QUIC listener declarations poisoned")
+            .reconcile(config.listeners.keys(), |id| H3Listener {
+                id: id.clone(),
+                name: format!("Listener:{id}").into(),
+            });
     }
 
     /// A reload or a source change receives no component dependencies; it
@@ -208,6 +234,7 @@ impl TryFrom<HttpSnapshot> for H3ServerConfig {
             matches!(listener.settings, ListenerSettings::Quic(_))
         });
         config.watchdog = None;
+        config.plain_execution = Default::default();
         #[cfg(feature = "metrics")]
         {
             config.metrics = Arc::default();
@@ -232,9 +259,10 @@ impl Configurable for H3Server {
 
     async fn configure(
         &self,
-        _config: &H3ServerConfig,
+        config: &H3ServerConfig,
     ) -> congif::Result<()> {
         // Binding waits until run: sibling runtime dependencies must be ready.
+        self.configure_instances(config);
         Ok(())
     }
 
@@ -254,9 +282,10 @@ impl ConfigObserver for H3Server {
         let deps =
             self.resolve_deps(&self.state).map_err(congif::Error::msg)?;
         let snapshot = build_snapshots(config, deps.as_ref())
-        .map_err(congif::Error::msg)?;
+            .map_err(congif::Error::msg)?;
         self.current.publish(snapshot.clone()).map_err(congif::Error::msg)?;
         prepare_vhosts(&deps, &snapshot).map_err(congif::Error::msg)?;
+        self.configure_instances(config);
         info!("🔁 H3Server reconfigured");
         Ok(())
     }
@@ -294,10 +323,15 @@ impl Component<AppState> for H3Server {
         Some(self)
     }
 
-    fn as_runnable(
-        self: std::sync::Arc<Self>
-    ) -> Option<std::sync::Arc<dyn Runnable<AppState, Self::Deps>>> {
-        Some(self)
+    fn runnables(self: Arc<Self>) -> Vec<RunnableInstance<AppState>> {
+        self.instances
+            .lock()
+            .expect("QUIC listener declarations poisoned")
+            .iter()
+            .map(|instance| {
+                RunnableInstance::new(instance.name.clone(), instance.clone())
+            })
+            .collect()
     }
 }
 
@@ -312,12 +346,11 @@ impl Reloadable<AppState> for H3Server {
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
         let deps = self.resolve_deps(state)?;
-        let snapshot = build_snapshots(
-            state.config_reader().snapshot::<Self>()?.as_ref(),
-            deps.as_ref(),
-        )?;
+        let config = state.config_reader().snapshot::<Self>()?;
+        let snapshot = build_snapshots(&config, deps.as_ref())?;
         self.current.publish(snapshot.clone())?;
         prepare_vhosts(&deps, &snapshot)?;
+        self.configure_instances(&config);
         info!("🔁 H3Server reloaded");
         Ok(())
     }
@@ -334,14 +367,19 @@ impl H3Server {
     }
 }
 
+struct H3Listener {
+    id: ListenerId,
+    name: Arc<str>,
+}
+
 #[async_trait]
-impl Runnable<AppState, ServerDeps> for H3Server {
+impl Runnable<AppState, (Arc<H3Server>, ServerDeps)> for H3Listener {
     async fn run(
         self: Arc<Self>,
-        deps: ServerDeps,
+        (server, deps): (Arc<H3Server>, ServerDeps),
         _state: AppState,
         context: RunContext,
     ) -> Result<(), Error> {
-        self.serve(deps, context).await
+        server.run_listener(&self.id, Deps::bind(deps)?, context).await
     }
 }
