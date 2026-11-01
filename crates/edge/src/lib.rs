@@ -14,48 +14,35 @@
 mod access;
 pub mod config;
 
-#[cfg(all(feature = "server", feature = "db"))]
+#[cfg(feature = "db")]
 mod listener;
 // `pipeline` prepares native host plans and optional Rust application adapters.
 // `transport` is what a transport driver resolves a host with.
 // `loader` combines host declarations; `service` is the machinery behind them.
 // neither is anyone else's business, so neither is public. See `transport`.
-#[cfg(feature = "server")]
 pub(crate) mod loader;
-#[cfg(feature = "server")]
 pub mod pipeline;
-#[cfg(feature = "server")]
 pub use pipeline::ext as extension;
-#[cfg(feature = "server")]
 mod provider;
-#[cfg(feature = "server")]
 pub(crate) mod service;
 #[cfg(feature = "rate-limit")]
 pub use pipeline::layers::HostQuotas;
-#[cfg(feature = "server")]
 pub mod transport;
 
-#[cfg(feature = "server")]
 use std::sync::Arc;
 
-#[cfg(feature = "server")]
 use claviron_runtime::AppState;
-#[cfg(feature = "server")]
 use claviron_runtime::registry::{
     Component, Error as RegistryError, Result as RegistryResult,
 };
-#[cfg(feature = "server")]
 pub use loader::config::VhostDocument;
 pub use loader::error::{Error, Result};
-#[cfg(feature = "server")]
 pub use loader::resolver::{HostBinding, VhostResolver};
-#[cfg(feature = "server")]
 pub use provider::{
     HttpConfigProvider, http_config_path, register_http_config,
     register_http_config_with_capabilities,
 };
 
-#[cfg(feature = "server")]
 use crate::pipeline::HostAppResolver;
 
 /// Code-owned alternative to a host's `rate_limit` configuration. The supplied
@@ -74,7 +61,6 @@ pub fn register_quota<K: claviron_http::rate_limit::KeyProvider + 'static>(
     hosts.register_quota(host, prefix, limiter)
 }
 
-#[cfg(feature = "server")]
 pub fn register(state: &AppState) -> RegistryResult<()> {
     use claviron_runtime::Register;
     let registry = state.registry_ref();
@@ -136,7 +122,6 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
 /// preparation rather than silently replacing another host. Listener and TLS
 /// preparation use the ordinary Edge lifecycle; this does not open a listener.
 /// Routes are registered separately with `register_routable`.
-#[cfg(feature = "server")]
 pub fn register_host(
     state: &AppState,
     host: Host,
@@ -163,7 +148,6 @@ pub fn register_host(
 /// routers; use the normal full reload to apply its hosting changes.
 /// [`VhostDocument`] can be nested in the owner's config without duplicating
 /// the host schema or its declaration equality; return its `declarations()`.
-#[cfg(feature = "server")]
 pub fn register_hosts(
     state: &AppState,
     source: impl Fn(&AppState) -> Result<Vec<(Host, Arc<HostConfig>)>>
@@ -185,7 +169,6 @@ pub fn register_hosts(
 /// The provider is inserted into the normal runtime registry so its lifecycle
 /// hooks run like any other provider. The same `Arc` is also added to the
 /// `HostAppRegistry`, which is only consulted while building a host snapshot.
-#[cfg(feature = "server")]
 pub fn register_routable<R>(
     state: &AppState,
     provider: Arc<R>,
@@ -203,7 +186,6 @@ where
 }
 
 /// Register a provider that exclusively owns selected edge hosts.
-#[cfg(feature = "server")]
 pub fn register_host_binding_provider<R>(
     state: &AppState,
     provider: Arc<R>,
@@ -222,24 +204,21 @@ where
 
 pub use claviron_types::Host;
 pub use config::HostConfig;
-#[cfg(feature = "server")]
 pub use pipeline::Routable;
-#[cfg(feature = "server")]
 pub use pipeline::other::{OtherHandler, OtherService};
-#[cfg(feature = "server")]
 pub use pipeline::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
     HostAppRegistry, HostBindingProvider, RouteBinding, RustRouter,
 };
-#[cfg(all(feature = "server", feature = "websocket"))]
+#[cfg(feature = "websocket")]
 pub use pipeline::{
     H1UpgradeAccept, H1UpgradeAuthenticated, H1UpgradeBinding,
     H1UpgradeContext, H1UpgradeHandler, H1UpgradeRegistry, H1UpgradeReject,
     H1UpgradeResult, H1UpgradeRoute, H1UpgradeState, is_h1_header_upgrade,
     websocket_accept_key, websocket_response_headers,
 };
-#[cfg(all(feature = "server", feature = "webtransport"))]
+#[cfg(feature = "webtransport")]
 pub use pipeline::{
     H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,
     WebTransportBinding, WebTransportHandler, WebTransportRegistry,

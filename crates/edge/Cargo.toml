@@ -15,48 +15,33 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 
 [features]
 default = []
-rate-limit = ["server", "claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/quota"]
+rate-limit = ["claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/quota"]
 acme = ["claviron-http/acme"]
-server = [
-    "claviron-http/server",
-    "dep:futures-util",
-    "dep:regex",
-    "dep:http-body",
-    "dep:http-body-util",
-]
 # Optional Rust application/router adapters; native host compilation is independent.
 axum = [
-    "server",
     "dep:axum",
-    "dep:http-body",
     "claviron-http/axum",
     "claviron-pusher?/axum",
 ]
-upstream = ["server", "dep:claviron-upstream"]
+upstream = ["dep:claviron-upstream"]
 # One access record per request, to the log channel logging.yaml names.
 access-log = [
-    "server",
     "dep:claviron-logging",
     "claviron-logging/pipeline",
-    "dep:http-body",
-    "dep:http-body-util",
 ]
-websocket = ["server", "claviron-http/websocket", "claviron-lua?/websocket", "dep:hyper"]
+websocket = ["claviron-http/websocket", "claviron-lua?/websocket", "dep:hyper"]
 
 # Configured Pusher REST endpoints currently use an optional Rust router adapter.
-broadcast = ["server", "axum", "dep:claviron-pusher", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
+broadcast = ["axum", "dep:claviron-pusher", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
 
 php = ["dep:claviron-php"]
-php_fcgi = ["server", "php", "dep:claviron-php-fcgi", "claviron-php?/php_fcgi"]
-php_embed = ["server", "php", "dep:claviron-php-embed", "claviron-php?/php_embed"]
-lua = ["server", "dep:claviron-lua", "claviron-http/lua"]
+php_fcgi = ["php", "dep:claviron-php-fcgi", "claviron-php?/php_fcgi"]
+php_embed = ["php", "dep:claviron-php-embed", "claviron-php?/php_embed"]
+lua = ["dep:claviron-lua", "claviron-http/lua"]
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
     "claviron-http/orbit",
-    "server",
     "dep:claviron-orbit",
-    "dep:http-body-util",
-    "dep:http-body",
     "dep:percent-encoding",
     "dep:tokio-util",
     # Edge owns the upgrade and protocol; Link carries whole messages.
@@ -70,20 +55,19 @@ orbit = [
 db = ["dep:claviron-db", "dep:claviron-hosting", "claviron-hosting/server"]
 postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
 metrics = ["axum", "claviron-http/metrics"]
-http3 = ["server", "claviron-http/http3"]
+http3 = ["claviron-http/http3"]
 webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport", "claviron-lua?/webtransport"]
 # Native drivers are opt-in; host declarations alone open no sockets.
 tcp = [
-    "server", "claviron-types/ssl", "dep:claviron-sys",
-    "dep:hyper", "dep:hyper-util", "dep:http-body-util",
-    "dep:futures-util", "dep:socket2",
+    "claviron-types/ssl", "dep:claviron-sys",
+    "dep:hyper", "dep:hyper-util",
+    "dep:socket2",
 ]
 tls = ["dep:rustls", "dep:tokio-rustls"]
 # Preserve the native H3 driver's existing WebTransport binding contract.
 quic = [
     "http3", "webtransport", "claviron-types/ssl", "dep:claviron-sys",
     "dep:h3", "dep:quinn", "dep:quinn-deferred-config", "dep:rustls",
-    "dep:futures-util", "dep:http-body", "dep:http-body-util",
 ]
 geoip = ["dep:claviron-geoip"]
 
@@ -112,11 +96,11 @@ claviron-upstream = { workspace = true, optional = true }
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
 async-trait.workspace = true
-futures-util = { workspace = true, optional = true }
+futures-util.workspace = true
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"], optional = true }
 
-regex = { workspace = true, optional = true }
+regex.workspace = true
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde.workspace = true
@@ -126,8 +110,8 @@ serde_yaml.workspace = true
 # ── HTTP core ───────────────────────────────────────────────────────────
 fastwebsockets = { workspace = true, optional = true }
 http.workspace = true
-http-body = { workspace = true, optional = true }
-http-body-util = { workspace = true, optional = true }
+http-body.workspace = true
+http-body-util.workspace = true
 hyper = { workspace = true, optional = true }
 hyper-util = { workspace = true, optional = true }
 percent-encoding = { workspace = true, optional = true }

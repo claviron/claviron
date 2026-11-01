@@ -1,4 +1,4 @@
-#![cfg(all(feature = "server", feature = "axum"))]
+#![cfg(feature = "axum")]
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

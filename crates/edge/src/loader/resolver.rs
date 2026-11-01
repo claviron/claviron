@@ -915,10 +915,10 @@ impl Reloadable<AppState> for VhostResolver {
 #[path = "../../tests/loader/resolver.rs"]
 mod order_tests;
 
-#[cfg(all(test, feature = "server"))]
+#[cfg(test)]
 #[path = "../../tests/loader/binding.rs"]
 mod binding_tests;
 
-#[cfg(all(test, feature = "server"))]
+#[cfg(test)]
 #[path = "../../tests/loader/resolver/selection.rs"]
 mod selection_tests;

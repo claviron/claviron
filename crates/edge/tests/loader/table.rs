@@ -12,7 +12,6 @@ fn incompatible_declared_alias_types_are_rejected() {
 }
 
 #[test]
-#[cfg(feature = "server")]
 fn aliases_share_compiled_acl_and_old_tables_keep_their_rules() {
     let table: VhostTable = serde_yaml::from_str(
         "app.test: {root: public, aliases: [alias.test], acl: {'/': {policy: deny}}}"
@@ -47,7 +46,6 @@ fn aliases_share_compiled_acl_and_old_tables_keep_their_rules() {
 }
 
 #[test]
-#[cfg(feature = "server")]
 fn host_selectors_are_validated_against_named_listener_definitions() {
     let http = serde_yaml::from_str::<claviron_http::config::HttpYaml>(
         "listeners: {public: {transport: tcp, protocols: h1, listen: '127.0.0.1:80', requests: {max_body_size: off, body_read_timeout: off}}}"

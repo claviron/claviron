@@ -19,7 +19,6 @@ pub struct VhostRecord {
 #[derive(Clone)]
 struct VhostEntry {
     record: Arc<VhostRecord>,
-    #[cfg(feature = "server")]
     application: Option<crate::pipeline::RustRouter>,
 }
 
@@ -41,13 +40,11 @@ fn default_host() -> &'static Host {
 #[derive(Clone, Default)]
 pub struct VhostTable {
     inner: Arc<HashMap<Host, VhostEntry>>,
-    #[cfg(feature = "server")]
     prepared: HashMap<std::any::TypeId, Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 impl VhostTable {
     /// A cold-prepared dependency of this exact table publication.
-    #[cfg(feature = "server")]
     pub fn prepared<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.prepared.get(&std::any::TypeId::of::<T>())?.clone().downcast().ok()
     }
@@ -58,7 +55,6 @@ impl VhostTable {
         self.prepared.get(&std::any::TypeId::of::<T>())?.downcast_ref()
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn set_prepared(
         &mut self,
         id: std::any::TypeId,
@@ -77,7 +73,6 @@ impl VhostTable {
     }
 
     /// Dependencies may retain this host view without retaining themselves.
-    #[cfg(feature = "server")]
     pub fn declarations_only(&self) -> Self {
         let inner =
             if self.inner.values().any(|entry| entry.application.is_some()) {
@@ -101,7 +96,6 @@ impl VhostTable {
         Self { inner, prepared: HashMap::new() }
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn retain_unchanged(
         &mut self,
         previous: &Self,
@@ -176,7 +170,6 @@ impl VhostTable {
 
     /// Select config and application from the same published name binding.
     /// Default fallback is identical to declaration-only resolution.
-    #[cfg(feature = "server")]
     pub(crate) fn resolve_with_application(
         &self,
         host: &Host,
@@ -209,7 +202,6 @@ impl VhostTable {
 
     /// Cross-reference explicit selectors before publishing a host table.
     /// Omitted selectors do not require an HTTP listener provider (CLI use).
-    #[cfg(feature = "server")]
     /// Every host's `access_log` names `off` or a channel `declared` knows.
     /// Checked at load, so a misspelt channel is a configuration error and
     /// not a host whose records silently go nowhere.
@@ -285,7 +277,6 @@ impl VhostTable {
             .map(|record| Arc::clone(&record.config))
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn host_keys_for_canonical(
         &self,
         canonical: &Host,
@@ -298,7 +289,6 @@ impl VhostTable {
             .collect()
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn record(
         &self,
         key: &Host,
@@ -352,7 +342,6 @@ impl VhostTable {
                         canonical,
                         config,
                     }),
-                    #[cfg(feature = "server")]
                     application: None,
                 });
                 true
@@ -360,7 +349,6 @@ impl VhostTable {
         }
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn remove_host(
         &mut self,
         canonical: &Host,
@@ -371,7 +359,6 @@ impl VhostTable {
         before.saturating_sub(next.len())
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn remove_alias(
         &mut self,
         alias: &Host,
@@ -385,7 +372,6 @@ impl VhostTable {
         }
     }
 
-    #[cfg(feature = "server")]
     pub(crate) fn remove_exact(
         &mut self,
         key: &Host,
