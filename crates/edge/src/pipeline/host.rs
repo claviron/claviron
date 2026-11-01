@@ -30,6 +30,8 @@ pub(crate) mod compile;
 mod dispatch;
 mod cors;
 mod headers;
+#[cfg(feature = "acme")]
+mod http01;
 mod extension;
 mod files;
 mod handler;
@@ -45,7 +47,9 @@ mod websocket;
 pub use acl::AclLayer;
 pub use deny::DenyLayer;
 pub use proxy::ProxyLayer;
-pub use redirect::RedirectLayer;
+pub use redirect::{RedirectLayer, HttpsRedirectLayer};
+#[cfg(feature = "acme")]
+pub use http01::Http01Layer;
 #[cfg(feature = "access-log")]
 pub use access_log::{AccessLogLayer, AccessLogState};
 pub use admission::{AdmissionPolicy, CapacityLayer, CapacityState};

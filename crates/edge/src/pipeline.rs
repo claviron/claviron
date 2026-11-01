@@ -35,7 +35,7 @@ pub use host::WebSocketStage;
 #[cfg(feature = "access-log")]
 pub use host::{AccessLogLayer, AccessLogState};
 pub use host::{
-    AclLayer, DenyLayer, ProxyLayer, RedirectLayer, AdmissionPolicy, CapacityLayer, CapacityState, AsyncHeadAction, ApplicationHandler,
+    AclLayer, DenyLayer, ProxyLayer, RedirectLayer, HttpsRedirectLayer, AdmissionPolicy, CapacityLayer, CapacityState, AsyncHeadAction, ApplicationHandler,
     DispatchFuture, DispatchResult,
     DispatchStep, CorsLayer, CorsState, HeaderClearLayer, HeaderSetLayer, prepare_headers, HostHandler, HostHandlerFuture,
     HostHandlerResult, HostLayer, HostLayerBuilder, HostPipeline,
@@ -55,3 +55,6 @@ pub use wt::{
 
 #[cfg(feature = "http3")]
 pub use host::EarlyDataLayer;
+
+#[cfg(feature = "acme")]
+pub use host::Http01Layer;

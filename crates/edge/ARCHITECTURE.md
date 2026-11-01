@@ -169,11 +169,12 @@ extension insertion. Rust router and backend calls implement `HostLayer`.
 - [`proxy.rs`](src/pipeline/host/proxy.rs) — Trusted-peer forwarding layer; only request RealIpExt changes.
 - [`acl.rs`](src/pipeline/host/acl.rs) — Explicit ACL layer; borrow accepted identity or a selected forwarding result.
 - [`acl/path.rs`](src/pipeline/host/acl/path.rs) — Compiled segment ACLs and unambiguous comparison paths.
-- [`redirect.rs`](src/pipeline/host/redirect.rs) — Explicit redirect layer and prepared Location templates.
+- [`redirect.rs`](src/pipeline/host/redirect.rs) — Explicit configured/HTTPS redirect layers and prepared Location values.
 - [`quota.rs`](src/pipeline/host/quota.rs) — Prepared rate admission and committed optional response snapshot.
 - [`quota/prepare.rs`](src/pipeline/host/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
 - [`cors.rs`](src/pipeline/host/cors.rs) — Explicit CORS layer, boot-compiled origin matcher and request-owned accepted origin.
 - [`cors/rules.rs`](src/pipeline/host/cors/rules.rs) — Origin admission, preflight response and CORS response headers.
+- [`http01.rs`](src/pipeline/host/http01.rs) — Optional ACME file layer with validated single-component tokens.
 - [`headers.rs`](src/pipeline/host/headers.rs) — Separate Set/Clear layers and cold header inheritance.
 - [`admission.rs`](src/pipeline/host/admission.rs) — Explicit capacity layer, permit lifetime and queue/head timing helpers.
 - [`request_body.rs`](src/pipeline/host/request_body.rs) — Explicit size/idle bounds; empty bodies keep their original owner.
