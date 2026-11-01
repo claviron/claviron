@@ -16,7 +16,7 @@ fn request(
     policy: Option<DispatchPolicy>,
 ) -> DispatchRequest {
     DispatchRequest {
-        name: "ExampleService",
+        name: "ExampleService".into(),
         generation: 1,
         scope: Scope::Worker,
         dispatch,
@@ -38,7 +38,7 @@ fn service_policy_needs_no_named_or_shared_configuration() {
 fn generation_keeps_its_declared_policy_and_invalid_timing_is_rejected() {
     let dispatcher = OrbitDispatcher::new();
     let original = request(Dispatch::Pool, Some(policy()));
-    let mut next = original;
+    let mut next = original.clone();
     next.policy.as_mut().unwrap().capacity = NonZeroU16::new(4).unwrap();
     assert_eq!(dispatcher.policy(&original).unwrap().capacity.get(), 3);
     assert_eq!(dispatcher.policy(&next).unwrap().capacity.get(), 4);

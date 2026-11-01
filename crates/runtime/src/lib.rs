@@ -12,6 +12,7 @@
 //! share this error type.
 pub mod env;
 pub mod events;
+pub mod execution;
 mod server_name;
 mod state;
 
@@ -31,12 +32,14 @@ pub use continuo::registry::{
     AnyComponent, AnyRunnable, Bootable, BoxError, Component, ComponentOrder,
     Error, Finalizable, FinalizeFailure, FinalizeOutcome, MissingDependency,
     Registry, ReloadFailure, ReloadOutcome, ReloadState, Reloadable, Resolve,
-    Result, Runnable, ValidationFailure, ValidationOutcome,
+    Result, Runnable, RunnableInstance, ValidationFailure, ValidationOutcome,
 };
 pub use continuo::{
-    HasEvents, HasRegistry, Register, RunContext, ServiceManager,
-    ServiceManagerError, ServiceSnapshot, ServiceStartPolicy, ServiceStatus,
-    SharedState, gate, guard, registry,
+    ExecutionDomain, ExecutionDriver, ExecutionFuture, ExecutionSpec,
+    ExecutorKind, ExecutorSpec, HasEvents, HasRegistry, PollPriority,
+    PreparedExecution, Register, RunContext, RunIdentity, SchedulingPolicy,
+    ServiceManager, ServiceManagerError, ServiceSnapshot, ServiceStartPolicy,
+    ServiceStatus, SharedState, gate, guard, registry,
 };
 pub use events::{EventDispatcher, ProcessStarted, ReopenLogs};
 pub use orbitive::FleetName;

@@ -4,7 +4,7 @@
 
 The generic runtime kernel lives in `continuo`:
 
-- `registry`: `Registry`, `Provider`, `Reloadable`, `Runnable`, `Finalizable`, lifecycle outcomes and errors, priorities, ordering.
+- `registry`: `Registry`, `Component`, `Reloadable`, `Runnable`, `RunnableInstance`, `Finalizable`, lifecycle outcomes and errors, priorities, ordering.
 - `events`: `ProcessEventBus`, `Event`, `ShutdownInitiated`.
 - `runtime`: `Runtime<S>`, the runnable task manager.
 - `gate`: `Gate`, `Permit`, and `GateDrainOutcome`, the listener capacity and graceful-drain primitive.
@@ -15,6 +15,19 @@ through `claviron_runtime`, while the implementation and maintenance boundary
 stays in `continuo`.
 
 ## Local Responsibilities
+
+`execution.rs` provides the optional `CurrentThreadDriver` for Continuo's
+generic execution contract. `execution/thread.rs` owns an OS thread, its Tokio
+current-thread runtime and physical join. `execution/resident.rs` owns submitted
+jobs and retains one reactor per typed shared domain across runnable generations.
+`execution/dedicated.rs` retains one reactor per admitted generation: root
+submission owns finalization; `execute_child` reuses that reactor for tracked
+children, including nested submissions.
+Generation submission and teardown use the bridge; request processing does not.
+Continuo drains submitted work before provider finalization, including aborted
+submitters. Shared reactors remain alive for provider cleanup of pooled I/O;
+`Runtime::finalize_execution` joins them last. Dedicated executors instead end
+with their generation. The driver supports inherited poll scheduling only.
 
 The opt-in `metrics` module owns `MetricsFamily`, `MetricsProvider` and
 registration, formerly a separate package. It uses `AppState` directly and
@@ -211,6 +224,13 @@ use claviron_runtime::{
 Claviron registers `runtime.manager()` before provider boot. Transports and
 future fleet adapters resolve that command capability; the runtime remains the
 only owner of live service generations and their status.
+
+Component names are borrowed as `&str`; Continuo owns retained instance names.
+One component may expose multiple `RunnableInstance` values with independent
+management names and generations. `RunContext::identity()` exposes their
+`RunIdentity` to execution adapters and child tasks. Metrics instrumentation
+remains application-owned. Tracked child submissions use the prepared execution
+adapter and remain owned through generation drain.
 
 Each `ServiceSnapshot` reports whether its provider implements `Reloadable`,
 the provider-owned `ServiceStartPolicy`, the current start generation, and a

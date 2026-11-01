@@ -40,7 +40,7 @@ pub struct OrbitDispatcher;
 impl Component<AppState> for OrbitDispatcher {
     type Deps = ();
 
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "OrbitDispatcher"
     }
 }
@@ -228,7 +228,7 @@ impl Dispatcher<AppState> for OrbitDispatcher {
                 joined = executions.join_next_with_id() => {
                     if let Some(joined) = joined
                         && let Err(error) = finish_execution(joined, &mut active) {
-                            warn!(service = request.name, %error, "dispatched execution failed during drain");
+                            warn!(service = %request.name, %error, "dispatched execution failed during drain");
                             if outcome.is_ok() { outcome = Err(error); }
                     }
                 }
@@ -319,7 +319,7 @@ fn acquire_missing(
     let members = match current_members(execution.state()) {
         Ok(members) => members,
         Err(error) => {
-            debug!(service = request.name, %error, "dispatch membership unavailable; acquisition deferred");
+            debug!(service = %request.name, %error, "dispatch membership unavailable; acquisition deferred");
             return Ok(());
         }
     };
@@ -346,12 +346,12 @@ fn acquire_missing(
         if active.values().any(|slot| slot.number == number) {
             continue;
         }
-        let ownership = coordinator.acquire(request.name, number, policy)?;
+        let ownership = coordinator.acquire(&request.name, number, policy)?;
         if ownership.is_none() && !matches!(coordinator, Coordinator::Local) {
             continue;
         }
-        let token = context.cancellation_token().child_token();
-        let child_context = RunContext::new(token.clone());
+        let child_context = context.child();
+        let token = child_context.cancellation_token();
         let child = execution.clone();
         let id = executions
             .spawn(async move { child.run(child_context).await })
@@ -361,7 +361,7 @@ fn acquire_missing(
             ActiveSlot { number, ownership, token, retiring: false },
         );
         debug!(
-            service = request.name,
+            service = %request.name,
             slot = number,
             "dispatched service slot acquired"
         );
@@ -382,7 +382,7 @@ fn renew_owned(
             Ok(true) => {}
             result => {
                 if !slot.retiring {
-                    warn!(service = request.name, slot = slot.number, result = ?result, "dispatch ownership lost; draining local execution");
+                    warn!(service = %request.name, slot = slot.number, result = ?result, "dispatch ownership lost; draining local execution");
                 }
                 slot.retiring = true;
                 slot.token.cancel();

@@ -1120,6 +1120,11 @@ Continuo and owns exact per-slot leases in the existing lock table/ring
 task controllers are unchanged: service dispatch does not introduce task
 timing, retry or schedule semantics into providers.
 
+Dispatch requests retain owned runnable-instance names. Each slot derives its
+context with `RunContext::child`, preserving the controller's instance/generation
+identity and prepared execution adapter. Cancellation remains slot-local;
+Continuo retains tracked descendants until that execution drains.
+
 Claviron's server bootstrap registers `OrbitDispatcher` as shared infrastructure
 and installs the same registry instance on Runtime before configuration and
 provider boot. Applications and extensions using that bootstrap do not register

@@ -701,7 +701,7 @@ impl HostAppRegistry {
     ) -> Result<RoutableHostBinding> {
         let mut applications = Vec::new();
         let mut layers = Vec::new();
-        let mut exclusive: Option<(&'static str, Binding)> = None;
+        let mut exclusive: Option<(&str, Binding)> = None;
         #[cfg(feature = "websocket")]
         let mut h1_upgrades = Vec::new();
 

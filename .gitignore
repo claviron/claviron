@@ -89,6 +89,7 @@ Desktop.ini
 *.orig
 *.rej
 core.*
+*.core
 
 # docs
 *.md
