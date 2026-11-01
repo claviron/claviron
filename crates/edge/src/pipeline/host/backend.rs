@@ -28,11 +28,11 @@ impl BackendPlan {
         host: &Host,
         config: &HostConfig,
     ) -> Self {
-        let files = Arc::new(fallback_config(config));
+        let files = fallback_config(config);
         let terminal = if files.spa.is_none() && !files.has_static_index() {
             OtherService::new(NotFound)
         } else {
-            OtherService::new(FileFallback { state: state.clone(), files })
+            OtherService::new(FileFallback { state: state.clone(), files: Arc::new(files) })
         };
         let steps = std::iter::empty::<Arc<dyn DispatchStep>>();
         #[cfg(feature = "orbit")]

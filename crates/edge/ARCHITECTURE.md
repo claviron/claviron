@@ -155,7 +155,8 @@ ACL and redirects have no live-policy side channel in the host resolver.
 Scope compilation puts extensions, WebSocket endpoints, Rust contributions,
 Static, TryFiles and configured backends into the same flat layer builder.
 There is no separate application/dispatch chain or automatic SelectedRoute
-extension insertion. Rust router and backend calls implement `HostLayer`.
+extension insertion. Rust router and backend calls implement `HostLayer`. Empty contributions keep
+the direct Rust owner; disabled file steps allocate no prepared file owner.
 
 - [`host.rs`](src/pipeline/host.rs) — HostLayer/HostPipeline types and typed request/reply capabilities.
 - [`builder.rs`](src/pipeline/host/builder.rs) — Flatten active actions once; failed layer preparation changes nothing.

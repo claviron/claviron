@@ -335,11 +335,6 @@ impl Binding {
             &host_cfg,
             build_h1_upgrade_registry(canonical, h1_upgrades)?,
         );
-        let owner = match &app {
-            #[cfg(feature = "axum")]
-            RustRouter::Axum(router) => super::app::owner(router.clone()),
-            RustRouter::Other(owner) => owner.clone(),
-        };
         let mut builder = HostPipelineBuilder::new();
         for layer in layers {
             builder.layer(layer.as_ref()).map_err(|error| Error::msg(error.to_string()))?;
@@ -351,17 +346,17 @@ impl Binding {
         for application in applications {
             builder.layer(application.clone()).map_err(|error| Error::msg(error.to_string()))?;
         }
-        let layered = super::host::bind_other(builder, owner.clone())
-            .map_err(|error| Error::msg(error.to_string()))?;
-        let unchanged = match (&owner, &layered) {
-            (
-                OtherService::Handler(original),
-                OtherService::Handler(prepared),
-            ) => Arc::ptr_eq(original, prepared),
-            (OtherService::Noop, OtherService::Noop) => true,
-            _ => false,
+        if builder.is_empty() {
+            return Ok(app);
+        }
+        let owner = match &app {
+            #[cfg(feature = "axum")]
+            RustRouter::Axum(router) => super::app::owner(router.clone()),
+            RustRouter::Other(owner) => owner.clone(),
         };
-        Ok(if unchanged { app } else { RustRouter::Other(layered) })
+        let layered = super::host::bind_other(builder, owner)
+            .map_err(|error| Error::msg(error.to_string()))?;
+        Ok(RustRouter::Other(layered))
     }
 }
 

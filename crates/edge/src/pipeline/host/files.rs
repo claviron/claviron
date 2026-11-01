@@ -62,8 +62,8 @@ pub struct TryFilesStage {
 
 impl TryFilesStage {
     /// Disabled declarations contribute no request step.
-    pub fn new(site: Arc<FilesConfig>) -> Option<Self> {
-        site.try_files.then_some(Self { site })
+    pub fn new(site: FilesConfig) -> Option<Self> {
+        site.try_files.then(|| Self { site: Arc::new(site) })
     }
 }
 
@@ -102,7 +102,7 @@ pub(super) fn scope_steps(config: &HostConfig) -> Vec<Arc<dyn DispatchStep>> {
             mount.clone(),
         )));
     }
-    if let Some(probe) = TryFilesStage::new(Arc::new(files)) {
+    if let Some(probe) = TryFilesStage::new(files) {
         steps.push(Arc::new(probe));
     }
     steps
