@@ -11,9 +11,8 @@ use claviron_runtime::AppState;
 use claviron_types::Host;
 use http::Request;
 
-use super::{DispatchChain, DispatchFuture, DispatchStep};
+use super::{DispatchFuture, DispatchStep, HostLayer, HostLayerBuilder};
 use crate::HostConfig;
-use crate::pipeline::other::OtherService;
 
 /// One host generation's exact HTTP/1 WebSocket endpoints.
 ///
@@ -73,15 +72,10 @@ impl DispatchStep for WebSocketStage {
     }
 }
 
-pub(crate) fn compose_websocket_other(
-    owner: OtherService,
-    websocket: Option<Arc<WebSocketStage>>,
-) -> OtherService {
-    match websocket {
-        Some(websocket) => {
-            OtherService::new(DispatchChain::new(owner, vec![websocket]))
-        }
-        None => owner,
+impl<S> HostLayer<S> for Arc<WebSocketStage> {
+    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
+        layer.request(move |request| self.call(request));
+        Ok(())
     }
 }
 

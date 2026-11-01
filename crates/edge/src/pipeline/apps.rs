@@ -18,7 +18,7 @@ use tracing::error;
 
 use crate::VhostResolver;
 use crate::config::HostConfig;
-use crate::pipeline::host::{HostHandler, compose_other};
+use crate::pipeline::host::{HostHandler, HostPipelineBuilder};
 use crate::pipeline::other::OtherService;
 use crate::pipeline::routable::Routable;
 use crate::pipeline::routable::{HostBindingProvider, RouteBinding};
@@ -340,11 +340,18 @@ impl Binding {
             RustRouter::Axum(router) => super::app::owner(router.clone()),
             RustRouter::Other(owner) => owner.clone(),
         };
-        let prepared = compose_other(owner.clone(), applications);
+        let mut builder = HostPipelineBuilder::new();
+        for layer in layers {
+            builder.layer(layer.as_ref()).map_err(|error| Error::msg(error.to_string()))?;
+        }
         #[cfg(feature = "websocket")]
-        let prepared =
-            super::host::compose_websocket_other(prepared, websocket);
-        let layered = super::host::prepare_layers(prepared, layers)
+        if let Some(websocket) = websocket {
+            builder.layer(websocket).map_err(|error| Error::msg(error.to_string()))?;
+        }
+        for application in applications {
+            builder.layer(application.clone()).map_err(|error| Error::msg(error.to_string()))?;
+        }
+        let layered = super::host::bind_other(builder, owner.clone())
             .map_err(|error| Error::msg(error.to_string()))?;
         let unchanged = match (&owner, &layered) {
             (

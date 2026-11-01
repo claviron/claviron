@@ -120,3 +120,24 @@ pub(crate) fn fallback_config(config: &HostConfig) -> FilesConfig {
 #[cfg(test)]
 #[path = "../../../tests/pipeline/host/files.rs"]
 mod tests;
+
+impl<S> crate::pipeline::host::HostLayer<S> for StaticStage {
+    fn prepare(
+        self,
+        layer: &mut crate::pipeline::host::HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
+        layer.request(move |request| DispatchStep::call(&self, request));
+        Ok(())
+    }
+}
+
+impl<S> crate::pipeline::host::HostLayer<S> for TryFilesStage {
+    fn prepare(
+        self,
+        layer: &mut crate::pipeline::host::HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
+        layer.request(move |request| DispatchStep::call(&self, request));
+        Ok(())
+    }
+}
+

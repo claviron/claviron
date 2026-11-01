@@ -81,6 +81,12 @@ impl<S, R> HostPipelineBuilder<S, R> {
         Ok(self)
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.layers.iter().all(|layer| {
+            layer.before.is_empty() && layer.after.is_empty() && layer.body.is_empty()
+        })
+    }
+
     /// Flatten active actions once. Empty/inactive layers leave no runtime node.
     pub fn build(self) -> HostPipeline<S, R> {
         let mut before = Vec::new();

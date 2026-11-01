@@ -18,45 +18,32 @@ impl HostLayer for &dyn RouteLayer {
     }
 }
 
-struct LayeredOwner {
-    pipeline: HostPipeline,
-    owner: OtherService,
-}
-
-impl OtherHandler for Arc<LayeredOwner> {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-    ) -> RouteFuture {
+impl OtherHandler for Arc<HostPipeline> {
+    fn call(&self, request: Request<RouteBody>) -> RouteFuture {
         let plan = self.clone();
         Box::pin(async move {
-            Ok(match plan.pipeline.prepare(request) {
+            Ok(match plan.prepare(request) {
                 ServiceResult::Handled(reply) => reply.finish(),
                 ServiceResult::Unhandled(request) => {
-                    request.dispatch_to(plan.owner.clone()).await
+                    request.dispatch(|request| async move {
+                        drop(request);
+                        claviron_http::err_status(http::StatusCode::NOT_FOUND)
+                    }).await
                 }
             })
         })
     }
 }
 
-pub(crate) fn prepare_layers(
+/// Finish a prepared scope with its explicit Rust/backend owner. With no
+/// preceding work the original owner is already the complete call.
+pub(crate) fn bind_other(
+    mut builder: HostPipelineBuilder,
     owner: OtherService,
-    layers: &[Arc<dyn RouteLayer>],
 ) -> crate::Result<OtherService> {
-    if layers.is_empty() {
+    if builder.is_empty() {
         return Ok(owner);
     }
-    let mut builder = HostPipelineBuilder::new();
-    for layer in layers {
-        builder.layer(layer.as_ref())?;
-    }
-    let pipeline = builder.build();
-    if pipeline.before.is_empty()
-        && pipeline.after.is_empty()
-        && pipeline.body.is_empty()
-    {
-        return Ok(owner);
-    }
-    Ok(OtherService::new(Arc::new(LayeredOwner { pipeline, owner })))
+    builder.layer(crate::pipeline::RustRouter::Other(owner))?;
+    Ok(OtherService::new(Arc::new(builder.build())))
 }

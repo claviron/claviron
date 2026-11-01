@@ -45,17 +45,15 @@ pub use access_log::{AccessLogLayer, AccessLogState};
 pub use admission::AdmissionPolicy;
 pub use application::ApplicationHandler;
 pub(crate) use binding::HostPolicy;
-pub(crate) use dispatch::compose_dispatch_other;
 pub use dispatch::{
-    DispatchChain, DispatchFuture, DispatchResult, DispatchStep,
+    DispatchFuture, DispatchResult, DispatchStep,
 };
 pub use exchange::{ExchangeLayer, ExchangePolicy, ExchangeState};
-pub(crate) use extension::prepare_layers;
+pub(crate) use extension::bind_other;
 pub(crate) use files::fallback_config;
 pub use files::{StaticStage, TryFilesStage};
-pub(crate) use handler::compose_other;
 pub use handler::{
-    ApplicationStage, HostHandler, HostHandlerFuture, HostHandlerResult,
+    HostHandler, HostHandlerFuture, HostHandlerResult,
     HostRequest,
 };
 pub use identity::{IdentityPolicy, IdentityState};
@@ -69,8 +67,6 @@ pub use state::HostRequestState;
 pub(crate) use state::IdentifiedRequest;
 #[cfg(feature = "websocket")]
 pub use websocket::WebSocketStage;
-#[cfg(feature = "websocket")]
-pub(crate) use websocket::compose_websocket_other;
 mod request;
 mod response;
 

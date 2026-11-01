@@ -137,3 +137,14 @@ mod socket_path_tests;
 #[cfg(test)]
 #[path = "../../../tests/pipeline/embed/lua.rs"]
 mod tests;
+
+impl<S> crate::pipeline::host::HostLayer<S> for LuaBackend {
+    fn prepare(
+        self,
+        layer: &mut crate::pipeline::host::HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
+        layer.request(move |request| DispatchStep::call(&self, request));
+        Ok(())
+    }
+}
+

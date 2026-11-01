@@ -4,12 +4,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use claviron_http::{RouteBody, RouteFuture, RouteResponse, ServiceResult};
-use futures_util::FutureExt;
+use claviron_http::{RouteBody, RouteResponse, ServiceResult};
 use http::{Request, request::Parts};
 
-use super::ApplicationHandler;
-use crate::pipeline::other::{OtherHandler, OtherService};
+use super::{DispatchFuture, HostLayer, HostLayerBuilder};
 
 /// An unclaimed request with its original body still inaccessible.
 ///
@@ -22,7 +20,7 @@ pub struct HostRequest {
 }
 
 impl HostRequest {
-    fn new(request: Request<RouteBody>) -> Self {
+    pub(super) fn new(request: Request<RouteBody>) -> Self {
         let (head, body) = request.into_parts();
         Self { head, body }
     }
@@ -58,114 +56,12 @@ pub trait HostHandler: Send + Sync + 'static {
     ) -> HostHandlerFuture;
 }
 
-struct Composition<H> {
-    applications: Box<[Arc<dyn HostHandler>]>,
-    backend: H,
-}
-
-/// Immutable Rust contributions followed by one configured request owner.
-///
-/// Prepare at boot/reload. Execution visits only those contributions, in their
-/// registration order, without a recursive Next or per-request registry lookup.
-/// A handled response stops the chain; otherwise the final owner receives the
-/// original body once. Cancellation drops the pending future and its capability.
-/// Active heterogeneous contributions each return an erased future; this is an
-/// explicit application cost, not a cost imposed on unconfigured hosts.
-/// The combined call stays under Edge's declared total head deadline. A backend
-/// may additionally enforce its own narrower execution policy, as in Axum
-/// composition. An empty contribution set keeps the original native owner and
-/// its timing contract at cold composition rather than installing this stage.
-pub struct ApplicationStage<H> {
-    inner: Arc<Composition<H>>,
-}
-
-impl<H> Clone for ApplicationStage<H> {
-    fn clone(&self) -> Self {
-        Self { inner: self.inner.clone() }
-    }
-}
-
-impl<H> ApplicationStage<H> {
-    pub fn new(
-        backend: H,
-        applications: Vec<Arc<dyn HostHandler>>,
-    ) -> Self {
-        Self {
-            inner: Arc::new(Composition {
-                applications: applications.into_boxed_slice(),
-                backend,
-            }),
-        }
-    }
-}
-
-impl<H> ApplicationStage<H>
-where
-    H: ApplicationHandler + Clone + Sync + 'static,
-{
-    pub fn handle(
-        self,
-        request: Request<RouteBody>,
-    ) -> impl Future<Output = RouteResponse> + Send {
-        // The async traversal owns a concrete call; it clones the terminal
-        // only after every host handler has returned the original request.
-        self.execute(request, H::call)
-    }
-}
-
-impl<H: Clone + Send + Sync + 'static> ApplicationStage<H> {
-    async fn execute<C, F>(
-        self,
-        request: Request<RouteBody>,
-        call: C,
-    ) -> RouteResponse
-    where
-        C: FnOnce(H, Request<RouteBody>) -> F + Send,
-        F: Future<Output = RouteResponse> + Send,
-    {
-        let mut request = HostRequest::new(request);
-        for application in &self.inner.applications {
-            request = match application.call(request).await {
-                ServiceResult::Handled(response) => return response,
-                ServiceResult::Unhandled(request) => request,
-            };
-        }
-        call(self.inner.backend.clone(), request.into_request()).await
-    }
-}
-
-impl<H> ApplicationHandler for ApplicationStage<H>
-where
-    H: ApplicationHandler + Clone + Sync + 'static,
-{
-    fn call(
-        self,
-        request: Request<RouteBody>,
-    ) -> impl Future<Output = RouteResponse> + Send {
-        self.handle(request)
-    }
-}
-
-impl<H> OtherHandler for ApplicationStage<H>
-where
-    H: ApplicationHandler + Clone + Sync + 'static,
-{
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-    ) -> RouteFuture {
-        Box::pin(self.clone().handle(request).map(Ok))
-    }
-}
-
-pub(crate) fn compose_other(
-    backend: OtherService,
-    applications: &[Arc<dyn HostHandler>],
-) -> OtherService {
-    if applications.is_empty() {
-        backend
-    } else {
-        OtherService::new(ApplicationStage::new(backend, applications.to_vec()))
+impl<S> HostLayer<S> for Arc<dyn HostHandler> {
+    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
+        layer.request(move |request| {
+            DispatchFuture::application(self.call(HostRequest::new(request)))
+        });
+        Ok(())
     }
 }
 

@@ -36,7 +36,7 @@ pub use host::WebSocketStage;
 pub use host::{AccessLogLayer, AccessLogState};
 pub use host::{
     AccessPolicy, AccessState, AdmissionPolicy, ApplicationHandler,
-    ApplicationStage, DispatchChain, DispatchFuture, DispatchResult,
+    DispatchFuture, DispatchResult,
     DispatchStep, ExchangeLayer, ExchangeState, HostHandler, HostHandlerFuture,
     HostHandlerResult, HostLayer, HostLayerBuilder, HostPipeline,
     HostPipelineBuilder, HostRequest, HostRequestState, IdentityPolicy,

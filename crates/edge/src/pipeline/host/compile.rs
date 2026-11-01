@@ -13,28 +13,13 @@ use claviron_types::Host;
 use http::Request;
 
 use super::backend::BackendPlan;
-use super::extension::prepare_layers;
+use super::extension::bind_other;
 use super::files::scope_steps;
-use super::{HostHandler, compose_dispatch_other};
+use super::{HostHandler, HostPipelineBuilder};
 use crate::pipeline::apps::{HostAppRegistry, ResolvedRouteExtensions};
 use crate::pipeline::ext::{RouteContext, RouteLayer};
 use crate::pipeline::other::{OtherHandler, OtherService};
-use crate::{HostConfig, config::SelectedRoute};
-
-struct SelectedOwner {
-    config: Arc<HostConfig>,
-    owner: OtherService,
-}
-
-impl OtherHandler for SelectedOwner {
-    fn call(
-        &self,
-        mut request: Request<RouteBody>,
-    ) -> RouteFuture {
-        request.extensions_mut().insert(SelectedRoute(self.config.clone()));
-        self.owner.handle(request)
-    }
-}
+use crate::HostConfig;
 
 struct HostRoutes(RouteDispatch<OtherService>);
 
@@ -88,20 +73,22 @@ impl Compiler<'_> {
             applications
         });
         let applications = selected.as_deref().unwrap_or(registered);
-        let owner = compose_dispatch_other(plan.terminal, steps, applications);
-        // Conditions and configured security layers stay outside WebSocket.
-        // It is the first dispatch owner before any application contribution.
+        let mut builder = HostPipelineBuilder::new();
+        for layer in self.layers.iter().chain(layers) {
+            builder.layer(layer.as_ref()).map_err(|error| Error::msg(error.to_string()))?;
+        }
         #[cfg(feature = "websocket")]
-        let owner = if accept_applications {
-            super::compose_websocket_other(owner, self.websocket.clone())
-        } else {
-            owner
-        };
-        let mut active_layers = self.layers.to_vec();
-        active_layers.extend_from_slice(layers);
-        let owner = prepare_layers(owner, &active_layers)
-            .map_err(|error| Error::msg(error.to_string()))?;
-        Ok(OtherService::new(SelectedOwner { config, owner }))
+        if accept_applications && let Some(websocket) = &self.websocket {
+            builder.layer(websocket.clone()).map_err(|error| Error::msg(error.to_string()))?;
+        }
+        for application in applications {
+            builder.layer(application.clone()).map_err(|error| Error::msg(error.to_string()))?;
+        }
+        for step in steps {
+            builder.layer(step).map_err(|error| Error::msg(error.to_string()))?;
+        }
+        bind_other(builder, plan.terminal)
+            .map_err(|error| Error::msg(error.to_string()))
     }
 }
 
