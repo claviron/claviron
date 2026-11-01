@@ -23,7 +23,7 @@ impl<S, R> HostLayerBuilder<S, R> {
 impl<S> HostLayerBuilder<S> {
     /// Register an active wait over the head/state. The body stays with the
     /// driver. No callback or future exists when this layer is omitted.
-    pub fn before_async(&mut self, action: impl AsyncHeadAction<S>) -> &mut Self {
+    pub fn before_async(&mut self, action: impl AsyncHeadAction<S> + 'static) -> &mut Self {
         self.before.push(Action::AsyncHead(Box::new(action)));
         self
     }

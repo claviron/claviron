@@ -50,7 +50,7 @@ type BodyAction<S> = Box<dyn Fn(RouteBody, &mut S) -> RouteBody + Send + Sync>;
 
 /// One active asynchronous head check. The future borrows its prepared owner
 /// and request state, so capacity declarations need no per-call owner clone.
-pub trait AsyncHeadAction<S>: Send + Sync + 'static {
+pub trait AsyncHeadAction<S>: Send + Sync {
     fn call<'a>(
         &'a self,
         head: &'a mut RequestParts,
