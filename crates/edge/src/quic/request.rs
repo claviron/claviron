@@ -448,7 +448,7 @@ impl H3RequestHandler {
             return;
         }
         // The listener's ceiling, already narrowed by this host. Resolved once
-        // in `HostService::prepare_context`, so every enforcement point below
+        // in the retained host binding, so every enforcement point below
         // reads one number rather than choosing between two.
         // No limit declared means nothing to refuse. The helpers below still
         // take a number until H3 bodies pass `GuardedBody` like the others

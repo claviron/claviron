@@ -126,7 +126,7 @@ layer APIs remain separate from the selected application call.
 - [`authority.rs`](src/service/authority.rs) — Validated cleartext authority and connection-local name identity reuse.
 - [`bindings.rs`](src/service/bindings.rs) — Pair live names with the captured TLS policy epoch.
 - [`extensions.rs`](src/service/extensions.rs) — VhostCtx and connection-time SNI selection/rejections.
-- [`host.rs`](src/service/host.rs) — HostService admission and PreparedRequest body/context handoff.
+- [`host.rs`](src/service/host.rs) — HostService admission and direct PreparedRequest handoff; policy data stays in its retained binding.
 - [`host/cache.rs`](src/service/host/cache.rs) — Cleartext metadata cache; application selection and live access remain request-local.
 - [`host/dispatch.rs`](src/service/host/dispatch.rs) — Select Axum/Other before constructing the execution future.
 - [`response.rs`](src/service/response.rs) — Typed early host replies, before native wire framing.

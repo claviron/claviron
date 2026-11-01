@@ -14,7 +14,6 @@ use super::CleartextRequest;
 use super::extensions::VhostCtx;
 use super::{AuthorityError, HostResponse};
 use crate::VhostResolver;
-use crate::pipeline::host::PolicySnapshot;
 use crate::pipeline::host::{HostPolicy, HostRequestState, IdentifiedRequest};
 use crate::pipeline::{AuthContext, HostApp, RustRouter};
 
@@ -108,7 +107,7 @@ impl HostService {
             .policy
             .pipeline
             .admit(request, HostRequestState::new(arrival))?;
-        Ok(self.prepare_context(request)?.with_service(self.clone()))
+        self.clone().into_prepared(request)
     }
 
     /// Reuse the authority validated for this cleartext host selection. The
@@ -124,56 +123,25 @@ impl HostService {
         let (request, authority) = request.into_parts();
         let request =
             self.policy.pipeline.admit_cleartext(request, authority)?;
-        Ok(self.prepare_context(request)?.with_service(self))
+        self.into_prepared(request)
     }
 
-    fn prepare_context<B>(
-        &self,
+    fn into_prepared<B>(
+        self,
         identified: IdentifiedRequest<B>,
-    ) -> Result<PreparedContext<B>, HostResponse> {
-        let IdentifiedRequest { head, body, connection, access } = identified;
-        let policy = &self.policy;
+    ) -> Result<PreparedRequest<B>, HostResponse> {
+        let IdentifiedRequest { head, body, connection, .. } = identified;
         #[cfg(feature = "rate-limit")]
         let mut head = head;
         #[cfg(feature = "rate-limit")]
-        let quota_snapshot = match &self.app.quotas {
-            Some(quotas) => quotas.check(&mut head)?,
-            None => None,
-        };
-        Ok(PreparedContext {
-            request: Request::from_parts(head, body),
-            connection,
-            access,
-            policy: policy.http,
-            #[cfg(feature = "rate-limit")]
-            quota_snapshot,
-        })
-    }
-}
-
-struct PreparedContext<B> {
-    request: Request<B>,
-    connection: Arc<ConnCtx>,
-    access: PolicySnapshot,
-    policy: HttpPolicy,
-    #[cfg(feature = "rate-limit")]
-    quota_snapshot: Option<claviron_http::rate_limit::Snapshot>,
-}
-
-impl<B> PreparedContext<B> {
-    fn with_service(
-        self,
-        service: HostService,
-    ) -> PreparedRequest<B> {
-        PreparedRequest {
-            request: self.request,
-            service,
-            connection: self.connection,
-            access: self.access,
-            policy: self.policy,
-            #[cfg(feature = "rate-limit")]
-            quota_snapshot: self.quota_snapshot,
+        if let Some(quotas) = &self.app.quotas {
+            let _ = quotas.check(&mut head)?;
         }
+        Ok(PreparedRequest {
+            request: Request::from_parts(head, body),
+            service: self,
+            connection,
+        })
     }
 }
 
@@ -183,12 +151,6 @@ pub struct PreparedRequest<B> {
     request: Request<B>,
     service: HostService,
     connection: Arc<ConnCtx>,
-    access: PolicySnapshot,
-    /// The listener's policy, both sides, already narrowed by this host.
-    /// Prepared with the immutable host binding, then copied at admission.
-    policy: HttpPolicy,
-    #[cfg(feature = "rate-limit")]
-    quota_snapshot: Option<claviron_http::rate_limit::Snapshot>,
 }
 
 impl<B> PreparedRequest<B> {
@@ -206,13 +168,13 @@ impl<B> PreparedRequest<B> {
     }
 
     /// The listener's request policy after this host's own narrowing.
-    pub const fn requests(&self) -> &RequestPolicy {
-        &self.policy.requests
+    pub fn requests(&self) -> &RequestPolicy {
+        &self.service.policy.http.requests
     }
 
     /// Largest request body this request may carry; `None` is no limit.
-    pub const fn max_body_size(&self) -> Option<usize> {
-        self.policy.requests.max_body_size
+    pub fn max_body_size(&self) -> Option<usize> {
+        self.service.policy.http.requests.max_body_size
     }
 
     pub fn host_key(&self) -> &claviron_http::ext::HostKey {
@@ -241,10 +203,6 @@ impl<B> PreparedRequest<B> {
             request: self.request.map(map),
             service: self.service,
             connection: self.connection,
-            access: self.access,
-            policy: self.policy,
-            #[cfg(feature = "rate-limit")]
-            quota_snapshot: self.quota_snapshot,
         }
     }
 
