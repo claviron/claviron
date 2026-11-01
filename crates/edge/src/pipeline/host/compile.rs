@@ -3,40 +3,21 @@
 use std::sync::Arc;
 
 use claviron_http::config::routes::RouteTable;
-use claviron_http::dispatch::{ConfiguredRoute, RouteDispatch, RuleContext};
-use claviron_http::{RouteBody, RouteFuture};
+use claviron_http::dispatch::{ConfiguredRoute, RouteDispatch};
 use claviron_runtime::{
     AppState,
     registry::{Error, Result},
 };
 use claviron_types::Host;
-use http::Request;
 
 use super::backend::BackendPlan;
 use super::extension::bind_other;
 use super::files::scope_steps;
-use super::{HostHandler, HostPipelineBuilder};
+use super::{HostHandler, HostPipelineBuilder, RouteSelectionLayer};
 use crate::pipeline::apps::{HostAppRegistry, ResolvedRouteExtensions};
 use crate::pipeline::ext::{RouteContext, RouteLayer};
-use crate::pipeline::other::{OtherHandler, OtherService};
+use crate::pipeline::other::OtherService;
 use crate::HostConfig;
-
-struct HostRoutes(RouteDispatch<OtherService>);
-
-impl OtherHandler for HostRoutes {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-    ) -> RouteFuture {
-        self.0
-            .select(&RuleContext {
-                method: request.method(),
-                uri: request.uri(),
-                headers: request.headers(),
-            })
-            .handle(request)
-    }
-}
 
 struct Compiler<'a> {
     #[cfg(feature = "broadcast")]
@@ -183,11 +164,13 @@ pub(crate) fn prepare(
         ));
     }
     let rejected = compiler.scope(fallback, base, false, None, &layers)?;
-    Ok(OtherService::new(HostRoutes(RouteDispatch {
+    let mut builder = HostPipelineBuilder::new();
+    builder.layer(RouteSelectionLayer::new(RouteDispatch {
         entries: Arc::new(RouteTable::new(entries)),
         fallback: default,
         rejected,
-    })))
+    })).map_err(|error| Error::msg(error.to_string()))?;
+    Ok(OtherService::new(Arc::new(builder.build())))
 }
 
 #[cfg(test)]

@@ -183,6 +183,7 @@ extension insertion. Rust router and backend calls implement `HostLayer`.
 - [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
 - [`handler.rs`](src/pipeline/host/handler.rs) — Routable contributions; Unhandled retains the unread body capability.
 - [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Ready/async request calls and HostLayer adapters; reuse existing future erasure.
+- [`selection.rs`](src/pipeline/host/selection.rs) — Prefix/condition selection as a HostLayer; single-scope hosts omit it.
 - [`compile.rs`](src/pipeline/host/compile.rs) — Compile prefix scopes, conditions, Rust contributions and backend owners.
 - [`backend.rs`](src/pipeline/host/backend.rs) — Prepare configured backend steps and residual index/SPA fallback.
 - [`files.rs`](src/pipeline/host/files.rs) — Separate Static and TryFiles steps using the shared files API.

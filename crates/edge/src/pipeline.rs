@@ -40,7 +40,7 @@ pub use host::{
     DispatchStep, CorsLayer, CorsState, HeaderClearLayer, HeaderSetLayer, prepare_headers, HostHandler, HostHandlerFuture,
     HostHandlerResult, HostLayer, HostLayerBuilder, HostPipeline,
     HostPipelineBuilder, HostRequest, IdentityPolicy,
-    IdentityState, AuthorityLayer, RejectLayer, UpgradeLayer, ReplyPolicy, RequestBodyLayer, StaticStage,
+    IdentityState, AuthorityLayer, RejectLayer, UpgradeLayer, ReplyPolicy, RequestBodyLayer, RouteSelectionLayer, StaticStage,
     TryFilesStage,
 };
 #[cfg(feature = "rate-limit")]

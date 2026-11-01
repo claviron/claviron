@@ -41,6 +41,7 @@ mod protocol;
 mod quota;
 mod reply;
 mod request_body;
+mod selection;
 #[cfg(feature = "websocket")]
 mod websocket;
 
@@ -77,6 +78,7 @@ pub(crate) use quota::QuotaRegistrations;
 pub use quota::{HostQuotas, QuotaPolicy, QuotaState};
 pub use reply::ReplyPolicy;
 pub use request_body::RequestBodyLayer;
+pub use selection::RouteSelectionLayer;
 #[cfg(feature = "websocket")]
 pub use websocket::WebSocketStage;
 mod request;
