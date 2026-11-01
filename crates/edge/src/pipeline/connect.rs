@@ -10,6 +10,8 @@ use claviron_runtime::AppState;
 use claviron_runtime::registry::{Error, Result};
 use claviron_types::Host;
 use http::{HeaderMap, Request, StatusCode};
+#[cfg(feature = "tcp")]
+use tracing::{debug, error};
 
 use crate::config::HostConfig;
 
@@ -190,6 +192,68 @@ impl H2ConnectBinding {
     pub fn kind(&self) -> &'static str {
         match self {
             Self::Handler(_) => "handler",
+        }
+    }
+
+    /// Execute an explicitly selected CONNECT binding. Host-layer composition
+    /// owns selection and supplies the admitted request and session capability.
+    #[cfg(feature = "tcp")]
+    pub async fn handle(
+        self,
+        state: AppState,
+        context: AuthContext,
+        request: Request<RouteBody>,
+    ) -> RouteResponse {
+        let Self::Handler(handler) = self;
+        let name = handler.name();
+        let host = context.host.clone();
+        let path = context.path.clone();
+        let protocol = match request.extensions().get::<hyper::ext::Protocol>() {
+            Some(value) if value.as_str().eq_ignore_ascii_case("websocket") => {
+                "websocket"
+            }
+            Some(value) if value.as_str().eq_ignore_ascii_case("webtransport") => {
+                "webtransport"
+            }
+            Some(_) => "other",
+            None => "missing",
+        };
+        // Paths only: query strings, headers and authentication payloads may
+        // contain credentials and are never part of these handshake diagnostics.
+        debug!(host = %host, path = %path, handler = name, protocol,
+            "H2 CONNECT received");
+        let authenticated = match handler.accept(&state, &context).await {
+            Ok(accepted) => accepted.into_authenticated(),
+            Err(reject) => {
+                let reason = reject.reason();
+                let response = reject.into_response();
+                debug!(host = %host, path = %path, handler = name, protocol, reason,
+                    status = response.status().as_u16(), "H2 CONNECT rejected");
+                return response;
+            }
+        };
+        let _session = claviron_runtime::activity::ACTIVITY.open_session();
+        match handler.handle(state, context, authenticated, request).await {
+            Ok(response) => {
+                let status = response.status();
+                if status.is_success() {
+                    debug!(host = %host, path = %path, handler = name, protocol,
+                        status = status.as_u16(), "H2 CONNECT accepted");
+                } else {
+                    debug!(host = %host, path = %path, handler = name, protocol,
+                        reason = "handler_response",
+                        status = status.as_u16(), "H2 CONNECT rejected");
+                }
+                response
+            }
+            Err(error) => {
+                error!(handler = name, %error, "H2 CONNECT handler failed");
+                debug!(host = %host, path = %path, handler = name, protocol,
+                    reason = "handler_error",
+                    status = StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                    "H2 CONNECT rejected");
+                err_status(StatusCode::INTERNAL_SERVER_ERROR)
+            }
         }
     }
 }

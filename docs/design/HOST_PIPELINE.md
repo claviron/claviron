@@ -41,7 +41,8 @@ flowchart TD
 Required host checks always run; optional steps are installed only when
 configured. A rejected route condition selects the
 original fallback scope, skipping that route's router contributions and
-WebSocket. H2 CONNECT and WebTransport use their own session entry points.
+WebSocket. WebTransport uses its native session entry point. H2 CONNECT bindings
+are explicit capabilities; the ordinary TCP adapter does not select them.
 
 ## Connection binding
 

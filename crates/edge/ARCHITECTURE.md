@@ -83,8 +83,10 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 
 Features compile capabilities; declarations and registration select what runs.
 Transport snapshots contain no URI-deny matcher or forwarded-client identity
-executor. These behaviors require explicit host-layer composition; the removed
-implicit ingress path is not installed by native host preparation.
+executor. These behaviors require explicit host-layer composition.
+The ordinary TCP adapter performs no CONNECT registry lookup, session injection,
+body-limit selection or body deadline setup. CONNECT execution remains available
+on an explicitly selected `H2ConnectBinding`; pipeline attachment is separate.
 
 ## `src/`
 
@@ -132,7 +134,7 @@ implicit ingress path is not installed by native host preparation.
 - [`ext.rs`](src/pipeline/ext.rs) — Typed directive codecs, conditions, handlers and cold layer compilation.
 - [`routing.rs`](src/pipeline/routing.rs) — Shared prefix dispatch and route-extension re-exports.
 - [`app.rs`](src/pipeline/app.rs) — Optional Axum ApplicationHandler/HostHandler adapter and HostConfigExt extractor.
-- [`connect.rs`](src/pipeline/connect.rs) — H2 CONNECT registry, authentication payload and session context.
+- [`connect.rs`](src/pipeline/connect.rs) — H2 CONNECT registry, explicit binding execution, authentication payload and session context.
 - [`wt.rs`](src/pipeline/wt.rs) — Native WebTransport handler/session API and exact/fallback registry.
 - [`upstream.rs`](src/pipeline/upstream.rs) — Configured upstream selection after local file steps.
 - [`apps/broadcast.rs`](src/pipeline/apps/broadcast.rs) — Broadcast H1/H2/H3 session bindings and session admission.
@@ -203,8 +205,8 @@ implicit ingress path is not installed by native host preparation.
 - [`io.rs`](src/tcp/io.rs) — Shared socket IO and error readiness without a competing byte reader.
 - [`protocol.rs`](src/tcp/protocol.rs) — Hyper H1 builder and TCP socket options from resolved config.
 - [`geo.rs`](src/tcp/geo.rs) — Optional peer country lookup.
-- [`service.rs`](src/tcp/service.rs) — Hyper request admission, body adaptation and H2 CONNECT handoff.
-- [`service/body.rs`](src/tcp/service/body.rs) — Lazy body erasure; preserve trailers and configured body guards.
+- [`service.rs`](src/tcp/service.rs) — Thin Hyper service and body representation adaptation.
+- [`service/body.rs`](src/tcp/service/body.rs) — Lazy body erasure and proven-empty-body handling; preserve trailers.
 
 ### `tcp/plain/`
 

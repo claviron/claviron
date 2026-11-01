@@ -114,7 +114,6 @@ impl HttpServer {
                 ))
             })?;
         let generation = self.current.start_listener(snapshot)?;
-        let state = self.state.clone();
         crate::tcp::listener::serve(
             &self.current,
             generation.groups(),
@@ -126,7 +125,6 @@ impl HttpServer {
                     peer,
                     snapshot,
                     vhosts.clone(),
-                    state.clone(),
                     permit,
                 )
             },
@@ -149,7 +147,7 @@ impl HttpServer {
                 "cleartext listener '{listener}' is not configured"
             ))
         })?;
-        Ok(super::ConnectionHandler::new(snapshot, vhosts, self.state.clone()))
+        Ok(super::ConnectionHandler::new(snapshot, vhosts))
     }
 
     pub async fn serve(
@@ -161,7 +159,6 @@ impl HttpServer {
             self.state.config_reader().snapshot::<Self>()?.as_ref(),
             &self.state,
         )?)?;
-        let state = self.state.clone();
         crate::tcp::listener::serve(
             &self.current,
             generation.groups(),
@@ -173,7 +170,6 @@ impl HttpServer {
                     peer,
                     snapshot,
                     vhosts.clone(),
-                    state.clone(),
                     permit,
                 )
             },

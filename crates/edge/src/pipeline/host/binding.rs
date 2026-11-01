@@ -12,7 +12,7 @@ use crate::VhostResolver;
 use crate::service::{HostResponse, VhostCtx};
 
 pub(crate) struct HostPolicy {
-    #[cfg(any(test, all(feature = "tcp", feature = "tls")))]
+    #[cfg(test)]
     pub(crate) connection: Arc<ConnCtx>,
     pub(crate) host: VhostCtx,
     pub(crate) http: HttpPolicy,
@@ -42,7 +42,7 @@ impl HostPolicy {
         );
         let pipeline = HostPipeline::for_host(&connection, &host, access);
         Self {
-            #[cfg(any(test, all(feature = "tcp", feature = "tls")))]
+            #[cfg(test)]
             connection,
             host,
             http,

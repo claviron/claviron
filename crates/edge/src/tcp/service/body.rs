@@ -1,19 +1,13 @@
-//! Ordinary native request-body adaptation; tunnels keep their native body.
+//! Native body representation without request policy selection.
 
 use std::error::Error as StdError;
-use std::time::Duration;
 
 use bytes::Bytes;
-use claviron_http::body::GuardedBody;
 use claviron_http::{RouteBody, boxed_body};
-use http_body_util::{BodyExt, Empty};
+use http_body_util::Empty;
 use hyper::body::Body;
 
-pub(super) fn adapt<B>(
-    body: B,
-    limit: Option<usize>,
-    timeout: Option<Duration>,
-) -> RouteBody
+pub(super) fn adapt<B>(body: B) -> RouteBody
 where
     B: Body<Data = Bytes> + Send + 'static,
     B::Error: StdError + Send + Sync + 'static,
@@ -23,10 +17,8 @@ where
         // are no data frames or trailers. GET and a zero size hint do not.
         // Empty is zero-sized, so its erased box needs no heap allocation.
         boxed_body(Empty::<Bytes>::new())
-    } else if limit.is_none() && timeout.is_none() {
-        boxed_body(body)
     } else {
-        GuardedBody::new(body, limit, timeout).boxed_unsync()
+        boxed_body(body)
     }
 }
 

@@ -10,7 +10,6 @@ use claviron_http::config::ListenerConfig;
 use claviron_http::ext::{
     ClientAuthStatus, ConnCtx, TlsClientCertInfo, TlsInfo,
 };
-use claviron_http::session::SessionSpawner;
 use claviron_runtime::AppState;
 use claviron_tls::Proto;
 use claviron_types::ssl::{
@@ -19,7 +18,6 @@ use claviron_types::ssl::{
 use tokio_rustls::server::TlsStream;
 
 use super::error::ConnectionError;
-use crate::tcp::service::RequestService;
 
 /// Native TLS metadata and SNI host binding for one H1/H2 connection.
 ///
@@ -73,13 +71,12 @@ impl TlsHostConnection {
     }
 
     /// Bind the shared host dispatcher to Hyper without re-reading live policy.
-    pub fn create_service(
+    pub fn bind_host(
         &self,
         state: &AppState,
         proto: Proto,
         listener: &ListenerConfig,
-        sessions: SessionSpawner,
-    ) -> Result<RequestService, ConnectionError> {
+    ) -> Result<HostService, ConnectionError> {
         let registry = state.registry_ref();
 
         let access = registry
@@ -107,7 +104,7 @@ impl TlsHostConnection {
             access,
             listener.policy(),
         );
-        Ok(RequestService::new(host, state.clone(), sessions))
+        Ok(host)
     }
 
     pub fn host_config(&self) -> &HostConfig {

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use claviron_http::config::{HttpPolicy, RequestPolicy};
 use claviron_http::ext::ConnCtx;
-#[cfg(any(test, all(feature = "tcp", feature = "tls")))]
+#[cfg(test)]
 use claviron_http::listener::HttpProtocol;
 use claviron_http::{RouteBody, RouteResponse};
 use http::{Request, StatusCode};
@@ -81,11 +81,6 @@ pub struct HostService {
 }
 
 impl HostService {
-    #[cfg(all(feature = "tcp", any(feature = "tls", test)))]
-    pub(crate) fn protocol(&self) -> Option<HttpProtocol> {
-        self.policy.connection.proto
-    }
-
     pub fn new(
         app: impl Into<HostApp>,
         connection: Arc<ConnCtx>,
@@ -197,12 +192,6 @@ pub struct PreparedRequest<B> {
 }
 
 impl<B> PreparedRequest<B> {
-    #[cfg(feature = "rate-limit")]
-    pub(crate) fn quota_snapshot(
-        &self
-    ) -> Option<claviron_http::rate_limit::Snapshot> {
-        self.quota_snapshot
-    }
     pub fn request(&self) -> &Request<B> {
         &self.request
     }

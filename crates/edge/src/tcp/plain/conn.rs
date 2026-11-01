@@ -12,7 +12,6 @@ use crate::transport::VhostResolver;
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;
 use claviron_http::session::ConnectionScope;
-use claviron_runtime::AppState;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
@@ -28,16 +27,14 @@ use super::server::{HttpServer, ServerSnapshot};
 pub struct ConnectionHandler {
     snapshot: Arc<ServerSnapshot>,
     vhosts: Arc<VhostResolver>,
-    state: AppState,
 }
 
 impl ConnectionHandler {
     pub(super) fn new(
         snapshot: Arc<ServerSnapshot>,
         vhosts: Arc<VhostResolver>,
-        state: AppState,
     ) -> Self {
-        Self { snapshot, vhosts, state }
+        Self { snapshot, vhosts }
     }
 
     /// Serve one accepted stream until peer completion or its owned drain.
@@ -48,8 +45,8 @@ impl ConnectionHandler {
         peer: SocketAddr,
         scope: ConnectionScope,
     ) -> impl Future<Output = ()> + Send {
-        let Self { snapshot, vhosts, state } = self;
-        serve(stream, peer, snapshot, vhosts, state, scope)
+        let Self { snapshot, vhosts } = self;
+        serve(stream, peer, snapshot, vhosts, scope)
     }
 }
 
@@ -59,11 +56,9 @@ impl HttpServer {
         peer: SocketAddr,
         snapshot: Arc<ServerSnapshot>,
         vhosts: Arc<VhostResolver>,
-        state: AppState,
         scope: ConnectionScope,
     ) -> impl Future<Output = ()> + Send {
-        ConnectionHandler::new(snapshot, vhosts, state)
-            .serve(stream, peer, scope)
+        ConnectionHandler::new(snapshot, vhosts).serve(stream, peer, scope)
     }
 }
 
@@ -72,7 +67,6 @@ async fn serve(
     peer: SocketAddr,
     snapshot: Arc<ServerSnapshot>,
     vhosts: Arc<VhostResolver>,
-    state: AppState,
     scope: ConnectionScope,
 ) {
     if let Err(error) = crate::tcp::protocol::socket(&stream, &snapshot.tcp) {
@@ -97,8 +91,7 @@ async fn serve(
         country_code: crate::tcp::geo::country_code(peer.ip()),
         tls: None,
     });
-    let service =
-        H1Service::new(snapshot.clone(), vhosts, state, ctx, scope.sessions());
+    let service = H1Service::new(snapshot.clone(), vhosts, ctx);
     let service = service_fn(move |req| service.call(req));
     let stream = crate::tcp::io::TcpIo::new(stream);
     let errors = stream.clone();

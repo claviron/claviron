@@ -11,12 +11,10 @@ use crate::config::NonSslPolicy;
 use crate::service::{CleartextHostCache, CleartextRequest};
 #[cfg(feature = "acme")]
 use crate::transport::RequestAuthority;
-use crate::transport::{HostAppResolver, VhostResolver};
+use crate::transport::VhostResolver;
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;
-use claviron_http::session::SessionSpawner;
 use claviron_http::{RouteResponse, err_status};
-use claviron_runtime::AppState;
 use futures_util::FutureExt;
 use futures_util::future::Either;
 use hyper::body::Incoming;
@@ -28,12 +26,10 @@ use super::acme;
 use super::error::Result;
 use super::redirect::handle_redirect;
 use super::server::ServerSnapshot;
-use crate::tcp::service::RequestDispatch;
 
 pub(super) struct H1Service {
     snapshot: Arc<ServerSnapshot>,
     vhosts: Arc<VhostResolver>,
-    dispatch: RequestDispatch,
     host_cache: RefCell<CleartextHostCache>,
 }
 
@@ -51,9 +47,7 @@ impl H1Service {
     pub(super) fn new(
         snapshot: Arc<ServerSnapshot>,
         vhosts: Arc<VhostResolver>,
-        state: AppState,
         ctx: Arc<ConnCtx>,
-        sessions: SessionSpawner,
     ) -> Self {
         let host_cache = CleartextHostCache::new(
             ctx,
@@ -63,11 +57,6 @@ impl H1Service {
         Self {
             snapshot,
             vhosts,
-            dispatch: RequestDispatch::new(
-                Some(HttpProtocol::H1),
-                state,
-                sessions,
-            ),
             host_cache: RefCell::new(host_cache),
         }
     }
@@ -170,13 +159,7 @@ impl H1Service {
                         StatusCode::FORBIDDEN,
                     )));
                 }
-                let Some(app) = vctx.application.take().or_else(|| {
-                    self.dispatch
-                        .state()
-                        .registry_ref()
-                        .resolve::<HostAppResolver>()
-                        .and_then(|resolver| resolver.resolve(&vctx.vhost_key))
-                }) else {
+                let Some(app) = vctx.application.take() else {
                     warn!(listener = %snapshot.listener.id, host = %authority.authority(), "H1 host application unavailable");
                     return Ok(ResponseSource::Ready(err_status(
                         StatusCode::SERVICE_UNAVAILABLE,
@@ -184,7 +167,8 @@ impl H1Service {
                 };
                 let host = host_cache.bind(app, vctx);
                 drop(host_cache);
-                let response = self.dispatch.call_cleartext(host, req);
+                let response =
+                    crate::tcp::service::dispatch(host.prepare_cleartext(req));
                 Ok(ResponseSource::Application(response))
             }
         }
