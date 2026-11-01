@@ -4,10 +4,9 @@
 
 use std::sync::Arc;
 
-use claviron::edge::deny::DenyService;
 use claviron::edge::pipeline::HostApp;
 use claviron::edge::transport::{
-    HostIngress, HostService, VhostResolver, VhostTable, resolve_sni_from_table,
+    HostService, VhostResolver, VhostTable, resolve_sni_from_table,
 };
 use claviron::http::config::{HttpSnapshot, ListenerConfig};
 use claviron::http::ext::{ConnCtx, TlsInfo};
@@ -78,7 +77,7 @@ impl Hosts {
             remote,
             local_ip: local.ip(),
             local_port: local.port(),
-            real_ip: listener.proxy.is_none().then_some(remote.ip()),
+            real_ip: Some(remote.ip()),
             country_code: None,
             tls,
         });
@@ -89,12 +88,6 @@ impl Hosts {
             app,
             connection,
             host,
-            HostIngress {
-                proxy: listener.proxy.clone(),
-                deny: Arc::new(DenyService::from_set(
-                    self.http.router.deny_set(),
-                )),
-            },
             self.vhosts.clone(),
             listener.policy(),
         )

@@ -1,13 +1,10 @@
 //! Captured transport and host admission, before identity or application work.
 
-use std::sync::Arc;
-
 use claviron_http::authority::RequestAuthority;
 use claviron_http::ext::{ConnCtx, HostName};
 use claviron_http::listener::HttpProtocol;
 
 use super::*;
-use crate::deny::{DenyCheckedRequest, DenyService};
 use crate::service::{RequestArrival, RequestRejection, VhostCtx};
 
 /// A request's native arrival and optional immutable cleartext admission proof.
@@ -15,12 +12,11 @@ use crate::service::{RequestArrival, RequestRejection, VhostCtx};
 pub struct IngressState {
     arrival: RequestArrival,
     authority: Option<RequestAuthority>,
-    deny_checked: bool,
 }
 
 impl IngressState {
     pub fn new(arrival: RequestArrival) -> Self {
-        Self { arrival, authority: None, deny_checked: false }
+        Self { arrival, authority: None }
     }
 }
 
@@ -31,22 +27,20 @@ impl AsMut<IngressState> for IngressState {
 }
 
 impl IngressState {
-    pub(super) fn checked<B>(
-        request: DenyCheckedRequest<'_, B>,
-        deny: &DenyService,
-        arrival: RequestArrival,
-        authority: Option<RequestAuthority>,
-    ) -> (Request<B>, Self) {
-        let (request, deny_checked) = request.into_ingress(deny);
-        (request, Self { arrival, authority, deny_checked })
+    #[cfg(feature = "tcp")]
+    pub(super) fn cleartext(authority: RequestAuthority) -> Self {
+        Self {
+            arrival: RequestArrival::Established,
+            authority: Some(authority),
+        }
     }
 }
 
 /// Cold host ingress preparation. Captures only this connection's policy;
-/// live ACL, proxy identity, quotas and handler dispatch remain separate.
+/// live ACL, quotas and handler dispatch remain separate.
 ///
-/// Validation order is protocol, authority/binding, early data, H1 upgrade,
-/// then deny. Disabled upgrade/deny gates contribute no head action. Typed
+/// Validation order is protocol, authority/binding, early data and H1 upgrade.
+/// A disabled upgrade gate contributes no head action. Typed
 /// rejections stay intact for the native transport's response mapping.
 pub struct IngressPolicy {
     protocol: Option<HttpProtocol>,
@@ -55,14 +49,12 @@ pub struct IngressPolicy {
     upgrade: bool,
     #[cfg(feature = "http3")]
     early_data: crate::config::EarlyDataPolicy,
-    deny: Arc<DenyService>,
 }
 
 impl IngressPolicy {
     pub fn new(
         connection: &ConnCtx,
         host: &VhostCtx,
-        deny: Arc<DenyService>,
     ) -> Self {
         Self {
             protocol: connection.proto,
@@ -74,7 +66,6 @@ impl IngressPolicy {
             upgrade: host.vhost_config.transport.h1.upgrade,
             #[cfg(feature = "http3")]
             early_data: host.vhost_config.transport.h3.early_data,
-            deny,
         }
     }
 
@@ -156,17 +147,6 @@ impl IngressPolicy {
                     ControlFlow::Break(
                         RequestRejection::UpgradeForbidden.into(),
                     )
-                } else {
-                    ControlFlow::Continue(())
-                }
-            });
-        }
-        if !self.deny.is_empty() {
-            layer.before(move |head, state| {
-                let state = state.as_mut();
-                if !state.deny_checked && self.deny.is_blocked(head.uri.path())
-                {
-                    ControlFlow::Break(RequestRejection::PathDenied.into())
                 } else {
                     ControlFlow::Continue(())
                 }

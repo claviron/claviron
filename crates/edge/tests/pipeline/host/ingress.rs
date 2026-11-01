@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use claviron_http::ext::{HostKey, HostName};
@@ -16,7 +17,6 @@ impl IngressPolicy {
 fn policy(
     protocol: HttpProtocol,
     config: &str,
-    deny: Arc<DenyService>,
 ) -> IngressPolicy {
     let host = VhostCtx {
         hostname: HostName(Arc::new("app.test".parse().unwrap())),
@@ -35,35 +35,24 @@ fn policy(
         country_code: None,
         tls: None,
     };
-    IngressPolicy::new(&connection, &host, deny)
+    IngressPolicy::new(&connection, &host)
 }
 
 #[cfg(feature = "http3")]
 #[test]
 fn only_active_ingress_gates_are_registered() {
-    let deny = Arc::new(DenyService::from_set(
-        &regex::RegexSet::new(["^/blocked"]).unwrap(),
-    ));
     let allow = "root: public\ntransport: {h1: {upgrade: true}, h3: {early_data: allow}}";
-    let pipeline =
-        policy(HttpProtocol::H3, allow, Arc::new(DenyService::empty()))
-            .into_pipeline();
-    // Authority/binding only: no replay, upgrade or deny callback remains.
+    let pipeline = policy(HttpProtocol::H3, allow).into_pipeline();
+    // Only the authority/binding check applies to this H3 declaration.
     assert_eq!(pipeline.before.len(), 1);
-    let pipeline =
-        policy(HttpProtocol::H3, allow, deny.clone()).into_pipeline();
+    let pipeline = policy(HttpProtocol::H1, allow).into_pipeline();
     assert_eq!(pipeline.before.len(), 2);
-    let pipeline =
-        policy(HttpProtocol::H1, allow, deny.clone()).into_pipeline();
-    // H1 rejects native early-data facts even if the host allows H3 early data.
-    assert_eq!(pipeline.before.len(), 3);
     let pipeline = policy(
         HttpProtocol::H1,
         "root: public\ntransport: {h1: {upgrade: false}}",
-        deny,
     )
     .into_pipeline();
-    assert_eq!(pipeline.before.len(), 4);
+    assert_eq!(pipeline.before.len(), 3);
     assert!(pipeline.after.is_empty());
     assert!(pipeline.body.is_empty());
 }
@@ -83,9 +72,7 @@ impl Drop for OwnedBody {
 fn ingress_keeps_the_original_body_and_typed_rejection_before_later_work() {
     let mut layer =
         HostLayerBuilder::<IngressState, RequestRejection>::default();
-    policy(HttpProtocol::H1, "root: public", Arc::new(DenyService::empty()))
-        .prepare(&mut layer)
-        .unwrap();
+    policy(HttpProtocol::H1, "root: public").prepare(&mut layer).unwrap();
     let entered = Arc::new(AtomicUsize::new(0));
     let observed = entered.clone();
     layer.before(move |_, _| {

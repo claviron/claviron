@@ -2,8 +2,7 @@ use claviron_http::ext::{ConnCtx, HostName};
 use claviron_http::listener::HttpProtocol;
 
 use super::*;
-use crate::deny::DenyService;
-use crate::service::{HostIngress, RequestArrival, VhostCtx};
+use crate::service::{RequestArrival, VhostCtx};
 
 fn fixture()
 -> (HostPipeline<HostRequestState, HostResponse>, Arc<VhostResolver>, HostKey) {
@@ -29,10 +28,7 @@ fn fixture()
         vhost_config: config,
         application: None,
     };
-    let ingress =
-        HostIngress { proxy: None, deny: Arc::new(DenyService::empty()) };
-    let pipeline =
-        HostPipeline::for_host(&connection, &host, &ingress, access.clone());
+    let pipeline = HostPipeline::for_host(&connection, &host, access.clone());
     (pipeline, access, canonical)
 }
 

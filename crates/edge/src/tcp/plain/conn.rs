@@ -93,9 +93,7 @@ async fn serve(
         remote: peer,
         local_ip: local.ip(),
         local_port: local.port(),
-        // A direct client is its own real address for the connection's
-        // life; only behind a trusted proxy does it vary per request.
-        real_ip: snapshot.listener.proxy.is_none().then_some(peer.ip()),
+        real_ip: Some(peer.ip()),
         country_code: crate::tcp::geo::country_code(peer.ip()),
         tls: None,
     });

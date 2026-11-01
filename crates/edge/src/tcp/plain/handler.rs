@@ -11,7 +11,7 @@ use crate::config::NonSslPolicy;
 use crate::service::{CleartextHostCache, CleartextRequest};
 #[cfg(feature = "acme")]
 use crate::transport::RequestAuthority;
-use crate::transport::{HostAppResolver, HostIngress, VhostResolver};
+use crate::transport::{HostAppResolver, VhostResolver};
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;
 use claviron_http::session::SessionSpawner;
@@ -25,7 +25,7 @@ use tracing::warn;
 
 #[cfg(feature = "acme")]
 use super::acme;
-use super::error::{Error, Result};
+use super::error::Result;
 use super::redirect::handle_redirect;
 use super::server::ServerSnapshot;
 use crate::tcp::service::RequestDispatch;
@@ -57,10 +57,6 @@ impl H1Service {
     ) -> Self {
         let host_cache = CleartextHostCache::new(
             ctx,
-            HostIngress {
-                proxy: snapshot.listener.proxy.clone(),
-                deny: snapshot.deny.clone(),
-            },
             vhosts.clone(),
             snapshot.listener.policy(),
         );
@@ -118,7 +114,7 @@ impl H1Service {
         >,
     > {
         let snapshot = &self.snapshot;
-        // A configured HTTP-01 handler short-circuits ordinary host/deny policy.
+        // A configured HTTP-01 handler short-circuits ordinary host selection.
         #[cfg(feature = "acme")]
         if let Some(challenges_dir) = &snapshot.http01_directory
             && req.uri().path().starts_with(acme::ACME_PREFIX)
@@ -135,10 +131,6 @@ impl H1Service {
         }
         #[cfg(not(feature = "acme"))]
         let _ = &snapshot.http01_directory;
-        let req = snapshot
-            .deny
-            .check_request(req)
-            .map_err(|_| Error::Rejected("deny-drop"))?;
         let req = match CleartextRequest::new(req) {
             Ok(request) => request,
             Err(_) => {

@@ -5,7 +5,6 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use crate::deny::DenyService;
 use crate::transport::instances::ListenerInstances;
 use crate::transport::{HostAppResolver, VhostResolver, WebTransportRegistry};
 use async_trait::async_trait;
@@ -34,9 +33,6 @@ use crate::quic::tls::{H3TlsAccept, VhostTlsPolicies};
 pub(crate) struct ServerSnapshot {
     pub(crate) listener: Arc<ListenerConfig>,
     pub(crate) config: QuicListenerConfig,
-    /// Captured listener request-default matcher, shared with HostService.
-    /// Admission occurs before body reading and native WebTransport acceptance.
-    pub(crate) deny: Arc<DenyService>,
     pub(crate) tls_accept: H3TlsAccept,
 }
 
@@ -150,7 +146,6 @@ pub(crate) fn build_snapshots(
     http: &HttpSnapshot,
     deps: &Deps,
 ) -> Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>, Error> {
-    let deny = Arc::new(DenyService::from_set(http.router.deny_set()));
     let mut groups = BTreeMap::new();
     for (id, listener) in &http.listeners {
         let ListenerSettings::Quic(config) = &listener.settings else {
@@ -169,7 +164,6 @@ pub(crate) fn build_snapshots(
             Arc::new(ServerSnapshot {
                 listener: listener.clone(),
                 config: config.clone(),
-                deny: deny.clone(),
                 tls_accept,
             }),
         );

@@ -1,8 +1,8 @@
+use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::deny::DenyService;
 use crate::pipeline::host::{HostPipeline, HostRequestState};
-use crate::service::{HostIngress, RequestArrival};
+use crate::service::RequestArrival;
 use claviron_http::ServiceResult;
 use claviron_http::ext::{HostKey, HostName, RealIpExt};
 
@@ -23,14 +23,13 @@ fn host() -> VhostCtx {
 fn native_pipeline(
     connection: &Arc<ConnCtx>,
     host: &VhostCtx,
-    ingress: &HostIngress,
 ) -> HostPipeline<HostRequestState, crate::service::HostResponse> {
     let access = Arc::new(crate::VhostResolver::default());
     access.upsert_host(
         host.vhost_key.0.as_ref().clone(),
         host.vhost_config.clone(),
     );
-    HostPipeline::for_host(connection, host, ingress, access)
+    HostPipeline::for_host(connection, host, access)
 }
 
 fn connection(ip: Option<IpAddr>) -> Arc<ConnCtx> {
@@ -47,90 +46,6 @@ fn connection(ip: Option<IpAddr>) -> Arc<ConnCtx> {
     })
 }
 
-fn proxy(trusted: &str) -> ProxyConfig {
-    ProxyConfig {
-        trusted: vec![trusted.parse().unwrap()],
-        headers: vec![
-            "x-real-ip".parse().unwrap(),
-            "x-forwarded-for".parse().unwrap(),
-        ],
-    }
-}
-
-#[test]
-fn host_identity_uses_only_captured_trust_and_does_not_cache_proxy_clients() {
-    let accepted = connection(None);
-    let host = host();
-    for (policy, expected) in [
-        (None, "192.0.2.1"),
-        (Some(proxy("198.51.100.0/24")), "192.0.2.1"),
-        (Some(proxy("192.0.2.0/24")), "203.0.113.1"),
-    ] {
-        let pipeline = native_pipeline(
-            &accepted,
-            &host,
-            &HostIngress {
-                proxy: policy,
-                deny: Arc::new(DenyService::empty()),
-            },
-        );
-        let request = Request::builder()
-            .header("host", "alias.test")
-            .header("x-real-ip", "203.0.113.1")
-            .body(())
-            .unwrap();
-        let admitted = pipeline
-            .admit(request, HostRequestState::new(RequestArrival::Established))
-            .unwrap();
-        assert_eq!(
-            admitted.connection.real_ip,
-            Some(expected.parse().unwrap())
-        );
-        assert!(Arc::ptr_eq(
-            &admitted.connection,
-            admitted.head.extensions.get::<Arc<ConnCtx>>().unwrap()
-        ));
-    }
-
-    let pipeline = native_pipeline(
-        &accepted,
-        &host,
-        &HostIngress {
-            proxy: Some(proxy("192.0.2.0/24")),
-            deny: Arc::new(DenyService::empty()),
-        },
-    );
-    let mut identities = Vec::new();
-    for (primary, fallback, expected) in [
-        ("203.0.113.1", "203.0.113.99", "203.0.113.1"),
-        ("invalid", "203.0.113.99", "192.0.2.1"),
-        ("203.0.113.2", "203.0.113.99", "203.0.113.2"),
-    ] {
-        let request = Request::builder()
-            .header("host", "alias.test")
-            .header("x-real-ip", primary)
-            .header("x-forwarded-for", fallback)
-            .body(())
-            .unwrap();
-        let admitted = pipeline
-            .admit(request, HostRequestState::new(RequestArrival::Established))
-            .unwrap();
-        assert_eq!(
-            admitted.connection.real_ip,
-            Some(expected.parse().unwrap())
-        );
-        assert_eq!(
-            admitted.head.extensions.get::<RealIpExt>().unwrap().0,
-            expected.parse::<IpAddr>().unwrap()
-        );
-        identities.push(admitted.connection);
-    }
-    assert!(!Arc::ptr_eq(&identities[0], &identities[1]));
-    assert!(!Arc::ptr_eq(&identities[1], &identities[2]));
-    assert_eq!(identities[0].real_ip, Some("203.0.113.1".parse().unwrap()));
-    assert!(accepted.real_ip.is_none());
-}
-
 struct BodyOwner {
     bytes: Box<[u8]>,
     dropped: Arc<AtomicUsize>,
@@ -139,34 +54,29 @@ struct BodyOwner {
 #[test]
 fn direct_identity_without_a_transport_real_ip_is_shared_between_requests() {
     let accepted = connection(None);
-    let mut empty_headers = proxy("192.0.2.0/24");
-    empty_headers.headers.clear();
-    for policy in [None, Some(proxy("198.51.100.0/24")), Some(empty_headers)] {
-        let pipeline = native_pipeline(
-            &accepted,
-            &host(),
-            &HostIngress { proxy: policy, deny: Arc::new(DenyService::empty()) },
+    let pipeline = native_pipeline(&accepted, &host());
+    let mut identities = Vec::new();
+    for client in ["203.0.113.1", "203.0.113.2"] {
+        let request = Request::builder()
+            .header("host", "alias.test")
+            .header("x-real-ip", client)
+            .body(())
+            .unwrap();
+        let admitted = pipeline
+            .admit(request, HostRequestState::new(RequestArrival::Established))
+            .unwrap();
+        assert_eq!(admitted.connection.real_ip, Some(accepted.remote.ip()));
+        assert!(Arc::ptr_eq(
+            &admitted.connection,
+            admitted.head.extensions.get::<Arc<ConnCtx>>().unwrap(),
+        ));
+        assert_eq!(
+            admitted.head.extensions.get::<RealIpExt>().unwrap().0,
+            accepted.remote.ip()
         );
-        let mut identities = Vec::new();
-        for client in ["203.0.113.1", "203.0.113.2"] {
-            let request = Request::builder()
-                .header("host", "alias.test")
-                .header("x-real-ip", client)
-                .body(())
-                .unwrap();
-            let admitted = pipeline.admit(
-                request,
-                HostRequestState::new(RequestArrival::Established),
-            ).unwrap();
-            assert_eq!(admitted.connection.real_ip, Some(accepted.remote.ip()));
-            assert!(Arc::ptr_eq(
-                &admitted.connection,
-                admitted.head.extensions.get::<Arc<ConnCtx>>().unwrap()
-            ));
-            identities.push(admitted.connection);
-        }
-        assert!(Arc::ptr_eq(&identities[0], &identities[1]));
+        identities.push(admitted.connection);
     }
+    assert!(Arc::ptr_eq(&identities[0], &identities[1]));
     assert!(accepted.real_ip.is_none());
 }
 
@@ -179,16 +89,7 @@ impl Drop for BodyOwner {
 #[test]
 fn host_identity_follows_ingress_and_keeps_single_body_ownership() {
     let accepted = connection(Some("192.0.2.1".parse().unwrap()));
-    let pipeline = native_pipeline(
-        &accepted,
-        &host(),
-        &HostIngress {
-            proxy: Some(proxy("192.0.2.0/24")),
-            deny: Arc::new(DenyService::from_set(
-                &regex::RegexSet::new(["^/blocked"]).unwrap(),
-            )),
-        },
-    );
+    let pipeline = native_pipeline(&accepted, &host());
     let dropped = Arc::new(AtomicUsize::new(0));
     let body =
         BodyOwner { bytes: Box::from(*b"untouched"), dropped: dropped.clone() };
@@ -210,8 +111,8 @@ fn host_identity_follows_ingress_and_keeps_single_body_ownership() {
     assert_eq!(dropped.load(Ordering::Relaxed), 1);
 
     let request = Request::builder()
-        .uri("/blocked")
-        .header("host", "alias.test")
+        .uri("/ok")
+        .header("host", "other.test")
         .body(BodyOwner {
             bytes: Box::from(*b"untouched"),
             dropped: dropped.clone(),
@@ -221,11 +122,11 @@ fn host_identity_follows_ingress_and_keeps_single_body_ownership() {
         request,
         HostRequestState::new(RequestArrival::Established),
     ) else {
-        panic!("deny must reject before identity")
+        panic!("invalid authority must reject before identity")
     };
     assert_eq!(
         reply.response,
-        crate::service::HostResponse::Rejected(RequestRejection::PathDenied)
+        crate::service::HostResponse::Rejected(RequestRejection::Misdirected)
     );
     assert!(reply.state.identity().connection().is_none());
     assert_eq!(dropped.load(Ordering::Relaxed), 2);

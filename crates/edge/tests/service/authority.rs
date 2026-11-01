@@ -1,7 +1,6 @@
 use http::{Version, header};
 
 use super::*;
-use crate::deny::DenyService;
 
 fn authority(host: &str) -> RequestAuthority {
     let request =
@@ -85,7 +84,6 @@ fn host_identity_cache_releases_replaced_names_and_keeps_accepted_requests() {
 
 #[test]
 fn cleartext_authority_handoff_rejects_invalid_heads() {
-    let deny = DenyService::empty();
     for (version, uri, hosts, expected) in [
         (Version::HTTP_11, "/", &[][..], AuthorityError::Missing),
         (Version::HTTP_10, "/", &[][..], AuthorityError::Missing),
@@ -112,16 +110,16 @@ fn cleartext_authority_handoff_rejects_invalid_heads() {
         for host in hosts {
             request = request.header(header::HOST, *host);
         }
-        let checked =
-            deny.check_request(request.body(()).unwrap()).ok().unwrap();
-        assert_eq!(CleartextRequest::new(checked).err(), Some(expected));
+        assert_eq!(
+            CleartextRequest::new(request.body(()).unwrap()).err(),
+            Some(expected)
+        );
     }
 }
 
 #[test]
 fn cleartext_authority_handoff_keeps_the_request_and_its_selected_host() {
     struct UnreadBody;
-    let deny = DenyService::empty();
     let table = serde_yaml::from_str(
         "app.test: {root: public, aliases: [alias.test]}\n'[::1]': {root: public}",
     )
@@ -136,16 +134,14 @@ fn cleartext_authority_handoff_keeps_the_request_and_its_selected_host() {
             .header(header::HOST, host)
             .body(UnreadBody)
             .unwrap();
-        let checked = deny.check_request(request).ok().unwrap();
-        let validated = CleartextRequest::new(checked).unwrap();
+        let validated = CleartextRequest::new(request).unwrap();
         let resolved =
             resolve_request_authority(validated.authority(), &table).unwrap();
         assert_eq!(resolved.vhost_key.0.as_ref(), &canonical.parse().unwrap());
         assert_eq!(resolved.hostname.0.as_ref(), validated.authority().host());
         assert_eq!(validated.request().uri(), uri);
         assert_eq!(validated.request().headers()[header::HOST], host);
-        let (checked, authority) = validated.into_parts();
-        let request = deny.accept_checked(checked).ok().unwrap();
+        let (request, authority) = validated.into_parts();
         assert_eq!(request.uri(), uri);
         assert_eq!(request.headers()[header::HOST], host);
         assert_eq!(&*resolved.hostname.0, authority.host());

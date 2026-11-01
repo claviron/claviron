@@ -90,7 +90,7 @@ impl RequestDispatch {
     pub(crate) fn call_cleartext(
         &self,
         host: HostService,
-        request: CleartextRequest<'_, Incoming>,
+        request: CleartextRequest<Incoming>,
     ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
     {
         self.dispatch(host.prepare_cleartext(request))

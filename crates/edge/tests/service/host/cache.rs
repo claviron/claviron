@@ -1,6 +1,5 @@
 use super::*;
 use crate::HostConfig;
-use crate::deny::DenyService;
 use crate::pipeline::other::OtherHandler;
 use crate::pipeline::other::OtherService;
 use claviron_http::ext::HostKey;
@@ -21,7 +20,6 @@ fn cache(access: Arc<VhostResolver>) -> CleartextHostCache {
             country_code: None,
             tls: None,
         }),
-        HostIngress { proxy: None, deny: Arc::new(DenyService::empty()) },
         access,
         HttpPolicy::unlimited(),
     )

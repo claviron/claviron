@@ -21,7 +21,6 @@ mod listener;
 // `loader` combines host declarations; `service` is the machinery behind them.
 // neither is anyone else's business, so neither is public. See `transport`.
 #[cfg(feature = "server")]
-pub mod deny;
 pub(crate) mod loader;
 #[cfg(feature = "server")]
 pub mod pipeline;

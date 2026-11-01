@@ -147,7 +147,6 @@ tracing.workspace = true
 
 # ── Misc utilities ──────────────────────────────────────────────────────
 bytes.workspace = true
-regex.workspace = true
 
 # ── HTTP/3 (QUIC) ───────────────────────────────────────────────────────
 h3 = { workspace = true, optional = true }
@@ -174,10 +173,6 @@ tempfile = "3"
 [[test]]
 name = "authority"
 path = "tests/authority.rs"
-
-[[test]]
-name = "deny"
-path = "tests/deny.rs"
 
 [[test]]
 name = "provider"

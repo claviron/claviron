@@ -1,6 +1,6 @@
 use super::*;
 use crate::loader::table::VhostTable;
-use crate::service::HostIdentityCache;
+use crate::service::{HostIdentityCache, RequestAuthority};
 
 /// One connection's last immutable host policy. Application selection and live
 /// ACL checks remain request-local; this cache owns no request, body or backend.
@@ -8,7 +8,6 @@ pub(crate) struct CleartextHostCache {
     identity: HostIdentityCache,
     current: Option<Arc<HostPolicy>>,
     connection: Arc<ConnCtx>,
-    ingress: HostIngress,
     access: Arc<VhostResolver>,
     listener: HttpPolicy,
 }
@@ -16,7 +15,6 @@ pub(crate) struct CleartextHostCache {
 impl CleartextHostCache {
     pub(crate) fn new(
         connection: Arc<ConnCtx>,
-        ingress: HostIngress,
         access: Arc<VhostResolver>,
         listener: HttpPolicy,
     ) -> Self {
@@ -24,7 +22,6 @@ impl CleartextHostCache {
             identity: HostIdentityCache::default(),
             current: None,
             connection,
-            ingress,
             access,
             listener,
         }
@@ -60,7 +57,6 @@ impl CleartextHostCache {
             self.current = Some(Arc::new(HostPolicy::new(
                 self.connection.clone(),
                 host,
-                self.ingress.clone(),
                 self.access.clone(),
                 self.listener,
             )));

@@ -9,13 +9,12 @@ use claviron_http::ext::ConnCtx;
 use super::AccessLogLayer;
 use super::{AdmissionPolicy, HostPipeline, HostRequestState, ReplyPolicy};
 use crate::VhostResolver;
-use crate::service::{HostIngress, HostResponse, VhostCtx};
+use crate::service::{HostResponse, VhostCtx};
 
 pub(crate) struct HostPolicy {
     #[cfg(any(test, all(feature = "tcp", feature = "tls")))]
     pub(crate) connection: Arc<ConnCtx>,
     pub(crate) host: VhostCtx,
-    pub(crate) ingress: HostIngress,
     pub(crate) http: HttpPolicy,
     pub(crate) admission_policy: AdmissionPolicy,
     pub(crate) reply: Option<ReplyPolicy>,
@@ -28,7 +27,6 @@ impl HostPolicy {
     pub(crate) fn new(
         connection: Arc<ConnCtx>,
         host: VhostCtx,
-        ingress: HostIngress,
         access: Arc<VhostResolver>,
         listener: HttpPolicy,
     ) -> Self {
@@ -42,13 +40,11 @@ impl HostPolicy {
             host.vhost_key.clone(),
             host.vhost_config.access_log(),
         );
-        let pipeline =
-            HostPipeline::for_host(&connection, &host, &ingress, access);
+        let pipeline = HostPipeline::for_host(&connection, &host, access);
         Self {
             #[cfg(any(test, all(feature = "tcp", feature = "tls")))]
             connection,
             host,
-            ingress,
             http,
             admission_policy,
             reply,

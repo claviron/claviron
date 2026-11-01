@@ -60,7 +60,7 @@ fn assert_context(
 #[test]
 fn prepared_extension_maps_keep_all_types_and_independent_request_ownership() {
     let (connection, host) = direct();
-    let template = identity_pipeline(&connection, &host, None);
+    let template = identity_pipeline(&connection, &host);
     let mut first = Request::new(());
     let mut second = Request::new(());
     inject(&template, &mut first);
@@ -89,7 +89,7 @@ struct NativeValue(Arc<()>);
 #[test]
 fn existing_extensions_keep_their_boxes_and_unrelated_values() {
     let (connection, host) = direct();
-    let template = identity_pipeline(&connection, &host, None);
+    let template = identity_pipeline(&connection, &host);
     let native = Arc::new(());
     let policy = HttpPolicy::unlimited();
     let received = ReceivedAt(std::time::SystemTime::UNIX_EPOCH);
@@ -140,7 +140,7 @@ fn existing_extensions_keep_their_boxes_and_unrelated_values() {
 #[test]
 fn empty_allocated_extensions_receive_the_complete_context() {
     let (connection, host) = direct();
-    let template = identity_pipeline(&connection, &host, None);
+    let template = identity_pipeline(&connection, &host);
     let mut request = Request::builder()
         .extension(NativeValue(Arc::new(())))
         .body(())

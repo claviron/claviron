@@ -1,4 +1,5 @@
 use super::*;
+use crate::transport::RequestRejection;
 
 #[test]
 fn interrupted_body_does_not_generate_a_bad_request_response() {
@@ -81,10 +82,6 @@ fn declared_body_limits_reject_before_body_adaptation() {
 
 #[test]
 fn shared_decisions_keep_h3_wire_status_contract() {
-    assert_eq!(
-        host_response(RequestRejection::PathDenied.into()).status(),
-        StatusCode::NOT_FOUND
-    );
     assert_eq!(
         host_response(RequestRejection::AccessDenied.into()).status(),
         StatusCode::FORBIDDEN

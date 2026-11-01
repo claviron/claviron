@@ -49,7 +49,7 @@ pub use crate::pipeline::{WebTransportBinding, WebTransportRegistry};
 /// Turning an accepted connection and a received request into a host's
 /// response — the transport's actual reason for depending on this crate.
 pub use crate::service::{
-    HostIngress, HostRejection, HostResponse, HostService, PreparedRequest,
-    RequestArrival, RequestAuthority, RequestRejection, VhostBindings,
-    VhostCtx, resolve_request_authority, resolve_sni_from_table,
+    HostRejection, HostResponse, HostService, PreparedRequest, RequestArrival,
+    RequestAuthority, RequestRejection, VhostBindings, VhostCtx,
+    resolve_request_authority, resolve_sni_from_table,
 };

@@ -116,7 +116,6 @@ impl HttpsServer {
                 &self.state,
                 proto,
                 &snapshot.listener,
-                snapshot.deny.clone(),
                 scope.sessions(),
             )?
             .into_service();

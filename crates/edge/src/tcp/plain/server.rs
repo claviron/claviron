@@ -8,7 +8,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::deny::DenyService;
 use crate::transport::VhostResolver;
 use crate::transport::instances::ListenerInstances;
 use async_trait::async_trait;
@@ -42,7 +41,6 @@ pub(super) struct ServerSnapshot {
     pub(super) h1: H1Config,
     pub(super) redirect_port: NonZeroU16,
     pub(super) http01_directory: Option<Arc<PathBuf>>,
-    pub(super) deny: Arc<DenyService>,
 }
 impl ListenerSnapshot for ServerSnapshot {
     fn listener_id(&self) -> &ListenerId {
@@ -189,7 +187,6 @@ pub(super) fn build_snapshots(
     state: &AppState,
 ) -> claviron_runtime::registry::Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>>
 {
-    let deny = Arc::new(DenyService::from_set(http.router.deny_set()));
     let mut groups = BTreeMap::new();
     for (id, listener) in &http.listeners {
         let ListenerSettings::Tcp(config) = &listener.settings else {
@@ -232,7 +229,6 @@ pub(super) fn build_snapshots(
                 h1: config.h1.clone(),
                 redirect_port: *redirect_port,
                 http01_directory,
-                deny: deny.clone(),
             }),
         );
     }

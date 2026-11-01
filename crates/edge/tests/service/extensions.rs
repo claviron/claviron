@@ -6,7 +6,6 @@ use crate::pipeline::host::{
 use crate::service::RequestAuthority;
 use crate::service::RequestRejection;
 use claviron_http::ServiceResult;
-use claviron_http::config::ProxyConfig;
 use claviron_http::ext::{ConnCtx, RealIpExt};
 use http::{Extensions, Request};
 
@@ -16,12 +15,9 @@ mod template;
 fn identity_pipeline(
     connection: &Arc<ConnCtx>,
     host: &VhostCtx,
-    proxy: Option<ProxyConfig>,
 ) -> HostPipeline<IdentityState, RequestRejection> {
     let mut builder = HostPipelineBuilder::new();
-    builder
-        .layer(IdentityPolicy::new(connection.clone(), host, proxy))
-        .unwrap();
+    builder.layer(IdentityPolicy::new(connection.clone(), host)).unwrap();
     builder.build()
 }
 
@@ -61,7 +57,7 @@ fn sni_authority_guard_preserves_ipv6_and_rejects_different_hosts() {
 }
 
 #[test]
-fn listener_identity_survives_per_request_proxy_resolution() {
+fn listener_identity_is_not_changed_by_forwarding_headers() {
     let table: VhostTable =
         serde_yaml::from_str("app.test: {root: public, listeners: internal}")
             .unwrap();
@@ -77,11 +73,7 @@ fn listener_identity_survives_per_request_proxy_resolution() {
         country_code: None,
         tls: None,
     });
-    let proxy = Some(ProxyConfig {
-        trusted: vec!["10.0.0.0/8".parse().unwrap()],
-        headers: vec![http::HeaderName::from_static("x-real-ip")],
-    });
-    let template = identity_pipeline(&ctx, &vctx, proxy.clone());
+    let template = identity_pipeline(&ctx, &vctx);
     for ip in ["203.0.113.1", "203.0.113.2"] {
         let mut request = Request::builder()
             .uri("https://app.test/")
@@ -95,7 +87,7 @@ fn listener_identity_survives_per_request_proxy_resolution() {
         );
         let resolved = request.extensions().get::<Arc<ConnCtx>>().unwrap();
         assert_eq!(resolved.listener, ctx.listener);
-        assert_eq!(resolved.real_ip, Some(ip.parse().unwrap()));
+        assert_eq!(resolved.real_ip, Some(ctx.remote.ip()));
         assert_eq!(
             request.extensions().get::<claviron_http::ListenerId>(),
             Some(&ctx.listener)
@@ -107,7 +99,7 @@ fn listener_identity_survives_per_request_proxy_resolution() {
     );
     let mut direct =
         Request::builder().header("x-real-ip", "203.0.113.1").body(()).unwrap();
-    inject(&identity_pipeline(&ctx, &vctx, None), &mut direct);
+    inject(&identity_pipeline(&ctx, &vctx), &mut direct);
     assert_eq!(
         direct.extensions().get::<Arc<ConnCtx>>().unwrap().real_ip,
         Some(ctx.remote.ip())
@@ -156,7 +148,7 @@ fn a_direct_connection_shares_its_context_instead_of_copying_it() {
         country_code: None,
         tls: None,
     });
-    let template = identity_pipeline(&ctx, &vctx, None);
+    let template = identity_pipeline(&ctx, &vctx);
     for _ in 0..2 {
         // A forwarding header from a direct client is not trusted.
         let mut request = Request::builder()

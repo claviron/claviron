@@ -2,7 +2,6 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use crate::deny::DenyService;
 use crate::transport::VhostResolver;
 use crate::transport::instances::ListenerInstances;
 use async_trait::async_trait;
@@ -29,9 +28,6 @@ use super::tls::{TlsAccept, VhostTlsPolicies};
 pub(crate) struct ServerSnapshot {
     pub(crate) listener: Arc<ListenerConfig>,
     pub(crate) config: TcpListenerConfig,
-    /// The router's deny matcher, compiled once per snapshot and shared by
-    /// every connection, as the cleartext and H3 listeners do.
-    pub(crate) deny: Arc<DenyService>,
     pub(crate) tls_accept: TlsAccept,
 }
 impl ListenerSnapshot for ServerSnapshot {
@@ -183,7 +179,6 @@ pub(crate) fn build_snapshots(
     http: &HttpSnapshot,
     deps: &Deps,
 ) -> Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>, Error> {
-    let deny = Arc::new(DenyService::from_set(http.router.deny_set()));
     let mut groups = BTreeMap::new();
     for (id, listener) in &http.listeners {
         let ListenerSettings::Tcp(config) = &listener.settings else {
@@ -198,7 +193,6 @@ pub(crate) fn build_snapshots(
             Arc::new(ServerSnapshot {
                 listener: listener.clone(),
                 config: config.clone(),
-                deny: deny.clone(),
                 tls_accept,
             }),
         );

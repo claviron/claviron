@@ -15,6 +15,6 @@ pub use extensions::{HostRejection, VhostCtx, resolve_sni_from_table};
 #[cfg(feature = "tcp")]
 pub(crate) use host::CleartextHostCache;
 pub use host::{
-    HostIngress, HostService, PreparedRequest, RequestArrival, RequestRejection,
+    HostService, PreparedRequest, RequestArrival, RequestRejection,
 };
 pub use response::HostResponse;

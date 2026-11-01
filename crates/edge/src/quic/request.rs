@@ -4,9 +4,7 @@
 use std::pin::Pin;
 
 use super::error::{log_stream_error, request_interrupted};
-use crate::transport::{
-    HostResponse, HostService, RequestArrival, RequestRejection,
-};
+use crate::transport::{HostResponse, HostService, RequestArrival};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use claviron_http::boxed_body;
 use futures_util::future::poll_fn;
@@ -524,16 +522,8 @@ impl H3RequestHandler {
     }
 }
 
-/// Preserve H3's existing non-disclosing deny response; the deny decision is
-/// shared, while response/close mechanics remain owned by the native driver.
 fn host_response(reply: HostResponse) -> Response<()> {
-    let hide_denial =
-        matches!(reply, HostResponse::Rejected(RequestRejection::PathDenied));
-    let mut response = reply.into_response();
-    if hide_denial {
-        *response.status_mut() = StatusCode::NOT_FOUND;
-    }
-    response
+    reply.into_response()
 }
 
 fn unsupported_websocket_connect(request: &Request<()>) -> bool {

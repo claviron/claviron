@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::transport::{HostIngress, HostService, RequestArrival};
+use crate::transport::{HostService, RequestArrival};
 use bytes::Bytes;
 use claviron_http::ListenerId;
 use claviron_http::config::ListenerSettings;
@@ -299,7 +299,6 @@ impl H3Server {
         };
 
         let conn = accepted.connection;
-        let direct_client = snapshot.listener.proxy.is_none();
 
         let conn_for_close = conn.clone();
         let remote: SocketAddr = conn.remote_address();
@@ -366,7 +365,7 @@ impl H3Server {
             local_ip,
             remote,
             local_port: local_addr.port(),
-            real_ip: if direct_client { Some(remote.ip()) } else { None },
+            real_ip: Some(remote.ip()),
             country_code: country_code_for(remote),
             tls: Some(h3_tls_info(&conn, handshake_data.as_deref())),
         });
@@ -375,10 +374,6 @@ impl H3Server {
             app,
             conn_ctx,
             vctx.clone(),
-            HostIngress {
-                proxy: snapshot.listener.proxy.clone(),
-                deny: snapshot.deny.clone(),
-            },
             deps.vhost_resolver.clone(),
             snapshot.listener.policy(),
         );

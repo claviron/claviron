@@ -1,12 +1,8 @@
-//! Request identity derived from the accepted peer and listener proxy policy.
+//! Request metadata derived from the accepted connection.
 
-use std::net::IpAddr;
 use std::sync::Arc;
 
-use claviron_http::config::ProxyConfig;
 use claviron_http::ext::ConnCtx;
-use claviron_http::resolvers::resolve_real_ip_from_headers;
-use http::HeaderMap;
 
 use super::*;
 use crate::service::{RequestRejection, VhostCtx};
@@ -39,14 +35,10 @@ impl AsRef<IdentityState> for IdentityState {
     }
 }
 
-/// Prepares one identity action from the accepted connection and listener
-/// policy. It captures host metadata without retaining the application.
-///
-/// A fixed direct identity is shared. Proxy identities remain request-local;
-/// forwarding headers cannot change accepted TLS, protocol or listener facts.
+/// Prepare shared metadata for the accepted connection and selected host.
+/// Forwarding headers do not alter this identity.
 pub struct IdentityPolicy {
     connection: Arc<ConnCtx>,
-    proxy: Option<ProxyConfig>,
     extensions: ContextExtensions,
 }
 
@@ -54,68 +46,32 @@ impl IdentityPolicy {
     pub fn new(
         connection: Arc<ConnCtx>,
         host: &VhostCtx,
-        proxy: Option<ProxyConfig>,
     ) -> Self {
-        let remote = connection.remote.ip();
-        let proxy = proxy.filter(|proxy| {
-            !proxy.headers.is_empty()
-                && proxy.trusted.iter().any(|network| network.contains(&remote))
-        });
-        let connection = if connection.real_ip.is_none() && proxy.is_none() {
+        let connection = if connection.real_ip.is_none() {
             let mut direct = connection.as_ref().clone();
-            direct.real_ip = Some(remote);
+            direct.real_ip = Some(connection.remote.ip());
             Arc::new(direct)
         } else {
             connection
         };
         let extensions = ContextExtensions::new(&connection, host);
-        Self { connection, proxy, extensions }
+        Self { connection, extensions }
     }
 
     pub(super) fn register<S: AsMut<IdentityState>, R>(
         self,
         layer: &mut HostLayerBuilder<S, R>,
     ) {
-        let Self { connection, proxy, extensions } = self;
-        if let Some(ip) = connection.real_ip {
-            layer.before(move |head, state| {
-                extensions.inject_fixed(head, &connection, ip);
-                state.as_mut().connection = Some(connection.clone());
-                ControlFlow::Continue(())
-            });
-            return;
-        }
-
-        let remote = connection.remote.ip();
-        let proxy = proxy.expect("dynamic identity has a prepared trusted proxy");
-        register_dynamic(layer, connection, extensions, move |headers| {
-            // Keep header precedence and right-to-left trusted-hop parsing
-            // in HTTP's shared resolver. The client identity is never cached.
-            resolve_real_ip_from_headers(
-                headers,
-                remote,
-                &proxy.trusted,
-                &proxy.headers,
-            )
+        let Self { connection, extensions } = self;
+        let ip = connection
+            .real_ip
+            .expect("accepted connection has a peer identity");
+        layer.before(move |head, state| {
+            extensions.inject_fixed(head, &connection, ip);
+            state.as_mut().connection = Some(connection.clone());
+            ControlFlow::Continue(())
         });
     }
-}
-
-fn register_dynamic<S: AsMut<IdentityState>, R>(
-    layer: &mut HostLayerBuilder<S, R>,
-    connection: Arc<ConnCtx>,
-    extensions: ContextExtensions,
-    resolve: impl Fn(&HeaderMap) -> IpAddr + Send + Sync + 'static,
-) {
-    layer.before(move |head, state| {
-        let ip = resolve(&head.headers);
-        let mut context = connection.as_ref().clone();
-        context.real_ip = Some(ip);
-        let context = Arc::new(context);
-        extensions.inject_dynamic(head, &context, ip);
-        state.as_mut().connection = Some(context);
-        ControlFlow::Continue(())
-    });
 }
 
 impl<S: AsMut<IdentityState>, R: From<RequestRejection>> HostLayer<S, R>

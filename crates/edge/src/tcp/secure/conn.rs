@@ -2,10 +2,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::config::HostConfig;
-use crate::deny::DenyService;
 use crate::transport::{
-    HostAppResolver, HostBinding, HostIngress, HostRejection, HostService,
-    VhostCtx, VhostResolver,
+    HostAppResolver, HostBinding, HostRejection, HostService, VhostCtx,
+    VhostResolver,
 };
 use claviron_http::config::ListenerConfig;
 use claviron_http::ext::{
@@ -65,9 +64,7 @@ impl TlsHostConnection {
             remote: socket_addr,
             local_ip: local_addr.ip(),
             local_port,
-            // A direct client is its own real address for the connection's
-            // life; only behind a trusted proxy does it vary per request.
-            real_ip: listener.proxy.is_none().then_some(socket_addr.ip()),
+            real_ip: Some(socket_addr.ip()),
             tls: tls_info(tls_stream),
             country_code: crate::tcp::geo::country_code(socket_addr.ip()),
         });
@@ -81,7 +78,6 @@ impl TlsHostConnection {
         state: &AppState,
         proto: Proto,
         listener: &ListenerConfig,
-        deny: Arc<DenyService>,
         sessions: SessionSpawner,
     ) -> Result<RequestService, ConnectionError> {
         let registry = state.registry_ref();
@@ -101,10 +97,6 @@ impl TlsHostConnection {
             })
             .ok_or(ConnectionError::ApplicationUnavailable)?;
 
-        // Both values belong to the transport's accepted snapshot. Never
-        // select proxy trust from a host or re-read the live HTTP provider.
-        let proxy_cache = listener.proxy.clone();
-
         let mut conn_ctx = (*self.ctx).clone();
         conn_ctx.proto = Some(proto);
 
@@ -112,7 +104,6 @@ impl TlsHostConnection {
             app,
             Arc::new(conn_ctx),
             self.vctx.clone(),
-            HostIngress { proxy: proxy_cache, deny },
             access,
             listener.policy(),
         );

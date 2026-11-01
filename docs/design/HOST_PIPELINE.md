@@ -60,14 +60,15 @@ Reload publishes a new plan for subsequent connections. Accepted TLS connections
 keep their host, authentication and application; live ACL/redirect rules can
 still change. Ending existing sessions requires an explicit lifecycle operation.
 Cleartext requests use the current publication and reuse prepared limits while
-the host binding is unchanged. Trusted proxy headers identify the client IP;
-they do not replace the accepted TLS host or supply client-certificate identity.
+the host binding is unchanged. Forwarding headers do not alter the accepted
+connection identity implicitly.
+Proxy identity and URI denial belong to explicitly selected host layers, not
+transport snapshots or a separate ingress bundle.
 
 ## Request flow
 
 1. **Check the request.** Validate its host and transport, determine the client
-   IP, then apply configured deny rules, ACL, redirects and rate limits.
-   Forwarded IP headers are used only on the trusted-proxy path.
+   IP, then apply configured ACL, redirects and rate limits.
 2. **Admit it.** CORS can answer a preflight or refuse an origin before the
    application runs. Declared capacity and time limits govern admission and
    waiting for response headers.

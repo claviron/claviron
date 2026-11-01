@@ -94,21 +94,6 @@ impl ContextExtensions {
         }
     }
 
-    pub(super) fn inject_dynamic(
-        &self,
-        head: &mut Parts,
-        connection: &Arc<ConnCtx>,
-        ip: IpAddr,
-    ) {
-        if head.extensions.is_empty() {
-            head.extensions = self.template.clone();
-            head.extensions.insert(connection.clone());
-            head.extensions.insert(RealIpExt(ip));
-        } else {
-            self.inject_populated(&mut head.extensions, connection, ip);
-        }
-    }
-
     fn inject_populated(
         &self,
         extensions: &mut Extensions,

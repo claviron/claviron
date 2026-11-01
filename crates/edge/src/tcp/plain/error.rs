@@ -8,9 +8,6 @@ pub enum Error {
     #[error("plaintext HTTP server: {0}")]
     Server(String),
 
-    #[error("plaintext HTTP rejected: {0}")]
-    Rejected(&'static str),
-
     #[error("plaintext HTTP: {0}")]
     Other(String),
 

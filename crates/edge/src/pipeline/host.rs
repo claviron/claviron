@@ -20,7 +20,7 @@
 //!
 //! [`IngressPolicy`] is the first native admission layer. It retains typed
 //! rejection reasons until the transport frames its reply. [`IdentityPolicy`]
-//! then prepares typed connection/host extensions and request-local proxy IP.
+//! then prepares typed connection/host extensions from the accepted peer.
 //! [`AccessPolicy`] applies live canonical-host ACL/redirect decisions next.
 //! With `rate-limit`, `QuotaPolicy` prepares the selected application's rate
 //! admission after access. [`ExchangeLayer`] prepares configured CORS and reply

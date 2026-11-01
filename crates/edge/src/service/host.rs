@@ -2,19 +2,18 @@
 
 use std::sync::Arc;
 
-use claviron_http::config::{HttpPolicy, ProxyConfig, RequestPolicy};
+use claviron_http::config::{HttpPolicy, RequestPolicy};
 use claviron_http::ext::ConnCtx;
 #[cfg(any(test, all(feature = "tcp", feature = "tls")))]
 use claviron_http::listener::HttpProtocol;
 use claviron_http::{RouteBody, RouteResponse};
 use http::{Request, StatusCode};
 
+#[cfg(feature = "tcp")]
+use super::CleartextRequest;
 use super::extensions::VhostCtx;
 use super::{AuthorityError, HostResponse};
-#[cfg(feature = "tcp")]
-use super::{CleartextRequest, RequestAuthority};
 use crate::VhostResolver;
-use crate::deny::{DenyCheckedRequest, DenyService};
 use crate::pipeline::host::PolicySnapshot;
 use crate::pipeline::host::{HostPolicy, HostRequestState, IdentifiedRequest};
 use crate::pipeline::{AuthContext, HostApp, RustRouter};
@@ -25,13 +24,6 @@ mod dispatch;
 mod cache;
 #[cfg(feature = "tcp")]
 pub(crate) use cache::CleartextHostCache;
-
-/// Accepted listener policy, not selected from an untrusted Host header.
-#[derive(Clone)]
-pub struct HostIngress {
-    pub proxy: Option<ProxyConfig>,
-    pub deny: Arc<DenyService>,
-}
 
 /// A fact supplied by the native transport, never by a request header.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,7 +40,6 @@ pub enum RequestRejection {
     InvalidAuthority(AuthorityError),
     Misdirected,
     UpgradeForbidden,
-    PathDenied,
     AccessDenied,
     HostRemoved,
     AmbiguousPath,
@@ -65,7 +56,7 @@ impl RequestRejection {
             Self::Misdirected | Self::HostRemoved => {
                 StatusCode::MISDIRECTED_REQUEST
             }
-            Self::UpgradeForbidden | Self::PathDenied | Self::AccessDenied => {
+            Self::UpgradeForbidden | Self::AccessDenied => {
                 StatusCode::FORBIDDEN
             }
             Self::AmbiguousPath | Self::InvalidAuthority(_) => {
@@ -99,14 +90,13 @@ impl HostService {
         app: impl Into<HostApp>,
         connection: Arc<ConnCtx>,
         host: VhostCtx,
-        ingress: HostIngress,
         access: Arc<VhostResolver>,
         listener: HttpPolicy,
     ) -> Self {
         Self {
             app: app.into(),
             policy: Arc::new(HostPolicy::new(
-                connection, host, ingress, access, listener,
+                connection, host, access, listener,
             )),
         }
     }
@@ -126,22 +116,6 @@ impl HostService {
         Ok(self.prepare_context(request)?.with_service(self.clone()))
     }
 
-    /// Preserve an early transport deny check without evaluating the same
-    /// matcher twice. All other host gates still run; another matcher rechecks.
-    pub fn prepare_checked<B>(
-        &self,
-        request: DenyCheckedRequest<'_, B>,
-        arrival: RequestArrival,
-    ) -> Result<PreparedRequest<B>, HostResponse> {
-        let request = self.policy.pipeline.admit_checked(
-            request,
-            &self.policy.ingress.deny,
-            arrival,
-            None,
-        )?;
-        Ok(self.prepare_context(request)?.with_service(self.clone()))
-    }
-
     /// Reuse the authority validated for this cleartext host selection. The
     /// receiving host still checks its binding, transport and live policy.
     /// Cleartext selects an owned application per request, which moves into the
@@ -150,15 +124,11 @@ impl HostService {
     #[cfg(feature = "tcp")]
     pub(crate) fn prepare_cleartext<B>(
         self,
-        request: CleartextRequest<'_, B>,
+        request: CleartextRequest<B>,
     ) -> Result<PreparedRequest<B>, HostResponse> {
         let (request, authority) = request.into_parts();
-        let request = self.policy.pipeline.admit_checked(
-            request,
-            &self.policy.ingress.deny,
-            RequestArrival::Established,
-            Some(authority),
-        )?;
+        let request =
+            self.policy.pipeline.admit_cleartext(request, authority)?;
         Ok(self.prepare_context(request)?.with_service(self))
     }
 

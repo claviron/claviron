@@ -53,7 +53,7 @@ impl HttpConfigProvider {
         }
     }
 
-    /// Host-router defaults only; proxy trust is listener-owned.
+    /// Host-router configuration defaults.
     pub fn router(&self) -> Arc<RouterConfig> {
         self.snapshot.load().router.clone()
     }

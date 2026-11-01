@@ -3,15 +3,15 @@
 use std::sync::Arc;
 
 use claviron_http::ServiceResult;
+#[cfg(feature = "tcp")]
 use claviron_http::authority::RequestAuthority;
 use claviron_http::ext::ConnCtx;
 
 use super::*;
 use crate::VhostResolver;
-use crate::deny::{DenyCheckedRequest, DenyService};
 use crate::pipeline::host::PolicySnapshot;
 use crate::service::{
-    HostIngress, HostResponse, RequestArrival, RequestRejection, VhostCtx,
+    HostResponse, RequestArrival, RequestRejection, VhostCtx,
 };
 
 /// Independent phase state for one native request, never a shared extension map.
@@ -70,14 +70,12 @@ impl HostPipeline<HostRequestState, HostResponse> {
     pub(crate) fn for_host(
         connection: &Arc<ConnCtx>,
         host: &VhostCtx,
-        ingress: &HostIngress,
         access: Arc<VhostResolver>,
     ) -> Self {
         let mut ingress_layer = HostLayerBuilder::default();
-        IngressPolicy::new(connection, host, ingress.deny.clone())
-            .register(&mut ingress_layer);
+        IngressPolicy::new(connection, host).register(&mut ingress_layer);
         let mut identity_layer = HostLayerBuilder::default();
-        IdentityPolicy::new(connection.clone(), host, ingress.proxy.clone())
+        IdentityPolicy::new(connection.clone(), host)
             .register(&mut identity_layer);
         let mut access_layer = HostLayerBuilder::default();
         AccessPolicy::new(access, host.vhost_key.clone())
@@ -112,19 +110,16 @@ impl HostPipeline<HostRequestState, HostResponse> {
         })
     }
 
-    pub(crate) fn admit_checked<B>(
+    #[cfg(feature = "tcp")]
+    pub(crate) fn admit_cleartext<B>(
         &self,
-        request: DenyCheckedRequest<'_, B>,
-        deny: &DenyService,
-        arrival: RequestArrival,
-        authority: Option<RequestAuthority>,
+        request: Request<B>,
+        authority: RequestAuthority,
     ) -> Result<IdentifiedRequest<B>, HostResponse> {
-        let (request, ingress) =
-            IngressState::checked(request, deny, arrival, authority);
         self.admit(
             request,
             HostRequestState {
-                ingress,
+                ingress: IngressState::cleartext(authority),
                 identity: IdentityState::default(),
                 access: AccessState::default(),
             },

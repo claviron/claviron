@@ -4,10 +4,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use claviron_edge::VhostResolver;
-use claviron_edge::deny::DenyService;
 use claviron_edge::transport::{
-    HostIngress, HostResponse, HostService, OtherHandler, OtherService,
-    RequestArrival, RequestAuthority, RequestRejection, RustRouter, VhostTable,
+    HostResponse, HostService, OtherHandler, OtherService, RequestArrival,
+    RequestAuthority, RequestRejection, RustRouter, VhostTable,
     resolve_request_authority, resolve_sni_from_table,
 };
 use claviron_http::ext::ConnCtx;
@@ -52,7 +51,6 @@ fn service(
             tls: None,
         }),
         host,
-        HostIngress { proxy: None, deny: Arc::new(DenyService::empty()) },
         access,
         claviron_http::config::HttpPolicy::unlimited(),
     )

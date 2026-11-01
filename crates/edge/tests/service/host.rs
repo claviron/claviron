@@ -3,9 +3,7 @@
 #![cfg_attr(not(feature = "axum"), allow(unused_imports, dead_code))]
 
 use bytes::Bytes;
-use claviron_http::config::{
-    HttpPolicy, RequestPolicy, ResponsePolicy, RouterConfig,
-};
+use claviron_http::config::{HttpPolicy, RequestPolicy, ResponsePolicy};
 use claviron_http::ext::{
     ClientAuthStatus, HostKey, HostName, RealIpExt, TlsInfo,
 };
@@ -68,19 +66,10 @@ fn service_with_limits_and_access(
             client_cert: None,
         }),
     });
-    let router: RouterConfig =
-        serde_yaml::from_str("deny: ['^/blocked']").unwrap();
     let service = HostService::new(
         app,
         connection,
         host,
-        HostIngress {
-            proxy: Some(ProxyConfig {
-                trusted: vec!["10.0.0.0/8".parse().unwrap()],
-                headers: vec![header::HeaderName::from_static("x-real-ip")],
-            }),
-            deny: Arc::new(DenyService::from_set(router.deny_set())),
-        },
         access.clone(),
         HttpPolicy {
             requests: listener,
@@ -170,8 +159,7 @@ fn quota_admission_is_shared_by_native_protocols_and_precedes_body_dispatch() {
             RequestPolicy::unlimited(),
         );
         let mut request = request("/");
-        // Native admission replaces an arbitrary preexisting extension using
-        // its accepted listener's trusted proxy policy.
+        // Native admission replaces an arbitrary extension with accepted identity.
         request
             .extensions_mut()
             .insert(RealIpExt("192.0.2.99".parse().unwrap()));
@@ -270,13 +258,6 @@ fn head_guards_are_shared_and_do_not_require_a_pollable_body() {
             service.prepare(mismatched, RequestArrival::Established),
             Err(HostResponse::Rejected(RequestRejection::Misdirected))
         ));
-        assert!(matches!(
-            service.prepare(
-                request("/blocked").map(|()| NativeBody),
-                RequestArrival::Established
-            ),
-            Err(HostResponse::Rejected(RequestRejection::PathDenied))
-        ));
         let denied = noop(protocol, "listeners: []");
         assert!(matches!(
             denied.prepare(request("/"), RequestArrival::Established),
@@ -298,56 +279,6 @@ fn head_guards_are_shared_and_do_not_require_a_pollable_body() {
     }
 }
 
-#[test]
-fn checked_deny_requests_keep_host_guards_and_cannot_bypass_another_matcher() {
-    for cleartext in [false, true] {
-        #[cfg(not(feature = "tcp"))]
-        if cleartext {
-            continue;
-        }
-        let service =
-            noop(HttpProtocol::H1, "acl: {'/private': {policy: deny}}");
-        let prepare = |checked| {
-            #[cfg(feature = "tcp")]
-            if cleartext {
-                return service.clone().prepare_cleartext(
-                    CleartextRequest::new(checked).unwrap(),
-                );
-            }
-            service.prepare_checked(checked, RequestArrival::Established)
-        };
-        let matcher = service.policy.ingress.deny.clone();
-        let empty = DenyService::empty();
-        let checked = empty.check_request(request("/blocked")).ok().unwrap();
-        assert!(matches!(
-            prepare(checked),
-            Err(HostResponse::Rejected(RequestRejection::PathDenied))
-        ));
-        let checked = matcher.check_request(request("/private")).ok().unwrap();
-        assert!(matches!(
-            prepare(checked),
-            Err(HostResponse::Rejected(RequestRejection::AccessDenied))
-        ));
-        let mismatched = Request::builder()
-            .uri("http://other.test/ok")
-            .header(header::HOST, "other.test")
-            .body(())
-            .unwrap();
-        let checked = matcher.check_request(mismatched).ok().unwrap();
-        assert!(matches!(
-            prepare(checked),
-            Err(HostResponse::Rejected(RequestRejection::Misdirected))
-        ));
-        let checked =
-            matcher.check_request(request("/ok?raw=%2F")).ok().unwrap();
-        let prepared = prepare(checked).unwrap();
-        assert_eq!(prepared.request().uri(), "/ok?raw=%2F");
-        assert!(
-            prepared.request().extensions().get::<Arc<ConnCtx>>().is_some()
-        );
-    }
-}
-
 #[cfg(feature = "tcp")]
 #[test]
 fn cleartext_authority_handoff_keeps_transport_and_upgrade_guards() {
@@ -363,9 +294,7 @@ fn cleartext_authority_handoff_keeps_transport_and_upgrade_guards() {
                 .headers_mut()
                 .insert(header::UPGRADE, "websocket".parse().unwrap());
         }
-        let deny = service.policy.ingress.deny.clone();
-        let checked = deny.check_request(request).ok().unwrap();
-        let validated = CleartextRequest::new(checked).unwrap();
+        let validated = CleartextRequest::new(request).unwrap();
         assert!(matches!(
             service.prepare_cleartext(validated),
             Err(HostResponse::Rejected(reason)) if reason == expected
@@ -379,16 +308,9 @@ fn cleartext_authority_handoff_keeps_live_acl_redirect_and_removal() {
     let (service, access) = noop_with_access(HttpProtocol::H1, "");
     let key = service.policy.host.vhost_key.0.as_ref().clone();
     let prepare = || {
-        let checked = service
-            .policy
-            .ingress
-            .deny
-            .check_request(request("/original?q=%2F"))
-            .ok()
-            .unwrap();
-        service
-            .clone()
-            .prepare_cleartext(CleartextRequest::new(checked).unwrap())
+        service.clone().prepare_cleartext(
+            CleartextRequest::new(request("/original?q=%2F")).unwrap(),
+        )
     };
     assert!(prepare().is_ok());
     for (config, expected) in [
@@ -424,7 +346,6 @@ fn missing_protocol_is_not_inferred_from_request_version_or_uri() {
             ..(*binding.policy.connection).clone()
         }),
         binding.policy.host.clone(),
-        binding.policy.ingress.clone(),
         access.clone(),
         HttpPolicy::unlimited(),
     );
@@ -511,7 +432,7 @@ fn upgrades_require_h1_permission_and_do_not_rewrite_the_request() {
 }
 
 #[test]
-fn native_auth_and_http_share_fresh_request_identity() {
+fn native_auth_and_http_share_the_accepted_connection_identity() {
     for protocol in [HttpProtocol::H1, HttpProtocol::H2, HttpProtocol::H3] {
         let service = noop(protocol, "");
         for ip in ["203.0.113.1", "203.0.113.2"] {
@@ -527,10 +448,10 @@ fn native_auth_and_http_share_fresh_request_identity() {
                 &auth.conn,
                 extensions.get::<Arc<ConnCtx>>().unwrap()
             ));
-            assert_eq!(auth.conn.real_ip, Some(ip.parse().unwrap()));
+            assert_eq!(auth.conn.real_ip, Some(auth.conn.remote.ip()));
             assert_eq!(
                 extensions.get::<RealIpExt>().unwrap().0,
-                ip.parse::<std::net::IpAddr>().unwrap()
+                auth.conn.remote.ip()
             );
             assert_eq!(extensions.get::<HttpProtocol>(), Some(&protocol));
             assert_eq!(
@@ -831,37 +752,33 @@ async fn acl_reload_reaches_existing_bindings_before_axum_or_other_dispatch() {
 }
 
 #[test]
-fn acl_uses_this_requests_trusted_ip_and_never_polls_a_body() {
+fn acl_uses_the_accepted_identity_and_never_polls_a_body() {
     struct Unpollable;
     for protocol in [HttpProtocol::H1, HttpProtocol::H2, HttpProtocol::H3] {
         let (binding, access) = noop_with_access(
             protocol,
             "aliases: [alias.test], acl: {'/admin': {policy: deny, allowed: ['203.0.113.1/32']}}",
         );
-        // The connection arrived via the alias; authority must still match
-        // that exact SNI. ACL lookup uses the canonical app.test key.
-        let mut host = binding.policy.host.clone();
-        host.hostname = HostName(Arc::new("alias.test".parse().unwrap()));
-        let service = HostService::new(
-            binding.app.clone(),
-            binding.policy.connection.clone(),
-            host,
-            binding.policy.ingress.clone(),
-            access.clone(),
-            HttpPolicy::unlimited(),
-        );
-        for (ip, allowed) in [
-            ("203.0.113.1", true),
-            ("203.0.113.2", false),
-            ("203.0.113.1", true),
-        ] {
-            let req = Request::builder()
+        for (ip, allowed) in [("203.0.113.1", true), ("203.0.113.2", false)] {
+            let mut host = binding.policy.host.clone();
+            host.hostname = HostName(Arc::new("alias.test".parse().unwrap()));
+            let service = HostService::new(
+                binding.app.clone(),
+                Arc::new(ConnCtx {
+                    real_ip: Some(ip.parse().unwrap()),
+                    ..(*binding.policy.connection).clone()
+                }),
+                host,
+                access.clone(),
+                HttpPolicy::unlimited(),
+            );
+            let request = Request::builder()
                 .uri("/admin?ignored=/public")
                 .header(header::HOST, "alias.test")
-                .header("x-real-ip", ip)
+                .header("x-real-ip", "203.0.113.1")
                 .body(Unpollable)
                 .unwrap();
-            let result = service.prepare(req, RequestArrival::Established);
+            let result = service.prepare(request, RequestArrival::Established);
             assert_eq!(result.is_ok(), allowed);
             if !allowed {
                 assert!(matches!(
@@ -870,28 +787,6 @@ fn acl_uses_this_requests_trusted_ip_and_never_polls_a_body() {
                 ));
             }
         }
-        let service = HostService::new(
-            service.app,
-            service.policy.connection.clone(),
-            service.policy.host.clone(),
-            HostIngress {
-                proxy: None,
-                deny: service.policy.ingress.deny.clone(),
-            },
-            access.clone(),
-            HttpPolicy::unlimited(),
-        );
-        let forged = Request::builder()
-            .uri("/admin")
-            .header(header::HOST, "alias.test")
-            .header("x-real-ip", "203.0.113.1")
-            .body(Unpollable)
-            .unwrap();
-        assert!(matches!(
-            service.prepare(forged, RequestArrival::Established),
-            Err(HostResponse::Rejected(RequestRejection::AccessDenied))
-        ));
-        assert!(service.policy.connection.real_ip.is_none());
     }
 }
 

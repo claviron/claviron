@@ -82,6 +82,9 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 | `metrics`, `geoip`, `acme` | HTTP metrics, peer country lookup, HTTP-01 support. |
 
 Features compile capabilities; declarations and registration select what runs.
+Transport snapshots contain no URI-deny matcher or forwarded-client identity
+executor. These behaviors require explicit host-layer composition; the removed
+implicit ingress path is not installed by native host preparation.
 
 ## `src/`
 
@@ -90,7 +93,6 @@ Features compile capabilities; declarations and registration select what runs.
 - [`lib.rs`](src/lib.rs) — Public exports and registration; master/serving-process composition.
 - [`config.rs`](src/config.rs) — Host identity, transport policy and normalized route views; read-only backend accessors.
 - [`provider.rs`](src/provider.rs) — Congif HTTP configuration owner; validate capabilities and atomically publish HttpSnapshot.
-- [`deny.rs`](src/deny.rs) — Compiled URI deny matcher and immutable early-check proof.
 - [`access.rs`](src/access.rs) — Optional access-record producer and response-body accounting guard.
 - [`listener.rs`](src/listener.rs) — Hosting alias notifications and atomic candidate updates; PostgreSQL NOTIFY or hosting events.
 - [`transport.rs`](src/transport.rs) — Public transport-facing re-exports; loader and service remain internal.
@@ -144,8 +146,8 @@ Features compile capabilities; declarations and registration select what runs.
 - [`response.rs`](src/pipeline/host/response.rs) — Run only reached response/body actions, in reverse registration order.
 - [`state.rs`](src/pipeline/host/state.rs) — Ingress/identity/access phase state and native head-only handoff.
 - [`binding.rs`](src/pipeline/host/binding.rs) — Connection-owned policy, narrowed HTTP limits and prepared native plan.
-- [`ingress.rs`](src/pipeline/host/ingress.rs) — Protocol, authority, early-data, upgrade and URI-deny admission.
-- [`identity.rs`](src/pipeline/host/identity.rs) — Shared direct identity; trusted proxy clients remain request-local.
+- [`ingress.rs`](src/pipeline/host/ingress.rs) — Protocol, authority, early-data and upgrade admission.
+- [`identity.rs`](src/pipeline/host/identity.rs) — Shared accepted-connection identity and host metadata.
 - [`identity/extensions.rs`](src/pipeline/host/identity/extensions.rs) — Typed metadata in request-owned extension boxes.
 - [`access.rs`](src/pipeline/host/access.rs) — One live canonical-host policy selection and retained admitted generation.
 - [`access/acl.rs`](src/pipeline/host/access/acl.rs) — Compiled segment ACLs and unambiguous comparison paths.
@@ -245,7 +247,6 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`transport/instances.rs`](tests/transport/instances.rs) — Retain unchanged/draining listener identities and release retired allocations.
 
 - [`authority.rs`](tests/authority.rs) — Authority rejection precedes body/auth/application dispatch.
-- [`deny.rs`](tests/deny.rs) — Deny proof identity and unchanged request ownership.
 - [`sni.rs`](tests/sni.rs) — SNI/catchall lookup and bounded name churn.
 - [`provider.rs`](tests/provider.rs) — Prepared HTTP values, capability rejection and invalid-candidate retention.
 - [`config/routing.rs`](tests/config/routing.rs) — Route normalization, inheritance, mappings and unavailable capability rejection.
@@ -282,7 +283,7 @@ ownership and isolated state transitions without provider boot or live listeners
 ### `pipeline/host/`
 
 - [`ingress.rs`](tests/pipeline/host/ingress.rs) — Active head gates and typed rejection/body ownership.
-- [`identity.rs`](tests/pipeline/host/identity.rs) — Fixed identity reuse, proxy trust and independent clients.
+- [`identity.rs`](tests/pipeline/host/identity.rs) — Accepted identity reuse and unchanged body ownership.
 - [`access.rs`](tests/pipeline/host/access.rs) — Live access generations, host removal and required identity.
 - [`access/acl.rs`](tests/pipeline/host/access/acl.rs) — Segment specificity, escaped paths and ambiguous slashes.
 - [`access/policy.rs`](tests/pipeline/host/access/policy.rs) — ACL/redirect order and literal request data in templates.
@@ -304,7 +305,7 @@ ownership and isolated state transitions without provider boot or live listeners
 
 - [`authority.rs`](tests/service/authority.rs) — Authority proofs and connection-local identity allocation reuse.
 - [`bindings.rs`](tests/service/bindings.rs) — Name/TLS epoch agreement, alias changes and fail-closed authentication.
-- [`extensions.rs`](tests/service/extensions.rs) — Captured metadata, authority binding and proxy identity.
+- [`extensions.rs`](tests/service/extensions.rs) — Captured metadata, authority binding and shared accepted identity.
 - [`extensions/template.rs`](tests/service/extensions/template.rs) — Typed values, existing box reuse and independent extension maps.
 - [`host.rs`](tests/service/host.rs) — Shared admission, live ACL/replies, limits and native auth/body handoff.
 - [`host/cache.rs`](tests/service/host/cache.rs) — Metadata reuse without retaining stale applications or policy.
