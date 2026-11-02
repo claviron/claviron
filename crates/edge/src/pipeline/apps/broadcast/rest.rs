@@ -42,9 +42,35 @@ impl Endpoints {
     }
 }
 
+enum RestOwner {
+    Fleet(OtherService),
+    Http(PusherAdapter),
+}
+
+impl RestOwner {
+    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+        match self {
+            Self::Fleet(owner) => {
+                let owner = owner.clone();
+                DispatchFuture::new(async move {
+                    let Ok(response) = owner.handle(request).await;
+                    ServiceResult::Handled(response)
+                })
+            }
+            Self::Http(adapter) => {
+                let adapter = adapter.clone();
+                DispatchFuture::new(async move {
+                    let Ok(response) = adapter.handle(request).await;
+                    ServiceResult::Handled(response)
+                })
+            }
+        }
+    }
+}
+
 struct Rest {
     endpoints: Endpoints,
-    owner: OtherService,
+    owner: RestOwner,
 }
 
 impl DispatchStep for Rest {
@@ -55,14 +81,7 @@ impl DispatchStep for Rest {
         if !self.endpoints.accepts(request.uri().path()) {
             return DispatchFuture::ready(ServiceResult::Unhandled(request));
         }
-        let owner = self.owner.clone();
-        DispatchFuture::new(async move {
-            let response = match owner.handle(request).await {
-                Ok(response) => response,
-                Err(never) => match never {},
-            };
-            ServiceResult::Handled(response)
-        })
+        self.owner.call(request)
     }
 }
 
@@ -87,14 +106,14 @@ pub(crate) fn prepare(
             }
             (
                 Endpoints::Publish(paths),
-                crate::pipeline::app::owner(claviron_broadcast::pusher_routes(
-                    service,
+                RestOwner::Fleet(crate::pipeline::app::owner(
+                    claviron_broadcast::pusher_routes(service),
                 )),
             )
         }
         PusherTarget::Http(http) => (
             Endpoints::Http,
-            OtherService::new(PusherAdapter::new(Arc::new(http.clone()))),
+            RestOwner::Http(PusherAdapter::new(Arc::new(http.clone()))),
         ),
     };
     Some(Arc::new(Rest { endpoints, owner }))

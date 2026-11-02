@@ -60,7 +60,7 @@ async fn rest_claims_only_its_paths_and_never_reinterprets_a_handled_404() {
         endpoints: Endpoints::Publish(HashSet::from([
             "/apps/example/events".into()
         ])),
-        owner: OtherService::new(Echo(calls.clone())),
+        owner: RestOwner::Fleet(OtherService::new(Echo(calls.clone()))),
     };
     for (uri, handled) in
         [("/assets/app.js", false), ("/apps/example/events?x=1", true)]

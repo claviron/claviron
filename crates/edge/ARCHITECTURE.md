@@ -202,8 +202,6 @@ Empty contributions keep the direct Rust owner; disabled file steps allocate no 
 ### `pipeline/other/`
 
 - [`other.rs`](src/pipeline/other.rs) — Low-level Rust handler ownership, without implicit files or Axum.
-- [`adapters.rs`](src/pipeline/other/adapters.rs) — PHP/Pusher OtherHandler adapters; each owns its existing future erasure.
-- [`upstream.rs`](src/pipeline/other/upstream.rs) — Explicit upstream/file composition for caller-owned Rust handlers.
 
 ### `tcp/`
 

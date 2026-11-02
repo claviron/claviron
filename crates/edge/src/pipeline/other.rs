@@ -1,9 +1,3 @@
-#[cfg(feature = "upstream")]
-pub mod upstream;
-
-#[cfg(any(feature = "php_fcgi", feature = "php_embed", feature = "broadcast"))]
-mod adapters;
-
 use std::sync::Arc;
 
 use claviron_http::{RouteBody, RouteFuture};
