@@ -150,7 +150,7 @@ pub fn register_routing(
     #[cfg_attr(not(feature = "files"), allow(unused_variables))] root: &Path,
 ) -> registry::Result<()> {
     let policy = runner.policy().map_err(registry::Error::msg)?;
-    let routing = Routing::new(policy, runner.max_concurrent_requests);
+    let routing = Routing::new(policy);
     #[cfg(feature = "files")]
     let routing = routing.files(
         runner

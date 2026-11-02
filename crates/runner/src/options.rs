@@ -137,12 +137,6 @@ pub struct RunnerOptions {
     #[cfg_attr(feature = "cli", arg(long))]
     pub max_in_flight: Option<usize>,
 
-    /// Requests admitted at once across every door, until their response
-    /// head; a count or `off`. Unwritten, no bound. Written in the file only.
-    #[cfg_attr(feature = "cli", arg(skip))]
-    #[serde(with = "count_limit")]
-    pub max_concurrent_requests: Option<usize>,
-
     /// The request side of the policy (`max_body_size`, `body_read_timeout`,
     /// `queue_timeout`, `head_timeout`, …). Unwritten, nothing is bounded.
     /// Written in the file only; carried as written.
@@ -220,7 +214,6 @@ impl RunnerOptions {
         #[cfg(feature = "tls")]
         "tls_client_ca",
         "max_in_flight",
-        "max_concurrent_requests",
         "requests",
         "responses",
         #[cfg(feature = "files")]
@@ -277,7 +270,6 @@ impl RunnerOptions {
             tls_client_ca: self.tls_client_ca.or(written.tls_client_ca),
             max_in_flight: self.max_in_flight.or(written.max_in_flight),
             // Written down, never typed: no flag can have stated these.
-            max_concurrent_requests: written.max_concurrent_requests,
             requests: written.requests,
             responses: written.responses,
             #[cfg(feature = "files")]
@@ -332,9 +324,6 @@ impl RunnerOptions {
             return Err(
                 "max_in_flight is positive, or unwritten for no bound".into()
             );
-        }
-        if self.max_concurrent_requests == Some(0) {
-            return Err("max_concurrent_requests is positive, or off".into());
         }
         if self.uds.as_ref().is_some_and(|path| path.as_os_str().is_empty()) {
             return Err("uds is a path".into());
@@ -476,29 +465,6 @@ mod networks {
             .into_iter()
             .map(|text| text.parse().map_err(serde::de::Error::custom))
             .collect()
-    }
-}
-
-/// A count or `off`, read with Claviron's own rule and written back as the
-/// count, or nothing for `off`.
-mod count_limit {
-    use serde::{Deserializer, Serializer};
-
-    pub(super) fn serialize<S: Serializer>(
-        value: &Option<usize>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        match value {
-            Some(count) => serializer.serialize_u64(*count as u64),
-            None => serializer.serialize_none(),
-        }
-    }
-
-    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
-        deserializer: D
-    ) -> Result<Option<usize>, D::Error> {
-        Ok(claviron_http::tuning::optional_count_limit(deserializer)?
-            .and_then(|limit| limit.value()))
     }
 }
 

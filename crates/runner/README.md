@@ -95,8 +95,8 @@ The main option groups are:
 - Identity and transport: `name`, `fleet_name`, `tcp`, `tcp_backlog`, `uds`,
   `h1`, `h2`, and
   `trusted`; TLS fields are available with TLS support.
-- Policy and capacity: `requests`, `responses`, `max_in_flight`, and
-  `max_concurrent_requests`.
+- Request/reply policy: `requests` and `responses`.
+- Orbit ingress capacity: `max_in_flight`.
 - Static routing: `files`, `try_files`, and `assets` when file support is selected.
 - Lifecycle: `workers`, supervisor settings, Orbit settings, and
   `edge_shutdown_policy`.

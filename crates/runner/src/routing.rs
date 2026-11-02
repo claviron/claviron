@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use claviron_http::admission::{Admission, head_within};
+use claviron_http::admission::head_within;
 use claviron_http::body::{GuardedBody, declared_length_within, guard_reply};
 use claviron_http::policy::HttpPolicy;
 use claviron_http::{RouteBody, RouteBodyError, empty_body};
@@ -253,22 +253,16 @@ fn owner(state: &AppState) -> registry::Result<Owner> {
 /// `configure`.
 pub struct Routing {
     policy: HttpPolicy,
-    admission: Admission,
     #[cfg(feature = "files")]
     files: Option<Arc<crate::files::Files>>,
 }
 
 impl Routing {
     /// `policy` bounds every request and reply; `HttpPolicy::unlimited()` is
-    /// the explicit choice of none. `max_concurrent_requests` bounds requests
-    /// until their response head; `None` is no bound.
-    pub fn new(
-        policy: HttpPolicy,
-        max_concurrent_requests: Option<usize>,
-    ) -> Self {
+    /// the explicit choice of none.
+    pub fn new(policy: HttpPolicy) -> Self {
         Self {
             policy,
-            admission: Admission::limited(max_concurrent_requests),
             #[cfg(feature = "files")]
             files: None,
         }
@@ -293,7 +287,6 @@ pub struct Application {
     broadcast: Option<Arc<crate::broadcast::Broadcast>>,
     upgrades: Option<BoxCloneSyncService<AppRequest, AppResponse, Infallible>>,
     policy: HttpPolicy,
-    admission: Admission,
 }
 
 impl Application {
@@ -315,7 +308,6 @@ impl Application {
     ) -> BoxFuture<AppResponse> {
         let exchange = claviron_runtime::activity::ACTIVITY.begin();
         let policy = self.policy;
-        let admission = self.admission.clone();
         let service = Arc::clone(&self.service);
         // An upgrade the broadcast service claims goes to it, in front of the
         // owner; any other is the owner's to claim.
@@ -331,7 +323,7 @@ impl Application {
             let response = if broadcasting {
                 service.call_erased(request).await
             } else {
-                guarded(policy, admission, service, upgrades, request).await
+                guarded(policy, service, upgrades, request).await
             };
             drop(exchange);
             response
@@ -343,7 +335,6 @@ impl Application {
 /// admitted, and hold the request and its reply to the policy.
 async fn guarded(
     policy: HttpPolicy,
-    admission: Admission,
     service: Arc<dyn ErasedService>,
     upgrades: Option<BoxCloneSyncService<AppRequest, AppResponse, Infallible>>,
     mut request: AppRequest,
@@ -386,10 +377,6 @@ async fn guarded(
             policy.requests.body_read_timeout,
         ))
     });
-    let Some(_place) = admission.enter(policy.requests.queue_timeout).await
-    else {
-        return status(StatusCode::SERVICE_UNAVAILABLE);
-    };
     match head_within(
         policy.requests.head_timeout,
         service.call_erased(request),
@@ -519,7 +506,6 @@ where
         broadcast,
         upgrades,
         policy: routing.policy,
-        admission: routing.admission.clone(),
     }))?;
     Ok(())
 }

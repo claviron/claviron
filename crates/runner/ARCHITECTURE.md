@@ -20,7 +20,7 @@ Every runner has grown the same skeleton:
 | Orbit ingress | a lane in the configured fleet, advertised under the application name, a reactor-native receiver, drain |
 | TLS | one certificate, optional client CA |
 | proxy trust | which peers' forwarding headers count |
-| admission | concurrent requests, queue and head deadlines |
+| request guards | framing, body bounds and response-head deadlines |
 | static mounts | explicit `statics` in front of the application |
 | broadcast | the Pusher protocol endpoints and the local publisher |
 | workers | master and workers under the supervisor, rolling restart |
@@ -142,7 +142,7 @@ the shared route-capability registry. It does not depend on Edge.
 
 One order, the same for every ingress, outermost first:
 
-1. **Guards** — framing, declared length, request policy, admission.
+1. **Guards** — framing, declared length, request policy and head deadlines.
 2. **Broadcast** — its own exact paths (REST publication, app-key WebSocket
    upgrades). Nothing else.
 3. **Files** — GET and HEAD under an explicit `statics` mount. Any other
@@ -178,7 +178,6 @@ tls_cert: ...                  # with tls
 tls_key: ...
 trusted: [10.0.0.0/8]          # peers whose forwarding headers count
 max_in_flight: 128             # Orbit exchanges taken and not answered
-max_concurrent_requests: 128   # a count or off
 requests:  { max_body_size: 64 MiB, body_read_timeout: 30s, head_timeout: 60s }
 responses: { body_idle_timeout: 60s }
 try_files: false                # with files; general public-file probe

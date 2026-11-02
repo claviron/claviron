@@ -20,17 +20,21 @@ fn cancellation_stream()
 }
 
 #[tokio::test]
-async fn cancelled_head_releases_in_flight_and_admission_capacity() {
-    use claviron_http::admission::Admission;
+async fn cancelled_head_releases_in_flight_work() {
+    struct PendingOwner(Option<tokio::sync::oneshot::Sender<()>>);
+    impl Drop for PendingOwner {
+        fn drop(&mut self) {
+            let _ = self.0.take().unwrap().send(());
+        }
+    }
 
-    let admission = Admission::limited(Some(1));
     let (reader, mut outgoing) = cancellation_stream();
     let (entered, ready) = tokio::sync::oneshot::channel();
-    let accepting = admission.clone();
+    let (dropped, released) = tokio::sync::oneshot::channel();
     let mut exchanges = JoinSet::new();
     exchanges.spawn(async move {
         before_head(Some(&mut outgoing), async {
-            let _place = accepting.enter(None).await.unwrap();
+            let _owner = PendingOwner(Some(dropped));
             entered.send(()).unwrap();
             std::future::pending::<()>().await;
         })
@@ -41,25 +45,7 @@ async fn cancelled_head_releases_in_flight_and_admission_capacity() {
     reader.stop_reading();
     assert!(exchanges.join_next().await.unwrap().unwrap().is_none());
     assert!(exchanges.is_empty());
-    std::future::poll_fn(|cx| {
-        let mut entering = std::pin::pin!(admission.enter(None));
-        assert!(entering.as_mut().poll(cx).is_ready());
-        std::task::Poll::Ready(())
-    })
-    .await;
-
-    // Cancellation while still queued for admission also drops its waiter.
-    let _held = admission.enter(None).await.unwrap();
-    let (reader, mut outgoing) = cancellation_stream();
-    let mut queued =
-        std::pin::pin!(before_head(Some(&mut outgoing), admission.enter(None)));
-    std::future::poll_fn(|cx| {
-        assert!(queued.as_mut().poll(cx).is_pending());
-        std::task::Poll::Ready(())
-    })
-    .await;
-    reader.stop_reading();
-    assert!(queued.await.is_none());
+    released.await.unwrap();
 }
 
 #[tokio::test]
