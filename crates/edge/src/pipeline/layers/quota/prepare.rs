@@ -10,13 +10,10 @@ use claviron_http::rate_limit::{
 };
 use claviron_orbit::quota::{Quota, QuotaConfig, QuotaResource};
 use claviron_runtime::registry::{Error, Result};
-use http::request::Parts;
 
 use crate::Host;
 use crate::config::{HostConfig, quota::RateLimitConfig};
 use crate::loader::table::VhostTable;
-use crate::pipeline::host::HostPipeline;
-use crate::pipeline::layers::{QuotaPolicy, QuotaState};
 use crate::service::HostResponse;
 
 trait Admission: Send + Sync {
@@ -192,12 +189,10 @@ impl QuotaRegistrations {
             b.len().cmp(&a.len()).then_with(|| a.as_str().cmp(b.as_str()))
         });
         let rules: Arc<[(PathPrefix, RegisteredQuota)]> = rules.into();
-        let pipeline = QuotaPolicy::from_rules(rules.clone()).into_pipeline();
         Ok(Some(Arc::new(HostQuotas {
             declarations,
             registered,
             rules,
-            pipeline,
         })))
     }
 }
@@ -233,18 +228,6 @@ pub struct HostQuotas {
     declarations: Vec<(PathPrefix, RateLimitConfig)>,
     registered: Vec<(PathPrefix, RegisteredQuota)>,
     pub(crate) rules: Arc<[(PathPrefix, RegisteredQuota)]>,
-    pipeline: HostPipeline<QuotaState, HostResponse>,
-}
-
-impl HostQuotas {
-    pub(crate) fn check(
-        &self,
-        head: &mut Parts,
-    ) -> std::result::Result<Option<Snapshot>, HostResponse> {
-        let mut state = QuotaState::default();
-        self.pipeline.check_head(head, &mut state)?;
-        Ok(state.snapshot())
-    }
 }
 
 #[cfg(test)]

@@ -8,8 +8,6 @@ use http::Request;
 use http::Response;
 use http::request::Parts as RequestParts;
 use super::host::{AsyncHeadAction, DispatchFuture, DispatchStep, HostLayerBuilder, HostPipelineBuilder};
-#[cfg(feature = "rate-limit")]
-use super::host::HostPipeline;
 
 #[cfg(feature = "access-log")]
 mod access_log;

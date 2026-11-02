@@ -26,10 +26,6 @@ impl<B> CleartextRequest<B> {
         Ok(Self { request, authority })
     }
 
-    pub(crate) fn request(&self) -> &Request<B> {
-        &self.request
-    }
-
     pub(crate) fn authority(&self) -> &RequestAuthority {
         &self.authority
     }

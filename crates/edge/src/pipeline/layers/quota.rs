@@ -52,14 +52,6 @@ impl QuotaPolicy {
         Self { rules }
     }
 
-    pub(crate) fn into_pipeline(
-        self
-    ) -> HostPipeline<QuotaState, HostResponse> {
-        let mut layer = HostLayerBuilder::default();
-        self.register(&mut layer);
-        HostPipelineBuilder::from(layer).build()
-    }
-
     fn register<S: AsMut<QuotaState>, R: From<HostResponse>>(
         self,
         layer: &mut HostLayerBuilder<S, R>,

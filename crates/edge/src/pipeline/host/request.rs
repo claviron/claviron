@@ -120,22 +120,3 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
         pipeline.finish(response, state, pipeline.complete)
     }
 }
-
-#[cfg(feature = "rate-limit")]
-impl<S> HostPipeline<S, crate::service::HostResponse> {
-    pub(crate) fn check_head(
-        &self,
-        head: &mut RequestParts,
-        state: &mut S,
-    ) -> Result<(), crate::service::HostResponse> {
-        for step in &self.before {
-            let Action::Head(action) = &step.action else {
-                unreachable!("typed head decisions cannot register request actions")
-            };
-            if let ControlFlow::Break(reply) = action(head, state) {
-                return Err(reply);
-            }
-        }
-        Ok(())
-    }
-}
