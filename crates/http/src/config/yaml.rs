@@ -10,6 +10,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::Arc;
 
+use claviron_helpers::de::deserialize_regex_set;
 pub use claviron_helpers::overrides as helpers;
 pub use execution::PlainExecution;
 pub use helpers::Override;
@@ -19,6 +20,7 @@ pub use listeners::{
 };
 pub use proxy::{ProxyConfig, ProxyOverride};
 pub use quic::{QuicConfig, QuicOverride};
+use regex::RegexSet;
 use serde::Deserialize;
 pub use tcp::{
     AcceptRetryConfig, AcceptRetryOverride, H1Config, H1Override, H2Config,
@@ -34,7 +36,6 @@ pub use crate::policy::{
     RequestPolicy, RequestPolicyOverride, ResponsePolicy,
     ResponsePolicyOverride,
 };
-pub use crate::tuning::RouterConfig;
 use crate::watchdog::WatchdogConfig;
 
 /// Full http.yaml declaration. A key this build has no field for is not
@@ -62,24 +63,41 @@ pub struct HttpDefaults {
     /// Server-wide response defaults; explicit vhost policy wins.
     #[serde(default)]
     pub headers: HostHeadersConfig,
-    #[serde(default)]
-    pub request: RouterConfig,
+    /// Path-deny defaults. An empty set installs no host layer.
+    #[serde(default, deserialize_with = "deserialize_regex_set")]
+    pub deny: RegexSet,
     #[serde(default)]
     pub listener: ListenerOverrides,
 }
 
 /// One coherent resolved candidate; transport consumers keep its Arc while
 /// building their own generation. No YAML inheritance markers remain here.
-#[derive(Clone, Default, PartialEq, Eq)]
+#[derive(Clone, Default)]
 pub struct HttpSnapshot {
     pub plain_execution: PlainExecution,
     pub headers: Arc<HostHeadersConfig>,
-    pub router: Arc<RouterConfig>,
+    pub deny: RegexSet,
     pub listeners: BTreeMap<ListenerId, Arc<ListenerConfig>>,
     #[cfg(feature = "metrics")]
     pub metrics: Arc<HttpMetricsConfig>,
     pub watchdog: Option<Arc<WatchdogConfig>>,
 }
+
+impl PartialEq for HttpSnapshot {
+    fn eq(&self, other: &Self) -> bool {
+        #[cfg(feature = "metrics")]
+        if self.metrics != other.metrics {
+            return false;
+        }
+        self.plain_execution == other.plain_execution
+            && self.headers == other.headers
+            && self.deny.patterns() == other.deny.patterns()
+            && self.listeners == other.listeners
+            && self.watchdog == other.watchdog
+    }
+}
+
+impl Eq for HttpSnapshot {}
 
 impl<'de> Deserialize<'de> for HttpSnapshot {
     fn deserialize<D: serde::Deserializer<'de>>(
@@ -134,11 +152,6 @@ impl ListenerCapabilities {
 
 impl HttpYaml {
     pub fn resolve(self) -> Result<HttpSnapshot, ConfigError> {
-        if self.defaults.request.max_concurrent_requests == Some(0) {
-            return Err(ConfigError::global(
-                "defaults.request.max_concurrent_requests must be positive, or left out for none",
-            ));
-        }
         self.defaults.listener.validate()?;
 
         let mut listeners: BTreeMap<ListenerId, Arc<ListenerConfig>> =
@@ -168,7 +181,7 @@ impl HttpYaml {
         Ok(HttpSnapshot {
             plain_execution: self.plain_execution,
             headers: Arc::new(self.defaults.headers),
-            router: Arc::new(self.defaults.request),
+            deny: self.defaults.deny,
             listeners,
             #[cfg(feature = "metrics")]
             metrics: Arc::new(self.metrics),

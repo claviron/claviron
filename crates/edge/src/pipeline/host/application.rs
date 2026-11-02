@@ -26,7 +26,6 @@ use crate::pipeline::other::OtherService;
 /// before this boundary. A response status does not signal fallthrough.
 pub trait ApplicationHandler<B = RouteBody>: Send {
     /// Whether this owner enforces the effective request head timeout itself.
-    /// AdmissionPolicy queries this only when a head limit was declared.
     fn times_its_head(&self) -> bool {
         false
     }

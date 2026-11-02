@@ -13,7 +13,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use claviron_http::config::{
-    HttpSnapshot, HttpYaml, ListenerCapabilities, RouterConfig,
+    HttpSnapshot, HttpYaml, ListenerCapabilities,
 };
 #[cfg(feature = "metrics")]
 use claviron_http::metrics::HttpMetricsConfig;
@@ -51,11 +51,6 @@ impl HttpConfigProvider {
             snapshot: ArcSwap::from_pointee(HttpSnapshot::default()),
             capabilities,
         }
-    }
-
-    /// Host-router configuration defaults.
-    pub fn router(&self) -> Arc<RouterConfig> {
-        self.snapshot.load().router.clone()
     }
 
     /// Hold this snapshot while constructing a transport generation, so

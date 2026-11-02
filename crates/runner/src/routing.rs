@@ -18,8 +18,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use claviron_http::admission::head_within;
 use claviron_http::body::{GuardedBody, declared_length_within, guard_reply};
+use claviron_http::deadline::head_within;
 use claviron_http::policy::HttpPolicy;
 use claviron_http::{RouteBody, RouteBodyError, empty_body};
 use claviron_runtime::{AppState, registry};

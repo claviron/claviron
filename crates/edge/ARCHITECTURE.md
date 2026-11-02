@@ -34,7 +34,7 @@ Only reached layers shape a reply. Axum is an application adapter.
 The native compiler selects extensions, Rust contributions, WebSocket endpoints,
 Static, TryFiles and configured backends. Independent policy layers are prepared;
 automatic listener/host policy selection and native session handoff are not yet
-connected. Capacity acquisition and total reply-head timing are separate.
+connected. Response-head deadline ownership remains separate from transport limits.
 
 ## Reload and ownership
 
@@ -167,7 +167,6 @@ Empty contributions keep the direct Rust owner; disabled file steps allocate no 
 - [`cors/rules.rs`](src/pipeline/host/cors/rules.rs) — Origin admission, preflight response and CORS response headers.
 - [`http01.rs`](src/pipeline/host/http01.rs) — Optional ACME file layer with validated single-component tokens.
 - [`headers.rs`](src/pipeline/host/headers.rs) — Separate Set/Clear layers and cold header inheritance.
-- [`admission.rs`](src/pipeline/host/admission.rs) — Explicit capacity layer, permit lifetime and queue/head timing helpers.
 - [`request_body.rs`](src/pipeline/host/request_body.rs) — Explicit size/idle bounds; empty bodies keep their original owner.
 - [`reply.rs`](src/pipeline/host/reply.rs) — Explicit response size/idle guards; absent limits install no guard.
 - [`access_log.rs`](src/pipeline/host/access_log.rs) — Optional access-channel selection and record/body lifetime transfer.
@@ -302,8 +301,8 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`quota.rs`](tests/pipeline/layers/quota.rs) — Borrowed connection identity, shared debt, cancellation and committed reply headers.
 - [`quota/prepare.rs`](tests/pipeline/layers/quota/prepare.rs) — Resource collisions, prefix selection, config checks and reload restrictions.
 - [`redirect.rs`](tests/pipeline/layers/redirect.rs) — Ordered path redirects and literal request data in templates.
+- [`deny.rs`](tests/pipeline/layers/deny.rs) — Empty declarations omit the layer; active rules match the path.
 - [`headers.rs`](tests/pipeline/layers/headers.rs) — Explicit header overrides and rejected invalid values.
-- [`admission.rs`](tests/pipeline/layers/admission.rs) — Capacity ownership, queue cancellation and head timing.
 - [`reply.rs`](tests/pipeline/layers/reply.rs) — Declared response guards, frames/trailers and drop ownership.
 - [`access_log.rs`](tests/pipeline/layers/access_log.rs) — Inactive record state preserves response/body ownership.
 - [`files.rs`](tests/pipeline/layers/files.rs) — File misses, dynamic-name exclusion and unread backend bodies.

@@ -50,7 +50,6 @@ impl RustRouter {
 use crate::pipeline::extension::{
     RouteContext, RouteEffect, RouteExtension, RouteLayer,
 };
-pub use claviron_http::admission::Admission;
 
 /// Prepared route-extension effects, resolved once during host composition.
 #[derive(Default)]

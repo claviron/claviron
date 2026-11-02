@@ -24,3 +24,7 @@ impl<S, R: From<RequestRejection>> HostLayer<S, R> for DenyLayer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/pipeline/layers/deny.rs"]
+mod tests;

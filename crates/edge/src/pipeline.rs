@@ -16,10 +16,7 @@ pub mod upstream;
 #[cfg(feature = "webtransport")]
 mod wt;
 
-pub use apps::{
-    Admission, HostAppRegistry, HostAppResolver, HostAppSnapshot,
-    RustRouter,
-};
+pub use apps::{HostAppRegistry, HostAppResolver, HostAppSnapshot, RustRouter};
 #[cfg(feature = "websocket")]
 pub use claviron_http::upgrade::{
     H1UpgradeAccept, H1UpgradeAuthenticated, H1UpgradeBinding,
@@ -39,8 +36,8 @@ pub use host::{
 #[cfg(feature = "access-log")]
 pub use layers::{AccessLogLayer, AccessLogState};
 pub use layers::{
-    AclLayer, AdmissionPolicy, AuthorityLayer, CapacityLayer, CapacityState,
-    CorsLayer, CorsState, DenyLayer, HeaderClearLayer, HeaderSetLayer, HostLayer,
+    AclLayer, AuthorityLayer, CorsLayer, CorsState, DenyLayer, HeaderClearLayer,
+    HeaderSetLayer, HostLayer,
     HttpsRedirectLayer, IdentityPolicy, IdentityState, ProxyLayer, RedirectLayer,
     ReplyPolicy, RequestBodyLayer, RouteSelectionLayer, StaticStage,
     TryFilesStage, UpgradeLayer, prepare_headers,

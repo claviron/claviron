@@ -250,9 +250,7 @@ request defaults from connection/transport policy:
 
 ```yaml
 defaults:
-  request:
-    max_concurrent_requests: 1000
-    deny: ['^/private']
+  deny: ['^/private']
   listener:
     max_connections: 500
     graceful_timeout: 30s
@@ -303,16 +301,16 @@ validating metrics policy or creating metrics/watchdog runtime services, so
 operators can share the same HTTP document across build compositions. With
 `metrics` enabled, these sections use their existing typed configuration.
 
-`HttpYaml::resolve()` produces `HttpSnapshot` with one shared `RouterConfig`
-and named `Arc<ListenerConfig>` entries. Each entry holds its identity, bind
-addresses, connection limits, proxy policy and `ListenerSettings` enum.
+`HttpYaml::resolve()` produces `HttpSnapshot` with response-header defaults,
+a path-deny set and named `Arc<ListenerConfig>` entries. Each entry holds its
+identity, bind addresses, connection limits, proxy policy and `ListenerSettings` enum.
 The enum separates TCP settings from QUIC settings. TCP's `TcpSecurity`
 further separates cleartext redirect/HTTP-01 settings from TLS handshake
 settings. QUIC has no insecure runtime variant. Transport sockets are not
 opened here.
 
 The edge provider's `snapshot()` returns one coherent Arc for consumer generation
-construction. `router()` returns the request defaults only. The old singular
+construction. The old singular
 `http()`, `https()`, and `http3()` accessors are removed: selecting an
 arbitrary group would lose listener identity and independent gate limits.
 An absent `http.yaml` is answered by each owner's `absent_source`: no file,
@@ -427,16 +425,10 @@ change independently. There is no retry job queue or per-peer retained state.
 
 ### 2.4 Request and proxy ownership
 
-`defaults.request` holds `max_concurrent_requests` and deny patterns, not
-proxy trust. A host writes its own `max_concurrent_requests` — a count, or
-`off` — which replaces the default rather than narrowing it: it is that
-host's capacity. The time to a reply's head is request policy
-(`requests.head_timeout`, listener then host), not a host default. The
-former `tuning:` block is refused, naming where each field went.
-
-Private unit fields in `RouterConfig` and `H3Policy` are Serde rejection hooks
-for removed keys (`tuning` and `streaming`), not non-exhaustive markers. Keep
-their migration diagnostics; `#[non_exhaustive]` cannot replace those hooks.
+`defaults.deny` declares path patterns independently of listener and request
+policy. The snapshot retains the compiled set; Edge owns selecting a DenyLayer.
+An empty set creates no layer. Response-head deadlines remain request policy
+(`requests.head_timeout`, listener then host).
 
 `defaults.listener.proxy` supplies trusted CIDRs and ordered forwarding
 headers. Each listener may override either list, clear a list with `[]`,
@@ -871,18 +863,11 @@ compiled exchange policy instead: global rewrites are merged with the selected
 vhost/route policy at snapshot construction, and local actions win by header
 name. The same response shaping applies to Axum, bypass and Standalone owners.
 
-#### Admission — concurrency and the time to a reply's head
+#### Response-head deadlines
 
-`claviron_http::admission` holds what a server's requests are admitted
-under before an application sees them: `Admission` (a semaphore per host,
-entered for each request and waited on up to its `requests.queue_timeout`,
-503 past it) and `head_within` (the reply's head within
-`requests.head_timeout`, 504 past it). They are a server's health, not a
-pipeline's, so they hold on every path to a host — router, bypass, relay —
-and live here for any server to apply at its own door. The edge applies
-them in `HostService::dispatch`; a backend that times its own head against
-the same narrowed value (the upstream) is not timed twice. They replaced a
-Tower layer on the Axum router, which the bypass paths never passed.
+`claviron_http::deadline::head_within` bounds the time to a response head using
+`requests.head_timeout`. Callers choose whether to apply it; a backend that owns
+the same deadline must not be timed twice. Runner returns 504 on expiry.
 
 `head_within` stores the answering future once and projects it in place. It is
 lazy: construction needs no timer context, and a configured deadline starts
@@ -954,18 +939,10 @@ HTTP's Axum routing adapter does not own them.
 
 ### 5.3 Framework-independent path deny
 
-`claviron_edge::deny::DenyService` retains the compiled `RouterConfig` RegexSet and exposes
-`is_blocked(path)`. Empty sets short-circuit. It contains no Axum/Tower code
-and is available without any feature; the former `layers::deny` path is gone.
-`HostService` checks it before routing, bypass and native session admission.
-Native drivers retain wire policy (Hyper 403, H3 404), not this matcher.
-There is no `deny_middleware` or second Axum check. Cleartext retains its
-early deny-drop guard before authority and non-SSL selection. `check_request`
-returns a `DenyCheckedRequest` borrowing the immutable matcher and owning the
-unchanged request. Only read access is exposed. `accept_checked` skips regex
-evaluation for that exact matcher; a different matcher evaluates its rules.
-The proof needs no allocation/refcount increment and cannot exempt a mutated
-URI or different policy. HTTP-01 continues to short-circuit before deny.
+`defaults.deny` is a compiled RegexSet in the HTTP snapshot. Edge's
+`pipeline::DenyLayer` is an explicit host action: `new` returns `None` for an
+empty set. Active layers match the request path and return AccessDenied;
+transport code performs no implicit deny check.
 
 ### 5.4 Framework-independent request authority
 

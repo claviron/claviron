@@ -166,3 +166,22 @@ fn plain_execution_domains_are_scoped_to_listener_identity() {
         claviron_runtime::ExecutionSpec::default()
     );
 }
+
+#[test]
+fn deny_defaults_participate_in_snapshot_reload_comparison() {
+    let empty: HttpSnapshot = serde_yaml::from_str("{}").unwrap();
+    let explicit_empty: HttpSnapshot =
+        serde_yaml::from_str("defaults: {deny: []}").unwrap();
+    assert!(empty == explicit_empty);
+    assert!(empty.deny.is_empty());
+
+    let declared: HttpSnapshot =
+        serde_yaml::from_str("defaults: {deny: ['^/private']}").unwrap();
+    let same: HttpSnapshot =
+        serde_yaml::from_str("defaults: {deny: ['^/private']}").unwrap();
+    let changed: HttpSnapshot =
+        serde_yaml::from_str("defaults: {deny: ['^/secret']}").unwrap();
+    assert!(declared == same);
+    assert!(declared != empty);
+    assert!(declared != changed);
+}

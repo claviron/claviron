@@ -12,7 +12,6 @@ use super::host::{AsyncHeadAction, DispatchFuture, DispatchStep, HostLayerBuilde
 #[cfg(feature = "access-log")]
 mod access_log;
 mod acl;
-mod admission;
 mod app;
 mod call;
 mod cors;
@@ -44,7 +43,6 @@ mod websocket;
 #[cfg(feature = "access-log")]
 pub use access_log::{AccessLogLayer, AccessLogState};
 pub use acl::AclLayer;
-pub use admission::{AdmissionPolicy, CapacityLayer, CapacityState};
 pub use cors::{CorsLayer, CorsState};
 pub use deny::DenyLayer;
 pub use files::{StaticStage, TryFilesStage};

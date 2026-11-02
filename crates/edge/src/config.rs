@@ -27,7 +27,6 @@ use claviron_http::ext::PathPrefix;
 pub use claviron_http::policy::{
     HttpPolicyOverride, RequestPolicyOverride, ResponsePolicyOverride,
 };
-pub use claviron_http::tuning::RouterConfig;
 #[cfg(feature = "php")]
 use claviron_php::PhpConfig;
 #[cfg(feature = "broadcast")]
@@ -98,22 +97,6 @@ pub struct HostFields {
     /// its host.
     #[serde(default)]
     access_log: Option<String>,
-    /// Requests this host serves at once in a worker, replacing
-    /// `defaults.request.max_concurrent_requests`: a count, or `off` for none.
-    /// Left out, the default holds.
-    #[serde(
-        default,
-        deserialize_with = "claviron_http::tuning::optional_count_limit"
-    )]
-    pub max_concurrent_requests: Option<claviron_http::policy::Limit<usize>>,
-    /// Removed; read only to say where each field went.
-    #[allow(dead_code, reason = "read only to refuse the removed key")]
-    #[serde(
-        default,
-        rename = "tuning",
-        deserialize_with = "claviron_http::tuning::removed_tuning"
-    )]
-    removed_tuning: (),
     #[serde(default, deserialize_with = "opt_one_or_many")]
     pub redirect: Option<Vec<RedirectConfig>>,
     /// Opt-in segment-prefix ACL. `/` is the default; longest match wins.
@@ -215,8 +198,6 @@ impl HostConfig {
                 listeners: None,
                 aliases: Aliases::default(),
                 access_log: None,
-                max_concurrent_requests: None,
-                removed_tuning: (),
                 redirect: None,
                 acl: None,
                 #[cfg(feature = "rate-limit")]
