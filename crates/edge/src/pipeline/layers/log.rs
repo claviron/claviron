@@ -6,7 +6,7 @@ use claviron_http::ext::{ConnCtx, HostKey};
 use http::{Method, StatusCode, Version};
 
 use super::*;
-use crate::access::{AccessGuard, AccessLogTarget};
+use crate::log::{AccessGuard, AccessLogTarget};
 
 /// One optional access record, owned until an early reply or stream drop/end.
 #[derive(Default)]

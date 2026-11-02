@@ -11,7 +11,7 @@
 #![recursion_limit = "256"]
 
 #[cfg(feature = "access-log")]
-mod access;
+mod log;
 pub mod config;
 
 #[cfg(feature = "db")]
@@ -73,7 +73,7 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
     registry.insert(Arc::new(WebTransportRegistry::default()))?;
 
     #[cfg(feature = "access-log")]
-    registry.register(Arc::new(access::AccessLogProvider))?;
+    registry.register(Arc::new(log::AccessLogProvider))?;
     #[cfg(feature = "db")]
     {
         // Registered everywhere; `Scoped` keeps it running in workers.

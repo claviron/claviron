@@ -12,7 +12,7 @@ use http::request::Parts as RequestParts;
 use std::ops::ControlFlow;
 
 #[cfg(feature = "access-log")]
-mod access_log;
+mod log;
 mod acl;
 mod app;
 mod call;
@@ -43,7 +43,7 @@ mod upstream;
 mod websocket;
 
 #[cfg(feature = "access-log")]
-pub use access_log::{AccessLogLayer, AccessLogState};
+pub use log::{AccessLogLayer, AccessLogState};
 pub use acl::AclLayer;
 pub use cors::{CorsLayer, CorsState};
 pub use deny::DenyLayer;

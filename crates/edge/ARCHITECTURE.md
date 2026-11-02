@@ -94,7 +94,7 @@ owns native framing and buffered/streamed body bounds during this transition.
 - [`lib.rs`](src/lib.rs) — Public exports and registration; master/serving-process composition.
 - [`config.rs`](src/config.rs) — Host identity, transport policy and normalized route views; read-only backend accessors.
 - [`provider.rs`](src/provider.rs) — Congif HTTP configuration owner; validate capabilities and atomically publish HttpSnapshot.
-- [`access.rs`](src/access.rs) — Optional access-record producer and response-body accounting guard.
+- [`log`](src/log.rs) — Optional access-record producer and response-body accounting guard.
 - [`listener.rs`](src/listener.rs) — Hosting alias notifications and atomic candidate updates; PostgreSQL NOTIFY or hosting events.
 - [`transport.rs`](src/transport.rs) — Public transport-facing re-exports; loader and service remain internal.
 - [`transport/instances.rs`](src/transport/instances.rs) — Cold listener declarations, retained handles and weak references to draining instances.
@@ -170,7 +170,7 @@ Disabled file steps allocate no prepared file owner.
 - [`headers.rs`](src/pipeline/host/headers.rs) — Separate Set/Clear layers and cold header inheritance.
 - [`request_body.rs`](src/pipeline/host/request_body.rs) — Explicit size/idle bounds; empty bodies keep their original owner.
 - [`reply.rs`](src/pipeline/host/reply.rs) — Explicit response size/idle guards; absent limits install no guard.
-- [`access_log.rs`](src/pipeline/host/access_log.rs) — Optional access-channel selection and record/body lifetime transfer.
+- [`log`](src/pipeline/host/access_log.rs) — Optional access-channel selection and record/body lifetime transfer.
 - [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
 - [`handler.rs`](src/pipeline/host/handler.rs) — Routable contributions; Unhandled retains the unread body capability.
 - [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Ready/async request calls; reuse existing future erasure.
@@ -304,7 +304,7 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`deny.rs`](tests/pipeline/layers/deny.rs) — Empty declarations omit the layer; active rules match the path.
 - [`headers.rs`](tests/pipeline/layers/headers.rs) — Explicit header overrides and rejected invalid values.
 - [`reply.rs`](tests/pipeline/layers/reply.rs) — Declared response guards, frames/trailers and drop ownership.
-- [`access_log.rs`](tests/pipeline/layers/access_log.rs) — Inactive record state preserves response/body ownership.
+- [`log`](tests/pipeline/layers/access_log.rs) — Inactive record state preserves response/body ownership.
 - [`files.rs`](tests/pipeline/layers/files.rs) — File misses, dynamic-name exclusion and unread backend bodies.
 - [`websocket.rs`](tests/pipeline/layers/websocket.rs) — Protocol-gated exact endpoints and ordinary request passthrough.
 
