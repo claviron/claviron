@@ -13,27 +13,22 @@ edition = "2024"
 legacy-linux = ["gufi/legacy-linux"]
 
 [dependencies]
-claviron = { path = "../../", default-features = false, features = ["server", "orbit"] }
+claviron = { version = "0.2.0-alpha.24", default-features = false, features = ["server", "orbit"] }
 # The sibling edge-server owns HTTP ingress; this application serves Orbit.
-gufi = { path = "../../../gufi", features = ["axum", "cli", "websocket"] }
+gufi = { version = "0.2.0-alpha.25", features = ["axum", "cli", "websocket"] }
 tokio = { version = "1", features = ["fs", "macros", "rt-multi-thread", "signal"] }
 serde_json = "1.0.151"
 async-trait = "0.1.92"
 tracing = "0.1.44"
 
-# Match claviron-full's dev profile. Without this the default is
-# `opt-level = 0` while the edge builds at 1, and a transport measurement
-# between the two compares an optimised server against an unoptimised
-# application — with this crate's own transport code paying for it twice.
+# Match the edge's build profile for transport comparisons.
 [profile.dev]
 opt-level = 1
 debug = 1
 incremental = true
 codegen-units = 256
 
-# The edge's release settings, so both ends of a measurement are built alike —
-# `servers/edge-server/BENCHMARK.md` voids a comparison otherwise — except
-# `strip`: a profiler needs the symbols to name the Rust frames.
+# Retain symbols for native profiling.
 [profile.release]
 codegen-units = 1
 debug = 0

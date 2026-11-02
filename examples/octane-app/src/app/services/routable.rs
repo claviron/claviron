@@ -23,7 +23,10 @@ pub struct DemoRoutableService {
 }
 
 impl DemoRoutableService {
-    fn bind<F, T>(self: &Arc<Self>, method: F) -> impl Handler<T, AppState>
+    fn bind<F, T>(
+        self: &Arc<Self>,
+        method: F,
+    ) -> impl Handler<T, AppState>
     where
         F: DemoMethod<T>,
     {
@@ -38,7 +41,10 @@ impl DemoRoutableService {
         Ok(self.prepared_settings()?.scheme.clone())
     }
 
-    async fn settings(self: Arc<Self>, _req: Request) -> Result<Response, DemoError> {
+    async fn settings(
+        self: Arc<Self>,
+        _req: Request,
+    ) -> Result<Response, DemoError> {
         Ok(Json(self.prepared_settings()?).into_response())
     }
 
@@ -94,9 +100,9 @@ impl DemoRoutableService {
 }
 
 #[derive(Serialize)]
-struct RuntimeReport {
+struct RuntimeReport<'a> {
     runtime: &'static str,
-    service: &'static str,
+    service: &'a str,
     application: &'static str,
     application_version: &'static str,
     runtime_version: &'static str,
@@ -176,14 +182,20 @@ impl RequestInfo {
                 .or_else(|| origin.client.map(|client| client.ip())),
             client_address: origin.client,
             server_address: origin.server,
-            country: connection.and_then(|connection| connection.country_code.clone()),
-            host_key: extensions.get::<HostKey>().map(|host| host.0.to_string()),
+            country: connection
+                .and_then(|connection| connection.country_code.clone()),
+            host_key: extensions
+                .get::<HostKey>()
+                .map(|host| host.0.to_string()),
             forwarded_context: extensions.get::<Forwarded>().is_some(),
             connection: connection.map(|connection| ConnectionInfo {
                 listener: connection.listener.to_string(),
                 protocol: connection.proto.map(|protocol| protocol.version()),
                 remote: connection.remote,
-                local: SocketAddr::new(connection.local_ip, connection.local_port),
+                local: SocketAddr::new(
+                    connection.local_ip,
+                    connection.local_port,
+                ),
                 tls: connection.tls().map(|tls| TlsDetails {
                     protocol: tls.ssl_protocol(),
                     cipher: tls.ssl_cipher(),
@@ -212,24 +224,20 @@ struct TlsDetails {
 }
 
 fn public_environment(
-    values: &std::collections::HashMap<String, String>,
+    values: &std::collections::HashMap<String, String>
 ) -> BTreeMap<&'static str, String> {
-    [
-        "APP_NAME",
-        "APP_ENV",
-        "APP_DEBUG",
-        "RUST_LOG",
-        "TZ",
-        "CLAVIRON_HOSTNAME",
-    ]
-    .into_iter()
-    .filter_map(|name| values.get(name).map(|value| (name, value.clone())))
-    .collect()
+    ["APP_NAME", "APP_ENV", "APP_DEBUG", "RUST_LOG", "TZ", "CLAVIRON_HOSTNAME"]
+        .into_iter()
+        .filter_map(|name| values.get(name).map(|value| (name, value.clone())))
+        .collect()
 }
 
 /// Local prototype: bind a service method while leaving extraction to Axum.
 trait DemoMethod<T> {
-    fn bind(self, service: Arc<DemoRoutableService>) -> impl Handler<T, AppState>;
+    fn bind(
+        self,
+        service: Arc<DemoRoutableService>,
+    ) -> impl Handler<T, AppState>;
 }
 
 impl<F, Fut, R> DemoMethod<((),)> for F
@@ -238,7 +246,10 @@ where
     Fut: Future<Output = R> + Send + 'static,
     R: IntoResponse,
 {
-    fn bind(self, service: Arc<DemoRoutableService>) -> impl Handler<((),), AppState> {
+    fn bind(
+        self,
+        service: Arc<DemoRoutableService>,
+    ) -> impl Handler<((),), AppState> {
         move || self(service.clone())
     }
 }
@@ -250,7 +261,10 @@ where
     R: IntoResponse,
     A: FromRequest<AppState, M> + Send + 'static,
 {
-    fn bind(self, service: Arc<DemoRoutableService>) -> impl Handler<(M, A), AppState> {
+    fn bind(
+        self,
+        service: Arc<DemoRoutableService>,
+    ) -> impl Handler<(M, A), AppState> {
         move |argument: A| self(service.clone(), argument)
     }
 }
@@ -262,7 +276,9 @@ enum DemoError {
 impl IntoResponse for DemoError {
     fn into_response(self) -> Response {
         match self {
-            DemoError::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+            DemoError::ServiceUnavailable => {
+                StatusCode::SERVICE_UNAVAILABLE.into_response()
+            }
             // DemoError::Other => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         }
     }
@@ -304,15 +320,21 @@ impl Configurable for DemoRoutableService {
         }
     }
 
-    async fn configure(&self, config: &Self::Config) -> congif::Result<()> {
-        self.settings
-            .set(config.clone())
-            .map_err(|_| congif::Error::msg("DemoService is already configured"))
+    async fn configure(
+        &self,
+        config: &Self::Config,
+    ) -> congif::Result<()> {
+        self.settings.set(config.clone()).map_err(|_| {
+            congif::Error::msg("DemoService is already configured")
+        })
     }
 }
 
 impl Routable for DemoRoutableService {
-    fn routes(self: Arc<Self>, _state: &AppState) -> registry::Result<Option<Router<AppState>>> {
+    fn routes(
+        self: Arc<Self>,
+        _state: &AppState,
+    ) -> registry::Result<Option<Router<AppState>>> {
         Ok(Some(
             Router::new()
                 .route("/demo-service/settings", get(self.bind(Self::settings)))

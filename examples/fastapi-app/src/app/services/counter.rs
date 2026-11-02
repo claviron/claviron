@@ -186,7 +186,7 @@ impl Finalizable<AppState> for CounterService {
             tokio::fs::rename(&partial, &file).await
         };
         written.await.map_err(|error| Error::Finalize {
-            name: self.name(),
+            name: self.name().into(),
             source: error.into(),
         })?;
         tracing::info!(hits, file = %file.display(), "counter saved");
@@ -220,19 +220,19 @@ impl Bootable<AppState, <Self as Component<AppState>>::Deps>
             }
             Err(error) => {
                 return Err(Error::Boot {
-                    name: self.name(),
+                    name: self.name().into(),
                     source: error.into(),
                 });
             }
         };
         let hits: i64 = text.trim().parse().map_err(|error| Error::Boot {
-            name: self.name(),
+            name: self.name().into(),
             source: Box::new(error),
         })?;
         let restored =
             table.reset(KEY).and_then(|()| table.increment(KEY, hits));
         restored.map_err(|error| Error::Boot {
-            name: self.name(),
+            name: self.name().into(),
             source: Box::new(error),
         })?;
         tracing::info!(hits, file = %file.display(), "counter restored");

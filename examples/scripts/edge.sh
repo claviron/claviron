@@ -29,7 +29,7 @@ Background lifecycle commands run as the current user, without --sudo.
 Environment:
   RUST_LOG    Log filter (default: info)
   WORKERS     Worker count (default: 2)
-  CONFIG_DIR  Runtime config directory (default: runtime)
+  CONFIG_DIR  Runtime config directory (default: the example's config/)
   FLEET       Orbit fleet name (default: edge)
   PHP         ZTS embed PHP binary used during the build
   PHP_CONFIG  Matching php-config binary used during the build
@@ -117,10 +117,12 @@ HOSTNAME=$(hostname -s)
 worker_args=(--workers "${WORKERS:-2}")
 fleet_args=(--fleet "${FLEET:-edge}")
 config_args=(--config "${CONFIG_DIR:-$EXAMPLE_ROOT/config}")
+environment_args=(--environment "$HOSTNAME")
 for argument in "${server_args[@]}"; do
   case "$argument" in --workers|--workers=*) worker_args=() ;; esac
   case "$argument" in --fleet|--fleet=*|--fleet-name|--fleet-name=*) fleet_args=() ;; esac
   case "$argument" in --config|--config=*|--config-dir|--config-dir=*) config_args=() ;; esac
+  case "$argument" in --production|--environment|--environment=*) environment_args=() ;; esac
 done
 
 launcher=()
@@ -147,13 +149,13 @@ if [[ "$use_sudo" == true ]]; then
   application_unlock
   exec "${launcher[@]}" env "${allocator_unset_args[@]}" "${runtime_env[@]}" \
     "${CARGO_TARGET_DIR:-$EXAMPLE_ROOT/target}/$build_profile/edge-server" \
-    "${config_args[@]}" --environment "${HOSTNAME}" \
+    "${config_args[@]}" "${environment_args[@]}" \
     --name edge-server "${fleet_args[@]}" "${worker_args[@]}" "${server_args[@]}"
 fi
 application_exec \
   "${CARGO_TARGET_DIR:-$EXAMPLE_ROOT/target}/$build_profile/edge-server" \
   "${config_args[@]}" \
-  --environment "${HOSTNAME}" \
+  "${environment_args[@]}" \
   --name edge-server \
   "${fleet_args[@]}" \
   "${worker_args[@]}" "${server_args[@]}"

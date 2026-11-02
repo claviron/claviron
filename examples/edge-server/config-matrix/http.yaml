@@ -1,6 +1,4 @@
 defaults:
-  request:
-    max_concurrent_requests: 5000
   listener:
     requests:
       max_body_size: 64 MiB

@@ -4,9 +4,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, RwLock};
 
 use async_trait::async_trait;
-use claviron::axum::Router;
+use claviron::edge::pipeline::host::{
+    HostHandler, HostHandlerFuture, HostRequest,
+};
 use claviron::edge::{Host, HostConfig, Routable};
-use claviron::edge::pipeline::host::{HostHandler, HostHandlerFuture, HostRequest};
 use claviron::http::ServiceResult;
 use claviron::runtime::congif::{self, ConfigFile, Configurable};
 use claviron::runtime::{AppState, Bootable, Component, Finalizable, registry};
@@ -150,23 +151,27 @@ impl Routable for Asgi {
         _key: &Host,
         _host: Arc<HostConfig>,
     ) -> registry::Result<Option<Arc<dyn HostHandler>>> {
-        let service = PythonService::new(Arc::clone(&self.handle));
-        let router = Router::new()
-            .route_service("/python", service.clone())
-            .route_service("/python/{*path}", service);
-        Ok(Some(Arc::new(PythonRoutes(
-            claviron::edge::pipeline::app::application(router),
-        ))))
+        Ok(Some(Arc::new(PythonRoutes(PythonService::new(Arc::clone(
+            &self.handle,
+        ))))))
     }
 }
 
-struct PythonRoutes(Arc<dyn HostHandler>);
+struct PythonRoutes(PythonService);
 
 impl HostHandler for PythonRoutes {
-    fn call(&self, request: HostRequest) -> HostHandlerFuture {
+    fn call(
+        &self,
+        request: HostRequest,
+    ) -> HostHandlerFuture {
         let path = request.head().uri.path();
         if path == "/python" || path.starts_with("/python/") {
-            self.0.call(request)
+            let service = self.0.clone();
+            Box::pin(async move {
+                ServiceResult::Handled(
+                    service.handle(request.into_request()).await,
+                )
+            })
         } else {
             Box::pin(std::future::ready(ServiceResult::Unhandled(request)))
         }

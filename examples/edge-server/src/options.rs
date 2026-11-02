@@ -18,7 +18,7 @@ pub struct Options {
         short = 'c',
         long = "config-dir",
         visible_alias = "config",
-        default_value = "runtime",
+        default_value = "config",
         help = "Directory containing Claviron config files"
     )]
     config_dir: PathBuf,
@@ -42,10 +42,13 @@ pub struct Options {
 
     #[arg(
         long = "environment",
-        default_value = "production",
+        conflicts_with = "production",
         help = "Deployment environment for .env overlays"
     )]
-    environment: String,
+    environment: Option<String>,
+
+    #[arg(long, help = "Select the production environment")]
+    production: bool,
 
     #[arg(
         long = "worker-count",
@@ -65,11 +68,17 @@ pub struct Options {
 
 impl From<Options> for ServerOptions {
     fn from(options: Options) -> Self {
-        Self::new()
+        let server = Self::new()
             .config_dir(options.config_dir)
             .name(options.name)
             .fleet_name(options.fleet_name)
-            .environment(options.environment)
-            .workers(options.worker_count)
+            .workers(options.worker_count);
+        if options.production {
+            server.production()
+        } else if let Some(environment) = options.environment {
+            server.environment(environment)
+        } else {
+            server
+        }
     }
 }

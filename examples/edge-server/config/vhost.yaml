@@ -9,10 +9,11 @@ default:
 orbit.test:
   root: ../orbit-app/public
   transport: { non_ssl: serve, protocols: [ h1 ] }
-  statics:
-    - { path: /assets, dir: assets }
+  routes:
+    /assets:
+      static: {}
   orbit:
-    - { path: /, application: orbit-app, fleet: orj }
+    - { application: orbit-app, fleet: orj }
 
 octane.test:
   root: ../octane-app/public
@@ -20,7 +21,8 @@ octane.test:
     non_ssl: serve
     protocols: [ h1 ]
     h1: { upgrade: true }
-  statics:
-    - { path: /build, dir: build }
+  routes:
+    /build:
+      static: {}
   orbit:
-    - { path: /, application: octane-app, fleet: octane }
+    - { application: octane-app, fleet: octane }

@@ -26,8 +26,7 @@ hosting:
       h1:
         upgrade: true
     orbit:
-      - path: /
-        application: fastapi-app
+      - application: fastapi-app
         fleet: fastapi
 
   tcp.bench:

@@ -15,7 +15,7 @@ default = ["bench"]
 bench = ["claviron/upstream", "claviron/bench", "dep:serde"]
 
 [dependencies]
-claviron = { path = "../..", features = ["edge", "log-pipeline","lua"] }
+claviron = { version = "0.2.0-alpha.24", features = ["edge", "log-pipeline","lua"] }
 clap = { version = "4.6", features = ["derive"] }
 mimalloc = "0.1"
 serde = { version = "1", features = ["derive"], optional = true }
@@ -26,9 +26,7 @@ tracing = "0.1"
 name = "edge-server"
 path = "src/main.rs"
 
-# Matched to `claviron-full`, so a measurement taken against one is comparable
-# with the other. An optimisation level that differs between two sides of a
-# comparison makes the comparison say nothing.
+# Keep the example application and edge on the same build profile.
 [profile.dev]
 codegen-units = 256
 debug = 1

@@ -42,7 +42,7 @@ Open [examples.code-workspace](examples.code-workspace) for the application exam
 or open an application folder on its own.
 
 All Rust runner launchers accept `--release --native` to compile for the build
-machine's CPU. `orbit-app.sh --native` applies this to the Rust addon only;
+machine's CPU. Orbit installs its published native addon with `--sync`;
 Node, Bun and Deno keep their installed runtime binaries. The transport comparison
 launcher, `bench.sh start --release --native`, applies it to both Edge and the
 Rust application. `--no-build` always reuses the existing binaries.

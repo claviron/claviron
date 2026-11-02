@@ -17,6 +17,9 @@ The original URL remains visible to the application. The home page calls all
 five. `X-Pentaglot-Pid` identifies the Edge process serving each response;
 standalone mode uses one PID for every language.
 
+Rust routes use the Axum adapter; ASGI registers a native `HostHandler`.
+Lua, Deno and PHP enter the host pipeline through the `routes` declarations.
+
 ## Run
 
 This is an independent executable workspace. From the repository root:
