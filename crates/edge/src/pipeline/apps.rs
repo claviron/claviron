@@ -422,8 +422,7 @@ struct RoutableHostBinding {
 /// change across reloads. Config (`vhosts.yaml`) can add or remove
 /// aliases for a canonical host, but the canonical host name itself
 /// is the contract between code and config and isn't expected to
-/// move. If you need dynamic host names, source them from env at
-/// bootstrap time and `Box::leak` (see usage example below).
+/// move.
 ///
 /// # Reloads
 ///
@@ -433,34 +432,15 @@ struct RoutableHostBinding {
 /// bindings stay pinned. If you remove a `register_*` call and
 /// rebuild the binary, the old binding disappears on the next start.
 ///
-/// # Usage in `bootstrap`
+/// # Example
 ///
-/// ```ignore
-/// use crate::routes;
+/// ```
+/// use claviron_edge::pipeline::{HostAppRegistry, other::OtherService};
 ///
-/// let registry = state
-///     .registry_ref()
-///     .resolve::<HostAppRegistry>()
-///     .expect("HostAppRegistry not registered");
-///
-/// // Standalone API host: your router, your middleware
-/// registry.register_router("api.example.com", routes::build_api_router);
-///
-/// // Resource host: custom Rust handler with explicit file handling
-/// registry.register_other("assets.example.com", crate::app::resources::build_other);
-///
-/// // WebSocket publisher: custom Rust handler; host selected at boot
-/// #[cfg(feature = "broadcast")]
-/// {
-///     if let Ok(host) = std::env::var("PUSHER_HOST") {
-///         let host: &'static str = Box::leak(host.into_boxed_str());
-///         registry.register_other(host, crate::app::pusher::build_pusher_router);
-///     }
-/// }
-///
-/// // Streaming router: standalone axum, no claviron middleware
-/// #[cfg(feature = "streams")]
-/// registry.register_router("stream.example.com", crate::app::streams::build_stream_router);
+/// let registry = HostAppRegistry::default();
+/// registry.register_other("assets.example.com", |_, _, _| {
+///     Ok(OtherService::Noop)
+/// });
 /// ```
 #[derive(Default)]
 pub struct HostAppRegistry {

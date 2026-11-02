@@ -255,18 +255,17 @@ ownership and isolated state transitions without provider boot or live listeners
 
 - [`transport/instances.rs`](tests/transport/instances.rs) — Retain unchanged/draining listener identities and release retired allocations.
 
-- [`authority.rs`](tests/authority.rs) — Authority rejection precedes body/auth/application dispatch.
+- [`authority.rs`](tests/authority.rs) — Explicit authority-layer rejection, aliases and unchanged request metadata.
 - [`sni.rs`](tests/sni.rs) — SNI/catchall lookup and bounded name churn.
 - [`provider.rs`](tests/provider.rs) — Prepared HTTP values, capability rejection and invalid-candidate retention.
 - [`config/routing.rs`](tests/config/routing.rs) — Route normalization, inheritance, mappings and unavailable capability rejection.
-- [`unit/file_routes.rs`](tests/unit/file_routes.rs) — Selected file views, Rust interception and shared disk mappings.
 - [`fixtures/http/base.yaml`](tests/fixtures/http/base.yaml) — Valid HTTP preparation input.
 - [`fixtures/http/changed.yaml`](tests/fixtures/http/changed.yaml) — Changed listener-policy input.
 - [`fixtures/http/invalid.yaml`](tests/fixtures/http/invalid.yaml) — Invalid listener-address input.
 
 ### `loader/`
 
-- [`table.rs`](tests/loader/table.rs) — Canonical/alias validation, shared policy and listener selectors.
+- [`table.rs`](tests/loader/table.rs) — Canonical/alias validation, declaration ownership and listener selectors.
 - [`snapshot.rs`](tests/loader/snapshot.rs) — Database alias input validation.
 - [`resolver.rs`](tests/loader/resolver.rs) — Boot dependency declaration.
 - [`resolver/selection.rs`](tests/loader/resolver/selection.rs) — Coherent application selection, publication failure and generation ownership.
@@ -291,34 +290,29 @@ ownership and isolated state transitions without provider boot or live listeners
 
 ### `pipeline/host/`
 
-- [`ingress.rs`](tests/pipeline/host/ingress.rs) — Active head gates and typed rejection/body ownership.
-- [`identity.rs`](tests/pipeline/host/identity.rs) — Accepted identity reuse and unchanged body ownership.
-- [`access.rs`](tests/pipeline/host/access.rs) — Live access generations, host removal and required identity.
-- [`access/acl.rs`](tests/pipeline/host/access/acl.rs) — Segment specificity, escaped paths and ambiguous slashes.
-- [`access/policy.rs`](tests/pipeline/host/access/policy.rs) — ACL/redirect order and literal request data in templates.
-- [`quota.rs`](tests/pipeline/host/quota.rs) — Shared debt and non-refundable committed admission.
-- [`quota/prepare.rs`](tests/pipeline/host/quota/prepare.rs) — Resource collisions, prefix selection, config checks and reload restrictions.
-- [`exchange.rs`](tests/pipeline/host/exchange.rs) — Active CORS/header actions, early replies and response ownership.
-- [`exchange/policy.rs`](tests/pipeline/host/exchange/policy.rs) — Effective header overrides and identity-only policy.
-- [`admission.rs`](tests/pipeline/host/admission.rs) — Capacity ownership, queue cancellation and head timing.
-- [`reply.rs`](tests/pipeline/host/reply.rs) — Declared response guards, frames/trailers and drop ownership.
-- [`access_log.rs`](tests/pipeline/host/access_log.rs) — Access-log opt-out and record/state ownership.
 - [`application.rs`](tests/pipeline/host/application.rs) — Deferred calls, cancellation and payload/response scope.
 - [`handler.rs`](tests/pipeline/host/handler.rs) — Rust fallthrough, terminal status, cancellation and optional Axum adapter.
-- [`dispatch.rs`](tests/pipeline/host/dispatch.rs) — Native step fallthrough, terminal status and cancellation.
 - [`compile.rs`](tests/pipeline/host/compile.rs) — Scope conditions and Static/TryFiles/backend precedence.
-- [`files.rs`](tests/pipeline/host/files.rs) — File misses, dynamic-name exclusion and unread backend bodies.
-- [`websocket.rs`](tests/pipeline/host/websocket.rs) — Protocol-gated exact endpoints and ordinary request passthrough.
+
+### `pipeline/layers/`
+
+- [`identity.rs`](tests/pipeline/layers/identity.rs) — Accepted identity reuse and unchanged body ownership.
+- [`identity/extensions.rs`](tests/pipeline/layers/identity/extensions.rs) — Typed values, existing box reuse and independent extension maps.
+- [`acl/path.rs`](tests/pipeline/layers/acl/path.rs) — Segment specificity, escaped paths and ambiguous slashes.
+- [`quota.rs`](tests/pipeline/layers/quota.rs) — Borrowed connection identity, shared debt, cancellation and committed reply headers.
+- [`quota/prepare.rs`](tests/pipeline/layers/quota/prepare.rs) — Resource collisions, prefix selection, config checks and reload restrictions.
+- [`redirect.rs`](tests/pipeline/layers/redirect.rs) — Ordered path redirects and literal request data in templates.
+- [`headers.rs`](tests/pipeline/layers/headers.rs) — Explicit header overrides and rejected invalid values.
+- [`admission.rs`](tests/pipeline/layers/admission.rs) — Capacity ownership, queue cancellation and head timing.
+- [`reply.rs`](tests/pipeline/layers/reply.rs) — Declared response guards, frames/trailers and drop ownership.
+- [`access_log.rs`](tests/pipeline/layers/access_log.rs) — Inactive record state preserves response/body ownership.
+- [`files.rs`](tests/pipeline/layers/files.rs) — File misses, dynamic-name exclusion and unread backend bodies.
+- [`websocket.rs`](tests/pipeline/layers/websocket.rs) — Protocol-gated exact endpoints and ordinary request passthrough.
 
 ### `service/`
 
 - [`authority.rs`](tests/service/authority.rs) — Authority proofs and connection-local identity allocation reuse.
-- [`bindings.rs`](tests/service/bindings.rs) — Name/TLS epoch agreement, alias changes and fail-closed authentication.
-- [`extensions.rs`](tests/service/extensions.rs) — Captured metadata, authority binding and shared accepted identity.
-- [`extensions/template.rs`](tests/service/extensions/template.rs) — Typed values, existing box reuse and independent extension maps.
-- [`host.rs`](tests/service/host.rs) — Shared admission, live ACL/replies, limits and native auth/body handoff.
-- [`host/cache.rs`](tests/service/host/cache.rs) — Metadata reuse without retaining stale applications or policy.
-- [`host/dispatch.rs`](tests/service/host/dispatch.rs) — Execution ownership, queue/head cancellation and streamed responses.
+- [`host.rs`](tests/service/host.rs) — Narrowed request limits, accepted facts, body mapping and deferred native dispatch.
 
 ### `tcp/`
 
@@ -334,5 +328,5 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`error.rs`](tests/quic/error.rs) — Normal closure does not hide nonzero failures.
 - [`listener.rs`](tests/quic/listener.rs) — Request-body mode selection from the request head.
 - [`listener/drain.rs`](tests/quic/listener/drain.rs) — Force/panic cleanup joins owned children without cancelling siblings.
-- [`request.rs`](tests/quic/request.rs) — Framing/body rejection, transport interruptions and early reply metadata.
+- [`request.rs`](tests/quic/request.rs) — Framing/body rejection and transport interruptions.
 - [`wt/streams.rs`](tests/quic/wt/streams.rs) — Bounded input, session completion and dropped receivers.
