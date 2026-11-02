@@ -148,5 +148,5 @@ fn hex(byte: u8) -> Option<u8> {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/pipeline/host/access/acl.rs"]
+#[path = "../../../../tests/pipeline/layers/acl/path.rs"]
 mod tests;

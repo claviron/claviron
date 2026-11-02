@@ -62,5 +62,5 @@ impl<S> HostLayer<S> for ReplyPolicy {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/host/reply.rs"]
+#[path = "../../../tests/pipeline/layers/reply.rs"]
 mod tests;

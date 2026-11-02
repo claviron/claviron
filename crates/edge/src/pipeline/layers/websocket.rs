@@ -80,5 +80,5 @@ impl<S> HostLayer<S> for Arc<WebSocketStage> {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/host/websocket.rs"]
+#[path = "../../../tests/pipeline/layers/websocket.rs"]
 mod tests;

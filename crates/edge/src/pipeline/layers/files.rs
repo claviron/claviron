@@ -118,7 +118,7 @@ pub(crate) fn fallback_config(config: &HostConfig) -> FilesConfig {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/host/files.rs"]
+#[path = "../../../tests/pipeline/layers/files.rs"]
 mod tests;
 
 impl<S> super::HostLayer<S> for StaticStage {

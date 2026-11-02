@@ -231,5 +231,5 @@ pub struct HostQuotas {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/pipeline/host/quota/prepare.rs"]
+#[path = "../../../../tests/pipeline/layers/quota/prepare.rs"]
 mod tests;

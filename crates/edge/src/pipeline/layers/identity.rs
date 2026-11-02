@@ -78,5 +78,5 @@ impl<S: AsMut<IdentityState>, R> HostLayer<S, R>
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/host/identity.rs"]
+#[path = "../../../tests/pipeline/layers/identity.rs"]
 mod tests;

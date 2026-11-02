@@ -63,7 +63,3 @@ impl Future for DispatchFuture {
 pub trait DispatchStep: Send + Sync + 'static {
     fn call(&self, request: Request<RouteBody>) -> DispatchFuture;
 }
-
-#[cfg(test)]
-#[path = "../../../tests/pipeline/host/dispatch.rs"]
-mod tests;

@@ -146,5 +146,5 @@ where
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/host/access_log.rs"]
+#[path = "../../../tests/pipeline/layers/access_log.rs"]
 mod tests;

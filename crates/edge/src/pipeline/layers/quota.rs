@@ -164,6 +164,6 @@ impl<S: AsMut<QuotaState>, R: From<HostResponse>> HostLayer<S, R> for QuotaPolic
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/host/quota.rs"]
+#[path = "../../../tests/pipeline/layers/quota.rs"]
 mod tests;
 

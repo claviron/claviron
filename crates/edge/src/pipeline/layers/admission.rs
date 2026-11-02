@@ -47,7 +47,7 @@ impl AdmissionPolicy {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/host/admission.rs"]
+#[path = "../../../tests/pipeline/layers/admission.rs"]
 mod tests;
 
 /// A configured concurrency authority, prepared once and shared by connections.
