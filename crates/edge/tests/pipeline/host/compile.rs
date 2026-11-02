@@ -78,7 +78,7 @@ async fn try_files_precedes_a_declared_php_application_without_starting_php() {
     )
     .unwrap();
     let config: HostConfig = serde_yaml::from_str(&format!(
-        "root: {}\ntry_files: true\nphp:\n  - path: /live\n    runner: application\n    application: example\n",
+        "root: {}\nroutes:\n  /live:\n    try_files: true\n    php: {{runner: application, application: example}}\n",
         serde_yaml::to_string(directory.path()).unwrap().trim(),
     )).unwrap();
     let state = AppState::standalone("native-php-files", directory.path());

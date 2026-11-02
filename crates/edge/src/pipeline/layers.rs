@@ -7,7 +7,7 @@ use http::Request;
 #[cfg(feature = "acme")]
 use http::Response;
 use http::request::Parts as RequestParts;
-use super::host::{AsyncHeadAction, DispatchFuture, DispatchStep, HostLayerBuilder, HostPipelineBuilder};
+use super::host::{DispatchFuture, DispatchStep, HostLayerBuilder, HostPipelineBuilder};
 
 #[cfg(feature = "access-log")]
 mod access_log;

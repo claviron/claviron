@@ -48,7 +48,7 @@ async fn orbit_webtransport_directions_and_streams_progress_independently() {
 
 #[test]
 fn orbit_webtransport_route_selection_respects_prefix_and_route_ownership() {
-    let host: HostConfig = serde_yaml::from_str("orbit:\n  - { fleet_name: apps, application: root }\n  - { path: /chat, fleet_name: apps, application: chat }\nroutes:\n  /local: { static: {} }\n").unwrap();
+    let host: HostConfig = serde_yaml::from_str("orbit: {fleet_name: apps, application: root}\nroutes:\n  /chat:\n    orbit: {fleet_name: apps, application: chat}\n  /local: {static: {}}\n").unwrap();
     assert_eq!(route(&host, "/chat/room").unwrap().application, "chat");
     assert_eq!(route(&host, "/chatter").unwrap().application, "root");
     assert!(route(&host, "/local/session").is_none());

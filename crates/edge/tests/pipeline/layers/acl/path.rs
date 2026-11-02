@@ -1,7 +1,7 @@
 use super::*;
 
 fn compile(yaml: &str) -> Arc<CompiledAcl> {
-    let rules: std::collections::BTreeMap<PathPrefix, AccessLimiter> = serde_yaml::from_str(yaml).unwrap();
+    let rules: std::collections::HashMap<PathPrefix, AccessLimiter> = serde_yaml::from_str(yaml).unwrap();
     CompiledAcl::from_entries(rules).unwrap()
 }
 
