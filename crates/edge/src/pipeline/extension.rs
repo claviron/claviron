@@ -25,6 +25,28 @@ pub struct RouteContext<'a> {
     pub prefix: &'a claviron_http::ext::PathPrefix,
 }
 
+impl<'a> RouteContext<'a> {
+    /// Request and response overrides are folded once, from root to scope.
+    pub fn policy(&self) -> claviron_http::policy::HttpPolicyOverride {
+        let mut policy = self.config.policy();
+        for (_, scope) in self.config.routes.iter().rev()
+            .filter(|(prefix, _)| prefix.as_str() != "/" && prefix.has_path_segment(self.prefix.as_str()))
+        {
+            policy.requests = policy.requests.overlay(&scope.requests);
+            policy.responses = policy.responses.overlay(&scope.responses);
+        }
+        policy
+    }
+
+    /// Resolve one typed setting for the effective scope during preparation.
+    pub fn setting<T: ?Sized>(
+        &self,
+        setting: impl Fn(&'a crate::config::RouteConfig) -> Option<&'a T>,
+    ) -> Option<&'a T> {
+        self.config.setting_at(self.prefix, setting)
+    }
+}
+
 pub enum RouteEffect {
     /// A Rust contribution before the selected native files/backend chain.
     /// Unhandled returns the same unread body to that chain; a handled error

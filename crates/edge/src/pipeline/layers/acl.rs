@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 use claviron_http::ext::{ConnCtx, PathPrefix, RealIpExt};
-use crate::config::acl::{AccessLimiter, AclConfig};
+use crate::config::acl::AccessLimiter;
 use crate::service::RequestRejection;
 use super::*;
 
@@ -16,8 +16,8 @@ pub struct AclLayer {
 }
 
 impl AclLayer {
-    pub fn new(config: &AclConfig) -> Option<Self> {
-        CompiledAcl::compile(config).map(|rules| Self { rules })
+    pub fn new(rule: &AccessLimiter) -> Self {
+        Self { rules: CompiledAcl::from_entries([(PathPrefix::root(), rule.clone())]).expect("one prepared access rule") }
     }
 
     pub fn from_entries(

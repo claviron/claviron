@@ -4,8 +4,6 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use claviron_helpers::de::one_or_many;
-use claviron_http::ext::PathPrefix;
-use claviron_http::policy::{RequestPolicyOverride, ResponsePolicyOverride};
 use claviron_runtime::registry::{Error, Result};
 use serde::Deserialize;
 
@@ -84,14 +82,10 @@ impl TryFrom<String> for PhpRunner {
 
 /// PHP configuration - supports both single and multiple configs
 /// Single: php: { fpm: web, ... }
-/// Multiple: php: [{ path: "/api", fpm: api }, ...]
+/// URL scopes belong to the enclosing host route.
 #[derive(Deserialize, Clone)]
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct PhpConfig {
-    /// Optional path prefix check (e.g. `/api`). Requests below the
-    /// prefix get this PhpConfig, others fall through to the next
-    /// host-level entry.
-    pub path: Option<PathPrefix>,
     #[serde(default)]
     pub runner: PhpRunner,
     /// Named pool from php.yaml applications. Only runner: application uses it;
@@ -101,14 +95,6 @@ pub struct PhpConfig {
     /// FPM pool names to use for this route
     #[serde(default, deserialize_with = "one_or_many")]
     pub fpm: Vec<String>,
-    /// Per-location document directory override. Absolute paths (e.g.
-    /// `/sites/api/public`) are used verbatim; relative paths (e.g.
-    /// `other`) resolve against the host's docroot. The composed value
-    /// becomes `PhpRuntime.root` — i.e. the FCGI `DOCUMENT_ROOT`.
-    /// Field is named `dir` to avoid collision with the host-level
-    /// `root:` directive — the two live at different semantic layers
-    /// and shouldn't share a name.
-    pub dir: Option<PathBuf>,
     /// Optional entry script override
     pub entry_script: Option<String>,
     pub entry_query: Option<String>,
@@ -152,18 +138,6 @@ pub struct PhpConfig {
     /// is never validated — that's an operator pin.
     #[serde(default = "default_true")]
     pub validate_script: bool,
-    /// This application's request policy, under its host's and its
-    /// listener's: the same `requests:` fields, narrowing theirs
-    /// ([`RequestPolicy::narrow`](claviron_http::policy::RequestPolicy::narrow)).
-    /// It replaces `exec_mode`: the reply is always a stream, and how the
-    /// request body reaches PHP is `requests.buffering`'s to say
-    /// (`docs/REVIEW.md` §3e).
-    #[serde(default)]
-    pub requests: RequestPolicyOverride,
-    /// This application's reply policy, narrowing its host's and its
-    /// listener's the same way (`docs/REVIEW.md` §3e).
-    #[serde(default)]
-    pub responses: ResponsePolicyOverride,
     /// Index filenames searched when a request resolves to a directory.
     /// Vhost layer composes this from the host's `indexes:` (filtered to
     /// `.php` candidates) before handing PhpConfig to the proxy. Defaults
@@ -202,13 +176,12 @@ impl PhpConfig {
             }
             if self.entry_script.is_some()
                 || self.entry_query.is_some()
-                || self.dir.is_some()
                 || !self.fpm.is_empty()
                 || self.try_files
                 || !self.entry_extensions.is_empty()
             {
                 return Err(Error::msg(
-                    "application routes select a named application; configure its script, boot environment and instances in php.yaml applications — routes may declare path, application, requests and responses",
+                    "application routes select a named application; configure its script, boot environment and instances in php.yaml applications — routes select application; request and response policy belongs to the enclosing scope",
                 ));
             }
             return Ok(());

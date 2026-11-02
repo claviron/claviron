@@ -1,5 +1,4 @@
 use super::JavaScriptWebSocketConfig;
-use crate::ext::PathPrefix;
 use claviron_helpers::de::opt_one_or_many;
 use serde::Deserialize;
 
@@ -18,8 +17,6 @@ pub enum LuaSocketOriginPolicy {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LuaRouteConfig {
-    /// Optional segment-safe request prefix. Omission claims the whole host.
-    pub path: Option<PathPrefix>,
     /// The application's name in `lua.yaml`.
     #[serde(deserialize_with = "deserialize_lua_application_name")]
     pub application: String,
@@ -33,13 +30,7 @@ pub struct LuaRouteConfig {
         deserialize_with = "opt_one_or_many"
     )]
     websockets: Option<Vec<JavaScriptWebSocketConfig>>,
-    /// This route's request policy: the wait for a permit is
-    /// `requests.queue_timeout`.
-    #[serde(default)]
-    pub requests: crate::policy::RequestPolicyOverride,
-    /// This route's reply policy.
-    #[serde(default)]
-    pub responses: crate::policy::ResponsePolicyOverride,
+
 }
 
 impl LuaRouteConfig {

@@ -42,7 +42,7 @@ impl<T> RouteTable<T> {
             .map(|(_, value)| value)
     }
 
-    pub fn iter(&self) -> impl Iterator<Item = (&PathPrefix, &T)> {
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = (&PathPrefix, &T)> + ExactSizeIterator {
         self.entries.iter().map(|(prefix, value)| (prefix, value))
     }
 

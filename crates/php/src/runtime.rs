@@ -192,7 +192,7 @@ impl PhpRuntime {
     ///   Used during runtime construction to resolve dependencies (e.g., PhpFcgiService) or
     ///   populate runtime-wide shared resources.
     /// - `template`: The per-route `PhpConfig` template.
-    /// - `default_root`: The host document root, used if the route has no `dir:` override.
+    /// - `default_root`: The document directory already selected by the scope owner.
     /// - `host_indexes`: The host’s index list; used if the route has no `indexes:` defined.
     ///
     /// # Returns
@@ -219,15 +219,7 @@ impl PhpRuntime {
             }
         };
 
-        // nginx-parity: relative `dir:` overrides resolve against the
-        // host's docroot (so `dir: other` under `claviron.dev` (host
-        // root `public`) becomes `public/other`). Absolute paths stay
-        // literal. No override → host root verbatim.
-        let dir = match template.dir.as_ref() {
-            Some(d) if d.is_absolute() => d.clone(),
-            Some(d) => default_root.join(d),
-            None => default_root,
-        };
+        let dir = default_root;
         let dir = match dir.canonicalize() {
             Ok(real_dir) => real_dir,
             Err(err) => {
@@ -242,7 +234,7 @@ impl PhpRuntime {
 
         Self {
             mapping: None,
-            path: template.path.clone(),
+            path: None,
             try_files: template.try_files,
             entry_extensions: Arc::from(
                 template
@@ -263,8 +255,8 @@ impl PhpRuntime {
             execution_environment: Arc::new(OnceLock::new()),
             php_runner: template.runner,
             application: template.application.clone(),
-            requests: template.requests,
-            responses: template.responses,
+            requests: RequestPolicyOverride::default(),
+            responses: ResponsePolicyOverride::default(),
             server_run_mode: state.run_mode(),
             server_worker_count: state.worker_count(),
             server_software: state.name().to_string(),

@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use claviron_http::ext::PathPrefix;
 
-use crate::config::acl::{AccessLimiter, AclConfig};
+use crate::config::acl::AccessLimiter;
 use crate::service::RequestRejection;
 
 pub(crate) struct CompiledAcl {
@@ -14,12 +14,6 @@ pub(crate) struct CompiledAcl {
 }
 
 impl CompiledAcl {
-    pub(crate) fn compile(config: &AclConfig) -> Option<Arc<Self>> {
-        Self::from_entries(
-            config.rules().map(|(path, rule)| (path.clone(), rule.clone())),
-        )
-    }
-
     pub(crate) fn from_entries(
         entries: impl IntoIterator<Item = (PathPrefix, AccessLimiter)>
     ) -> Option<Arc<Self>> {

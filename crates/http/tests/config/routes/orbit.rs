@@ -8,7 +8,6 @@ fn fleet_and_application_are_independent() {
     .unwrap();
     assert_eq!(route.fleet_name.as_str(), "apps");
     assert_eq!(route.application, "example-application-with-a-long-name");
-    assert!(route.path.is_none());
 }
 
 #[test]

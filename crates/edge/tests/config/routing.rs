@@ -6,7 +6,6 @@ fn file_routes_apply_default_root_before_normalizing_any_route_shape() {
         "{}",
         "routes: {'/': {}}",
         "routes: {'/': {}, '/api': {}}",
-        "routes: {path: /api, ajax_only: true}",
     ] {
         let config: HostConfig = serde_yaml::from_str(source).unwrap();
         assert_eq!(config.files.root, std::path::Path::new("."), "{source}");
@@ -26,7 +25,7 @@ fn lua_socket_declarations_include_scopes_without_duplicating_the_root() {
         "routes:\n  /:\n    lua: {application: root}\n  /api:\n    lua: {application: api}\n",
     ).unwrap();
     let applications: Vec<_> = config.lua_routes()
-        .map(|route| (route.application.as_str(), route.path.as_ref().map(|path| path.as_str())))
+        .map(|(prefix, route)| (route.application.as_str(), prefix.map(|path| path.as_str())))
         .collect();
     assert_eq!(applications, [("root", None), ("api", Some("/api"))]);
 }
@@ -38,7 +37,7 @@ fn link_lifecycle_destinations_include_flat_and_scoped_routes() {
         "orbit: {fleet_name: first, application: root}\nroutes:\n  /api:\n    orbit: {fleet_name: second, application: api}\n  /assets:\n    static: {}\n",
     ).unwrap();
     let destinations: Vec<_> = config.link_routes()
-        .map(|route| (route.fleet_name.as_str(), route.application.as_str()))
+        .map(|(_, route)| (route.fleet_name.as_str(), route.application.as_str()))
         .collect();
     assert_eq!(destinations, [("first", "root"), ("second", "api")]);
 }
@@ -90,7 +89,7 @@ fn file_routes_reject_duplicate_roots_and_mount_lists() {
 #[test]
 fn file_routes_directory_groups_keep_one_route_and_relative_policy_paths() {
     let config: HostConfig = serde_yaml::from_str(
-        "root: public\nroutes:\n  /frontend:\n    path: shared\n    statics:\n      - dir: assets\n        rules: [{test: '^app\\.js$'}]\n      - dir: icons\n",
+        "root: public\nroutes:\n  /frontend:\n    directory: shared\n    statics:\n      - dir: assets\n        rules: [{test: '^app\\.js$'}]\n      - dir: icons\n",
     ).unwrap();
     assert_eq!(config.routes.iter().count(), 1);
     let route = config.routes.find("/frontend/assets/app.js").unwrap();
@@ -109,7 +108,7 @@ fn file_routes_directory_groups_keep_one_route_and_relative_policy_paths() {
 #[test]
 fn file_routes_policy_child_keeps_the_parent_policy_and_mapped_subdirectory() {
     let config: HostConfig = serde_yaml::from_str(
-        "root: public\nroutes:\n  /files:\n    path: shared\n    static:\n      none_found: true\n      rules: [{test: '^private/app\\.js$'}]\n  /files/private:\n    cors: disabled\n",
+        "root: public\nroutes:\n  /files:\n    directory: shared\n    static:\n      none_found: true\n      rules: [{test: '^private/app\\.js$'}]\n  /files/private:\n    cors: disabled\n",
     ).unwrap();
     let child = config.routes.find("/files/private").unwrap();
     assert_eq!(child.files.root, std::path::Path::new("public"));
@@ -134,7 +133,7 @@ fn file_routes_policy_child_keeps_the_parent_policy_and_mapped_subdirectory() {
 #[test]
 fn file_routes_policy_child_inherits_directory_groups_without_sibling_mounts() {
     let config: HostConfig = serde_yaml::from_str(
-        "root: public\nroutes:\n  /:\n    path: shared\n    statics: [{dir: frontend/assets}, {dir: frontend/icons}]\n  /frontend:\n    cors: disabled\n  /frontend/private:\n    path: private\n    static: {}\n",
+        "root: public\nroutes:\n  /:\n    directory: shared\n    statics: [{dir: frontend/assets}, {dir: frontend/icons}]\n  /frontend:\n    cors: disabled\n  /frontend/private:\n    directory: private\n    static: {}\n",
     ).unwrap();
     let child = config.routes.find("/frontend").unwrap();
     let mounts = child.statics.as_ref().unwrap();
@@ -152,7 +151,7 @@ fn file_routes_policy_child_inherits_directory_groups_without_sibling_mounts() {
 #[test]
 fn file_routes_inherited_statics_respect_an_explicit_child_directory() {
     let config: HostConfig = serde_yaml::from_str(
-        "root: public\nroutes:\n  /files:\n    path: shared\n    static: {none_found: true}\n  /files/private:\n    path: relocated\n    cors: disabled\n",
+        "root: public\nroutes:\n  /files:\n    directory: shared\n    static: {none_found: true}\n  /files/private:\n    directory: relocated\n    cors: disabled\n",
     ).unwrap();
     let child = config.routes.find("/files/private").unwrap();
     let mount = &child.statics.as_ref().unwrap()[0];
@@ -169,8 +168,8 @@ fn file_routes_reject_dot_segments_in_derived_directory_suffixes() {
     for source in [
         "root: public\nroutes: {'/../outside': {static: {}}}\n",
         "root: public\nroutes: {'/files/./item': {try_files: true}}\n",
-        "root: public\nroutes:\n  /files:\n    path: shared\n    static: {}\n  /files/../outside: {}\n",
-        "root: public\nroutes:\n  /:\n    path: shared\n  /../outside: {}\n",
+        "root: public\nroutes:\n  /files:\n    directory: shared\n    static: {}\n  /files/../outside: {}\n",
+        "root: public\nroutes:\n  /:\n    directory: shared\n  /../outside: {}\n",
     ] {
         let error = serde_yaml::from_str::<HostConfig>(source)
             .err()
@@ -179,7 +178,7 @@ fn file_routes_reject_dot_segments_in_derived_directory_suffixes() {
     }
 
     let config: HostConfig = serde_yaml::from_str(
-        "root: public\nroutes: {'/files': {path: ../shared, static: {}}}\n",
+        "root: public\nroutes: {'/files': {directory: ../shared, static: {}}}\n",
     ).unwrap();
     let route = config.routes.find("/files").unwrap();
     assert_eq!(
@@ -192,7 +191,7 @@ fn file_routes_reject_dot_segments_in_derived_directory_suffixes() {
 #[test]
 fn file_routes_static_declarations_preserve_upstream_owners() {
     let config: HostConfig = serde_yaml::from_str(
-        "root: public\nupstream: backend\nroutes:\n  /assets:\n    path: build\n    static: {}\n  /assets/private:\n    cors: disabled\n",
+        "root: public\nupstream: backend\nroutes:\n  /assets:\n    directory: build\n    static: {}\n  /assets/private:\n    cors: disabled\n",
     ).unwrap();
     assert_eq!(config.upstream_name(), Some("backend"));
     assert_eq!(config.statics.as_ref().unwrap()[0].path.as_str(), "/assets");
@@ -251,4 +250,27 @@ fn disabled_upstream_is_rejected_in_flat_and_scoped_declarations() {
         assert!(message.contains("directive 'upstream'"), "{message}");
         assert!(message.contains("is not enabled"), "{message}");
     }
+}
+
+#[test]
+fn scope_settings_have_one_shape_and_inherit_by_borrowing_the_declaration() {
+    let config: HostConfig = serde_yaml::from_str(
+        "acl: {policy: allow}\nredirect: {to: /new}\naccess_log: off\nheaders: {server: example}\ncors: permissive\nroutes:\n  /private:\n    acl: {policy: deny}\n    redirect: {to: /login}\n    access_log: private\n",
+    ).unwrap();
+    let prefix: PathPrefix = serde_yaml::from_str("/private").unwrap();
+    let child = config.routes.find(prefix.as_str()).unwrap();
+    assert!(matches!(config.acl().unwrap().policy, acl::AccessPolicy::Allow));
+    assert!(matches!(child.acl().unwrap().policy, acl::AccessPolicy::Deny));
+    assert_eq!(child.access_log(), Some("private"));
+    assert_eq!(child.redirect.as_ref().unwrap()[0].to.as_str(), "/login");
+    assert!(child.headers.is_none());
+    assert!(child.cors.is_none());
+    assert!(std::ptr::eq(
+        config.setting_at(&prefix, |scope| scope.headers.as_ref()).unwrap(),
+        config.headers.as_ref().unwrap(),
+    ));
+    assert!(std::ptr::eq(
+        config.setting_at(&prefix, |scope| scope.cors.as_ref()).unwrap(),
+        config.cors.as_ref().unwrap(),
+    ));
 }

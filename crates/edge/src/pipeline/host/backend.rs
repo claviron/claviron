@@ -2,12 +2,10 @@
 
 use std::sync::Arc;
 
-use claviron_runtime::AppState;
-use claviron_types::Host;
+use crate::pipeline::extension::RouteContext;
 
 use super::DispatchStep;
 use crate::pipeline::layers::prepare_fallback;
-use crate::HostConfig;
 use crate::pipeline::other::OtherService;
 
 #[derive(Clone)]
@@ -18,15 +16,18 @@ pub(super) struct BackendPlan {
 
 impl BackendPlan {
     pub(super) fn prepare(
-        state: &AppState,
-        host: &Host,
-        config: &HostConfig,
+        context: &RouteContext<'_>,
     ) -> Self {
+        let state = context.state;
+        let host = context.host;
+        let config = context.route;
+        #[cfg(any(feature = "orbit", feature = "lua", feature = "php_embed", feature = "php_fcgi"))]
+        let policy = context.policy();
         let terminal = prepare_fallback(state, config);
         let steps = std::iter::empty::<Arc<dyn DispatchStep>>();
         #[cfg(feature = "orbit")]
         let steps = steps.chain(
-            crate::pipeline::link::LinkBackend::new(state, config.orbit())
+            crate::pipeline::link::LinkBackend::new(state, config.orbit(), Some(context.prefix), policy.requests)
                 .map(|owner| Arc::new(owner) as Arc<dyn DispatchStep>),
         );
         #[cfg(feature = "lua")]
@@ -36,6 +37,8 @@ impl BackendPlan {
                     .registry_ref()
                     .resolve::<claviron_lua::serve::LuaApplications>(),
                 config.lua(),
+                Some(context.prefix),
+                policy,
             )
             .map(|owner| Arc::new(owner) as Arc<dyn DispatchStep>),
         );
@@ -44,6 +47,7 @@ impl BackendPlan {
             crate::pipeline::embed::php::PhpBackend::new(
                 state,
                 config,
+                policy,
             )
             .map(|owner| Arc::new(owner) as Arc<dyn DispatchStep>),
         );

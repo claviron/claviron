@@ -78,7 +78,7 @@ fn aliases_share_one_prepared_budget_and_other_definitions_are_independent() {
 fn specific_prefix_selects_one_store_without_charging_its_parent() {
     let mut config = config();
     let mut child = HostConfig::new("public");
-    child.route_rate_limit = Some(definition());
+    child.rate_limit = Some(definition());
     config.routes = claviron_http::config::routes::RouteTable::new([(
         serde_yaml::from_str("/api").unwrap(),
         Arc::new(child),
@@ -220,7 +220,7 @@ fn header_opt_in_belongs_to_the_selected_definition_and_defaults_off() {
     let mut child = HostConfig::new("public");
     let mut explicit = definition();
     explicit.headers = true;
-    child.route_rate_limit = Some(explicit);
+    child.rate_limit = Some(explicit);
     config.routes = claviron_http::config::routes::RouteTable::new([(
         serde_yaml::from_str("/api").unwrap(),
         Arc::new(child),

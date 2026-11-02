@@ -24,7 +24,7 @@ Application routes reject `environment` (aliases `env`, `environments`) and
 to the named application's boot definition, not to a site or request. Script
 and FastCGI routes retain their existing environment settings.
 `PhpRuntime.application` preserves the selected name through host composition;
-the vhost router mounts the backend-owned prefix adapter. No PHP runtime types
+the host scope supplies its prepared prefix and policy to the native backend. No PHP runtime types
 or execution dependencies are imported into this shared contract crate.
 
 ## Shared Primitives
@@ -57,7 +57,11 @@ prefix only while locating a URI-derived script or static candidate on disk.
 They preserve the original HTTP URI, query, public script name and existing
 PATH_INFO handling. A pinned `entry_script` is already relative to the document
 directory and never has a URL prefix removed or an existence probe added.
-An explicitly configured PHP `dir` retains its document-directory override.
+Document-directory overrides belong to the enclosing route `directory`, not PhpConfig.
+
+`PhpConfig` contains PHP execution settings. URL prefix, document mapping and
+request/reply policy are supplied to `PhpRuntime` by the scope compiler at
+boot/reload. Script, persistent application and FCGI execution share that input.
 
 Native mount preparation belongs to Edge's pipeline/embed/php.rs. This shared
 contract crate has no Axum feature, dependency or routing builder. The host

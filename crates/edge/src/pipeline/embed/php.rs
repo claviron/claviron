@@ -21,20 +21,20 @@ mod fcgi;
 mod script;
 
 // Resolve route mappings and PHP defaults before selecting runner owners.
-fn prepare_runtimes(state: &AppState, config: &HostConfig) -> Vec<PhpRuntime> {
+fn prepare_runtimes(state: &AppState, config: &HostConfig, policy: claviron_http::policy::HttpPolicyOverride) -> Vec<PhpRuntime> {
     config.php()
         .iter()
         .map(|template| {
             let mut runtime = PhpRuntime::from_config(
                 state,
                 template,
-                config.root(),
+                config.files.mapping.as_ref().map_or_else(|| config.root(), |mapping| mapping.directory().to_path_buf()),
                 config.indexes(),
             );
+            runtime.requests = policy.requests;
+            runtime.responses = policy.responses;
+            runtime.path = config.files.mapping.as_ref().map(|mapping| mapping.prefix().clone());
             if let Some(mapping) = &config.files.mapping {
-                if template.dir.is_none() {
-                    runtime.dir = mapping.directory().to_path_buf();
-                }
                 runtime.mapping = Some(
                     claviron_http::config::mapping::RouteMapping::new(
                         mapping.prefix().clone(),
@@ -63,8 +63,9 @@ impl PhpBackend {
     pub fn new(
         state: &AppState,
         config: &HostConfig,
+        policy: claviron_http::policy::HttpPolicyOverride,
     ) -> Option<Self> {
-        let mounts = prepare_runtimes(state, config)
+        let mounts = prepare_runtimes(state, config, policy)
             .into_iter()
             .filter_map(|runtime| {
                 let path = runtime.path.clone();

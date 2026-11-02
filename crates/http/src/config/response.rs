@@ -3,8 +3,6 @@
 use http::{HeaderValue, StatusCode};
 use serde::Deserialize;
 
-use crate::ext::PathPrefix;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize)]
 #[serde(try_from = "u16")]
 pub enum RedirectStatus {
@@ -72,8 +70,6 @@ fn default_redirect_code() -> RedirectStatus {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RedirectConfig {
-    #[serde(default = "PathPrefix::root")]
-    pub path: PathPrefix,
     #[serde(default = "default_redirect_code")]
     pub code: RedirectStatus,
     pub to: LocationTemplate,

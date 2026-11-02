@@ -19,25 +19,16 @@ fn routes(source: &str) -> Vec<LuaRouteConfig> {
 }
 
 #[test]
-fn prepared_mounts_preserve_segment_matching_specificity_and_tie_order() {
+fn prepared_scope_owns_its_prefix_and_preserves_declaration_order() {
+    let prefix: PathPrefix = serde_yaml::from_str("/api").unwrap();
     let backend = LuaBackend::new(None, &routes(
-        "- { application: fallback }\n- { path: /, application: root }\n- { path: /api, application: first }\n- { path: /api, application: last }\n- { path: /api/admin, application: admin }\n",
-    )).unwrap();
-    for (path, expected) in [
-        ("/api", "last"),
-        ("/api/item", "last"),
-        ("/api/admin/item", "admin"),
-        ("/apiary/item", "root"),
-        ("/", "root"),
-        ("*", "fallback"),
-    ] {
-        assert_eq!(
-            backend.select(path).unwrap().adapter.application(),
-            expected,
-            "{path}"
-        );
+        "- {application: first}\n- {application: last}\n",
+    ), Some(&prefix), HttpPolicyOverride::default()).unwrap();
+    for path in ["/api", "/api/item"] {
+        assert_eq!(backend.select(path).unwrap().adapter.application(), "last");
     }
-    assert!(LuaBackend::new(None, &[]).is_none());
+    assert!(backend.select("/apiary").is_none());
+    assert!(LuaBackend::new(None, &[], None, HttpPolicyOverride::default()).is_none());
 }
 
 #[derive(Default)]
@@ -88,7 +79,9 @@ impl ApplicationHandler for Fallback {
 fn only_nonmatching_mounts_yield_the_original_body_and_trailers() {
     let backend = LuaBackend::new(
         None,
-        &routes("- { path: /lua, application: example }"),
+        &routes("- { application: example }"),
+        Some(&serde_yaml::from_str("/lua").unwrap()),
+        HttpPolicyOverride::default(),
     )
     .unwrap();
     for (path, status, fallbacks) in [

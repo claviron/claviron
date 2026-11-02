@@ -1,6 +1,18 @@
 //! Boot-time normalization of flat host applications and prefix-keyed routes.
 
-use super::{HostConfig, HostFields, RouteRule};
+use super::{HostConfig, HostFields};
+#[cfg(feature = "php")]
+use super::PhpConfig;
+#[cfg(feature = "lua")]
+use super::LuaRouteConfig;
+#[cfg(feature = "orbit")]
+use super::OrbitRouteConfig;
+#[cfg(feature = "broadcast")]
+use super::PusherConfig;
+use super::{acl, CorsConfig, HostHeadersConfig, RedirectConfig, RequestPolicyOverride, ResponsePolicyOverride, HttpPolicyOverride, StaticConfig, DEFAULT_SERVER_HEADER, is_dynamic_file, HostUpstreamConfig};
+#[cfg(feature = "rate-limit")]
+use super::quota;
+use claviron_helpers::de::opt_one_or_many;
 use claviron_http::config::mapping::RouteMapping;
 use claviron_http::config::routes::RouteTable;
 use claviron_http::ext::PathPrefix;
@@ -12,9 +24,9 @@ use std::sync::Arc;
 
 mod statics;
 
-/// Prepared application/file view, independent of host identity and transport.
-/// Host parsing supplies the single host root and compiles each static mount
-/// from its route key. The internal file view is not a second YAML surface.
+/// The same declaration schema at the host root and under every route key.
+/// URL scope comes from the enclosing route; effective settings are borrowed
+/// during boot/reload, rather than copied into child declarations.
 #[derive(Deserialize)]
 pub struct RouteConfig {
     #[serde(flatten)]
@@ -42,6 +54,114 @@ pub struct RouteConfig {
     pub(super) broadcast: Option<Arc<super::PusherConfig>>,
     #[serde(default)]
     pub upstream: Option<super::HostUpstreamConfig>,
+    /// Where this host's access records go: a channel `logging.yaml`
+    /// declares, or `off` for none. Unwritten, `logging.yaml`'s own
+    /// `access_log`. Several hosts may name one channel; each record carries
+    /// its host.
+    #[serde(default)]
+    pub(super) access_log: Option<String>,
+    #[serde(default, deserialize_with = "opt_one_or_many")]
+    pub redirect: Option<Vec<RedirectConfig>>,
+    /// Access rule for this scope. Prefix selection belongs to the host plan.
+    pub acl: Option<acl::AccessLimiter>,
+    /// Bounded IP admission before native sessions, routing and Other dispatch.
+    #[cfg(feature = "rate-limit")]
+    pub rate_limit: Option<quota::RateLimitConfig>,
+    /// This host's request policy, under its listener's: a limit or a time
+    /// written here can only narrow the listener's (`RequestPolicy::narrow`),
+    /// and a host that needs more belongs on another listener. Unwritten
+    /// fields leave the listener's as they are.
+    ///
+    /// Separate from `transport:` because that block is admission policy —
+    /// which protocols, which handshakes — and this is how a request is
+    /// accepted and run.
+    #[serde(default)]
+    pub requests: RequestPolicyOverride,
+    /// This host's reply policy, under its listener's, narrowing the same
+    /// way (`ResponsePolicy::narrow`).
+    #[serde(default)]
+    pub responses: ResponsePolicyOverride,
+    /// Edge HTTP policy, outside the application routing boundary. Flat
+    /// declarations cover `/`; scoped declarations are compiled at boot.
+    pub cors: Option<CorsConfig>,
+    #[serde(default)]
+    pub headers: Option<HostHeadersConfig>,
+
+}
+
+impl RouteConfig {
+    /// This scope's request and response overrides.
+    pub fn policy(&self) -> HttpPolicyOverride {
+        HttpPolicyOverride {
+            requests: self.requests,
+            responses: self.responses,
+        }
+    }
+
+    pub fn indexes(&self) -> &[String] {
+        &self.index
+    }
+
+    pub fn is_indexed(&self) -> bool {
+        !self.index.is_empty()
+    }
+
+    pub fn has_static_index(&self) -> bool {
+        self.is_indexed()
+            && self.indexes().iter().any(|idx| !is_dynamic_file(idx))
+    }
+
+    /// Mounts compiled from route declarations for direct file consumers.
+    pub fn statics(&self) -> Option<&[StaticConfig]> {
+        self.statics.as_deref()
+    }
+
+    /// Resolve this scope's document root against the process working directory.
+    pub fn root(&self) -> PathBuf {
+        let p = self.root.as_path();
+        if p.is_absolute() {
+            return p.to_path_buf();
+        }
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(p)
+    }
+
+    #[cfg(feature = "broadcast")]
+    pub fn broadcast_cfg(&self) -> Option<Arc<PusherConfig>> {
+        self.broadcast.clone()
+    }
+
+    /// This host's `access_log`, as written.
+    pub fn access_log(&self) -> Option<&str> {
+        self.access_log.as_deref()
+    }
+
+    #[cfg(feature = "php")]
+    pub fn php(&self) -> &[PhpConfig] {
+        self.php.as_deref().unwrap_or(&[])
+    }
+
+    #[cfg(feature = "lua")]
+    pub fn lua(&self) -> &[LuaRouteConfig] {
+        self.lua.as_deref().unwrap_or(&[])
+    }
+
+    #[cfg(feature = "orbit")]
+    pub fn orbit(&self) -> &[OrbitRouteConfig] {
+        self.orbit.as_deref().unwrap_or(&[])
+    }
+
+    pub fn acl(&self) -> Option<&acl::AccessLimiter> {
+        self.acl.as_ref()
+    }
+
+    pub fn upstream_name(&self) -> Option<&str> {
+        self.upstream.as_ref().map(HostUpstreamConfig::name)
+    }
+
+    /// Declared server label, or the library identity.
+    pub fn server_name(&self) -> &str {
+        self.headers.as_ref().and_then(|headers| headers.server.as_deref()).unwrap_or(DEFAULT_SERVER_HEADER)
+    }
 }
 
 impl std::ops::Deref for RouteConfig {
@@ -69,55 +189,17 @@ fn key(name: &str) -> Value {
 }
 
 fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
-    for name in ["static", "statics"] {
-        if source.contains_key(key(name)) {
-            return Err(format!(
-                "host '{name}' is not supported; declare static directories under routes"
-            ));
-        }
-    }
     if source.contains_key(key("path")) {
-        return Err("path belongs to a route; use root on the host".into());
+        return Err("path is not a directory setting; use root on the host or directory in a route".into());
     }
     let root = PathPrefix::root();
+    validate_scope(&root, &source)?;
     for name in source.keys().filter_map(Value::as_str) {
         validate_feature(&root, name)?;
     }
     // Every leaf, including an explicit `/`, needs the same host default.
     source.entry(key("root")).or_insert_with(|| Value::String(".".into()));
     let routes = source.remove(key("routes"));
-    // Keep the initial rule-only schema readable while deployments migrate.
-    if routes.as_ref().is_some_and(|value| value.is_sequence())
-        || routes.as_ref().and_then(Value::as_mapping).is_some_and(|map| {
-            map.contains_key(key("path")) || map.contains_key(key("ajax_only"))
-        })
-    {
-        let value = routes.unwrap();
-        let entry_rules = if value.is_sequence() {
-            serde_yaml::from_value::<Vec<RouteRule>>(value)
-        } else {
-            serde_yaml::from_value::<RouteRule>(value).map(|rule| vec![rule])
-        }
-        .map_err(|error| error.to_string())?;
-        let fallback = Arc::new(leaf(source.clone(), Vec::new())?);
-        let mut entries = Vec::new();
-        let mut prefixes = Vec::new();
-        for rule in entry_rules {
-            if prefixes.contains(&rule.path) {
-                return Err(format!("duplicate route prefix '{}'", rule.path));
-            }
-            let mut config = leaf(source.clone(), Vec::new())?;
-            config
-                .extensions
-                .insert("ajax_only".into(), Value::Bool(rule.ajax_only));
-            prefixes.push(rule.path.clone());
-            entries.push((rule.path, Arc::new(config)));
-        }
-        let mut host = leaf(source, prefixes)?;
-        host.routes = RouteTable::new(entries);
-        host.fallback = Some(fallback);
-        return Ok(host);
-    }
     let routes: RouteTable<Value> = match routes {
         None => RouteTable::default(),
         Some(value) => {
@@ -141,7 +223,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     if let Some(value) = routes.find("/") {
         let root = value.as_mapping().ok_or("route '/' must be a mapping")?;
         for (name, value) in root {
-            if ["rules", "acl", "path", "statics"]
+            if ["rules", "directory", "statics"]
                 .iter()
                 .any(|field| name == &key(field))
             {
@@ -167,7 +249,6 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
             "upstream",
             "broadcast",
             "pusher",
-            "static",
         ];
         if owner_names
             .iter()
@@ -187,37 +268,17 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
             .unwrap_or_else(|| Value::String(".".into())),
     )
     .map_err(|error| error.to_string())?;
+    let root_mapping = file_mapping(&host_root, &root, &routes)?;
+    mount(&root, &mut source, &root_mapping)?;
+    mount(&root, &mut fallback, &root_mapping)?;
     for (prefix, value) in routes.iter() {
         let mut route = value
             .as_mapping()
             .cloned()
             .ok_or_else(|| format!("route '{prefix}' must be a mapping"))?;
+        validate_scope(prefix, &route)?;
         let mapping = file_mapping(&host_root, prefix, &routes)?;
-        route.remove(key("path"));
-        let route_acl = route
-            .remove(key("acl"))
-            .map(serde_yaml::from_value::<super::acl::AccessLimiter>)
-            .transpose()
-            .map_err(|error| format!("route '{prefix}' ACL: {error}"))?;
-        #[cfg(feature = "rate-limit")]
-        let route_rate_limit = route
-            .remove(key("rate_limit"))
-            .map(serde_yaml::from_value::<super::quota::RateLimitConfig>)
-            .transpose()
-            .map_err(|error| format!("route '{prefix}' rate_limit: {error}"))?;
-        #[cfg(feature = "rate-limit")]
-        if let Some(definition) = &route_rate_limit {
-            definition.validate()?;
-        }
-        if route_acl.is_some()
-            && (prefix.contains(['%', '?', '#', '\\'])
-                || prefix.contains("//")
-                || prefix
-                    .split('/')
-                    .any(|segment| matches!(segment, "." | "..")))
-        {
-            return Err(format!("ambiguous ACL route prefix '{prefix}'"));
-        }
+        route.remove(key("directory"));
         let conditions = match route.remove(key("rules")) {
             Some(Value::Mapping(map)) => map,
             None => Mapping::new(),
@@ -250,25 +311,6 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
                 route.insert(key(name), value.clone());
             }
         }
-        // Compile one effective policy, never stack host and route copies.
-        // A declaration on `/` covers descendants too; the closest explicit
-        // declaration wins naturally when a child supplies its own policy.
-        for name in ["cors", "headers"] {
-            if !route.contains_key(key(name)) {
-                let inherited = routes
-                    .iter()
-                    .find_map(|(ancestor, value)| {
-                        ancestor
-                            .has_path_segment(prefix.as_str())
-                            .then(|| value.as_mapping()?.get(key(name)))
-                            .flatten()
-                    })
-                    .or_else(|| source.get(key(name)));
-                if let Some(value) = inherited {
-                    route.insert(key(name), value.clone());
-                }
-            }
-        }
         route.entry(key("root")).or_insert_with(|| Value::String(".".into()));
         let selected_static = route.contains_key(key("static"));
         mount(prefix, &mut route, &mapping)?;
@@ -280,7 +322,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
                 source.insert(key("statics"), mounts.clone());
             }
         }
-        // Explicit `/` is the same root owner as the flat compatibility view,
+        // Explicit `/` and flat declarations name the same root scope,
         // not a new files pipeline that discards flat mounts and SPA settings.
         let mut config = if prefix.as_str() == "/" {
             leaf(source.clone(), Vec::new())?
@@ -291,11 +333,6 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
         config.owns_handler = owns_handler
             || (prefix.as_str() == "/" && has_application(&source));
         config.files.mapping = Some(mapping);
-        config.route_acl = route_acl;
-        #[cfg(feature = "rate-limit")]
-        {
-            config.route_rate_limit = route_rate_limit;
-        }
         entries.push((prefix.clone(), Arc::new(config)));
         entry_rules.push(prefix.clone());
     }
@@ -396,7 +433,6 @@ fn is_application_directive(name: &str) -> bool {
             | "upstream"
             | "broadcast"
             | "pusher"
-            | "static"
     )
 }
 
@@ -405,14 +441,20 @@ fn is_builtin_directive(name: &str) -> bool {
         || matches!(
             name,
             "root"
-                | "path"
+                | "static"
+                | "directory"
                 | "index"
                 | "try_files"
                 | "spa"
                 | "statics"
                 | "cors"
                 | "headers"
+                | "acl"
                 | "rate_limit"
+                | "redirect"
+                | "access_log"
+                | "requests"
+                | "responses"
         )
 }
 
@@ -459,9 +501,6 @@ fn leaf(
         fallback: None,
         extensions,
         owns_handler: false,
-        route_acl: None,
-        #[cfg(feature = "rate-limit")]
-        route_rate_limit: None,
     })
 }
 
@@ -488,6 +527,26 @@ fn validate(
     Ok((extensions, owners != 0))
 }
 
+/// URL scope is owned by the routes key, never an individual feature.
+fn validate_scope(prefix: &PathPrefix, scope: &Mapping) -> Result<(), String> {
+    if scope.contains_key(key("path")) {
+        return Err(format!("route '{prefix}' uses its key as the URL prefix; use directory for a disk mapping"));
+    }
+    for name in ["php", "lua", "orbit", "redirect"] {
+        let Some(value) = scope.get(key(name)) else { continue; };
+        let entries = match value {
+            Value::Sequence(entries) => entries.as_slice(),
+            _ => std::slice::from_ref(value),
+        };
+        for entry in entries {
+            if entry.as_mapping().is_some_and(|map| map.contains_key(key("path"))) {
+                return Err(format!("'{name}.path' is not supported; declare its scope under routes"));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn mount(
     prefix: &PathPrefix,
     route: &mut Mapping,
@@ -497,19 +556,6 @@ fn mount(
         Some(source) => statics::compile(prefix, mapping, source)?,
         None => Vec::new(),
     };
-    for name in ["php", "lua", "orbit"] {
-        if let Some(config) = route.get_mut(key(name)) {
-            let map = config.as_mapping_mut().ok_or_else(|| {
-                format!("route '{prefix}' requires one '{name}' configuration")
-            })?;
-            if map.contains_key(key("path")) {
-                return Err(format!(
-                    "route '{prefix}' owns its path; remove '{name}.path'"
-                ));
-            }
-            map.insert(key("path"), Value::String(prefix.as_str().into()));
-        }
-    }
     if let Some(mut config) = route.remove(key("static")) {
         let map = config.as_mapping_mut().ok_or_else(|| {
             format!("route '{prefix}' static must be a mapping")
@@ -521,12 +567,12 @@ fn mount(
         }
         if map.contains_key(key("root")) {
             return Err(format!(
-                "route '{prefix}' static cannot declare root; use the route path"
+                "route '{prefix}' static cannot declare root; use route.directory"
             ));
         }
         if map.contains_key(key("dir")) {
             return Err(format!(
-                "route '{prefix}' static.dir is replaced by route.path"
+                "route '{prefix}' static.dir is replaced by route.directory"
             ));
         }
         map.insert(key("path"), Value::String(prefix.as_str().into()));
@@ -573,17 +619,17 @@ fn file_mapping(
             .then(|| {
                 value
                     .as_mapping()?
-                    .get(key("path"))
+                    .get(key("directory"))
                     .map(|path| (ancestor, path))
             })
             .flatten()
     }) {
         Some((ancestor, value)) => {
             let path: PathBuf = serde_yaml::from_value(value.clone())
-                .map_err(|error| format!("route '{ancestor}' path: {error}"))?;
+                .map_err(|error| format!("route '{ancestor}' directory: {error}"))?;
             if path.as_os_str().is_empty() {
                 return Err(format!(
-                    "route '{ancestor}' path must not be empty"
+                    "route '{ancestor}' directory must not be empty"
                 ));
             }
             let suffix = prefix
@@ -604,7 +650,7 @@ fn directory_suffix<'a>(
     let suffix = suffix.trim_start_matches('/');
     if suffix.split('/').any(|segment| matches!(segment, "." | "..")) {
         return Err(format!(
-            "route '{prefix}' cannot derive a directory from dot segments; declare path explicitly"
+            "route '{prefix}' cannot derive a directory from dot segments; declare directory explicitly"
         ));
     }
     Ok(suffix)

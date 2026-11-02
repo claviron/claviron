@@ -26,10 +26,10 @@ pub(crate) fn append_routes(
     };
     let h2_connect = state.registry_ref().resolve::<crate::H2ConnectRegistry>();
 
-    for application in host.lua_routes() {
+    for (prefix, application) in host.lua_routes() {
         for websocket in application.websockets() {
             let path = mounted_websocket_path(
-                application.path.as_ref(),
+                prefix,
                 &websocket.path,
             );
             let handler = Arc::new(WebSocketUpgrade {

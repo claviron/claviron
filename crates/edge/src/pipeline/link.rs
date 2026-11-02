@@ -65,6 +65,8 @@ impl LinkBackend {
     pub fn new(
         state: &AppState,
         routes: &[claviron_http::config::routes::OrbitRouteConfig],
+        prefix: Option<&PathPrefix>,
+        requests: RequestPolicyOverride,
     ) -> Option<Self> {
         if routes.is_empty() {
             return None;
@@ -72,13 +74,13 @@ impl LinkBackend {
         let mut routes: Vec<_> = routes
             .iter()
             .map(|route| LinkRoute {
-                path: route.path.clone(),
+                path: prefix.cloned(),
                 target: prepare_target(
                     state,
                     route.fleet_name,
                     route.application.clone().into(),
                 ),
-                requests: route.requests,
+                requests,
                 shutdown: state.shutdown_token(),
             })
             .collect();

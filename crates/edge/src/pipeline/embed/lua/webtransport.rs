@@ -32,10 +32,10 @@ pub(crate) fn append_routes(
         .registry_ref()
         .resolve::<WebTransportRegistry>()
         .ok_or_else(|| Error::msg("Lua requires the WebTransport registry"))?;
-    for route in config.lua_routes() {
+    for (prefix, route) in config.lua_routes() {
         for socket in route.websockets() {
             let path = super::mounted_websocket_path(
-                route.path.as_ref(),
+                prefix,
                 &socket.path,
             );
             registry.bind_handler(

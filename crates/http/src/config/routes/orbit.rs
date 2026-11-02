@@ -1,4 +1,3 @@
-use crate::ext::PathPrefix;
 use serde::Deserialize;
 
 /// One route reaching an application process over Orbit shared memory.
@@ -13,8 +12,6 @@ use serde::Deserialize;
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OrbitRouteConfig {
-    /// Optional segment-safe request prefix. Omission claims the whole host.
-    pub path: Option<PathPrefix>,
     /// The destination namespace, not this edge's own process-family fleet.
     /// Must match the runner's `fleet_name`.
     #[serde(alias = "fleet", deserialize_with = "deserialize_fleet_name")]
@@ -22,10 +19,7 @@ pub struct OrbitRouteConfig {
     /// The name the application process advertises in its lane.
     #[serde(deserialize_with = "deserialize_orbit_application_name")]
     pub application: String,
-    /// This application's request policy, narrowing its host's and its
-    /// listener's (`docs/REVIEW.md` §3e).
-    #[serde(default)]
-    pub requests: crate::policy::RequestPolicyOverride,
+
 }
 
 #[cfg(test)]

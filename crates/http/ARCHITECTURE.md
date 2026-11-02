@@ -922,9 +922,8 @@ pub struct AccessLimiter {
 
 Only `allow`/`deny` and `allowed`/`denied` are accepted; legacy aliases and
 unknown fields are rejected during deserialization. `AccessLimiter` remains
-the reusable IP rule primitive; host-specific prefix maps are declared by
-`claviron-edge-config::acl::AclConfig` and compiled/enforced by vhosts outside
-Axum. `acl.rs` is available without any feature. The old `AclLayer`,
+the reusable IP rule primitive. Edge declares it once per RouteConfig scope;
+URL prefixes come from the common host route table. `acl.rs` is available without any feature. The old `AclLayer`,
 `AclMiddleware` and `RouterAclExt` are removed: host admission is the single
 enforcement boundary, before routing and bypass dispatch.
 

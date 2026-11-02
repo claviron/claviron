@@ -123,8 +123,8 @@ pub(crate) fn prepare(
         ),
     };
     let fallback = config.fallback().cloned().unwrap_or_else(|| config.clone());
-    let base = BackendPlan::prepare(state, host, &fallback);
     let root = claviron_http::ext::PathPrefix::root();
+    let base = BackendPlan::prepare(&RouteContext { state, host, config: config.as_ref(), route: fallback.as_ref(), prefix: &root });
     let layers = match &compiler.registry {
         Some(registry) => registry.resolve_host_layers(&RouteContext {
             state,
@@ -167,7 +167,7 @@ pub(crate) fn prepare(
                         ));
                     }
                 };
-                let plan = BackendPlan::prepare(state, host, route);
+                let plan = BackendPlan::prepare(&RouteContext { state, host, config: config.as_ref(), route, prefix });
                 let owner = compiler.scope(
                     route.clone(),
                     plan,

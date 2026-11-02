@@ -62,7 +62,7 @@ Bind, accept and connection tasks stay on the selected executor. Execution
 changes apply to the next instance start/restart, never an active connection.
 
 Relative disk paths remain process-working-directory relative. Prefix mappings
-inherit the nearest declared `path`; URL-derived dot segments are rejected.
+inherit the nearest declared `directory`; URL-derived dot segments are rejected.
 Policy-only children retain applicable static mounts and mount-relative rules
 unless they remap directories. Backend owners and TryFiles are not inherited.
 
@@ -102,9 +102,9 @@ owns native framing and buffered/streamed body bounds during this transition.
 
 ### `config/`
 
-- [`routing.rs`](src/config/routing.rs) — Normalize flat/root/prefix declarations, ownership, inheritance and disk mappings.
+- [`routing.rs`](src/config/routing.rs) — One RouteConfig schema for root/prefix declarations; `directory` selects disk mapping. Scope settings retain one declaration owner.
 - [`routing/statics.rs`](src/config/routing/statics.rs) — Compile directory groups into static mounts with derived URL prefixes.
-- [`quota.rs`](src/config/quota.rs) — Validate IP limiter declarations without opening quota stores.
+- [`quota.rs`](src/config/quota.rs) — Validate the same rate-limit declaration at every scope without opening stores.
 
 ### `loader/`
 
@@ -131,7 +131,7 @@ owns native framing and buffered/streamed body bounds during this transition.
 - [`pipeline.rs`](src/pipeline.rs) — Public native composition contracts and optional adapter exports.
 - [`apps.rs`](src/pipeline/apps.rs) — Retained factories, directives and per-host application snapshot preparation/reuse.
 - [`routable.rs`](src/pipeline/routable.rs) — Provider-owned contributions, native layers and exclusive host bindings.
-- [`extention`](src/pipeline/extension.rs) — Typed directive codecs, conditions, handlers and cold layer compilation.
+- [`extension.rs`](src/pipeline/extension.rs) — Typed directives and boot-time RouteContext; borrow inherited settings and prepare effective policy.
 - [`routing.rs`](src/pipeline/routing.rs) — Shared prefix dispatch and route-extension re-exports.
 - [`app.rs`](src/pipeline/app.rs) — Optional Axum ApplicationHandler/HostHandler adapter and HostConfigExt extractor.
 - [`connect.rs`](src/pipeline/connect.rs) — H2 CONNECT registry, explicit binding execution, authentication payload and session context.
@@ -160,7 +160,7 @@ Empty contributions keep the direct Rust owner; disabled file steps allocate no 
 - [`proxy.rs`](src/pipeline/host/proxy.rs) — Trusted-peer forwarding layer; only request RealIpExt changes.
 - [`acl.rs`](src/pipeline/host/acl.rs) — Explicit ACL layer; borrow accepted identity or a selected forwarding result.
 - [`acl/path.rs`](src/pipeline/host/acl/path.rs) — Compiled segment ACLs and unambiguous comparison paths.
-- [`redirect.rs`](src/pipeline/host/redirect.rs) — Explicit configured/HTTPS redirect layers and prepared Location values.
+- [`redirect.rs`](src/pipeline/host/redirect.rs) — Scoped redirects and prepared Location values; URL selection belongs to the common route table.
 - [`quota.rs`](src/pipeline/host/quota.rs) — Rate-admission layer for typed or native replies and its committed snapshot.
 - [`quota/prepare.rs`](src/pipeline/host/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
 - [`cors.rs`](src/pipeline/host/cors.rs) — Explicit CORS layer, boot-compiled origin matcher and request-owned accepted origin.

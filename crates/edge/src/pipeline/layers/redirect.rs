@@ -1,13 +1,11 @@
-//! Explicit prefix redirects; templates are parsed only during preparation.
+//! Redirects for the selected scope; templates are parsed during preparation.
 
-use claviron_http::ext::PathPrefix;
 use http::{HeaderValue, StatusCode, Uri};
 use crate::config::RedirectConfig;
 use crate::service::{HostResponse, RequestRejection};
 use super::*;
 
 pub struct RedirectLayer {
-    path: PathPrefix,
     status: StatusCode,
     target: Target,
 }
@@ -15,7 +13,6 @@ pub struct RedirectLayer {
 impl RedirectLayer {
     pub fn new(config: &RedirectConfig) -> Self {
         Self {
-            path: config.path.clone(),
             status: config.code.status(),
             target: Target::compile(config.to.as_str()),
         }
@@ -98,9 +95,6 @@ impl Target {
 impl<S, R: From<HostResponse>> HostLayer<S, R> for RedirectLayer {
     fn prepare(self, layer: &mut HostLayerBuilder<S, R>) -> crate::Result<()> {
         layer.before(move |head, _| {
-            if !self.path.has_path_segment(head.uri.path()) {
-                return ControlFlow::Continue(());
-            }
             let reply = match self.target.render(&head.uri) {
                 Ok(location) => HostResponse::Redirect { status: self.status, location },
                 Err(_) => RequestRejection::InvalidRedirect.into(),

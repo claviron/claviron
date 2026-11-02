@@ -198,18 +198,11 @@ impl QuotaRegistrations {
 }
 
 fn declarations(config: &HostConfig) -> Vec<(PathPrefix, RateLimitConfig)> {
-    let mut definitions = Vec::new();
-    if let Some(definition) = &config.rate_limit {
-        definitions.push((PathPrefix::root(), definition.clone()));
-    }
-    for (prefix, route) in config.routes.iter() {
-        if prefix.as_str() != "/"
-            && let Some(definition) = &route.route_rate_limit
-        {
-            definitions.push((prefix.clone(), definition.clone()));
-        }
-    }
-    definitions
+    config.scopes().filter_map(|(prefix, scope)| {
+        scope.rate_limit.as_ref().map(|definition| (
+            prefix.cloned().unwrap_or_else(PathPrefix::root), definition.clone(),
+        ))
+    }).collect()
 }
 
 fn validate_prefix(prefix: &PathPrefix) -> Result<()> {

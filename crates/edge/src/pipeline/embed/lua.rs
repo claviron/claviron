@@ -44,6 +44,8 @@ impl LuaBackend {
     pub fn new(
         service: Option<Arc<LuaApplications>>,
         routes: &[LuaRouteConfig],
+        prefix: Option<&PathPrefix>,
+        policy: HttpPolicyOverride,
     ) -> Option<Self> {
         if routes.is_empty() {
             return None;
@@ -51,14 +53,11 @@ impl LuaBackend {
         let mut mounts: Vec<_> = routes
             .iter()
             .map(|route| Mount {
-                path: route.path.clone(),
+                path: prefix.cloned(),
                 adapter: LuaApplicationAdapter::new(
                     service.clone(),
                     route.application.as_str(),
-                    HttpPolicyOverride {
-                        requests: route.requests,
-                        responses: route.responses,
-                    },
+                    policy,
                 ),
             })
             .collect();
@@ -124,7 +123,7 @@ fn configured_route<'a>(
     selected.lua().iter().find(|route| {
         route.application == application
             && route.websockets().iter().any(|socket| {
-                mounted_websocket_path(route.path.as_ref(), &socket.path)
+                mounted_websocket_path(selected.files.mapping.as_ref().map(|mapping| mapping.prefix()), &socket.path)
                     .as_ref() == path
             })
     })

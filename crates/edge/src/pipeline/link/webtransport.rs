@@ -41,16 +41,11 @@ pub(in crate::pipeline) fn bind(
     if state.registry_ref().resolve::<TransportService>().is_none() {
         return Err(registry::Error::msg("Orbit transport is not registered"));
     }
-    let routes = config
-        .orbit()
-        .iter()
-        .chain(config.routes.iter().flat_map(|(_, route)| route.orbit()))
-        .map(|route| PreparedRoute {
+    let routes = config.link_routes()
+        .map(|(_, route)| PreparedRoute {
             route: route.clone(),
             target: super::prepare_target(
-                state,
-                route.fleet_name,
-                route.application.clone().into(),
+                state, route.fleet_name, route.application.clone().into(),
             ),
         })
         .collect();
@@ -63,18 +58,7 @@ fn route<'a>(
     path: &str,
 ) -> Option<&'a OrbitRouteConfig> {
     let selected = host.routes.find(path).map(|route| &**route).unwrap_or(host);
-    selected
-        .orbit()
-        .iter()
-        .filter(|route| {
-            route
-                .path
-                .as_ref()
-                .is_none_or(|prefix| prefix.has_path_segment(path))
-        })
-        .max_by_key(|route| {
-            route.path.as_ref().map_or(0, |prefix| prefix.as_str().len())
-        })
+    selected.orbit().last()
 }
 
 struct Handler {

@@ -56,9 +56,6 @@ pub struct HostConfig {
     pub(crate) extensions:
         std::collections::BTreeMap<String, serde_yaml::Value>,
     pub(crate) owns_handler: bool,
-    pub(crate) route_acl: Option<acl::AccessLimiter>,
-    #[cfg(feature = "rate-limit")]
-    pub(crate) route_rate_limit: Option<quota::RateLimitConfig>,
 }
 
 impl Deref for HostConfig {
@@ -83,7 +80,7 @@ pub use transport::{H1Policy, H2Policy, NonSslPolicy, TransportPolicy};
 /// retain strict parsing. Directive resolution validates names at boot.
 #[derive(Deserialize)]
 pub struct HostFields {
-    /// Flat declarations are the compatibility view of the implicit root route.
+    /// Request/file declarations shared by the root and every route scope.
     #[serde(flatten)]
     pub routing: RouteConfig,
     /// Missing = all listeners; an explicit empty list exposes this host nowhere.
@@ -91,20 +88,6 @@ pub struct HostFields {
     pub listeners: Option<Vec<claviron_http::ListenerId>>,
     #[serde(default, alias = "names", alias = "name", alias = "alias")]
     aliases: Aliases,
-    /// Where this host's access records go: a channel `logging.yaml`
-    /// declares, or `off` for none. Unwritten, `logging.yaml`'s own
-    /// `access_log`. Several hosts may name one channel; each record carries
-    /// its host.
-    #[serde(default)]
-    access_log: Option<String>,
-    #[serde(default, deserialize_with = "opt_one_or_many")]
-    pub redirect: Option<Vec<RedirectConfig>>,
-    /// Opt-in segment-prefix ACL. `/` is the default; longest match wins.
-    /// Runtime compilation and live admission belong to claviron-edge.
-    acl: Option<acl::AclConfig>,
-    /// Bounded IP admission before native sessions, routing and Other dispatch.
-    #[cfg(feature = "rate-limit")]
-    pub rate_limit: Option<quota::RateLimitConfig>,
     /// TLS handshake policy, separate from HTTP transport/request policy.
     #[serde(default)]
     pub tls: HandshakePolicy,
@@ -112,25 +95,6 @@ pub struct HostFields {
     /// config key is accepted only as a deprecated deserialize alias.
     #[serde(default, alias = "https")]
     pub transport: TransportPolicy,
-    /// This host's request policy, under its listener's: a limit or a time
-    /// written here can only narrow the listener's (`RequestPolicy::narrow`),
-    /// and a host that needs more belongs on another listener. Unwritten
-    /// fields leave the listener's as they are.
-    ///
-    /// Separate from `transport:` because that block is admission policy —
-    /// which protocols, which handshakes — and this is how a request is
-    /// accepted and run.
-    #[serde(default)]
-    pub requests: RequestPolicyOverride,
-    /// This host's reply policy, under its listener's, narrowing the same
-    /// way (`ResponsePolicy::narrow`).
-    #[serde(default)]
-    pub responses: ResponsePolicyOverride,
-    /// Edge HTTP policy, outside the application routing boundary. Flat
-    /// declarations cover `/`; scoped declarations are compiled at boot.
-    pub cors: Option<CorsConfig>,
-    #[serde(default)]
-    pub headers: HostHeadersConfig,
     /// Provider-defined root directives, decoded only during route preparation.
     #[serde(flatten)]
     pub(super) directives:
@@ -185,6 +149,15 @@ impl HostConfig {
                         spa: None,
                         statics: None,
                     },
+                    access_log: None,
+                    redirect: None,
+                    acl: None,
+                    #[cfg(feature = "rate-limit")]
+                    rate_limit: None,
+                    requests: RequestPolicyOverride::default(),
+                    responses: ResponsePolicyOverride::default(),
+                    cors: None,
+                    headers: None,
                     #[cfg(feature = "php")]
                     php: None,
                     #[cfg(feature = "lua")]
@@ -197,17 +170,8 @@ impl HostConfig {
                 },
                 listeners: None,
                 aliases: Aliases::default(),
-                access_log: None,
-                redirect: None,
-                acl: None,
-                #[cfg(feature = "rate-limit")]
-                rate_limit: None,
                 tls: HandshakePolicy::default(),
                 transport: TransportPolicy::default(),
-                requests: RequestPolicyOverride::default(),
-                responses: ResponsePolicyOverride::default(),
-                cors: None,
-                headers: HostHeadersConfig::default(),
                 directives: Default::default(),
             },
             routes: RouteTable::default(),
@@ -215,9 +179,6 @@ impl HostConfig {
             fallback: None,
             extensions: Default::default(),
             owns_handler: false,
-            route_acl: None,
-            #[cfg(feature = "rate-limit")]
-            route_rate_limit: None,
         }
     }
 
@@ -235,13 +196,6 @@ impl HostConfig {
 
     pub(crate) fn fallback(&self) -> Option<&Arc<HostConfig>> {
         self.fallback.as_ref()
-    }
-    /// Both of this host's policy blocks, for narrowing its listener's.
-    pub fn policy(&self) -> HttpPolicyOverride {
-        HttpPolicyOverride {
-            requests: self.requests,
-            responses: self.responses,
-        }
     }
 
     pub fn allows_listener(
@@ -261,89 +215,44 @@ impl HostConfig {
             && self.transport.allows_protocol(protocol)
     }
 
-    pub fn indexes(&self) -> &[String] {
-        &self.index
-    }
-
-    pub fn is_indexed(&self) -> bool {
-        !self.index.is_empty()
-    }
-
-    pub fn has_static_index(&self) -> bool {
-        self.is_indexed()
-            && self.indexes().iter().any(|idx| !is_dynamic_file(idx))
-    }
-
-    /// Mounts compiled from route declarations for direct file consumers.
-    pub fn statics(&self) -> Option<&[StaticConfig]> {
-        self.statics.as_deref()
-    }
-
-    /// The document root as a path on disk.
-    ///
-    /// A relative root is relative to the working directory the server was
-    /// started in — the application's own directory — not to the file that
-    /// declared it. Includes are the other way round: an include names
-    /// configuration, so it is found beside the file that names it.
-    pub fn root(&self) -> PathBuf {
-        let p = self.root.as_path();
-        if p.is_absolute() {
-            return p.to_path_buf();
-        }
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(p)
-    }
-
-    #[cfg(feature = "broadcast")]
-    pub fn broadcast_cfg(&self) -> Option<Arc<PusherConfig>> {
-        self.broadcast.clone()
-    }
-
-    /// This host's `access_log`, as written.
-    pub fn access_log(&self) -> Option<&str> {
-        self.access_log.as_deref()
-    }
-
-    #[cfg(feature = "php")]
-    pub fn php(&self) -> &[PhpConfig] {
-        self.php.as_deref().unwrap_or(&[])
-    }
-
-    #[cfg(feature = "lua")]
-    pub fn lua(&self) -> &[LuaRouteConfig] {
-        self.lua.as_deref().unwrap_or(&[])
-    }
-
-    #[cfg(all(feature = "lua", any(feature = "websocket", feature = "webtransport")))]
-    pub(crate) fn lua_routes(&self) -> impl Iterator<Item = &LuaRouteConfig> {
-        self.lua().iter().chain(
+    /// One declaration view: flat fields are the root; explicit children keep
+    /// their route-table prefix. An explicit `/` is already merged into self.
+    pub fn scopes(&self) -> impl Iterator<Item = (Option<&PathPrefix>, &HostConfig)> {
+        std::iter::once((None, self)).chain(
             self.routes.iter().filter(|(prefix, _)| prefix.as_str() != "/")
-                .flat_map(|(_, route)| route.lua().iter()),
+                .map(|(prefix, route)| (Some(prefix), route.as_ref())),
         )
     }
 
-    #[cfg(feature = "orbit")]
-    pub fn orbit(&self) -> &[OrbitRouteConfig] {
-        self.orbit.as_deref().unwrap_or(&[])
+    /// Boot/reload lookup over declared ancestors; values retain one owner.
+    pub fn setting_at<'a, T: ?Sized>(
+        &'a self,
+        prefix: &PathPrefix,
+        setting: impl Fn(&'a RouteConfig) -> Option<&'a T>,
+    ) -> Option<&'a T> {
+        self.routes.iter()
+            .filter(|(ancestor, _)| ancestor.has_path_segment(prefix.as_str()))
+            .find_map(|(_, scope)| setting(&scope.fields.routing))
+            .or_else(|| setting(&self.fields.routing))
+    }
+
+    #[cfg(all(feature = "lua", any(feature = "websocket", feature = "webtransport")))]
+    pub(crate) fn lua_routes(&self) -> impl Iterator<Item = (Option<&PathPrefix>, &LuaRouteConfig)> {
+        self.scopes().flat_map(|(prefix, scope)| {
+            scope.lua().iter().map(move |route| (prefix, route))
+        })
     }
 
     /// Every Link destination needed by host-level lifecycle coordination.
     #[cfg(feature = "orbit")]
-    pub(crate) fn link_routes(&self) -> impl Iterator<Item = &OrbitRouteConfig> {
-        self.orbit().iter().chain(
-            self.routes.iter().flat_map(|(_, route)| route.orbit().iter()),
-        )
-    }
-
-    pub fn acl(&self) -> Option<&acl::AclConfig> {
-        self.acl.as_ref()
+    pub(crate) fn link_routes(&self) -> impl Iterator<Item = (Option<&PathPrefix>, &OrbitRouteConfig)> {
+        self.scopes().flat_map(|(prefix, scope)| {
+            scope.orbit().iter().map(move |route| (prefix, route))
+        })
     }
 
     pub fn aliases(&self) -> &Aliases {
         &self.aliases
-    }
-
-    pub fn upstream_name(&self) -> Option<&str> {
-        self.upstream.as_ref().map(HostUpstreamConfig::name)
     }
 
     /// Effective per-host transport policy (falls back to defaults if not configured).
@@ -356,20 +265,13 @@ impl HostConfig {
         self.tls.clone()
     }
 
-    /// Effective `Server:` header value for this vhost. Returns the
-    /// per-host override when configured, otherwise [`DEFAULT_SERVER_HEADER`].
-    /// Always returns a value — the response layer never has to fabricate
-    /// a fallback.
-    pub fn server_name(&self) -> &str {
-        self.headers.server.as_deref().unwrap_or(DEFAULT_SERVER_HEADER)
-    }
 }
 
 /// The file service reads a host through this view; it does not know hosts.
 impl claviron_files::FileSite for HostConfig {
     fn root(&self) -> PathBuf {
         self.files.mapping.as_ref().map_or_else(
-            || HostConfig::root(self),
+            || self.routing.root(),
             |mapping| mapping.directory().to_path_buf(),
         )
     }
@@ -385,7 +287,7 @@ impl claviron_files::FileSite for HostConfig {
             .map(|route| route.as_ref() as &dyn claviron_files::FileSite)
     }
     fn indexes(&self) -> &[String] {
-        HostConfig::indexes(self)
+        self.routing.indexes()
     }
     fn try_files(&self) -> bool {
         self.try_files
@@ -397,10 +299,10 @@ impl claviron_files::FileSite for HostConfig {
         self.spa.as_ref()
     }
     fn statics(&self) -> Option<&[StaticConfig]> {
-        HostConfig::statics(self)
+        self.routing.statics()
     }
     fn has_static_index(&self) -> bool {
-        HostConfig::has_static_index(self)
+        self.routing.has_static_index()
     }
 }
 
