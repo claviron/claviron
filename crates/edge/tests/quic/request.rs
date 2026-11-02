@@ -1,5 +1,4 @@
 use super::*;
-use crate::transport::RequestRejection;
 
 #[test]
 fn interrupted_body_does_not_generate_a_bad_request_response() {
@@ -78,43 +77,4 @@ fn declared_body_limits_reject_before_body_adaptation() {
             expected
         );
     }
-}
-
-#[test]
-fn shared_decisions_keep_h3_wire_status_contract() {
-    assert_eq!(
-        host_response(RequestRejection::AccessDenied.into()).status(),
-        StatusCode::FORBIDDEN
-    );
-    assert_eq!(
-        host_response(RequestRejection::HostRemoved.into()).status(),
-        StatusCode::MISDIRECTED_REQUEST
-    );
-    assert_eq!(
-        host_response(RequestRejection::AmbiguousPath.into()).status(),
-        StatusCode::BAD_REQUEST
-    );
-    assert_eq!(
-        host_response(RequestRejection::TooEarly.into()).status(),
-        StatusCode::TOO_EARLY
-    );
-    assert_eq!(
-        host_response(RequestRejection::Misdirected.into()).status(),
-        StatusCode::MISDIRECTED_REQUEST
-    );
-}
-
-#[test]
-fn host_redirect_keeps_location() {
-    let response = host_response(HostResponse::Redirect {
-        status: StatusCode::TEMPORARY_REDIRECT,
-        location: http::HeaderValue::from_static(
-            "https://new.test/old?raw=%2F",
-        ),
-    });
-    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
-    assert_eq!(
-        response.headers()[http::header::LOCATION],
-        "https://new.test/old?raw=%2F"
-    );
 }

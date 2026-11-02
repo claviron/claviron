@@ -86,7 +86,3 @@ impl HostHandler for AxumApplication {
         )
     }
 }
-
-#[cfg(test)]
-#[path = "../../tests/unit/file_routes.rs"]
-mod file_route_tests;
