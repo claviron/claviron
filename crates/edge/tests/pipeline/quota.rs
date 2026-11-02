@@ -1,7 +1,7 @@
-//! Exercise the public Rust binding API without booting providers or a runtime.
+//! Exercise the public Rust binding API without booting providers or an executor.
 
 use super::*;
-use claviron_http::ext::{PathPrefix, RealIpExt};
+use claviron_http::ext::PathPrefix;
 use claviron_http::rate_limit::{IpKey, RateLimiter};
 use claviron_orbit::quota::{Quota, QuotaBacking, QuotaConfig, QuotaTable};
 use std::num::{NonZeroU64, NonZeroUsize};
@@ -46,38 +46,24 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
         "example.test:\n  root: public\n  aliases: [alias.example.test]\n",
     )
     .unwrap();
-    let host = "example.test".parse().unwrap();
-    let quotas = {
-        let mut bindings = registry.quotas.write().unwrap();
-        bindings.seal("runtime", &table).unwrap();
-        bindings
-            .prepare(
-                false,
-                &host,
-                &table.canonical_config(&host).unwrap(),
-                None,
-            )
-            .unwrap()
+    let state = AppState::standalone("quota-composition", ".");
+    registry.register_other("example.test", |_, _, _| Ok(OtherService::Noop));
+    let snapshot = registry.build_table(&state, &table, None).unwrap();
+    let connection = claviron_http::ext::ConnCtx {
+        state: Default::default(), listener: "public".parse().unwrap(),
+        proto: Some(claviron_http::listener::HttpProtocol::H1),
+        remote: "192.0.2.1:1234".parse().unwrap(), local_ip: "127.0.0.1".parse().unwrap(),
+        local_port: 8080, real_ip: None, country_code: None, tls: None,
     };
-    let mut app: HostApp = RustRouter::Other(OtherService::Noop).into();
-    app.quotas = quotas;
-    let mut snapshot = HostAppSnapshot::default();
-    for key in table.host_keys_for_canonical(&host) {
-        snapshot.insert(key, app.clone()).unwrap();
-    }
-    let canonical = snapshot.resolve(&host).unwrap().quotas.unwrap();
-    let alias = snapshot
-        .resolve(&"alias.example.test".parse().unwrap())
-        .unwrap()
-        .quotas
-        .unwrap();
-    assert!(Arc::ptr_eq(&canonical, &alias));
-    let mut request = http::Request::new(());
-    request.extensions_mut().insert(RealIpExt("192.0.2.1".parse().unwrap()));
-    let (mut head, ()) = request.into_parts();
-    assert!(canonical.check(&mut head).is_ok());
-    assert_eq!(
-        alias.check(&mut head).unwrap_err().into_response().status(),
-        http::StatusCode::TOO_MANY_REQUESTS
-    );
+    let context = Some(crate::pipeline::host::HostContext { connection: &connection, arrival: crate::service::RequestArrival::Established });
+    let run = |snapshot: &HostAppSnapshot, key: &str| {
+        use futures_util::FutureExt;
+        let RustRouter::Other(owner) = snapshot.resolve(&key.parse().unwrap()).unwrap() else { panic!("compiled native plan expected"); };
+        owner.handle_in(http::Request::new(claviron_http::empty_body()), context)
+            .now_or_never().expect("ready fixture").unwrap().status()
+    };
+    assert_eq!(run(&snapshot, "example.test"), http::StatusCode::OK);
+    assert_eq!(run(&snapshot, "alias.example.test"), http::StatusCode::TOO_MANY_REQUESTS);
+    let reloaded = registry.build_table(&state, &table, Some(&snapshot)).unwrap();
+    assert_eq!(run(&reloaded, "example.test"), http::StatusCode::TOO_MANY_REQUESTS);
 }

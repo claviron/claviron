@@ -44,6 +44,10 @@ fn request(
     request.into_parts().0
 }
 
+fn check(quotas: &HostQuotas, head: &http::request::Parts) -> std::result::Result<Option<Snapshot>, HostResponse> {
+    super::super::QuotaPolicy::new(quotas).check_scoped(head, None)
+}
+
 fn status(
     result: std::result::Result<Option<Snapshot>, HostResponse>
 ) -> http::StatusCode {
@@ -62,12 +66,12 @@ fn aliases_share_one_prepared_budget_and_other_definitions_are_independent() {
     let alias = first.clone();
     let other = registry.prepare(false, &host, &config, None).unwrap().unwrap();
     let mut request = request("/", "192.0.2.1");
-    assert!(first.check(&mut request).is_ok());
+    assert!(check(&first, &mut request).is_ok());
     assert_eq!(
-        status(alias.check(&mut request)),
+        status(check(&alias, &mut request)),
         http::StatusCode::TOO_MANY_REQUESTS
     );
-    assert!(other.check(&mut request).is_ok());
+    assert!(check(&other, &mut request).is_ok());
 }
 
 #[test]
@@ -83,18 +87,18 @@ fn specific_prefix_selects_one_store_without_charging_its_parent() {
         .prepare(false, &"example.test".parse().unwrap(), &config, None)
         .unwrap()
         .unwrap();
-    assert!(quotas.check(&mut request("/api/x", "192.0.2.1")).is_ok());
-    assert!(quotas.check(&mut request("/apiary", "192.0.2.1")).is_ok());
+    assert!(check(&quotas, &mut request("/api/x", "192.0.2.1")).is_ok());
+    assert!(check(&quotas, &mut request("/apiary", "192.0.2.1")).is_ok());
     assert_eq!(
-        status(quotas.check(&mut request("/%61pi/x", "192.0.2.1"))),
+        status(check(&quotas, &mut request("/%61pi/x", "192.0.2.1"))),
         http::StatusCode::TOO_MANY_REQUESTS
     );
     assert_eq!(
-        status(quotas.check(&mut request("/api%2fx", "192.0.2.2"))),
+        status(check(&quotas, &mut request("/api%2fx", "192.0.2.2"))),
         http::StatusCode::BAD_REQUEST
     );
     assert!(
-        quotas.check(&mut request("/api/x", "192.0.2.2")).is_ok(),
+        check(&quotas, &mut request("/api/x", "192.0.2.2")).is_ok(),
         "ambiguous path did not charge either rule"
     );
 }
@@ -173,9 +177,9 @@ fn rust_registration_and_config_use_the_same_boundary_and_conflicts_fail() {
         .prepare(false, &"example.test".parse().unwrap(), &host, None)
         .unwrap()
         .unwrap();
-    assert!(quotas.check(&mut request("/", "192.0.2.1")).is_ok());
+    assert!(check(&quotas, &mut request("/", "192.0.2.1")).is_ok());
     assert_eq!(
-        status(quotas.check(&mut request("/", "192.0.2.1"))),
+        status(check(&quotas, &mut request("/", "192.0.2.1"))),
         http::StatusCode::TOO_MANY_REQUESTS
     );
 }
@@ -187,12 +191,12 @@ fn unchanged_preparation_keeps_debt_and_changed_limits_require_restart() {
     let mut config = config();
     let first = registry.prepare(false, &host, &config, None).unwrap();
     let quotas = first.as_ref().unwrap();
-    assert!(quotas.check(&mut request("/", "192.0.2.1")).is_ok());
+    assert!(check(&quotas, &mut request("/", "192.0.2.1")).is_ok());
     let next =
         registry.prepare(false, &host, &config, Some(&first)).unwrap().unwrap();
     assert!(Arc::ptr_eq(quotas, &next));
     assert_eq!(
-        status(next.check(&mut request("/", "192.0.2.1"))),
+        status(check(&next, &mut request("/", "192.0.2.1"))),
         http::StatusCode::TOO_MANY_REQUESTS
     );
     config.rate_limit.as_mut().unwrap().quota.burst =
@@ -225,13 +229,13 @@ fn header_opt_in_belongs_to_the_selected_definition_and_defaults_off() {
         .prepare(false, &"example.test".parse().unwrap(), &config, None)
         .unwrap()
         .unwrap();
-    assert_eq!(quotas.check(&mut request("/", "192.0.2.1")).unwrap(), None);
+    assert_eq!(check(&quotas, &mut request("/", "192.0.2.1")).unwrap(), None);
     assert_eq!(
-        quotas.check(&mut request("/api/x", "192.0.2.1")).unwrap(),
+        check(&quotas, &mut request("/api/x", "192.0.2.1")).unwrap(),
         Some(Snapshot { limit: 1, remaining: 0 })
     );
     assert_eq!(
-        status(quotas.check(&mut request("/api/x", "192.0.2.1"))),
+        status(check(&quotas, &mut request("/api/x", "192.0.2.1"))),
         http::StatusCode::TOO_MANY_REQUESTS
     );
 }
