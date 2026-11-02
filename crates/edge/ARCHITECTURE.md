@@ -19,11 +19,10 @@ flowchart TD
     Compile --> Publish[Publish host and owner together]
     Publish --> Transport[TCP or QUIC binding]
     Transport --> Select[Host selection and native body adaptation]
-    Select --> Owner[Prepared request owner]
-    Owner --> Rust[Direct Axum or Other]
-    Owner --> Plan[HostPipeline]
+    Select --> Plan[HostExecution]
+    Plan --> Actions[Prepared HostPipeline actions]
+    Actions --> Rust[RustRouter: Axum or Other]
     Plan --> Scope[Configured route selection]
-    Plan --> Actions[Selected head, request and response actions]
 ```
 
 `HostLayer` is a cold preparation contract. Active head checks, asynchronous
@@ -123,7 +122,7 @@ owns native framing and buffered/streamed body bounds during this transition.
 - [`extensions.rs`](src/service/extensions.rs) — VhostCtx and connection-time SNI selection/rejections.
 - [`host.rs`](src/service/host.rs) — HostService and native request handoff; no fixed Ingress/Identity/Access chain.
 - [`host/cache.rs`](src/service/host/cache.rs) — Cleartext metadata cache and current-publication owner selection.
-- [`host/dispatch.rs`](src/service/host/dispatch.rs) — Select Axum/Other before constructing the execution future.
+- [`host/dispatch.rs`](src/service/host/dispatch.rs) — Execute the prepared host owner; retain the direct-call optimization only for a plan without preceding actions.
 - [`response.rs`](src/service/response.rs) — Typed early host replies, before native wire framing.
 
 ### `pipeline/`
@@ -146,7 +145,9 @@ Scope compilation puts extensions, WebSocket endpoints, Rust contributions,
 Static, TryFiles and configured backends into the same flat layer builder.
 There is no separate application/dispatch chain or automatic SelectedRoute
 extension insertion. Rust router and backend calls implement `HostLayer`.
-Empty contributions keep the direct Rust owner; disabled file steps allocate no prepared file owner.
+HostExecution retains the compiled host plan. Only an empty prefix of actions
+may retain a direct Rust call; selecting Other never bypasses host layers.
+Disabled file steps allocate no prepared file owner.
 
 - [`host.rs`](src/pipeline/host.rs) — HostLayer/HostPipeline types and typed request/reply capabilities.
 - [`builder.rs`](src/pipeline/host/builder.rs) — Flatten active actions once; failed layer preparation changes nothing.
@@ -172,12 +173,13 @@ Empty contributions keep the direct Rust owner; disabled file steps allocate no 
 - [`access_log.rs`](src/pipeline/host/access_log.rs) — Optional access-channel selection and record/body lifetime transfer.
 - [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
 - [`handler.rs`](src/pipeline/host/handler.rs) — Routable contributions; Unhandled retains the unread body capability.
-- [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Ready/async request calls and HostLayer adapters; reuse existing future erasure.
+- [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Ready/async request calls; reuse existing future erasure.
 - [`selection.rs`](src/pipeline/host/selection.rs) — Prefix/condition selection as a HostLayer; single-scope hosts omit it.
+- [`execution.rs`](src/pipeline/host/execution.rs) — Published host execution; separate from the Axum/Other router choice.
 - [`compile.rs`](src/pipeline/host/compile.rs) — Compile prefix scopes, conditions, Rust contributions and backend owners.
 - [`backend.rs`](src/pipeline/host/backend.rs) — Prepare configured backend steps and residual index/SPA fallback.
 - [`files.rs`](src/pipeline/host/files.rs) — Separate Static and TryFiles steps using the shared files API.
-- [`extension.rs`](src/pipeline/host/extension.rs) — Route-layer adapter and prepared pipeline-to-Other call boundary.
+- [`extension.rs`](src/pipeline/host/extension.rs) — Route-layer preparation adapter.
 - [`websocket.rs`](src/pipeline/host/websocket.rs) — Prepared exact H1 endpoints before Rust/file/backend dispatch.
 
 ### `pipeline/embed/`
@@ -201,7 +203,7 @@ Empty contributions keep the direct Rust owner; disabled file steps allocate no 
 
 ### `pipeline/other/`
 
-- [`other.rs`](src/pipeline/other.rs) — Low-level Rust handler ownership, without implicit files or Axum.
+- [`other.rs`](src/pipeline/other.rs) — Shared ownership of application-supplied Rust handlers/routers without Axum; no pipeline or built-in backend variants.
 
 ### `tcp/`
 

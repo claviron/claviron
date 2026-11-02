@@ -143,7 +143,8 @@ impl VhostSnapshot {
         canonical: Host,
     ) -> crate::Result<bool> {
         let inserted = self.upsert_alias(alias.clone(), canonical)?;
-        let removed = previous.filter(|previous| *previous != &alias)
+        let removed = previous
+            .filter(|previous| *previous != &alias)
             .is_some_and(|previous| self.delete_alias(previous));
         Ok(inserted || removed)
     }

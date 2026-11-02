@@ -12,7 +12,9 @@ use hyper::body::Incoming;
 mod body;
 
 #[cfg(feature = "tls")]
-pub(crate) fn service(host: HostService) -> impl hyper::service::Service<
+pub(crate) fn service(
+    host: HostService
+) -> impl hyper::service::Service<
     http::Request<Incoming>,
     Response = RouteResponse,
     Error = Infallible,
@@ -24,7 +26,7 @@ pub(crate) fn service(host: HostService) -> impl hyper::service::Service<
 }
 
 pub(crate) fn dispatch(
-    request: PreparedRequest<Incoming>,
+    request: PreparedRequest<Incoming>
 ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send {
     request.map_body(body::adapt).into_tcp_future()
 }

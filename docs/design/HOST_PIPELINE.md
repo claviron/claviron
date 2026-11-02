@@ -22,7 +22,7 @@ flowchart LR
 | Identity / Proxy | Explicit typed metadata or trusted forwarding identity. |
 | Deny / ACL / Redirect | Configured request decisions. |
 | CORS / HeaderSet / HeaderClear | Origin admission and response headers. |
-| Capacity / Quota | Concurrent capacity or committed rate admission. |
+| Quota | Committed rate admission. |
 | RequestBody / Reply | Declared streaming size and idle bounds. |
 | AccessLog | Record and response-body lifetime. |
 | RouteSelection | One prefix/condition selection; omitted for a single scope. |
@@ -48,6 +48,12 @@ handoff. Head-deadline integration is separate from capacity acquisition.
 - Cancellation drops the active future, request and state. Capacity remains
   in its declared state until reply-head completion or cancellation. Response
   guards retain only the resources transferred to their bodies.
+
+`HostExecution` is the published host owner for every transport. `RustRouter`
+selects only an application-owned Axum router or an Other Rust handler/router
+inside that plan. Other has no pipeline, fallback or built-in backend variants.
+Both router choices use the same scope compiler. A direct Rust call is retained
+only when preparation contributes no preceding action.
 
 The driver is a flat loop. There is no recursive `Next`, Tower wrapper chain,
 per-request registration, body decoding or implicit collection.

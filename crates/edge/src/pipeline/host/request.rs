@@ -38,24 +38,35 @@ impl<S, R> HostPipeline<S, R> {
         request: Request<B>,
         mut state: S,
         context: Option<HostContext<'p>>,
-    ) -> ServiceResult<PreparedReply<'p, S, R>, PreparedRequest<'p, B, S, R>> {
+    ) -> ServiceResult<PreparedReply<'p, S, R>, PreparedRequest<'p, B, S, R>>
+    {
         let (mut head, body) = request.into_parts();
         let mut next = 0;
         while let Some(step) = self.before.get(next) {
             let decision = match &step.action {
                 Action::Head(action) => action(&mut head, &mut state),
-                Action::ContextHead(action) => action(&mut head, &mut state, context),
+                Action::ContextHead(action) => {
+                    action(&mut head, &mut state, context)
+                }
                 _ => break,
             };
             if let ControlFlow::Break(response) = decision {
                 return ServiceResult::Handled(PreparedReply {
-                    pipeline: self, response, state, scope: step.scope,
+                    pipeline: self,
+                    response,
+                    state,
+                    scope: step.scope,
                 });
             }
             next += 1;
         }
         ServiceResult::Unhandled(PreparedRequest {
-            pipeline: self, head, body, state, next, context,
+            pipeline: self,
+            head,
+            body,
+            state,
+            next,
+            context,
         })
     }
 }
@@ -83,7 +94,6 @@ impl<'p, B, S, R> PreparedRequest<'p, B, S, R> {
             context: self.context,
         }
     }
-
 }
 
 impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
@@ -101,40 +111,54 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
     /// Visit remaining active actions without middleware recursion or a task.
     /// A request action owns the body while pending. Returning Unhandled moves
     /// it back into this driver; cancellation drops that owner and its guards.
-    pub async fn dispatch<F, A>(self, handler: F) -> RouteResponse
+    pub async fn dispatch<F, A>(
+        self,
+        handler: F,
+    ) -> RouteResponse
     where
         F: FnOnce(Request<RouteBody>) -> A + Send + 'p,
         A: Future<Output = RouteResponse> + Send + 'p,
     {
-        let Self { pipeline, mut head, mut body, mut state, next, context } = self;
+        let Self { pipeline, mut head, mut body, mut state, next, context } =
+            self;
         for step in &pipeline.before[next..] {
             match &step.action {
                 Action::Head(action) => {
-                    if let ControlFlow::Break(response) = action(&mut head, &mut state) {
+                    if let ControlFlow::Break(response) =
+                        action(&mut head, &mut state)
+                    {
                         return pipeline.finish(response, state, step.scope);
                     }
                 }
                 Action::ContextHead(action) => {
-                    if let ControlFlow::Break(response) = action(&mut head, &mut state, context) {
+                    if let ControlFlow::Break(response) =
+                        action(&mut head, &mut state, context)
+                    {
                         return pipeline.finish(response, state, step.scope);
                     }
                 }
                 Action::ContextRequest(action) => {
-                    let response = match action.call_in(Request::from_parts(head, body), context).await {
+                    let response = match action
+                        .call_in(Request::from_parts(head, body), context)
+                        .await
+                    {
                         Ok(response) => response,
                         Err(never) => match never {},
                     };
                     return pipeline.finish(response, state, step.scope);
                 }
                 Action::AsyncHead(action) => {
-                    if let ControlFlow::Break(response) = action.call(&mut head, &mut state).await {
+                    if let ControlFlow::Break(response) =
+                        action.call(&mut head, &mut state).await
+                    {
                         return pipeline.finish(response, state, step.scope);
                     }
                 }
                 Action::Request(action) => {
                     match action(Request::from_parts(head, body)).await {
                         ServiceResult::Handled(response) => {
-                            return pipeline.finish(response, state, step.scope);
+                            return pipeline
+                                .finish(response, state, step.scope);
                         }
                         ServiceResult::Unhandled(request) => {
                             (head, body) = request.into_parts();
@@ -143,8 +167,10 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
                 }
             }
         }
-        let response = future::lazy(move |_| handler(Request::from_parts(head, body)))
-            .flatten().await;
+        let response =
+            future::lazy(move |_| handler(Request::from_parts(head, body)))
+                .flatten()
+                .await;
         pipeline.finish(response, state, pipeline.complete)
     }
 }

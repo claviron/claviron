@@ -9,8 +9,8 @@ use claviron_runtime::AppState;
 use http::Request;
 
 use crate::HostConfig;
+use crate::pipeline::host::ApplicationHandler;
 use crate::pipeline::host::{DispatchFuture, DispatchStep};
-use crate::pipeline::other::OtherService;
 
 enum Endpoints {
     Publish(HashSet<String>),
@@ -43,17 +43,20 @@ impl Endpoints {
 }
 
 enum RestOwner {
-    Fleet(OtherService),
+    Fleet(axum::Router),
     Http(PusherAdapter),
 }
 
 impl RestOwner {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture {
         match self {
             Self::Fleet(owner) => {
                 let owner = owner.clone();
                 DispatchFuture::new(async move {
-                    let Ok(response) = owner.handle(request).await;
+                    let response = owner.call(request).await;
                     ServiceResult::Handled(response)
                 })
             }
@@ -106,9 +109,7 @@ pub(crate) fn prepare(
             }
             (
                 Endpoints::Publish(paths),
-                RestOwner::Fleet(crate::pipeline::app::owner(
-                    claviron_broadcast::pusher_routes(service),
-                )),
+                RestOwner::Fleet(claviron_broadcast::pusher_routes(service)),
             )
         }
         PusherTarget::Http(http) => (

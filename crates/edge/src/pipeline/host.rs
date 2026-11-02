@@ -24,25 +24,33 @@ mod builder;
 pub(crate) mod compile;
 mod context;
 mod dispatch;
+mod execution;
 mod handler;
 mod owner;
 mod request;
 mod response;
 
 pub use application::ApplicationHandler;
-pub use context::{ContextFuture, ContextHandler, HostContext};
 pub(crate) use binding::HostPolicy;
+pub use context::{ContextFuture, ContextHandler, HostContext};
 pub use dispatch::{DispatchFuture, DispatchResult, DispatchStep};
-pub use handler::{HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest};
-pub(crate) use owner::bind_other;
+pub use execution::HostExecution;
+pub use handler::{
+    HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest,
+};
 
 type HeadAction<S, R> =
     Box<dyn Fn(&mut RequestParts, &mut S) -> ControlFlow<R> + Send + Sync>;
 type RequestAction =
     Box<dyn Fn(Request<RouteBody>) -> DispatchFuture + Send + Sync>;
 type ContextHeadAction<S, R> = Box<
-    dyn for<'a> Fn(&mut RequestParts, &mut S, Option<HostContext<'a>>) -> ControlFlow<R>
-        + Send + Sync,
+    dyn for<'a> Fn(
+            &mut RequestParts,
+            &mut S,
+            Option<HostContext<'a>>,
+        ) -> ControlFlow<R>
+        + Send
+        + Sync,
 >;
 
 enum Action<S, R> {
@@ -63,7 +71,13 @@ pub trait AsyncHeadAction<S>: Send + Sync {
         &'a self,
         head: &'a mut RequestParts,
         state: &'a mut S,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ControlFlow<RouteResponse>> + Send + 'a>>;
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = ControlFlow<RouteResponse>>
+                + Send
+                + 'a,
+        >,
+    >;
 }
 
 /// Actions contributed by one logical layer, allocated only while building.

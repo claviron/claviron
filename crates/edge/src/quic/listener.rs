@@ -68,9 +68,10 @@ impl H3Server {
             self.state.config_reader().snapshot::<Self>()?.as_ref(),
             &deps,
         )?;
-        let generation = crate::quic::server::prepare_vhosts(&deps, &groups, || {
-            self.current.start(groups.clone())
-        })?;
+        let generation =
+            crate::quic::server::prepare_vhosts(&deps, &groups, || {
+                self.current.start(groups.clone())
+            })?;
         self.serve_groups(generation.groups(), deps, context).await
     }
 
@@ -87,9 +88,10 @@ impl H3Server {
         let snapshot = groups.get(id).cloned().ok_or_else(|| {
             Error::msg(format!("QUIC listener '{id}' is not configured"))
         })?;
-        let generation = crate::quic::server::prepare_vhosts(&deps, &groups, || {
-            self.current.start_listener(snapshot)
-        })?;
+        let generation =
+            crate::quic::server::prepare_vhosts(&deps, &groups, || {
+                self.current.start_listener(snapshot)
+            })?;
         self.serve_groups(generation.groups(), deps, context).await
     }
 
@@ -248,7 +250,7 @@ impl H3Server {
         info!(listener = %listener.id, "🔸 QUIC listener stopped");
     }
 
-    /// Drive a single QUIC connection: SNI → vhost → RustRouter dispatch.
+    /// Drive a single QUIC connection: SNI → vhost → prepared host execution.
     /// Snapshot, dependencies and bound address are captured at admission.
     async fn handle_connection(
         state: claviron_runtime::AppState,

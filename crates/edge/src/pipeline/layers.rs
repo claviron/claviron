@@ -1,13 +1,15 @@
 //! Concrete host actions and adapters prepared for HostPipeline.
 
-use std::ops::ControlFlow;
+use super::host::{
+    DispatchFuture, DispatchStep, HostLayerBuilder, HostPipelineBuilder,
+};
 use claviron_http::{RouteBody, RouteResponse};
 #[cfg(feature = "access-log")]
 use http::Request;
 #[cfg(feature = "acme")]
 use http::Response;
 use http::request::Parts as RequestParts;
-use super::host::{DispatchFuture, DispatchStep, HostLayerBuilder, HostPipelineBuilder};
+use std::ops::ControlFlow;
 
 #[cfg(feature = "access-log")]
 mod access_log;
@@ -45,8 +47,9 @@ pub use access_log::{AccessLogLayer, AccessLogState};
 pub use acl::AclLayer;
 pub use cors::{CorsLayer, CorsState};
 pub use deny::DenyLayer;
-pub use files::{StaticStage, TryFilesStage};
+pub(super) use fallback::prepare_fallback;
 pub(super) use files::scope_steps;
+pub use files::{StaticStage, TryFilesStage};
 pub use headers::{HeaderClearLayer, HeaderSetLayer, prepare_headers};
 #[cfg(feature = "acme")]
 pub use http01::Http01Layer;
@@ -65,7 +68,6 @@ pub use request_body::RequestBodyLayer;
 pub use selection::RouteSelectionLayer;
 #[cfg(feature = "websocket")]
 pub use websocket::WebSocketStage;
-pub(super) use fallback::prepare_fallback;
 
 /// Cold preparation contract. An inactive layer contributes no actions.
 ///
@@ -79,4 +81,3 @@ pub trait HostLayer<S = (), R = RouteResponse> {
         layer: &mut HostLayerBuilder<S, R>,
     ) -> crate::Result<()>;
 }
-

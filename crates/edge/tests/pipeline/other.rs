@@ -93,27 +93,11 @@ impl OtherHandler for SelfTimed {
         &self,
         _: Request<RouteBody>,
     ) -> RouteFuture {
-        Box::pin(async { Ok(Response::new(empty_body())) })
+        Box::pin(async { Ok(http::Response::new(empty_body())) })
     }
 }
 
 #[test]
 fn handler_head_timing_ownership_is_preserved() {
     assert!(OtherService::new(SelfTimed).times_its_head());
-    assert!(!OtherService::Noop.times_its_head());
-}
-
-#[test]
-fn noop_keeps_its_empty_success_response() {
-    use http_body_util::BodyExt;
-
-    let mut future = OtherService::Noop.handle(Request::new(empty_body()));
-    let mut context = Context::from_waker(Waker::noop());
-    let Poll::Ready(Ok(response)) = future.as_mut().poll(&mut context) else {
-        panic!("the empty handler must be ready immediately");
-    };
-    assert_eq!(response.status(), http::StatusCode::OK);
-    let mut body = response.into_body();
-    let mut frame = std::pin::pin!(body.frame());
-    assert!(matches!(frame.as_mut().poll(&mut context), Poll::Ready(None)));
 }

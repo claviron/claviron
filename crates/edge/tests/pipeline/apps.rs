@@ -8,18 +8,40 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::pipeline::host::{HostHandlerFuture, HostLayerBuilder, HostRequest};
 
 #[test]
-fn duplicate_snapshot_binding_keeps_the_original_application() {
+fn duplicate_snapshot_binding_keeps_the_original_execution() {
+    use futures_util::FutureExt;
+    struct Reply(StatusCode);
+    impl crate::pipeline::other::OtherHandler for Reply {
+        fn call(
+            &self,
+            request: Request<claviron_http::RouteBody>,
+        ) -> claviron_http::RouteFuture {
+            drop(request);
+            Box::pin(std::future::ready(Ok(claviron_http::err_status(self.0))))
+        }
+    }
+    let compile = |status| {
+        let mut builder = crate::pipeline::HostPipelineBuilder::<()>::new();
+        builder
+            .layer(RustRouter::Other(OtherService::new(Reply(status))))
+            .unwrap();
+        builder.build().into_execution()
+    };
     let host: Host = "example.test".parse().unwrap();
     let mut snapshot = HostAppSnapshot::default();
-    struct Original;
-    impl crate::pipeline::other::OtherHandler for Original {
-        fn call(&self, _: Request<claviron_http::RouteBody>) -> claviron_http::RouteFuture { panic!("snapshot insertion is cold"); }
-    }
-    let first: Arc<dyn crate::pipeline::other::OtherHandler> = Arc::new(Original);
-    snapshot.insert(host.clone(), RustRouter::Other(OtherService::Handler(first.clone()))).unwrap();
-    assert!(snapshot.insert(host.clone(), RustRouter::Other(OtherService::Noop)).is_err());
-    let RustRouter::Other(OtherService::Handler(retained)) = snapshot.resolve(&host).unwrap() else { panic!("original owner was replaced"); };
-    assert!(Arc::ptr_eq(&first, &retained));
+    snapshot.insert(host.clone(), compile(StatusCode::OK)).unwrap();
+    assert!(
+        snapshot
+            .insert(host.clone(), compile(StatusCode::BAD_REQUEST))
+            .is_err()
+    );
+    let owner = snapshot.resolve(&host).unwrap();
+    let response = owner
+        .handle(Request::new(claviron_http::empty_body()))
+        .now_or_never()
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 struct Tag;
@@ -51,13 +73,19 @@ impl RouteLayer for Inactive {
 }
 
 #[test]
-fn inactive_provider_layers_keep_the_original_axum_call_boundary() {
-    let mut builder = HostPipelineBuilder::new();
-    builder.layer(&Inactive as &dyn RouteLayer).unwrap();
-    let app = finish_binding(builder, RustRouter::Axum(Router::new()), &[],
-        #[cfg(feature = "websocket")] None,
-    ).unwrap();
-    assert!(matches!(app, RustRouter::Axum(_)));
+fn inactive_provider_layers_keep_the_direct_axum_call_boundary() {
+    let state = AppState::standalone("inactive-layers", ".");
+    let owner = build_host(
+        &state,
+        &"example.test".parse().unwrap(),
+        Arc::new(HostConfig::new("public")),
+        Some(RustRouter::Axum(Router::new())),
+        HostContributions { layers: vec![Arc::new(Inactive)], ..Default::default() },
+        #[cfg(feature = "rate-limit")]
+        None,
+    )
+    .unwrap();
+    assert!(owner.into_axum().is_ok());
 }
 
 struct Pass(Arc<AtomicUsize>);
@@ -132,40 +160,32 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
     }));
     let prepared =
         registry.routable_binding(&state, &host, config.clone()).unwrap();
-    let native = build_default_app(
+    let native = build_host(
         &state,
         &host,
         config.clone(),
-        &prepared.applications,
-        &prepared.layers,
+        None,
+        prepared.clone(),
         #[cfg(feature = "rate-limit")]
         None,
-        #[cfg(feature = "websocket")]
-        Vec::new(),
     )
     .unwrap();
-    let axum = Binding::Axum(Arc::new(|_| {
-        Router::new().fallback(|| async { StatusCode::NOT_FOUND })
-    }))
-    .build_app(
+    let axum = build_host(
         &state,
         &host,
         config,
-        &prepared.applications,
-        &prepared.layers,
+        Some(RustRouter::Axum(
+            Router::new().fallback(|| async { StatusCode::NOT_FOUND }),
+        )),
+        prepared.clone(),
         #[cfg(feature = "rate-limit")]
         None,
-        #[cfg(feature = "websocket")]
-        Vec::new(),
     )
     .unwrap();
     for (owner, status, body) in [
         (native, StatusCode::OK, "native-file"),
         (axum, StatusCode::NOT_FOUND, ""),
     ] {
-        let RustRouter::Other(owner) = owner else {
-            panic!("native layers own the outer call");
-        };
         let response = owner
             .handle(
                 Request::builder()
@@ -184,4 +204,114 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
     }
     assert_eq!(prepares.load(Ordering::Relaxed), 1);
     assert_eq!(calls.load(Ordering::Relaxed), 2);
+}
+
+#[tokio::test]
+async fn explicit_rust_routers_observe_scoped_layers_and_unread_body_ownership()
+{
+    use crate::pipeline::extension::{RouteEffect, directive};
+    use bytes::Bytes;
+    use http_body::{Body, Frame};
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    struct Guard;
+    impl RouteLayer for Guard {
+        fn prepare(
+            &self,
+            layer: &mut HostLayerBuilder,
+        ) -> crate::Result<()> {
+            layer.before(|_, _| {
+                std::ops::ControlFlow::Break(claviron_http::err_status(
+                    StatusCode::FORBIDDEN,
+                ))
+            });
+            Ok(())
+        }
+    }
+    struct Reply(Arc<AtomicUsize>);
+    impl crate::pipeline::other::OtherHandler for Reply {
+        fn call(
+            &self,
+            request: Request<claviron_http::RouteBody>,
+        ) -> claviron_http::RouteFuture {
+            self.0.fetch_add(1, Ordering::Relaxed);
+            drop(request);
+            Box::pin(std::future::ready(Ok(http::Response::new(
+                claviron_http::empty_body(),
+            ))))
+        }
+    }
+    struct Unread(Arc<AtomicUsize>);
+    impl Body for Unread {
+        type Data = Bytes;
+        type Error = std::convert::Infallible;
+        fn poll_frame(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+        ) -> Poll<Option<std::result::Result<Frame<Bytes>, Self::Error>>>
+        {
+            panic!(
+                "neither the guard nor the terminal router may read this body"
+            );
+        }
+    }
+    impl Drop for Unread {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    for axum in [false, true] {
+        let state = AppState::standalone("scoped-rust-router", ".");
+        let registry = Arc::new(HostAppRegistry::default());
+        registry
+            .register_route_extension(directive::<bool, _>(
+                "guard",
+                |_, enabled| {
+                    assert!(enabled);
+                    Ok(RouteEffect::Layer(Arc::new(Guard)))
+                },
+            ))
+            .unwrap();
+        state.registry_ref().insert(registry.clone()).unwrap();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = calls.clone();
+        if axum {
+            registry.register_router("example.test", move |_| {
+                let calls = observed.clone();
+                Router::new().fallback(
+                    move |request: Request<::axum::body::Body>| {
+                        calls.fetch_add(1, Ordering::Relaxed);
+                        async move {
+                            drop(request);
+                            StatusCode::OK
+                        }
+                    },
+                )
+            });
+        } else {
+            registry.register_other("example.test", move |_, _, _| {
+                Ok(OtherService::new(Reply(observed.clone())))
+            });
+        }
+        let table = serde_yaml::from_str("example.test:\n  root: public\n  routes:\n    /private: {guard: true}\n").unwrap();
+        let snapshot = registry.build_table(&state, &table, None).unwrap();
+        let owner = snapshot.resolve(&"example.test".parse().unwrap()).unwrap();
+        let drops = Arc::new(AtomicUsize::new(0));
+        for (index, path, status) in [
+            (0, "/private/data", StatusCode::FORBIDDEN),
+            (1, "/public", StatusCode::OK),
+            (2, "/privately", StatusCode::OK),
+        ] {
+            let request = Request::builder()
+                .uri(path)
+                .body(claviron_http::boxed_body(Unread(drops.clone())))
+                .unwrap();
+            let response = owner.handle(request).await.unwrap();
+            assert_eq!(response.status(), status);
+            assert_eq!(calls.load(Ordering::Relaxed), index);
+            assert_eq!(drops.load(Ordering::Relaxed), index + 1);
+        }
+    }
 }

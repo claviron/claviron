@@ -14,7 +14,7 @@ pub(crate) struct CleartextHostCache {
 impl CleartextHostCache {
     pub(crate) fn new(
         connection: Arc<ConnCtx>,
-            listener: HttpPolicy,
+        listener: HttpPolicy,
     ) -> Self {
         Self {
             identity: HostIdentityCache::default(),
@@ -40,7 +40,7 @@ impl CleartextHostCache {
 
     pub(crate) fn bind(
         &mut self,
-        app: RustRouter,
+        app: HostExecution,
         mut host: VhostCtx,
     ) -> HostService {
         // The chosen application moves into this request, not the policy cache.

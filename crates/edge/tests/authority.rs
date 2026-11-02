@@ -2,21 +2,26 @@ use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use claviron_edge::pipeline::host::{HostLayerBuilder, HostPipeline, HostPipelineBuilder};
+use claviron_edge::pipeline::host::{
+    HostLayerBuilder, HostPipeline, HostPipelineBuilder,
+};
 use claviron_edge::pipeline::layers::{AuthorityLayer, HostLayer};
 use claviron_edge::transport::{
     RequestAuthority, RequestRejection, VhostTable, resolve_request_authority,
 };
+use claviron_http::ServiceResult;
 use claviron_http::authority::AuthorityError;
 use claviron_http::ext::HostName;
-use claviron_http::ServiceResult;
 use http::{Request, StatusCode, Version, header};
 use http_body::Body;
 
 struct AfterAuthority(Arc<AtomicUsize>);
 
 impl HostLayer<(), RequestRejection> for AfterAuthority {
-    fn prepare(self, layer: &mut HostLayerBuilder<(), RequestRejection>) -> claviron_edge::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<(), RequestRejection>,
+    ) -> claviron_edge::Result<()> {
         layer.before(move |_, _| {
             self.0.fetch_add(1, Ordering::Relaxed);
             ControlFlow::Continue(())
@@ -25,9 +30,13 @@ impl HostLayer<(), RequestRejection> for AfterAuthority {
     }
 }
 
-fn authority_pipeline(entries: Arc<AtomicUsize>) -> HostPipeline<(), RequestRejection> {
+fn authority_pipeline(
+    entries: Arc<AtomicUsize>
+) -> HostPipeline<(), RequestRejection> {
     let mut builder = HostPipelineBuilder::new();
-    builder.layer(AuthorityLayer(HostName(Arc::new("app.test".parse().unwrap())))).unwrap();
+    builder
+        .layer(AuthorityLayer(HostName(Arc::new("app.test".parse().unwrap()))))
+        .unwrap();
     builder.layer(AfterAuthority(entries)).unwrap();
     builder.build()
 }
@@ -72,11 +81,16 @@ fn authority_layer_rejects_before_later_actions_or_body_access() {
             for host in hosts {
                 request = request.header(header::HOST, *host);
             }
-            let ServiceResult::Handled(reply) = pipeline.prepare(request.body(UnreadBody).unwrap()) else {
+            let ServiceResult::Handled(reply) =
+                pipeline.prepare(request.body(UnreadBody).unwrap())
+            else {
                 panic!("invalid authority reached later actions");
             };
             let response = reply.finish_with(|reason| {
-                assert_eq!(reason, RequestRejection::InvalidAuthority(expected));
+                assert_eq!(
+                    reason,
+                    RequestRejection::InvalidAuthority(expected)
+                );
                 reason.into()
             });
             assert_eq!(response.status(), StatusCode::BAD_REQUEST);

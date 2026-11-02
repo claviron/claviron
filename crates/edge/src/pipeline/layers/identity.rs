@@ -65,9 +65,7 @@ impl IdentityPolicy {
     }
 }
 
-impl<S: AsMut<IdentityState>, R> HostLayer<S, R>
-    for IdentityPolicy
-{
+impl<S: AsMut<IdentityState>, R> HostLayer<S, R> for IdentityPolicy {
     fn prepare(
         self,
         layer: &mut HostLayerBuilder<S, R>,

@@ -14,15 +14,20 @@ pub struct HostContext<'a> {
     pub arrival: RequestArrival,
 }
 
-pub type ContextFuture<'a> = Pin<Box<
-    dyn Future<Output = Result<RouteResponse, Infallible>> + Send + 'a,
->>;
+pub type ContextFuture<'a> = Pin<
+    Box<dyn Future<Output = Result<RouteResponse, Infallible>> + Send + 'a>,
+>;
 
 /// A prepared owner that can borrow accepted facts without cloning their Arc.
 pub trait ContextHandler: Send + Sync + 'static {
-    fn call(self: std::sync::Arc<Self>, request: Request<RouteBody>) -> RouteFuture;
+    fn call(
+        self: std::sync::Arc<Self>,
+        request: Request<RouteBody>,
+    ) -> RouteFuture;
 
-    fn times_its_head(&self) -> bool { false }
+    fn times_its_head(&self) -> bool {
+        false
+    }
 
     fn call_in<'a>(
         &'a self,

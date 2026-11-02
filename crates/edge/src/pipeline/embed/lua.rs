@@ -123,8 +123,16 @@ fn configured_route<'a>(
     selected.lua().iter().find(|route| {
         route.application == application
             && route.websockets().iter().any(|socket| {
-                mounted_websocket_path(selected.files.mapping.as_ref().map(|mapping| mapping.prefix()), &socket.path)
-                    .as_ref() == path
+                mounted_websocket_path(
+                    selected
+                        .files
+                        .mapping
+                        .as_ref()
+                        .map(|mapping| mapping.prefix()),
+                    &socket.path,
+                )
+                .as_ref()
+                    == path
             })
     })
 }
@@ -136,5 +144,3 @@ mod socket_path_tests;
 #[cfg(test)]
 #[path = "../../../tests/pipeline/embed/lua.rs"]
 mod tests;
-
-

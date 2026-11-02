@@ -30,7 +30,6 @@ pub struct LuaRouteConfig {
         deserialize_with = "opt_one_or_many"
     )]
     websockets: Option<Vec<JavaScriptWebSocketConfig>>,
-
 }
 
 impl LuaRouteConfig {

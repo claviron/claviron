@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
 use claviron_http::{RouteBody, RouteFuture};
-use http::{Request, Response};
-use super::host::{ContextFuture, ContextHandler, HostContext};
+use http::Request;
 
 /// Low-level HTTP extension point without owning a listener.
 ///
 /// The transport and host boundary hand over a request with an erased body
-/// and typed context. An implementation owns the response: a Rust handler,
-/// another runtime's adapter, or an alternative router can use this contract
+/// and typed extensions. A Rust handler or alternative router owns the response
+/// and can use this contract
 /// without depending on the Axum router or middleware stack.
 ///
 /// # Hot-path contract
@@ -40,77 +39,36 @@ pub trait OtherHandler: Send + Sync + 'static {
     ) -> RouteFuture;
 }
 
-/// Direct request ownership outside the Axum router and middleware stack.
+/// Shared ownership of an application-supplied, non-Axum Rust handler/router.
 ///
-/// Every backend implements [`OtherHandler`] and returns its own erased
-/// [`RouteFuture`]. Dispatch returns that future directly; a large backend's
-/// state never becomes part of another backend's concrete dispatch future.
-/// Use [`Self::new`] for built-in adapters or application-owned handlers.
-/// Native TCP carries the surrounding host future inline, so the handler's
-/// erasure is the only future boxing boundary on an ordinary Other request.
-/// Admission and head timing still own and cancel that same handler future.
-///
-/// There is no implicit static-file or `try_files` pass. A handler may compose
-/// the public `claviron_files` APIs itself. The upstream adapter owns its
-/// explicitly configured file fallback independently of this dispatcher.
-///
-/// Transport boundaries box their native body into `RouteBody` before
-/// calling `handle`:
-///
-/// * h1/h2: `claviron_edge::tcp::service` boxes `Incoming` after host admission.
-/// * h3: `claviron_edge::quic` boxes `Full`
-///   (buffered) or `StreamBody` (streaming).
+/// This service is one Rust router choice inside a prepared host execution.
+/// It neither owns the host pipeline nor selects or skips its layers.
 #[derive(Clone)]
-pub enum OtherService {
-    Handler(Arc<dyn OtherHandler>),
-    /// A prepared pipeline with a borrowed transport input.
-    Pipeline(Arc<dyn ContextHandler>),
-    /// An empty response without an application handler.
-    Noop,
+pub struct OtherService {
+    handler: Arc<dyn OtherHandler>,
 }
 
 impl OtherService {
     pub fn new(handler: impl OtherHandler) -> Self {
-        Self::Handler(Arc::new(handler))
+        Self { handler: Arc::new(handler) }
     }
 
     pub(crate) fn times_its_head(&self) -> bool {
-        match self {
-            Self::Handler(handler) => handler.times_its_head(),
-            Self::Pipeline(handler) => handler.times_its_head(),
-            Self::Noop => false,
-        }
+        self.handler.times_its_head()
     }
 
-    /// Dispatch a fully-erased request to the chosen adapter.
-    ///
-    /// `req` already carries [`RouteBody`]; transports must box their
-    /// native body into `RouteBody` (via `boxed_body`) before reaching
-    /// this point. See type docs on `OtherService` for the boundary
-    /// list.
+    /// Transfer the request to the Rust handler without wrapping its future.
     pub fn handle(
         &self,
-        req: Request<RouteBody>,
-    ) -> RouteFuture {
-        match self {
-            Self::Handler(handler) => handler.call(req),
-            Self::Pipeline(handler) => handler.clone().call(req),
-            Self::Noop => Box::pin(async move {
-                drop(req);
-                Ok(Response::new(claviron_http::empty_body()))
-            }),
-        }
-    }
-
-    pub fn handle_in<'a>(
-        &'a self,
         request: Request<RouteBody>,
-        context: Option<HostContext<'a>>,
-    ) -> ContextFuture<'a> {
-        match self {
-            Self::Pipeline(handler) => handler.call_in(request, context),
-            _ => self.handle(request),
-        }
+    ) -> RouteFuture {
+        self.handler.call(request)
+    }
+}
+
+impl From<Arc<dyn OtherHandler>> for OtherService {
+    fn from(handler: Arc<dyn OtherHandler>) -> Self {
+        Self { handler }
     }
 }
 

@@ -11,9 +11,9 @@ use http::StatusCode;
 use http_body::{Body, Frame};
 
 use super::*;
-use http::{Request, Response};
 use claviron_http::ServiceResult;
 use futures_util::FutureExt;
+use http::{Request, Response};
 
 #[test]
 fn reply_preparation_registers_only_declared_body_limits() {
@@ -31,8 +31,16 @@ fn reply_preparation_registers_only_declared_body_limits() {
         ..ResponsePolicy::unlimited()
     })
     .unwrap();
-    let mut guarded = policy.finish(RouteResponse::new(claviron_http::bytes_body(Bytes::from_static(b"too long")))).into_body();
-    assert!(matches!(Pin::new(&mut guarded).poll_frame(&mut Context::from_waker(Waker::noop())), Poll::Ready(Some(Err(_)))));
+    let mut guarded = policy
+        .finish(RouteResponse::new(claviron_http::bytes_body(
+            Bytes::from_static(b"too long"),
+        )))
+        .into_body();
+    assert!(matches!(
+        Pin::new(&mut guarded)
+            .poll_frame(&mut Context::from_waker(Waker::noop())),
+        Poll::Ready(Some(Err(_)))
+    ));
 
     // Even a declared idle timer is not created at preparation or reply head.
     let policy = ReplyPolicy::new(ResponsePolicy {
@@ -102,8 +110,15 @@ fn direct_and_composed_reply_guards_keep_frames_trailers_and_drop_ownership() {
             let mut builder = HostPipelineBuilder::<()>::new();
             builder.layer(policy).unwrap();
             let pipeline = builder.build();
-            let ServiceResult::Unhandled(prepared) = pipeline.prepare(Request::new(empty_body())) else { panic!("response-only plan leaves request unclaimed"); };
-            prepared.dispatch(|_| std::future::ready(make_response())).now_or_never().expect("ready fixture")
+            let ServiceResult::Unhandled(prepared) =
+                pipeline.prepare(Request::new(empty_body()))
+            else {
+                panic!("response-only plan leaves request unclaimed");
+            };
+            prepared
+                .dispatch(|_| std::future::ready(make_response()))
+                .now_or_never()
+                .expect("ready fixture")
         } else {
             policy.finish(make_response())
         };

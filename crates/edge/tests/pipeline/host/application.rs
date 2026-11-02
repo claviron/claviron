@@ -2,8 +2,8 @@ use super::*;
 use crate::pipeline::host::{
     HostLayerBuilder, HostPipeline, HostPipelineBuilder,
 };
-use bytes::Bytes;
 use crate::pipeline::layers::HostLayer;
+use bytes::Bytes;
 use claviron_http::{ServiceResult, boxed_body};
 use http::{HeaderValue, Response};
 use http_body::{Body, Frame};
@@ -130,7 +130,8 @@ fn typed_application_is_not_called_before_first_poll() {
     let ServiceResult::Unhandled(request) = pipeline.prepare(request) else {
         panic!("the terminal owner must receive the unclaimed request");
     };
-    let answering = request.map_body(boxed_body).dispatch_to(Owner(counts.clone()));
+    let answering =
+        request.map_body(boxed_body).dispatch_to(Owner(counts.clone()));
     assert_eq!(counts.calls.load(Ordering::Relaxed), 0);
     drop(answering);
     assert_eq!(counts.owners.load(Ordering::Relaxed), 1);
@@ -147,7 +148,9 @@ fn pending_typed_application_cancellation_drops_body_and_owner_once() {
     let ServiceResult::Unhandled(request) = pipeline.prepare(request) else {
         panic!("the terminal owner must receive the unclaimed request");
     };
-    let mut answering = Box::pin(request.map_body(boxed_body).dispatch_to(Owner(counts.clone())));
+    let mut answering = Box::pin(
+        request.map_body(boxed_body).dispatch_to(Owner(counts.clone())),
+    );
     let mut cx = Context::from_waker(Waker::noop());
     assert!(answering.as_mut().poll(&mut cx).is_pending());
     assert_eq!(counts.calls.load(Ordering::Relaxed), 1);
@@ -169,7 +172,9 @@ fn typed_application_transfers_original_payload_and_finishes_response_scope() {
     let ServiceResult::Unhandled(request) = pipeline.prepare(request) else {
         panic!("the terminal owner must receive the unclaimed request");
     };
-    let mut answering = Box::pin(request.map_body(boxed_body).dispatch_to(Owner(counts.clone())));
+    let mut answering = Box::pin(
+        request.map_body(boxed_body).dispatch_to(Owner(counts.clone())),
+    );
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
         panic!("reply-head delivery must not read the request body");

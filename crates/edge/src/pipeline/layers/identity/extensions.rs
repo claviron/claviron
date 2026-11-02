@@ -74,7 +74,9 @@ impl ContextExtensions {
         };
         let mut template = Extensions::new();
         template.insert(connection.clone());
-        template.insert(RealIpExt(connection.real_ip.unwrap_or_else(|| connection.remote.ip())));
+        template.insert(RealIpExt(
+            connection.real_ip.unwrap_or_else(|| connection.remote.ip()),
+        ));
         fixed.inject(&mut template);
         Self { template, fixed }
     }

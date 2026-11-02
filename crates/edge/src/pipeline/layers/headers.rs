@@ -1,23 +1,28 @@
 //! Response header edits, merged once for an effective host/path scope.
 
-use std::collections::HashMap;
+use super::*;
 use claviron_http::config::host::HostHeadersConfig;
 use http::{HeaderName, HeaderValue};
-use super::*;
+use std::collections::HashMap;
 
 pub struct HeaderSetLayer {
     headers: Box<[(HeaderName, HeaderValue)]>,
 }
 
 impl HeaderSetLayer {
-    pub fn new(headers: impl IntoIterator<Item = (HeaderName, HeaderValue)>) -> Option<Self> {
+    pub fn new(
+        headers: impl IntoIterator<Item = (HeaderName, HeaderValue)>
+    ) -> Option<Self> {
         let headers: Box<[_]> = headers.into_iter().collect();
         (!headers.is_empty()).then_some(Self { headers })
     }
 }
 
 impl<S> HostLayer<S> for HeaderSetLayer {
-    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
         layer.after(move |head, _| {
             for (name, value) in &self.headers {
                 head.headers.insert(name.clone(), value.clone());
@@ -39,9 +44,14 @@ impl HeaderClearLayer {
 }
 
 impl<S> HostLayer<S> for HeaderClearLayer {
-    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
         layer.after(move |head, _| {
-            for name in &self.headers { head.headers.remove(name); }
+            for name in &self.headers {
+                head.headers.remove(name);
+            }
         });
         Ok(())
     }
@@ -57,12 +67,17 @@ pub fn prepare_headers<S>(
     let mut actions = HashMap::new();
     for headers in defaults.into_iter().chain(std::iter::once(scope)) {
         if let Some(server) = &headers.server {
-            let value = HeaderValue::from_str(server)
-                .map_err(|error| crate::Error::Invalid(format!("invalid Server header: {error}")))?;
+            let value = HeaderValue::from_str(server).map_err(|error| {
+                crate::Error::Invalid(format!("invalid Server header: {error}"))
+            })?;
             actions.insert(http::header::SERVER, Some(value));
         }
-        for name in &headers.unset { actions.insert(name.clone(), None); }
-        for (name, value) in &headers.set { actions.insert(name.clone(), Some(value.clone())); }
+        for name in &headers.unset {
+            actions.insert(name.clone(), None);
+        }
+        for (name, value) in &headers.set {
+            actions.insert(name.clone(), Some(value.clone()));
+        }
     }
     let mut set = Vec::new();
     let mut clear = Vec::new();
@@ -74,8 +89,12 @@ pub fn prepare_headers<S>(
     }
     set.sort_unstable_by(|(a, _), (b, _)| a.as_str().cmp(b.as_str()));
     clear.sort_unstable_by(|a, b| a.as_str().cmp(b.as_str()));
-    if let Some(layer) = HeaderSetLayer::new(set) { builder.layer(layer)?; }
-    if let Some(layer) = HeaderClearLayer::new(clear) { builder.layer(layer)?; }
+    if let Some(layer) = HeaderSetLayer::new(set) {
+        builder.layer(layer)?;
+    }
+    if let Some(layer) = HeaderClearLayer::new(clear) {
+        builder.layer(layer)?;
+    }
     Ok(())
 }
 

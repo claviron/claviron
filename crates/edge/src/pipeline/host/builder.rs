@@ -10,8 +10,14 @@ impl<S, R> HostLayerBuilder<S, R> {
     /// Read accepted facts only for a layer that explicitly requests them.
     pub fn before_context(
         &mut self,
-        action: impl for<'a> Fn(&mut RequestParts, &mut S, Option<HostContext<'a>>) -> ControlFlow<R>
-            + Send + Sync + 'static,
+        action: impl for<'a> Fn(
+            &mut RequestParts,
+            &mut S,
+            Option<HostContext<'a>>,
+        ) -> ControlFlow<R>
+        + Send
+        + Sync
+        + 'static,
     ) -> &mut Self {
         self.before.push(Action::ContextHead(Box::new(action)));
         self
@@ -30,13 +36,19 @@ impl<S, R> HostLayerBuilder<S, R> {
 }
 
 impl<S> HostLayerBuilder<S> {
-    pub fn request_context(&mut self, owner: impl ContextHandler) -> &mut Self {
+    pub fn request_context(
+        &mut self,
+        owner: impl ContextHandler,
+    ) -> &mut Self {
         self.before.push(Action::ContextRequest(Box::new(owner)));
         self
     }
     /// Register an active wait over the head/state. The body stays with the
     /// driver. No callback or future exists when this layer is omitted.
-    pub fn before_async(&mut self, action: impl AsyncHeadAction<S> + 'static) -> &mut Self {
+    pub fn before_async(
+        &mut self,
+        action: impl AsyncHeadAction<S> + 'static,
+    ) -> &mut Self {
         self.before.push(Action::AsyncHead(Box::new(action)));
         self
     }
@@ -47,12 +59,14 @@ impl<S> HostLayerBuilder<S> {
     /// the owner's DispatchFuture; this callback is allocated at preparation.
     pub fn request(
         &mut self,
-        action: impl Fn(Request<RouteBody>) -> DispatchFuture + Send + Sync + 'static,
+        action: impl Fn(Request<RouteBody>) -> DispatchFuture
+        + Send
+        + Sync
+        + 'static,
     ) -> &mut Self {
         self.before.push(Action::Request(Box::new(action)));
         self
     }
-
 }
 
 impl<S, R> HostLayerBuilder<S, R> {
@@ -97,7 +111,13 @@ impl<S: AsMut<()>> AsyncHeadAction<S> for UnitHead {
         &'a self,
         head: &'a mut RequestParts,
         state: &'a mut S,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ControlFlow<RouteResponse>> + Send + 'a>> {
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = ControlFlow<RouteResponse>>
+                + Send
+                + 'a,
+        >,
+    > {
         self.0.call(head, state.as_mut())
     }
 }
@@ -105,33 +125,68 @@ impl<S: AsMut<()>> AsyncHeadAction<S> for UnitHead {
 #[cfg(feature = "rate-limit")]
 impl<R: 'static> HostPipelineBuilder<(), R> {
     /// Preserve state-independent extension actions in a typed host plan.
-    pub(crate) fn with_state<S: AsMut<()> + 'static>(self) -> HostPipelineBuilder<S, R> {
-        let layers = self.layers.into_iter().map(|layer| HostLayerBuilder {
-            before: layer.before.into_iter().map(|action| match action {
-                Action::Head(action) => Action::Head(Box::new(move |head, state: &mut S| {
-                    action(head, state.as_mut())
-                })),
-                Action::ContextHead(action) => Action::ContextHead(Box::new(move |head, state: &mut S, context| {
-                    action(head, state.as_mut(), context)
-                })),
-                Action::Request(action) => Action::Request(action),
-                Action::ContextRequest(action) => Action::ContextRequest(action),
-                Action::AsyncHead(action) => Action::AsyncHead(Box::new(UnitHead(action))),
-            }).collect(),
-            after: layer.after.into_iter().map(|action| {
-                Box::new(move |head: &mut ResponseParts, state: &mut S| action(head, state.as_mut())) as ResponseAction<S>
-            }).collect(),
-            body: layer.body.into_iter().map(|action| {
-                Box::new(move |body: RouteBody, state: &mut S| action(body, state.as_mut())) as BodyAction<S>
-            }).collect(),
-        }).collect();
+    pub(crate) fn with_state<S: AsMut<()> + 'static>(
+        self
+    ) -> HostPipelineBuilder<S, R> {
+        let layers = self
+            .layers
+            .into_iter()
+            .map(|layer| HostLayerBuilder {
+                before: layer
+                    .before
+                    .into_iter()
+                    .map(|action| match action {
+                        Action::Head(action) => Action::Head(Box::new(
+                            move |head, state: &mut S| {
+                                action(head, state.as_mut())
+                            },
+                        )),
+                        Action::ContextHead(action) => Action::ContextHead(
+                            Box::new(move |head, state: &mut S, context| {
+                                action(head, state.as_mut(), context)
+                            }),
+                        ),
+                        Action::Request(action) => Action::Request(action),
+                        Action::ContextRequest(action) => {
+                            Action::ContextRequest(action)
+                        }
+                        Action::AsyncHead(action) => {
+                            Action::AsyncHead(Box::new(UnitHead(action)))
+                        }
+                    })
+                    .collect(),
+                after: layer
+                    .after
+                    .into_iter()
+                    .map(|action| {
+                        Box::new(
+                            move |head: &mut ResponseParts, state: &mut S| {
+                                action(head, state.as_mut())
+                            },
+                        ) as ResponseAction<S>
+                    })
+                    .collect(),
+                body: layer
+                    .body
+                    .into_iter()
+                    .map(|action| {
+                        Box::new(move |body: RouteBody, state: &mut S| {
+                            action(body, state.as_mut())
+                        }) as BodyAction<S>
+                    })
+                    .collect(),
+            })
+            .collect();
         HostPipelineBuilder { layers }
     }
 }
 
 impl<S, R> HostPipelineBuilder<S, R> {
     #[cfg(feature = "rate-limit")]
-    pub(crate) fn prepend_layer(&mut self, layer: impl HostLayer<S, R>) -> crate::Result<()> {
+    pub(crate) fn prepend_layer(
+        &mut self,
+        layer: impl HostLayer<S, R>,
+    ) -> crate::Result<()> {
         let mut prepared = HostLayerBuilder::default();
         layer.prepare(&mut prepared)?;
         self.layers.insert(0, prepared);
@@ -154,7 +209,9 @@ impl<S, R> HostPipelineBuilder<S, R> {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.layers.iter().all(|layer| {
-            layer.before.is_empty() && layer.after.is_empty() && layer.body.is_empty()
+            layer.before.is_empty()
+                && layer.after.is_empty()
+                && layer.body.is_empty()
         })
     }
 

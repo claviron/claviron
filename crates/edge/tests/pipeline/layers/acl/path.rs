@@ -1,7 +1,8 @@
 use super::*;
 
 fn compile(yaml: &str) -> Arc<CompiledAcl> {
-    let rules: std::collections::HashMap<PathPrefix, AccessLimiter> = serde_yaml::from_str(yaml).unwrap();
+    let rules: std::collections::HashMap<PathPrefix, AccessLimiter> =
+        serde_yaml::from_str(yaml).unwrap();
     CompiledAcl::from_entries(rules).unwrap()
 }
 
@@ -40,9 +41,7 @@ fn longest_segment_prefix_wins_without_falling_back_after_denial() {
     assert!(
         blacklist.check("/unmatched", "203.0.113.1".parse().unwrap()).is_ok()
     );
-    assert!(
-        CompiledAcl::from_entries(std::iter::empty()).is_none()
-    );
+    assert!(CompiledAcl::from_entries(std::iter::empty()).is_none());
 }
 
 #[test]

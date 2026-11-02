@@ -19,7 +19,7 @@ pub struct VhostRecord {
 #[derive(Clone)]
 struct VhostEntry {
     record: Arc<VhostRecord>,
-    application: Option<crate::pipeline::RustRouter>,
+    application: Option<crate::pipeline::HostExecution>,
 }
 
 impl Deref for VhostEntry {
@@ -173,7 +173,7 @@ impl VhostTable {
     pub(crate) fn resolve_with_application(
         &self,
         host: &Host,
-    ) -> Option<(&VhostRecord, Option<&crate::pipeline::RustRouter>)> {
+    ) -> Option<(&VhostRecord, Option<&crate::pipeline::HostExecution>)> {
         self.resolve_entry(host)
             .map(|entry| (entry.record.as_ref(), entry.application.as_ref()))
     }
@@ -338,10 +338,7 @@ impl VhostTable {
             }
             Entry::Vacant(v) => {
                 v.insert(VhostEntry {
-                    record: Arc::new(VhostRecord {
-                        canonical,
-                        config,
-                    }),
+                    record: Arc::new(VhostRecord { canonical, config }),
                     application: None,
                 });
                 true

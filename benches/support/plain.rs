@@ -91,7 +91,9 @@ pub fn run<C, F, B>(
     group.bench_function("bind", |bencher| {
         bencher.iter_batched(
             request,
-            |request| host.request(black_box(request), RequestArrival::Established),
+            |request| {
+                host.request(black_box(request), RequestArrival::Established)
+            },
             BatchSize::SmallInput,
         );
     });

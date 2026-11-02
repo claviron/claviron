@@ -19,7 +19,9 @@ pub trait Routable: AnyComponent<AppState> {
     /// Directive codecs and compilers owned by this provider. Enumerated only
     /// while preparing a host snapshot; never consulted during dispatch.
     /// Native host extensions do not require the Axum application capability.
-    fn route_extensions(&self) -> Vec<Arc<dyn super::extension::RouteExtension>> {
+    fn route_extensions(
+        &self
+    ) -> Vec<Arc<dyn super::extension::RouteExtension>> {
         Vec::new()
     }
 

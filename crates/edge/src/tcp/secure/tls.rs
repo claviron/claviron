@@ -3,8 +3,10 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
-use crate::transport::{VhostCtx, VhostResolver, VhostTable, resolve_sni_from_table};
 use crate::transport::tls::TlsHost;
+use crate::transport::{
+    VhostCtx, VhostResolver, VhostTable, resolve_sni_from_table,
+};
 use claviron_http::ListenerId;
 use claviron_http::config::{ListenerConfig, TcpListenerConfig};
 use claviron_runtime::registry::Error;
@@ -40,7 +42,10 @@ pub(crate) struct AcceptedTls {
 }
 
 impl TlsAccept {
-    pub(crate) fn new(live: Arc<VhostResolver>, listener: ListenerId) -> Self {
+    pub(crate) fn new(
+        live: Arc<VhostResolver>,
+        listener: ListenerId,
+    ) -> Self {
         Self { live, listener }
     }
 
@@ -110,10 +115,10 @@ impl TlsAccept {
                 })?;
                 Arc::new(config)
             };
-            by_host.insert(canonical.clone(), TlsHost {
-                declaration: host.clone(),
-                config,
-            });
+            by_host.insert(
+                canonical.clone(),
+                TlsHost { declaration: host.clone(), config },
+            );
         }
         Ok(TlsPolicy { by_host })
     }
@@ -127,10 +132,15 @@ impl TlsAccept {
         let policy = hosts
             .prepared_ref::<VhostTlsPolicies>()
             .and_then(|policies| policies.0.get(&self.listener))
-            .ok_or_else(|| io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                format!("TLS listener '{}' has no published host policy", self.listener),
-            ))?;
+            .ok_or_else(|| {
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    format!(
+                        "TLS listener '{}' has no published host policy",
+                        self.listener
+                    ),
+                )
+            })?;
         let start = LazyConfigAcceptor::new(
             rustls::server::Acceptor::default(),
             crate::tcp::io::TcpIo::new(stream),
@@ -145,12 +155,18 @@ impl TlsAccept {
             }),
             "TLS ClientHello ALPN offered",
         );
-        let host = resolve_sni_from_table(&hosts, sni.as_deref()).map_err(|error| {
-            io::Error::new(io::ErrorKind::PermissionDenied, error.to_string())
-        })?;
+        let host = resolve_sni_from_table(&hosts, sni.as_deref()).map_err(
+            |error| {
+                io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    error.to_string(),
+                )
+            },
+        )?;
         // Named, so a refusal says which host was asked for: the name is the
         // only thing that tells a misrouted client from a missing binding.
-        let config = policy.by_host
+        let config = policy
+            .by_host
             .get(host.vhost_key.0.as_ref())
             .map(|host| host.config.clone())
             .ok_or_else(|| {

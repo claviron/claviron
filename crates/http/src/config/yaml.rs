@@ -84,7 +84,10 @@ pub struct HttpSnapshot {
 }
 
 impl PartialEq for HttpSnapshot {
-    fn eq(&self, other: &Self) -> bool {
+    fn eq(
+        &self,
+        other: &Self,
+    ) -> bool {
         #[cfg(feature = "metrics")]
         if self.metrics != other.metrics {
             return false;

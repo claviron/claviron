@@ -2,30 +2,36 @@ use super::*;
 
 #[test]
 fn file_routes_apply_default_root_before_normalizing_any_route_shape() {
-    for source in [
-        "{}",
-        "routes: {'/': {}}",
-        "routes: {'/': {}, '/api': {}}",
-    ] {
+    for source in ["{}", "routes: {'/': {}}", "routes: {'/': {}, '/api': {}}"] {
         let config: HostConfig = serde_yaml::from_str(source).unwrap();
         assert_eq!(config.files.root, std::path::Path::new("."), "{source}");
         for (_, route) in config.routes.iter() {
             assert_eq!(route.files.root, std::path::Path::new("."), "{source}");
         }
         if let Some(fallback) = config.fallback.as_ref() {
-            assert_eq!(fallback.files.root, std::path::Path::new("."), "{source}");
+            assert_eq!(
+                fallback.files.root,
+                std::path::Path::new("."),
+                "{source}"
+            );
         }
     }
 }
 
-#[cfg(all(feature = "lua", any(feature = "websocket", feature = "webtransport")))]
+#[cfg(all(
+    feature = "lua",
+    any(feature = "websocket", feature = "webtransport")
+))]
 #[test]
 fn lua_socket_declarations_include_scopes_without_duplicating_the_root() {
     let config: HostConfig = serde_yaml::from_str(
         "routes:\n  /:\n    lua: {application: root}\n  /api:\n    lua: {application: api}\n",
     ).unwrap();
-    let applications: Vec<_> = config.lua_routes()
-        .map(|(prefix, route)| (route.application.as_str(), prefix.map(|path| path.as_str())))
+    let applications: Vec<_> = config
+        .lua_routes()
+        .map(|(prefix, route)| {
+            (route.application.as_str(), prefix.map(|path| path.as_str()))
+        })
         .collect();
     assert_eq!(applications, [("root", None), ("api", Some("/api"))]);
 }
@@ -36,8 +42,11 @@ fn link_lifecycle_destinations_include_flat_and_scoped_routes() {
     let config: HostConfig = serde_yaml::from_str(
         "orbit: {fleet_name: first, application: root}\nroutes:\n  /api:\n    orbit: {fleet_name: second, application: api}\n  /assets:\n    static: {}\n",
     ).unwrap();
-    let destinations: Vec<_> = config.link_routes()
-        .map(|(_, route)| (route.fleet_name.as_str(), route.application.as_str()))
+    let destinations: Vec<_> = config
+        .link_routes()
+        .map(|(_, route)| {
+            (route.fleet_name.as_str(), route.application.as_str())
+        })
         .collect();
     assert_eq!(destinations, [("first", "root"), ("second", "api")]);
 }
@@ -142,8 +151,10 @@ fn file_routes_policy_child_inherits_directory_groups_without_sibling_mounts() {
         assert_eq!(mount.path.as_str(), format!("/frontend/{directory}"));
         assert_eq!(
             mount.dir,
-            std::env::current_dir().unwrap()
-                .join("public/shared/frontend").join(directory)
+            std::env::current_dir()
+                .unwrap()
+                .join("public/shared/frontend")
+                .join(directory)
         );
     }
 }

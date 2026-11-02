@@ -28,10 +28,7 @@ pub(crate) fn append_routes(
 
     for (prefix, application) in host.lua_routes() {
         for websocket in application.websockets() {
-            let path = mounted_websocket_path(
-                prefix,
-                &websocket.path,
-            );
+            let path = mounted_websocket_path(prefix, &websocket.path);
             let handler = Arc::new(WebSocketUpgrade {
                 origin: application.origin,
                 service: service.clone(),
@@ -72,8 +69,11 @@ impl crate::H2ConnectHandler for LuaWebSocketConnectHandler {
         _state: &AppState,
         ctx: &crate::AuthContext,
     ) -> crate::H2ConnectResult {
-        let route = configured_route(&ctx.host_config, &ctx.path, &self.application)
-            .ok_or_else(|| crate::H2ConnectReject::new(http::StatusCode::NOT_FOUND))?;
+        let route =
+            configured_route(&ctx.host_config, &ctx.path, &self.application)
+                .ok_or_else(|| {
+                    crate::H2ConnectReject::new(http::StatusCode::NOT_FOUND)
+                })?;
         if !allows_origin(
             route.origin,
             &ctx.headers,

@@ -61,10 +61,18 @@ fn direct_identity_without_a_transport_real_ip_is_shared_between_requests() {
             .header("x-real-ip", client)
             .body(())
             .unwrap();
-        let ServiceResult::Unhandled(admitted) = pipeline.prepare_with_state(request, IdentityState::default()) else { panic!("valid authority expected"); };
-        let identified = admitted.head().extensions.get::<Arc<ConnCtx>>().unwrap();
+        let ServiceResult::Unhandled(admitted) =
+            pipeline.prepare_with_state(request, IdentityState::default())
+        else {
+            panic!("valid authority expected");
+        };
+        let identified =
+            admitted.head().extensions.get::<Arc<ConnCtx>>().unwrap();
         assert!(Arc::ptr_eq(identified, &accepted));
-        assert_eq!(admitted.head().extensions.get::<RealIpExt>().unwrap().0, accepted.remote.ip());
+        assert_eq!(
+            admitted.head().extensions.get::<RealIpExt>().unwrap().0,
+            accepted.remote.ip()
+        );
         identities.push(identified.clone());
     }
     assert!(Arc::ptr_eq(&identities[0], &identities[1]));
@@ -91,10 +99,20 @@ fn explicit_identity_follows_authority_and_keeps_single_body_ownership() {
         .header("x-real-ip", "203.0.113.1")
         .body(body)
         .unwrap();
-    let ServiceResult::Unhandled(admitted) = pipeline.prepare_with_state(request, IdentityState::default()) else { panic!("valid authority expected"); };
-    assert!(Arc::ptr_eq(admitted.head().extensions.get::<Arc<ConnCtx>>().unwrap(), &accepted));
+    let ServiceResult::Unhandled(admitted) =
+        pipeline.prepare_with_state(request, IdentityState::default())
+    else {
+        panic!("valid authority expected");
+    };
+    assert!(Arc::ptr_eq(
+        admitted.head().extensions.get::<Arc<ConnCtx>>().unwrap(),
+        &accepted
+    ));
     assert_eq!(admitted.head().uri, "/ok?raw=%2F");
-    let admitted = admitted.map_body(|body| { assert_eq!(body.bytes.as_ptr(), pointer); body });
+    let admitted = admitted.map_body(|body| {
+        assert_eq!(body.bytes.as_ptr(), pointer);
+        body
+    });
     assert_eq!(dropped.load(Ordering::Relaxed), 0);
     drop(admitted);
     assert_eq!(dropped.load(Ordering::Relaxed), 1);
@@ -107,10 +125,9 @@ fn explicit_identity_follows_authority_and_keeps_single_body_ownership() {
             dropped: dropped.clone(),
         })
         .unwrap();
-    let ServiceResult::Handled(reply) = pipeline.prepare_with_state(
-        request,
-        IdentityState::default(),
-    ) else {
+    let ServiceResult::Handled(reply) =
+        pipeline.prepare_with_state(request, IdentityState::default())
+    else {
         panic!("invalid authority must reject before identity")
     };
     reply.finish_with(|reason| {

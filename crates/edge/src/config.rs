@@ -217,9 +217,13 @@ impl HostConfig {
 
     /// One declaration view: flat fields are the root; explicit children keep
     /// their route-table prefix. An explicit `/` is already merged into self.
-    pub fn scopes(&self) -> impl Iterator<Item = (Option<&PathPrefix>, &HostConfig)> {
+    pub fn scopes(
+        &self
+    ) -> impl Iterator<Item = (Option<&PathPrefix>, &HostConfig)> {
         std::iter::once((None, self)).chain(
-            self.routes.iter().filter(|(prefix, _)| prefix.as_str() != "/")
+            self.routes
+                .iter()
+                .filter(|(prefix, _)| prefix.as_str() != "/")
                 .map(|(prefix, route)| (Some(prefix), route.as_ref())),
         )
     }
@@ -230,14 +234,20 @@ impl HostConfig {
         prefix: &PathPrefix,
         setting: impl Fn(&'a RouteConfig) -> Option<&'a T>,
     ) -> Option<&'a T> {
-        self.routes.iter()
+        self.routes
+            .iter()
             .filter(|(ancestor, _)| ancestor.has_path_segment(prefix.as_str()))
             .find_map(|(_, scope)| setting(&scope.fields.routing))
             .or_else(|| setting(&self.fields.routing))
     }
 
-    #[cfg(all(feature = "lua", any(feature = "websocket", feature = "webtransport")))]
-    pub(crate) fn lua_routes(&self) -> impl Iterator<Item = (Option<&PathPrefix>, &LuaRouteConfig)> {
+    #[cfg(all(
+        feature = "lua",
+        any(feature = "websocket", feature = "webtransport")
+    ))]
+    pub(crate) fn lua_routes(
+        &self
+    ) -> impl Iterator<Item = (Option<&PathPrefix>, &LuaRouteConfig)> {
         self.scopes().flat_map(|(prefix, scope)| {
             scope.lua().iter().map(move |route| (prefix, route))
         })
@@ -245,7 +255,9 @@ impl HostConfig {
 
     /// Every Link destination needed by host-level lifecycle coordination.
     #[cfg(feature = "orbit")]
-    pub(crate) fn link_routes(&self) -> impl Iterator<Item = (Option<&PathPrefix>, &OrbitRouteConfig)> {
+    pub(crate) fn link_routes(
+        &self
+    ) -> impl Iterator<Item = (Option<&PathPrefix>, &OrbitRouteConfig)> {
         self.scopes().flat_map(|(prefix, scope)| {
             scope.orbit().iter().map(move |route| (prefix, route))
         })
@@ -264,7 +276,6 @@ impl HostConfig {
     pub fn tls_policy(&self) -> HandshakePolicy {
         self.tls.clone()
     }
-
 }
 
 /// The file service reads a host through this view; it does not know hosts.

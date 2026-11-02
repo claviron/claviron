@@ -11,19 +11,19 @@ use claviron_runtime::{
 use claviron_types::Host;
 
 use super::backend::BackendPlan;
-use super::owner::bind_other;
-use crate::pipeline::layers::{RouteSelectionLayer, scope_steps};
-use super::{HostHandler, HostPipelineBuilder};
-use crate::pipeline::apps::{HostAppRegistry, ResolvedRouteExtensions};
-use crate::pipeline::extension::{RouteContext, RouteLayer};
-use crate::pipeline::other::OtherService;
+use super::{HostExecution, HostHandler, HostPipelineBuilder};
 use crate::HostConfig;
+use crate::pipeline::RustRouter;
+use crate::pipeline::apps::{HostAppRegistry, HostContributions, ResolvedRouteExtensions};
+use crate::pipeline::extension::{RouteContext, RouteLayer};
+use crate::pipeline::layers::{RouteSelectionLayer, scope_steps};
 
 struct Compiler<'a> {
     #[cfg(feature = "rate-limit")]
     quotas: Option<&'a crate::pipeline::layers::HostQuotas>,
     #[cfg(feature = "broadcast")]
     state: &'a AppState,
+    router: Option<RustRouter>,
     applications: &'a [Arc<dyn HostHandler>],
     layers: &'a [Arc<dyn RouteLayer>],
     registry: Option<Arc<HostAppRegistry>>,
@@ -39,7 +39,7 @@ impl Compiler<'_> {
         accept_applications: bool,
         handler: Option<&Arc<dyn HostHandler>>,
         layers: &[Arc<dyn RouteLayer>],
-    ) -> Result<OtherService> {
+    ) -> Result<HostExecution> {
         let mut steps = scope_steps(&config);
         #[cfg(feature = "broadcast")]
         if let Some(rest) =
@@ -58,43 +58,57 @@ impl Compiler<'_> {
         let applications = selected.as_deref().unwrap_or(registered);
         let mut builder = HostPipelineBuilder::new();
         for layer in self.layers.iter().chain(layers) {
-            builder.layer(layer.as_ref()).map_err(|error| Error::msg(error.to_string()))?;
+            builder
+                .layer(layer.as_ref())
+                .map_err(|error| Error::msg(error.to_string()))?;
         }
         #[cfg(feature = "rate-limit")]
         if let Some(quotas) = self.quotas {
-            let builder = crate::pipeline::layers::QuotaPolicy::attach(builder, quotas)
-                .map_err(|error| Error::msg(error.to_string()))?;
+            let builder =
+                crate::pipeline::layers::QuotaPolicy::attach(builder, quotas)
+                    .map_err(|error| Error::msg(error.to_string()))?;
             return self.finish_scope(
-                builder, plan.terminal, applications, steps,
-                #[cfg(feature = "websocket")] accept_applications,
+                builder,
+                applications,
+                steps,
+                accept_applications,
             );
         }
-        self.finish_scope(
-            builder, plan.terminal, applications, steps,
-            #[cfg(feature = "websocket")] accept_applications,
-        )
+        self.finish_scope(builder, applications, steps, accept_applications)
     }
 
     fn finish_scope<S: Default + Send + 'static>(
         &self,
         mut builder: HostPipelineBuilder<S>,
-        terminal: OtherService,
         applications: &[Arc<dyn HostHandler>],
         steps: Vec<Arc<dyn super::DispatchStep>>,
-        #[cfg(feature = "websocket")] accept_applications: bool,
-    ) -> Result<OtherService> {
+        accept_applications: bool,
+    ) -> Result<HostExecution> {
         #[cfg(feature = "websocket")]
         if accept_applications && let Some(websocket) = &self.websocket {
-            builder.layer(websocket.clone()).map_err(|error| Error::msg(error.to_string()))?;
+            builder
+                .layer(websocket.clone())
+                .map_err(|error| Error::msg(error.to_string()))?;
         }
         for application in applications {
-            builder.layer(application.clone()).map_err(|error| Error::msg(error.to_string()))?;
+            builder
+                .layer(application.clone())
+                .map_err(|error| Error::msg(error.to_string()))?;
+        }
+        if accept_applications && let Some(router) = &self.router {
+            if builder.is_empty() {
+                return Ok(HostExecution::router(router.clone()));
+            }
+            builder
+                .layer(router.clone())
+                .map_err(|error| Error::msg(error.to_string()))?;
         }
         for step in steps {
-            builder.layer(step).map_err(|error| Error::msg(error.to_string()))?;
+            builder
+                .layer(step)
+                .map_err(|error| Error::msg(error.to_string()))?;
         }
-        bind_other(builder, terminal)
-            .map_err(|error| Error::msg(error.to_string()))
+        Ok(builder.build().into_execution())
     }
 }
 
@@ -102,20 +116,23 @@ pub(crate) fn prepare(
     state: &AppState,
     host: &Host,
     config: Arc<HostConfig>,
-    applications: &[Arc<dyn HostHandler>],
-    layers: &[Arc<dyn RouteLayer>],
-    #[cfg(feature = "rate-limit")] quotas: Option<&crate::pipeline::layers::HostQuotas>,
+    router: Option<RustRouter>,
+    contributions: &HostContributions,
+    #[cfg(feature = "rate-limit")] quotas: Option<
+        &crate::pipeline::layers::HostQuotas,
+    >,
     #[cfg(feature = "websocket")] websocket: Option<
         Arc<crate::pipeline::H1UpgradeRegistry>,
     >,
-) -> Result<OtherService> {
+) -> Result<HostExecution> {
     let compiler = Compiler {
+        router,
         #[cfg(feature = "rate-limit")]
         quotas,
         #[cfg(feature = "broadcast")]
         state,
-        applications,
-        layers,
+        applications: &contributions.applications,
+        layers: &contributions.layers,
         registry: state.registry_ref().resolve::<HostAppRegistry>(),
         #[cfg(feature = "websocket")]
         websocket: crate::pipeline::layers::WebSocketStage::prepare(
@@ -124,7 +141,13 @@ pub(crate) fn prepare(
     };
     let fallback = config.fallback().cloned().unwrap_or_else(|| config.clone());
     let root = claviron_http::ext::PathPrefix::root();
-    let base = BackendPlan::prepare(&RouteContext { state, host, config: config.as_ref(), route: fallback.as_ref(), prefix: &root });
+    let base = BackendPlan::prepare(&RouteContext {
+        state,
+        host,
+        config: config.as_ref(),
+        route: fallback.as_ref(),
+        prefix: &root,
+    });
     let layers = match &compiler.registry {
         Some(registry) => registry.resolve_host_layers(&RouteContext {
             state,
@@ -167,7 +190,13 @@ pub(crate) fn prepare(
                         ));
                     }
                 };
-                let plan = BackendPlan::prepare(&RouteContext { state, host, config: config.as_ref(), route, prefix });
+                let plan = BackendPlan::prepare(&RouteContext {
+                    state,
+                    host,
+                    config: config.as_ref(),
+                    route,
+                    prefix,
+                });
                 let owner = compiler.scope(
                     route.clone(),
                     plan,
@@ -193,12 +222,14 @@ pub(crate) fn prepare(
     }
     let rejected = compiler.scope(fallback, base, false, None, &layers)?;
     let mut builder = HostPipelineBuilder::<()>::new();
-    builder.layer(RouteSelectionLayer::new(RouteDispatch {
-        entries: Arc::new(RouteTable::new(entries)),
-        fallback: default,
-        rejected,
-    })).map_err(|error| Error::msg(error.to_string()))?;
-    Ok(OtherService::Pipeline(Arc::new(builder.build())))
+    builder
+        .layer(RouteSelectionLayer::new(RouteDispatch {
+            entries: Arc::new(RouteTable::new(entries)),
+            fallback: default,
+            rejected,
+        }))
+        .map_err(|error| Error::msg(error.to_string()))?;
+    Ok(builder.build().into_execution())
 }
 
 #[cfg(test)]

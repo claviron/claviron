@@ -37,4 +37,3 @@ impl<S> PreparedReply<'_, S> {
         self.pipeline.finish(self.response, self.state, self.scope)
     }
 }
-

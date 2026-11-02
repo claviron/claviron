@@ -41,11 +41,14 @@ pub(in crate::pipeline) fn bind(
     if state.registry_ref().resolve::<TransportService>().is_none() {
         return Err(registry::Error::msg("Orbit transport is not registered"));
     }
-    let routes = config.link_routes()
+    let routes = config
+        .link_routes()
         .map(|(_, route)| PreparedRoute {
             route: route.clone(),
             target: super::prepare_target(
-                state, route.fleet_name, route.application.clone().into(),
+                state,
+                route.fleet_name,
+                route.application.clone().into(),
             ),
         })
         .collect();

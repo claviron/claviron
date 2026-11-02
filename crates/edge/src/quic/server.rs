@@ -185,8 +185,7 @@ pub(crate) fn prepare_vhosts<R>(
             move |table, previous: Option<&VhostTlsPolicies>| {
                 let mut policies = BTreeMap::new();
                 for (id, template) in &initial {
-                    let old = previous
-                        .and_then(|previous| previous.0.get(id));
+                    let old = previous.and_then(|previous| previous.0.get(id));
                     let policy = H3TlsAccept::prepare_policy(
                         template,
                         table,
@@ -276,8 +275,10 @@ impl ConfigObserver for H3Server {
             self.resolve_deps(&self.state).map_err(congif::Error::msg)?;
         let snapshot = build_snapshots(config, deps.as_ref())
             .map_err(congif::Error::msg)?;
-        prepare_vhosts(&deps, &snapshot, || self.current.publish(snapshot.clone()))
-            .map_err(congif::Error::msg)?;
+        prepare_vhosts(&deps, &snapshot, || {
+            self.current.publish(snapshot.clone())
+        })
+        .map_err(congif::Error::msg)?;
         self.configure_instances(config);
         info!("🔁 H3Server reconfigured");
         Ok(())
@@ -341,7 +342,9 @@ impl Reloadable<AppState> for H3Server {
         let deps = self.resolve_deps(state)?;
         let config = state.config_reader().snapshot::<Self>()?;
         let snapshot = build_snapshots(&config, deps.as_ref())?;
-        prepare_vhosts(&deps, &snapshot, || self.current.publish(snapshot.clone()))?;
+        prepare_vhosts(&deps, &snapshot, || {
+            self.current.publish(snapshot.clone())
+        })?;
         self.configure_instances(&config);
         info!("🔁 H3Server reloaded");
         Ok(())

@@ -1,10 +1,18 @@
 use super::*;
-use http::{Request, Extensions};
 use crate::service::resolve_sni_from_table;
+use http::{Extensions, Request};
 
-fn inject(template: &ContextExtensions, connection: &Arc<ConnCtx>, request: &mut Request<()>) {
+fn inject(
+    template: &ContextExtensions,
+    connection: &Arc<ConnCtx>,
+    request: &mut Request<()>,
+) {
     let (mut head, body) = std::mem::take(request).into_parts();
-    template.inject_fixed(&mut head, connection, connection.real_ip.unwrap_or_else(|| connection.remote.ip()));
+    template.inject_fixed(
+        &mut head,
+        connection,
+        connection.real_ip.unwrap_or_else(|| connection.remote.ip()),
+    );
     *request = Request::from_parts(head, body);
 }
 use claviron_http::config::HttpPolicy;

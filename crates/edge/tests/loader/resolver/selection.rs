@@ -1,6 +1,8 @@
 use super::*;
 use crate::pipeline::other::{OtherHandler, OtherService};
-use crate::pipeline::{HostAppSnapshot, RustRouter};
+use crate::pipeline::{
+    HostAppSnapshot, HostExecution, HostPipelineBuilder, RustRouter,
+};
 use crate::service::{
     VhostCtx, resolve_request_authority, resolve_sni_from_table,
 };
@@ -9,7 +11,7 @@ use claviron_http::{RouteBody, RouteFuture};
 use http::{HeaderValue, Request};
 use std::future::Future;
 use std::pin::pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 
 fn host(name: &str) -> Host {
@@ -24,14 +26,27 @@ fn resolver() -> VhostResolver {
     resolver
 }
 
-struct Named(HeaderValue);
+struct Named(HeaderValue, AtomicUsize);
 impl OtherHandler for Named {
-    fn call(&self, request: Request<RouteBody>) -> RouteFuture {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> RouteFuture {
         drop(request);
         let mut response = http::Response::new(claviron_http::empty_body());
         response.headers_mut().insert("x-generation", self.0.clone());
+        response.headers_mut().insert(
+            "x-sequence",
+            HeaderValue::from(self.1.fetch_add(1, Ordering::Relaxed)),
+        );
         Box::pin(std::future::ready(Ok(response)))
     }
+}
+
+fn execution(router: RustRouter) -> HostExecution {
+    let mut builder = HostPipelineBuilder::<()>::new();
+    builder.layer(router).unwrap();
+    builder.build().into_execution()
 }
 
 fn applications(
@@ -45,8 +60,11 @@ fn applications(
         let root = record.config.root();
         let name = marker
             .unwrap_or_else(|| root.file_name().unwrap().to_str().unwrap());
-        let app = RustRouter::Other(OtherService::new(Named(HeaderValue::from_str(name).unwrap())));
-        apps.insert(canonical.clone(), app).unwrap();
+        let app = RustRouter::Other(OtherService::new(Named(
+            HeaderValue::from_str(name).unwrap(),
+            AtomicUsize::new(0),
+        )));
+        apps.insert(canonical.clone(), execution(app)).unwrap();
     }
     Ok(apps)
 }
@@ -75,9 +93,13 @@ fn assert_selected(
     marker: &str,
 ) {
     assert_eq!(ctx.vhost_key.0.as_ref(), &host(canonical));
-    let RustRouter::Other(owner) = ctx.application.as_ref().unwrap() else { panic!("native owner expected"); };
+    let owner = ctx.application.as_ref().unwrap();
     let mut response = owner.handle(Request::new(claviron_http::empty_body()));
-    let Poll::Ready(Ok(response)) = response.as_mut().poll(&mut Context::from_waker(Waker::noop())) else { panic!("ready owner expected"); };
+    let Poll::Ready(Ok(response)) =
+        response.as_mut().poll(&mut Context::from_waker(Waker::noop()))
+    else {
+        panic!("ready owner expected");
+    };
     assert_eq!(response.headers()["x-generation"], marker);
 }
 
@@ -101,12 +123,25 @@ fn host_selection_alias_default_and_sni_share_the_bound_application() {
             ));
         }
     }
-    let canonical = resolve(&table, "a.test").unwrap();
-    let alias = resolve(&table, "alias.test").unwrap();
-    let first = canonical.application.unwrap();
-    let second = alias.application.unwrap();
-    let (RustRouter::Other(OtherService::Handler(first)), RustRouter::Other(OtherService::Handler(second))) = (first, second) else { panic!("shared prepared handlers expected"); };
-    assert!(Arc::ptr_eq(&first, &second));
+    let sequence = |name| {
+        let context = resolve(&table, name).unwrap();
+        let mut response = context
+            .application
+            .unwrap()
+            .handle(Request::new(claviron_http::empty_body()));
+        let Poll::Ready(Ok(response)) =
+            response.as_mut().poll(&mut Context::from_waker(Waker::noop()))
+        else {
+            panic!("ready handler expected");
+        };
+        response.headers()["x-sequence"]
+            .to_str()
+            .unwrap()
+            .parse::<usize>()
+            .unwrap()
+    };
+    let canonical = sequence("a.test");
+    assert_eq!(sequence("alias.test"), canonical + 1);
 }
 
 #[test]
@@ -272,10 +307,12 @@ fn install_owned(
                 );
                 apps.insert(
                     canonical.clone(),
-                    RustRouter::Other(OtherService::new(KeepsDeclarations {
-                        _declarations: table.clone(),
-                        _generation: generation.clone(),
-                    })),
+                    execution(RustRouter::Other(OtherService::new(
+                        KeepsDeclarations {
+                            _declarations: table.clone(),
+                            _generation: generation.clone(),
+                        },
+                    ))),
                 )
                 .unwrap();
             }

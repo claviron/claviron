@@ -35,14 +35,18 @@ impl<K: KeyProvider> Admission for RateLimiter<K> {
     fn config(&self) -> &QuotaConfig {
         self.store().config()
     }
-    fn reports_headers(&self) -> bool { self.reports_headers() }
+    fn reports_headers(&self) -> bool {
+        self.reports_headers()
+    }
 }
 
 #[derive(Clone)]
 pub(crate) struct RegisteredQuota(Arc<dyn Admission>);
 
 impl RegisteredQuota {
-    pub(crate) fn reports_headers(&self) -> bool { self.0.reports_headers() }
+    pub(crate) fn reports_headers(&self) -> bool {
+        self.0.reports_headers()
+    }
     pub(crate) fn check(
         &self,
         request: &RequestHead<'_>,
@@ -143,7 +147,9 @@ impl QuotaRegistrations {
         let declarations = declarations(config);
         let registered = self.entries.get(host).cloned().unwrap_or_default();
         // Structural validation ran in seal(); dry runs never claim SHM owners.
-        if config_check { return Ok(None); }
+        if config_check {
+            return Ok(None);
+        }
         if let Some(previous) = previous {
             let unchanged = match previous {
                 Some(old) => {
@@ -189,20 +195,22 @@ impl QuotaRegistrations {
             b.len().cmp(&a.len()).then_with(|| a.as_str().cmp(b.as_str()))
         });
         let rules: Arc<[(PathPrefix, RegisteredQuota)]> = rules.into();
-        Ok(Some(Arc::new(HostQuotas {
-            declarations,
-            registered,
-            rules,
-        })))
+        Ok(Some(Arc::new(HostQuotas { declarations, registered, rules })))
     }
 }
 
 fn declarations(config: &HostConfig) -> Vec<(PathPrefix, RateLimitConfig)> {
-    config.scopes().filter_map(|(prefix, scope)| {
-        scope.rate_limit.as_ref().map(|definition| (
-            prefix.cloned().unwrap_or_else(PathPrefix::root), definition.clone(),
-        ))
-    }).collect()
+    config
+        .scopes()
+        .filter_map(|(prefix, scope)| {
+            scope.rate_limit.as_ref().map(|definition| {
+                (
+                    prefix.cloned().unwrap_or_else(PathPrefix::root),
+                    definition.clone(),
+                )
+            })
+        })
+        .collect()
 }
 
 fn validate_prefix(prefix: &PathPrefix) -> Result<()> {

@@ -73,7 +73,10 @@ impl DispatchStep for WebSocketStage {
 }
 
 impl<S> HostLayer<S> for Arc<WebSocketStage> {
-    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
         layer.request(move |request| self.call(request));
         Ok(())
     }

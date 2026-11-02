@@ -5,7 +5,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::extract::FromRequestParts;
 use axum::response::{IntoResponse, Response};
-use claviron_http::{RouteBody, RouteFuture, RouteResponse, ServiceResult};
+use claviron_http::{RouteBody, RouteResponse, ServiceResult};
 use futures_util::FutureExt;
 use http::{Request, StatusCode, request::Parts};
 use std::future::Future;
@@ -14,7 +14,6 @@ use tower::ServiceExt;
 use super::host::{
     ApplicationHandler, HostHandler, HostHandlerFuture, HostRequest,
 };
-use super::other::{OtherHandler, OtherService};
 use crate::config::{HostConfig, HostConfigExt};
 
 /// Rejection for the [`HostConfigExt`] extractor.
@@ -41,19 +40,6 @@ impl<S: Send + Sync> FromRequestParts<S> for HostConfigExt {
 }
 
 struct AxumApplication(Router);
-
-impl OtherHandler for AxumApplication {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-    ) -> RouteFuture {
-        Box::pin(ApplicationHandler::call(self.0.clone(), request).map(Ok))
-    }
-}
-
-pub(crate) fn owner(router: Router) -> OtherService {
-    OtherService::new(AxumApplication(router))
-}
 
 impl ApplicationHandler for Router {
     fn call(

@@ -9,12 +9,12 @@ use claviron_http::listener::HttpProtocol;
 use claviron_http::{RouteBody, RouteResponse};
 use http::{Request, StatusCode};
 
+use super::AuthorityError;
 #[cfg(feature = "tcp")]
 use super::CleartextRequest;
 use super::extensions::VhostCtx;
-use super::AuthorityError;
 use crate::pipeline::host::HostPolicy;
-use crate::pipeline::{AuthContext, RustRouter};
+use crate::pipeline::{AuthContext, HostExecution};
 
 mod dispatch;
 
@@ -45,7 +45,9 @@ pub enum RequestRejection {
 }
 
 impl AsRef<RequestArrival> for RequestArrival {
-    fn as_ref(&self) -> &RequestArrival { self }
+    fn as_ref(&self) -> &RequestArrival {
+        self
+    }
 }
 
 impl RequestRejection {
@@ -54,9 +56,7 @@ impl RequestRejection {
             Self::MissingProtocol
             | Self::MissingIdentity
             | Self::InvalidRedirect => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Misdirected => {
-                StatusCode::MISDIRECTED_REQUEST
-            }
+            Self::Misdirected => StatusCode::MISDIRECTED_REQUEST,
             Self::UpgradeForbidden | Self::AccessDenied => {
                 StatusCode::FORBIDDEN
             }
@@ -72,36 +72,52 @@ impl RequestRejection {
 /// retains transport facts and declarations; it installs no host actions.
 #[derive(Clone)]
 pub struct HostService {
-    app: RustRouter,
+    app: HostExecution,
     policy: Arc<HostPolicy>,
 }
 
 impl HostService {
     pub fn new(
-        app: impl Into<RustRouter>,
+        app: HostExecution,
         connection: Arc<ConnCtx>,
         host: VhostCtx,
         listener: HttpPolicy,
     ) -> Self {
-        Self { app: app.into(), policy: Arc::new(HostPolicy::new(connection, host, listener)) }
+        Self {
+            app,
+            policy: Arc::new(HostPolicy::new(connection, host, listener)),
+        }
     }
 
     /// Retain the original native body and accepted facts without executing
     /// policies or populating extensions. Host actions belong to HostPipeline.
-    pub fn request<B>(&self, request: Request<B>, arrival: RequestArrival) -> PreparedRequest<B> {
+    pub fn request<B>(
+        &self,
+        request: Request<B>,
+        arrival: RequestArrival,
+    ) -> PreparedRequest<B> {
         self.clone().into_request(request, arrival)
     }
 
     #[cfg(feature = "tcp")]
-    pub(crate) fn request_cleartext<B>(self, request: CleartextRequest<B>) -> PreparedRequest<B> {
+    pub(crate) fn request_cleartext<B>(
+        self,
+        request: CleartextRequest<B>,
+    ) -> PreparedRequest<B> {
         let (request, _) = request.into_parts();
         self.into_request(request, RequestArrival::Established)
     }
 
-    fn into_request<B>(self, request: Request<B>, arrival: RequestArrival) -> PreparedRequest<B> {
+    fn into_request<B>(
+        self,
+        request: Request<B>,
+        arrival: RequestArrival,
+    ) -> PreparedRequest<B> {
         PreparedRequest {
             connection: self.policy.connection.clone(),
-            request, service: self, arrival,
+            request,
+            service: self,
+            arrival,
         }
     }
 }

@@ -1,5 +1,5 @@
-use crate::pipeline::upstream::UpstreamStage;
 use super::{DispatchStep, HostLayer, HostLayerBuilder};
+use crate::pipeline::upstream::UpstreamStage;
 
 impl<S> HostLayer<S> for UpstreamStage {
     fn prepare(

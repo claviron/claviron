@@ -108,7 +108,10 @@ fn unknown_names_without_a_catchall_do_not_become_bindings() {
             Err(HostRejection::NotHosted(rejected)) if rejected == name
         ));
     }
-    assert!(matches!(resolve_sni_from_table(&table, None), Err(HostRejection::Missing)));
+    assert!(matches!(
+        resolve_sni_from_table(&table, None),
+        Err(HostRejection::Missing)
+    ));
     assert!(matches!(
         resolve_sni_from_table(&table, Some("bad name")),
         Err(HostRejection::Invalid(..))

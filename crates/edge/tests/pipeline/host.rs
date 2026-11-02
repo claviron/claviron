@@ -295,7 +295,8 @@ fn later_response_only_layer_does_not_decorate_earlier_rejection() {
         }))
         .unwrap();
     let pipeline = builder.build();
-    let ServiceResult::Handled(reply) = pipeline.prepare(Request::new(empty_body()))
+    let ServiceResult::Handled(reply) =
+        pipeline.prepare(Request::new(empty_body()))
     else {
         panic!("expected early reply")
     };
@@ -321,22 +322,24 @@ fn unhandled_body_reaches_terminal_once_with_original_buffers_and_trailers() {
     assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
     assert_eq!(prepared.head().extensions.get::<u32>(), Some(&17));
     let checked = counts.clone();
-    let response = ready(prepared.map_body(boxed_body).dispatch(move |request| async move {
-        assert_eq!(request.headers()["x-example"], "original");
-        assert_eq!(request.uri().query(), Some("source=body"));
-        let mut body = request.into_body();
-        for address in addresses {
-            let bytes =
-                body.frame().await.unwrap().unwrap().into_data().unwrap();
-            assert_eq!(bytes.as_ptr() as usize, address);
-        }
-        let trailers =
-            body.frame().await.unwrap().unwrap().into_trailers().unwrap();
-        assert_eq!(trailers["x-example-end"], "complete");
-        assert!(body.frame().await.is_none());
-        assert_eq!(checked.polls.load(Ordering::Relaxed), 4);
-        Response::new(empty_body())
-    }));
+    let response = ready(prepared.map_body(boxed_body).dispatch(
+        move |request| async move {
+            assert_eq!(request.headers()["x-example"], "original");
+            assert_eq!(request.uri().query(), Some("source=body"));
+            let mut body = request.into_body();
+            for address in addresses {
+                let bytes =
+                    body.frame().await.unwrap().unwrap().into_data().unwrap();
+                assert_eq!(bytes.as_ptr() as usize, address);
+            }
+            let trailers =
+                body.frame().await.unwrap().unwrap().into_trailers().unwrap();
+            assert_eq!(trailers["x-example-end"], "complete");
+            assert!(body.frame().await.is_none());
+            assert_eq!(checked.polls.load(Ordering::Relaxed), 4);
+            Response::new(empty_body())
+        },
+    ));
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
 }
@@ -392,9 +395,11 @@ fn cancelling_before_first_poll_never_starts_handler_or_response_actions() {
     let prepared = unhandled(
         pipeline.prepare_with_state(request, DropGuard(dropped.clone())),
     );
-    let future = prepared.map_body(boxed_body).dispatch(|_| -> std::future::Ready<RouteResponse> {
-        panic!("handler must not start before first poll")
-    });
+    let future = prepared.map_body(boxed_body).dispatch(
+        |_| -> std::future::Ready<RouteResponse> {
+            panic!("handler must not start before first poll")
+        },
+    );
     drop(future);
     assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
     assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
@@ -411,14 +416,15 @@ fn cancelling_pending_handler_drops_request_and_state_once() {
     let prepared = unhandled(
         pipeline.prepare_with_state(request, DropGuard(dropped.clone())),
     );
-    let mut future = Box::pin(prepared.map_body(boxed_body).dispatch(move |request| {
-        entered.fetch_add(1, Ordering::Relaxed);
-        async move {
-            futures_util::future::pending::<()>().await;
-            drop(request);
-            Response::new(empty_body())
-        }
-    }));
+    let mut future =
+        Box::pin(prepared.map_body(boxed_body).dispatch(move |request| {
+            entered.fetch_add(1, Ordering::Relaxed);
+            async move {
+                futures_util::future::pending::<()>().await;
+                drop(request);
+                Response::new(empty_body())
+            }
+        }));
     assert!(
         future
             .as_mut()
@@ -442,12 +448,14 @@ fn cancellation_while_reading_body_releases_its_single_owner() {
     let prepared = unhandled(
         pipeline.prepare_with_state(request, DropGuard(dropped.clone())),
     );
-    let mut future = Box::pin(prepared.map_body(boxed_body).dispatch(|request| async move {
-        let mut body = request.into_body();
-        assert!(body.frame().await.unwrap().unwrap().is_data());
-        let _ = body.frame().await;
-        Response::new(empty_body())
-    }));
+    let mut future = Box::pin(prepared.map_body(boxed_body).dispatch(
+        |request| async move {
+            let mut body = request.into_body();
+            assert!(body.frame().await.unwrap().unwrap().is_data());
+            let _ = body.frame().await;
+            Response::new(empty_body())
+        },
+    ));
     assert!(
         future
             .as_mut()
@@ -467,15 +475,17 @@ fn body_wait_resumes_only_when_original_source_wakes_it() {
     let (mut request, counts, _) = request();
     let gate = Arc::new(Gate::default());
     request.body_mut().gate = Some(gate.clone());
-    let mut future = Box::pin(unhandled(pipeline.prepare(request)).map_body(boxed_body).dispatch(
-        |request| async move {
-            let mut body = request.into_body();
-            while let Some(frame) = body.frame().await {
-                frame.unwrap();
-            }
-            Response::new(empty_body())
-        },
-    ));
+    let mut future = Box::pin(
+        unhandled(pipeline.prepare(request)).map_body(boxed_body).dispatch(
+            |request| async move {
+                let mut body = request.into_body();
+                while let Some(frame) = body.frame().await {
+                    frame.unwrap();
+                }
+                Response::new(empty_body())
+            },
+        ),
+    );
     let awakened = Arc::new(WakeCounter::default());
     let waker = Waker::from(awakened.clone());
     let mut context = Context::from_waker(&waker);
@@ -538,9 +548,10 @@ fn response_body_keeps_moved_guard_until_completion_or_cancellation() {
             pipeline
                 .prepare_with_state(request, Some(DropGuard(dropped.clone()))),
         );
-        let mut response = ready(prepared.map_body(boxed_body).dispatch(|request| async {
-            Response::new(request.into_body())
-        }));
+        let mut response =
+            ready(prepared.map_body(boxed_body).dispatch(|request| async {
+                Response::new(request.into_body())
+            }));
         assert_eq!(dropped.load(Ordering::Relaxed), 0);
         let first = ready(response.body_mut().frame()).unwrap().unwrap();
         assert_eq!(first.data_ref().unwrap().as_ptr() as usize, addresses[0]);
@@ -566,10 +577,11 @@ fn streaming_body_errors_reach_the_response_consumer() {
         >(
             std::io::Error::other("example stream failure"),
         )]));
-    let mut response =
-        ready(unhandled(pipeline.prepare(Request::new(body))).map_body(boxed_body).dispatch(
-            |request| async { Response::new(request.into_body()) },
-        ));
+    let mut response = ready(
+        unhandled(pipeline.prepare(Request::new(body)))
+            .map_body(boxed_body)
+            .dispatch(|request| async { Response::new(request.into_body()) }),
+    );
     let error = ready(response.body_mut().frame()).unwrap().unwrap_err();
     assert_eq!(error.to_string(), "example stream failure");
 }
@@ -594,8 +606,10 @@ fn interleaved_requests_share_plan_but_not_typed_state() {
         }))
         .unwrap();
     let pipeline = builder.build();
-    let first = unhandled(pipeline.prepare_with_state(Request::new(empty_body()), 10));
-    let second = unhandled(pipeline.prepare_with_state(Request::new(empty_body()), 20));
+    let first =
+        unhandled(pipeline.prepare_with_state(Request::new(empty_body()), 10));
+    let second =
+        unhandled(pipeline.prepare_with_state(Request::new(empty_body()), 20));
     assert_eq!(first.head().extensions.get::<usize>(), Some(&11));
     assert_eq!(second.head().extensions.get::<usize>(), Some(&21));
     let reply = |_: Request<RouteBody>| async { Response::new(empty_body()) };

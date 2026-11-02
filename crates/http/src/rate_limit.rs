@@ -65,9 +65,11 @@ impl KeyProvider for IpKey {
             .extensions
             .get::<crate::ext::RealIpExt>()
             .map(|ip| ip.0)
-            .or_else(|| request.connection.map(|connection| {
-                connection.real_ip.unwrap_or_else(|| connection.remote.ip())
-            }))
+            .or_else(|| {
+                request.connection.map(|connection| {
+                    connection.real_ip.unwrap_or_else(|| connection.remote.ip())
+                })
+            })
             .ok_or(KeyError::Missing)?;
         let ip = match ip {
             IpAddr::V6(ip) => {
@@ -240,7 +242,8 @@ pub fn apply_header_fields(
     headers: &mut HeaderMap,
 ) {
     if let Some(snapshot) = snapshot
-        && (status.is_success() || status == http::StatusCode::SWITCHING_PROTOCOLS)
+        && (status.is_success()
+            || status == http::StatusCode::SWITCHING_PROTOCOLS)
     {
         headers.insert("x-ratelimit-limit", snapshot.limit.into());
         headers.insert("x-ratelimit-remaining", snapshot.remaining.into());

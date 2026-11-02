@@ -1,13 +1,11 @@
 use super::*;
-use std::sync::Arc;
 use crate::pipeline::host::{ApplicationHandler, HostPipelineBuilder};
-use crate::pipeline::other::{OtherHandler, OtherService};
-use claviron_http::RouteFuture;
 use bytes::Bytes;
 use http::{HeaderValue, Response, StatusCode};
 use http_body::{Body, Frame};
 use std::collections::VecDeque;
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 
@@ -88,12 +86,20 @@ fn unhandled_contributions_pass_original_data_and_trailers_without_reading() {
     let first = Arc::new(AtomicUsize::new(0));
     let second = Arc::new(AtomicUsize::new(0));
     let mut builder = HostPipelineBuilder::new();
-    builder.layer(Arc::new(Pass(first.clone())) as Arc<dyn HostHandler>).unwrap();
-    builder.layer(Arc::new(Pass(second.clone())) as Arc<dyn HostHandler>).unwrap();
+    builder
+        .layer(Arc::new(Pass(first.clone())) as Arc<dyn HostHandler>)
+        .unwrap();
+    builder
+        .layer(Arc::new(Pass(second.clone())) as Arc<dyn HostHandler>)
+        .unwrap();
     let pipeline = builder.build();
     let backend = Backend(counts.clone());
     let (request, address) = request(&counts);
-    let claviron_http::ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("contribution executes during dispatch"); };
+    let claviron_http::ServiceResult::Unhandled(prepared) =
+        pipeline.prepare(request)
+    else {
+        panic!("contribution executes during dispatch");
+    };
     let mut answering = Box::pin(prepared.dispatch_to(backend));
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
@@ -140,11 +146,17 @@ fn handled_404_does_not_run_later_contributions_or_the_backend() {
     let later = Arc::new(AtomicUsize::new(0));
     let mut builder = HostPipelineBuilder::new();
     builder.layer(Arc::new(Claim) as Arc<dyn HostHandler>).unwrap();
-    builder.layer(Arc::new(Pass(later.clone())) as Arc<dyn HostHandler>).unwrap();
+    builder
+        .layer(Arc::new(Pass(later.clone())) as Arc<dyn HostHandler>)
+        .unwrap();
     let pipeline = builder.build();
     let backend = Backend(counts.clone());
     let (request, _) = request(&counts);
-    let claviron_http::ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("contribution executes during dispatch"); };
+    let claviron_http::ServiceResult::Unhandled(prepared) =
+        pipeline.prepare(request)
+    else {
+        panic!("contribution executes during dispatch");
+    };
     let mut answering = Box::pin(prepared.dispatch_to(backend));
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
@@ -181,12 +193,18 @@ fn cancellation_releases_the_unread_body_before_and_during_a_contribution() {
         let counts = Arc::new(Counts::default());
         let calls = Arc::new(AtomicUsize::new(0));
         let mut builder = HostPipelineBuilder::new();
-        builder.layer(Arc::new(Pending(calls.clone())) as Arc<dyn HostHandler>).unwrap();
+        builder
+            .layer(Arc::new(Pending(calls.clone())) as Arc<dyn HostHandler>)
+            .unwrap();
         let pipeline = builder.build();
         let backend = Backend(counts.clone());
         let (request, _) = request(&counts);
-        let claviron_http::ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("contribution executes during dispatch"); };
-    let mut answering = Box::pin(prepared.dispatch_to(backend));
+        let claviron_http::ServiceResult::Unhandled(prepared) =
+            pipeline.prepare(request)
+        else {
+            panic!("contribution executes during dispatch");
+        };
+        let mut answering = Box::pin(prepared.dispatch_to(backend));
         if poll {
             assert!(
                 answering
@@ -204,25 +222,6 @@ fn cancellation_releases_the_unread_body_before_and_during_a_contribution() {
     }
 }
 
-#[test]
-fn absent_contributions_keep_the_original_direct_handler() {
-    struct MustNotRun;
-    impl OtherHandler for MustNotRun {
-        fn call(
-            &self,
-            _: Request<RouteBody>,
-        ) -> RouteFuture {
-            panic!("cold preparation")
-        }
-    }
-    let original: Arc<dyn OtherHandler> = Arc::new(MustNotRun);
-    let prepared = crate::pipeline::host::bind_other(HostPipelineBuilder::<()>::new(), OtherService::Handler(original.clone())).unwrap();
-    let OtherService::Handler(prepared) = prepared else {
-        panic!("the direct owner must remain")
-    };
-    assert!(Arc::ptr_eq(&original, &prepared));
-}
-
 #[cfg(feature = "axum")]
 #[test]
 fn axum_adapter_passes_unhandled_payload_without_buffering() {
@@ -234,10 +233,16 @@ fn axum_adapter_passes_unhandled_payload_without_buffering() {
         },
     );
     let mut builder = HostPipelineBuilder::new();
-    builder.layer(Arc::new(Pass(calls.clone())) as Arc<dyn HostHandler>).unwrap();
+    builder
+        .layer(Arc::new(Pass(calls.clone())) as Arc<dyn HostHandler>)
+        .unwrap();
     let pipeline = builder.build();
     let (request, address) = request(&counts);
-    let claviron_http::ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("contribution executes during dispatch"); };
+    let claviron_http::ServiceResult::Unhandled(prepared) =
+        pipeline.prepare(request)
+    else {
+        panic!("contribution executes during dispatch");
+    };
     let mut answering = Box::pin(prepared.dispatch_to(backend));
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {

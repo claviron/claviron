@@ -3,8 +3,7 @@ use std::sync::Arc;
 
 use crate::config::HostConfig;
 use crate::transport::{
-    HostBinding, HostRejection, HostService, VhostCtx,
-    VhostResolver,
+    HostBinding, HostRejection, HostService, VhostCtx, VhostResolver,
 };
 use claviron_http::config::ListenerConfig;
 use claviron_http::ext::{
@@ -76,7 +75,10 @@ impl TlsHostConnection {
         proto: Proto,
         listener: &ListenerConfig,
     ) -> Result<HostService, ConnectionError> {
-        let app = self.vctx.application.clone()
+        let app = self
+            .vctx
+            .application
+            .clone()
             .ok_or(ConnectionError::ApplicationUnavailable)?;
 
         let mut conn_ctx = (*self.ctx).clone();

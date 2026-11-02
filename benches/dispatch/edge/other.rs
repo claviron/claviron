@@ -11,11 +11,14 @@ use hyper::service::Service;
 pub mod support;
 
 fn benchmark(criterion: &mut Criterion) {
-    let native = hyper::service::service_fn(|request: support::plain::Input| {
-        ready(Ok::<_, Infallible>(support::plain::response(request)))
-    });
+    let native =
+        hyper::service::service_fn(|request: support::plain::Input| {
+            ready(Ok::<_, Infallible>(support::plain::response(request)))
+        });
     support::plain::run(
-        criterion, "dispatch/edge/other/plain", support::edge::other(),
+        criterion,
+        "dispatch/edge/other/plain",
+        support::edge::other(),
         |request| native.call(request).map(|Ok(response)| response),
     );
 }

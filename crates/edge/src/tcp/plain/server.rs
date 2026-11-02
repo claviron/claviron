@@ -101,9 +101,8 @@ impl HttpServer {
         context: RunContext,
     ) -> claviron_runtime::registry::Result<()> {
         let config = self.state.config_reader().snapshot::<Self>()?;
-        let snapshot = build_snapshots(&config)?
-            .remove(id)
-            .ok_or_else(|| {
+        let snapshot =
+            build_snapshots(&config)?.remove(id).ok_or_else(|| {
                 claviron_runtime::registry::Error::msg(format!(
                     "cleartext listener '{id}' is not configured"
                 ))
@@ -135,13 +134,12 @@ impl HttpServer {
         listener: &claviron_http::ListenerId,
         vhosts: Arc<VhostResolver>,
     ) -> claviron_runtime::registry::Result<super::ConnectionHandler> {
-        let snapshot = build_snapshots(config)?
-            .remove(listener)
-            .ok_or_else(|| {
-            claviron_runtime::registry::Error::msg(format!(
-                "cleartext listener '{listener}' is not configured"
-            ))
-        })?;
+        let snapshot =
+            build_snapshots(config)?.remove(listener).ok_or_else(|| {
+                claviron_runtime::registry::Error::msg(format!(
+                    "cleartext listener '{listener}' is not configured"
+                ))
+            })?;
         Ok(super::ConnectionHandler::new(snapshot, vhosts))
     }
 
@@ -173,7 +171,7 @@ impl HttpServer {
 }
 
 pub(super) fn build_snapshots(
-    http: &HttpSnapshot,
+    http: &HttpSnapshot
 ) -> claviron_runtime::registry::Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>>
 {
     let mut groups = BTreeMap::new();
@@ -181,8 +179,7 @@ pub(super) fn build_snapshots(
         let ListenerSettings::Tcp(config) = &listener.settings else {
             continue;
         };
-        let TcpSecurity::Cleartext { .. } = &config.security
-        else {
+        let TcpSecurity::Cleartext { .. } = &config.security else {
             if !cfg!(feature = "tls") {
                 return Err(claviron_runtime::registry::Error::msg(format!(
                     "listener '{id}' requires the Hyper tls feature"
@@ -277,10 +274,7 @@ impl ConfigObserver for HttpServer {
         config: &Self::Config,
     ) -> congif::Result<()> {
         self.current
-            .publish(
-                build_snapshots(config)
-                    .map_err(congif::Error::msg)?,
-            )
+            .publish(build_snapshots(config).map_err(congif::Error::msg)?)
             .map_err(congif::Error::msg)?;
         self.configure_instances(config);
         info!("🔁 HttpServer listener policies reloaded");

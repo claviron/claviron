@@ -256,13 +256,17 @@ async fn handle_alias_notification(
                 return resolver.replace_all(state).await;
             };
 
-            let old_alias = event.old
+            let old_alias = event
+                .old
                 .map(|row| row.hostname.parse::<Host>().map_err(Error::msg))
                 .transpose()?;
             let alias = new_row.hostname.parse::<Host>().map_err(Error::msg)?;
             let canonical = vhost_name.parse::<Host>().map_err(Error::msg)?;
-            let inserted =
-                resolver.update_alias(old_alias.as_ref(), alias.clone(), canonical.clone())?;
+            let inserted = resolver.update_alias(
+                old_alias.as_ref(),
+                alias.clone(),
+                canonical.clone(),
+            )?;
             info!(
                 "✅ vhost alias applied op=UPDATE alias='{}' canonical='{}' inserted={}",
                 alias, canonical, inserted

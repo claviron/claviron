@@ -1,12 +1,12 @@
 //! Request body bounds are an explicit layer, not transport adapter defaults.
 
-use std::time::Duration;
+use super::*;
+use claviron_http::ServiceResult;
 use claviron_http::body::{GuardedBody, declared_length_within};
 use claviron_http::policy::RequestPolicy;
-use claviron_http::ServiceResult;
 use http_body::Body;
 use http_body_util::BodyExt;
-use super::*;
+use std::time::Duration;
 
 pub struct RequestBodyLayer {
     max_size: Option<usize>,
@@ -16,23 +16,35 @@ pub struct RequestBodyLayer {
 impl RequestBodyLayer {
     pub fn new(policy: RequestPolicy) -> Option<Self> {
         (policy.max_body_size.is_some() || policy.body_read_timeout.is_some())
-            .then_some(Self { max_size: policy.max_body_size, read_timeout: policy.body_read_timeout })
+            .then_some(Self {
+                max_size: policy.max_body_size,
+                read_timeout: policy.body_read_timeout,
+            })
     }
 }
 
 impl<S> HostLayer<S> for RequestBodyLayer {
-    fn prepare(self, layer: &mut HostLayerBuilder<S>) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
         layer.request(move |request| {
-            if declared_length_within(request.headers(), self.max_size).is_err() {
+            if declared_length_within(request.headers(), self.max_size).is_err()
+            {
                 return DispatchFuture::ready(ServiceResult::Handled(
-                    claviron_http::err_status(http::StatusCode::PAYLOAD_TOO_LARGE),
+                    claviron_http::err_status(
+                        http::StatusCode::PAYLOAD_TOO_LARGE,
+                    ),
                 ));
             }
             if request.body().is_end_stream() {
-                return DispatchFuture::ready(ServiceResult::Unhandled(request));
+                return DispatchFuture::ready(ServiceResult::Unhandled(
+                    request,
+                ));
             }
             let request = request.map(|body| {
-                GuardedBody::new(body, self.max_size, self.read_timeout).boxed_unsync()
+                GuardedBody::new(body, self.max_size, self.read_timeout)
+                    .boxed_unsync()
             });
             DispatchFuture::ready(ServiceResult::Unhandled(request))
         });

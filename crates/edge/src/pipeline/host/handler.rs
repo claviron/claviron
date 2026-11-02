@@ -6,7 +6,6 @@ use std::pin::Pin;
 use claviron_http::{RouteBody, RouteResponse, ServiceResult};
 use http::{Request, request::Parts};
 
-
 /// An unclaimed request with its original body still inaccessible.
 ///
 /// Head inspection/changes do not expose or poll the body. To handle the body,

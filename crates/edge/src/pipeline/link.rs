@@ -398,5 +398,3 @@ fn prepare_target(
         }
     }
 }
-
-

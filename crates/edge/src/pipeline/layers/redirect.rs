@@ -1,9 +1,9 @@
 //! Redirects for the selected scope; templates are parsed during preparation.
 
-use http::{HeaderValue, StatusCode, Uri};
+use super::*;
 use crate::config::RedirectConfig;
 use crate::service::{HostResponse, RequestRejection};
-use super::*;
+use http::{HeaderValue, StatusCode, Uri};
 
 pub struct RedirectLayer {
     status: StatusCode,
@@ -93,10 +93,15 @@ impl Target {
 }
 
 impl<S, R: From<HostResponse>> HostLayer<S, R> for RedirectLayer {
-    fn prepare(self, layer: &mut HostLayerBuilder<S, R>) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S, R>,
+    ) -> crate::Result<()> {
         layer.before(move |head, _| {
             let reply = match self.target.render(&head.uri) {
-                Ok(location) => HostResponse::Redirect { status: self.status, location },
+                Ok(location) => {
+                    HostResponse::Redirect { status: self.status, location }
+                }
                 Err(_) => RequestRejection::InvalidRedirect.into(),
             };
             ControlFlow::Break(reply.into())
@@ -111,7 +116,10 @@ pub struct HttpsRedirectLayer {
 }
 
 impl HttpsRedirectLayer {
-    pub fn new(authority: &http::uri::Authority, port: std::num::NonZeroU16) -> Self {
+    pub fn new(
+        authority: &http::uri::Authority,
+        port: std::num::NonZeroU16,
+    ) -> Self {
         let host = authority.host();
         let prefix = if port.get() == 443 {
             format!("https://{host}")
@@ -123,14 +131,27 @@ impl HttpsRedirectLayer {
 }
 
 impl<S, R: From<HostResponse>> HostLayer<S, R> for HttpsRedirectLayer {
-    fn prepare(self, layer: &mut HostLayerBuilder<S, R>) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S, R>,
+    ) -> crate::Result<()> {
         layer.before(move |head, _| {
-            let path = head.uri.path_and_query().map(|path| path.as_str()).unwrap_or("/");
-            let mut location = String::with_capacity(self.prefix.len() + path.len());
+            let path = head
+                .uri
+                .path_and_query()
+                .map(|path| path.as_str())
+                .unwrap_or("/");
+            let mut location =
+                String::with_capacity(self.prefix.len() + path.len());
             location.push_str(&self.prefix);
             location.push_str(path);
-            let reply = match HeaderValue::from_maybe_shared(bytes::Bytes::from(location)) {
-                Ok(location) => HostResponse::Redirect { status: StatusCode::PERMANENT_REDIRECT, location },
+            let reply = match HeaderValue::from_maybe_shared(
+                bytes::Bytes::from(location),
+            ) {
+                Ok(location) => HostResponse::Redirect {
+                    status: StatusCode::PERMANENT_REDIRECT,
+                    location,
+                },
                 Err(_) => RequestRejection::InvalidRedirect.into(),
             };
             ControlFlow::Break(reply.into())

@@ -55,8 +55,9 @@ These targets use the same static `/plain` response on one persistent connection
 | `http1-plain-edge-axum` | Native Edge driver and registered Axum router. |
 | `http1-plain-edge-routable` | Native Edge driver and registered Routable contribution. |
 
-Axum selects `RustRouter::Axum`. Other and the Routable contribution select
-`RustRouter::Other`; Routable is a registration path, not a third router kind.
+Axum selects `RustRouter::Axum`; an Other handler selects `RustRouter::Other`.
+Both enter the same compiled `HostExecution`. Routable contributes host layers
+and handlers; it is a registration path, not another router kind.
 
 All targets enable TCP_NODELAY and HTTP keep-alive, disable half-close and
 pipeline flush, and run without a header-read timer. The Edge fixture overrides

@@ -18,22 +18,19 @@ use tracing::error;
 
 use crate::VhostResolver;
 use crate::config::HostConfig;
-use crate::pipeline::host::{HostHandler, HostPipelineBuilder};
+use crate::pipeline::host::{HostExecution, HostHandler};
 use crate::pipeline::other::OtherService;
 use crate::pipeline::routable::Routable;
 use crate::pipeline::routable::{HostBindingProvider, RouteBinding};
 
-/// Rust request execution selected for one host publication.
-///
-/// Axum keeps its concrete router call. Other accepts a low-level handler or
-/// a compiled host plan through OtherService. Both
-/// retain shared host admission, response policy and request ownership.
+/// An application-owned Rust router selected inside a host pipeline.
+/// Neither choice owns or bypasses the surrounding host layers.
 #[derive(Clone)]
 pub enum RustRouter {
     #[cfg(feature = "axum")]
     /// An application-owned Axum router.
     Axum(Router),
-    /// Another Rust handler or a compiled configured-host plan.
+    /// An application-owned Rust handler/router without Axum.
     Other(OtherService),
 }
 
@@ -60,77 +57,45 @@ pub(crate) struct ResolvedRouteExtensions {
     pub(crate) layers: Vec<Arc<dyn RouteLayer>>,
 }
 
-/// Immutable snapshot of `host → RustRouter` for a single boot/reload
-/// generation.
-///
-/// # Why immutable?
-///
-/// The connection-handling hot path resolves an [`RustRouter`] for every
-/// incoming request via [`HostAppResolver::resolve`]. To avoid locks on
-/// the hot path, the application snapshot is carried by `VhostResolver`'s
-/// atomically published table. Changed hosts are prepared before that swap.
-/// In-flight requests keep using the old `Arc<HostAppSnapshot>` they
-/// loaded; new requests see the new one. No reader ever blocks.
-///
-/// # Why every host alias gets its own entry
-///
-/// One canonical host (`example.com`) may serve multiple aliases
-/// (`www.example.com`, `m.example.com`, …). The map is keyed by
-/// every alias so that resolution is a single `HashMap` lookup
-/// — no two-step canonical resolution per request.
-///
-/// `RustRouter` is `Clone`, and the heavy bits (`Router`, `OtherService`)
-/// are `Arc`-backed internally, so duplicating the value across alias
-/// keys is cheap.
-///
-/// # When to use
-///
-/// You usually don't construct or read this directly — go through
-/// [`HostAppResolver`]. Direct use is for tests and the build path in
-/// [`HostAppRegistry::build`].
+/// Prepared host executions and declaration identities for one publication.
+/// Canonical names and aliases retain the same execution owners. Reload builds
+/// changed hosts before publication; in-flight requests retain their old owner.
 #[derive(Clone, Default)]
 pub struct HostAppSnapshot {
-    map: HashMap<Host, RustRouter>,
+    map: HashMap<Host, HostExecution>,
     configs: HashMap<Host, Arc<HostConfig>>,
     #[cfg(feature = "rate-limit")]
-    quotas: Arc<HashMap<Host, Option<Arc<crate::pipeline::layers::HostQuotas>>>>,
+    quotas:
+        Arc<HashMap<Host, Option<Arc<crate::pipeline::layers::HostQuotas>>>>,
 }
 
 impl HostAppSnapshot {
-    /// Look up the resolved [`RustRouter`] for an exact host key.
-    ///
-    /// Returns `None` if no vhost matches. The connection layer treats
-    /// `None` as "unknown host" and replies with a default 404 (or
-    /// closes the TLS handshake earlier, depending on the path).
+    /// Look up the prepared execution for an exact canonical name or alias.
     pub fn resolve(
         &self,
         host: &Host,
-    ) -> Option<RustRouter> {
+    ) -> Option<HostExecution> {
         let app = self.map.get(host).cloned();
         match app.as_ref() {
             Some(app) => {
                 tracing::debug!(
-                    "resolved app for host={}, kind={}",
+                    "resolved host execution for host={}, kind={}",
                     host,
                     app.kind()
                 )
             }
-            None => tracing::debug!("no app resolved for host={}", host),
+            None => {
+                tracing::debug!("no host execution resolved for host={}", host)
+            }
         }
         app
     }
 
-    /// Insert a `host → RustRouter` mapping during snapshot build.
-    ///
-    /// Returns an error on duplicate keys — the registry must never
-    /// stamp two `RustRouter`s onto the same host alias, since dispatch
-    /// would be ambiguous. [`HostAppRegistry::build`] is the only
-    /// caller; it walks the alias graph once per canonical host so
-    /// duplicates only happen on misconfiguration.
+    /// Insert a prepared host execution, rejecting duplicate keys.
     pub fn insert(
         &mut self,
         host: Host,
-        app: impl Into<RustRouter>,
+        app: HostExecution,
     ) -> Result<()> {
         match self.map.entry(host) {
             std::collections::hash_map::Entry::Occupied(entry) => {
@@ -140,7 +105,7 @@ impl HostAppSnapshot {
                 )))
             }
             std::collections::hash_map::Entry::Vacant(entry) => {
-                entry.insert(app.into());
+                entry.insert(app);
                 Ok(())
             }
         }
@@ -197,7 +162,7 @@ impl HostAppResolver {
     pub fn resolve(
         &self,
         key: &HostKey,
-    ) -> Option<RustRouter> {
+    ) -> Option<HostExecution> {
         self.snapshot().resolve(key.0.as_ref())
     }
 }
@@ -311,83 +276,29 @@ impl Binding {
         }
     }
 
-    fn build_app(
+    fn build_router(
         &self,
         state: &AppState,
         canonical: &Host,
         host_cfg: Arc<HostConfig>,
-        applications: &[Arc<dyn HostHandler>],
-        layers: &[Arc<dyn RouteLayer>],
-        #[cfg(feature = "rate-limit")] quotas: Option<&crate::pipeline::layers::HostQuotas>,
-        #[cfg(feature = "websocket")] h1_upgrades: Vec<H1UpgradeRoute>,
     ) -> Result<RustRouter> {
-        let app = match self {
-            Self::Other(factory) => RustRouter::Other(factory(
+        match self {
+            Self::Other(factory) => Ok(RustRouter::Other(factory(
                 state.clone(),
                 canonical.clone(),
-                host_cfg.clone(),
-            )?),
+                host_cfg,
+            )?)),
             #[cfg(feature = "axum")]
-            Self::Axum(factory) => RustRouter::Axum(factory(state.clone())),
-        };
-        #[cfg(feature = "websocket")]
-        let websocket = super::layers::WebSocketStage::prepare(
-            state,
-            canonical,
-            &host_cfg,
-            build_h1_upgrade_registry(canonical, h1_upgrades)?,
-        );
-        let mut builder = HostPipelineBuilder::new();
-        for layer in layers {
-            builder.layer(layer.as_ref()).map_err(|error| Error::msg(error.to_string()))?;
+            Self::Axum(factory) => Ok(RustRouter::Axum(factory(state.clone()))),
         }
-        #[cfg(feature = "rate-limit")]
-        if let Some(quotas) = quotas {
-            let builder = crate::pipeline::layers::QuotaPolicy::attach(builder, quotas)
-                .map_err(|error| Error::msg(error.to_string()))?;
-            return finish_binding(
-                builder, app, applications,
-                #[cfg(feature = "websocket")] websocket,
-            );
-        }
-        finish_binding(
-            builder, app, applications,
-            #[cfg(feature = "websocket")] websocket,
-        )
     }
 }
 
-fn finish_binding<S: Default + Send + 'static>(
-    mut builder: HostPipelineBuilder<S>,
-    app: RustRouter,
-    applications: &[Arc<dyn HostHandler>],
-    #[cfg(feature = "websocket")] websocket: Option<Arc<super::layers::WebSocketStage>>,
-) -> Result<RustRouter> {
-    #[cfg(feature = "websocket")]
-    if let Some(websocket) = websocket {
-        builder.layer(websocket).map_err(|error| Error::msg(error.to_string()))?;
-    }
-    for application in applications {
-        builder.layer(application.clone()).map_err(|error| Error::msg(error.to_string()))?;
-    }
-    if builder.is_empty() {
-        return Ok(app);
-    }
-    let owner = match app {
-        #[cfg(feature = "axum")]
-        RustRouter::Axum(router) => super::app::owner(router),
-        RustRouter::Other(owner) => owner,
-    };
-    let layered = super::host::bind_other(builder, owner)
-        .map_err(|error| Error::msg(error.to_string()))?;
-    Ok(RustRouter::Other(layered))
-}
-
-#[derive(Default)]
-struct RoutableHostBinding {
+#[derive(Clone, Default)]
+pub(crate) struct HostContributions {
     app: Option<Binding>,
-    applications: Vec<Arc<dyn HostHandler>>,
-    layers: Vec<Arc<dyn RouteLayer>>,
+    pub(crate) applications: Vec<Arc<dyn HostHandler>>,
+    pub(crate) layers: Vec<Arc<dyn RouteLayer>>,
     #[cfg(feature = "websocket")]
     h1_upgrades: Vec<H1UpgradeRoute>,
 }
@@ -400,7 +311,7 @@ struct RoutableHostBinding {
 ///
 /// 1. **Config-driven** — `config/*.yaml` declares hosts, TLS aliases,
 ///    upstreams, statics, ACL, etc. These hosts compile a native
-///    pipeline behind `RustRouter::Other`. Axum is entered only when
+///    host pipeline. Axum is entered only when
 ///    a Rust contribution explicitly adapts its own router.
 ///
 /// 2. **Code-driven** — the binary calls
@@ -410,9 +321,8 @@ struct RoutableHostBinding {
 ///    edge server (TLS, h2/h3, statics, ACL — config) and an app
 ///    server (your business logic — code).
 ///
-/// Both channels coexist: a host registered in code shadows the
-/// config-default behaviour for that host, while every other host in
-/// `vhosts.yaml` continues to get the default pipeline.
+/// Both channels use the same host compiler. A code-defined Rust router enters
+/// the host pipeline after its active policies and contributions.
 ///
 /// # Why static `&'static str` keys
 ///
@@ -436,9 +346,18 @@ struct RoutableHostBinding {
 /// ```
 /// use claviron_edge::pipeline::{HostAppRegistry, other::OtherService};
 ///
+/// struct Handler;
+/// impl claviron_edge::pipeline::other::OtherHandler for Handler {
+///     fn call(&self, request: http::Request<claviron_http::RouteBody>) -> claviron_http::RouteFuture {
+///         Box::pin(async move {
+///             drop(request);
+///             Ok(http::Response::new(claviron_http::empty_body()))
+///         })
+///     }
+/// }
 /// let registry = HostAppRegistry::default();
 /// registry.register_other("assets.example.com", |_, _, _| {
-///     Ok(OtherService::Noop)
+///     Ok(OtherService::new(Handler))
 /// });
 /// ```
 #[derive(Default)]
@@ -493,9 +412,9 @@ impl HostAppRegistry {
 
     /// Register a complete Axum router for this host.
     ///
-    /// The factory runs at boot/reload. The caller owns application routing
-    /// and layers; host admission, response policy and accounting still apply.
-    /// Configured file/backend steps are not installed inside this router.
+    /// The factory runs at boot/reload. The router enters the same host scope
+    /// compiler as configured backends, after the scope's active policy layers.
+    /// Its response, including a 404, ends request dispatch.
     #[cfg(feature = "axum")]
     pub fn register_router<F>(
         &self,
@@ -516,9 +435,9 @@ impl HostAppRegistry {
     /// Register another Rust request owner for this host.
     ///
     /// The factory receives the canonical host and config at boot/reload.
-    /// Its handler owns the reply; file handling can be composed explicitly
-    /// with the files API. Host admission, response policy and accounting
-    /// still apply. Factory errors prevent host publication.
+    /// The Rust handler/router enters the same host scope compiler as Axum.
+    /// Its response ends dispatch; router selection does not skip host layers.
+    /// Factory errors prevent host publication.
     pub fn register_other<F>(
         &self,
         vhost_key: &'static str,
@@ -546,7 +465,7 @@ impl HostAppRegistry {
     /// Native contributions are evaluated during
     /// [`build`](Self::build), and the resulting binding is frozen into the
     /// `HostAppSnapshot`. The request hot path remains a plain
-    /// `Host -> RustRouter` lookup.
+    /// `Host -> HostExecution` lookup.
     pub fn register_routable<R>(
         &self,
         routable: Arc<R>,
@@ -676,7 +595,7 @@ impl HostAppRegistry {
         state: &AppState,
         canonical: &Host,
         host_cfg: Arc<HostConfig>,
-    ) -> Result<RoutableHostBinding> {
+    ) -> Result<HostContributions> {
         let mut applications = Vec::new();
         let mut layers = Vec::new();
         let mut exclusive: Option<(&str, Binding)> = None;
@@ -736,7 +655,7 @@ impl HostAppRegistry {
                 Some((provider.name(), Binding::from_route_binding(binding)));
         }
 
-        Ok(RoutableHostBinding {
+        Ok(HostContributions {
             app: exclusive.map(|(_, binding)| binding),
             applications,
             layers,
@@ -758,11 +677,10 @@ impl HostAppRegistry {
     ///    skipped** — registering a key that ops haven't added to
     ///    config is a soft error, not a hard failure.
     /// 3. For every canonical host in the resolver:
-    ///    - If a code binding exists, invoke its factory and produce
-    ///      matching application owner.
-    ///    - Otherwise, compile a native configured host pipeline; no Axum
-    ///      router is installed unless a Rust contribution explicitly adapts it.
-    /// 4. Stamp the resulting `RustRouter` against **every alias** for
+    ///    - Prepare its optional code-defined Rust router.
+    ///    - Compile that router, native backends and active host layers through
+    ///      the same scope compiler.
+    /// 4. Stamp the resulting `HostExecution` against **every alias** for
     ///    the canonical host so per-request lookup is one hash hit.
     ///
     /// # When it runs
@@ -788,26 +706,47 @@ impl HostAppRegistry {
     ) -> Result<HostAppSnapshot> {
         #[cfg(feature = "rate-limit")]
         let quotas = {
-            let previous = previous.map(|snapshot| snapshot.quotas.clone()).or_else(|| {
-                state.registry_ref().resolve::<VhostResolver>()?
-                    .snapshot().prepared::<HostAppSnapshot>()
-                    .map(|snapshot| snapshot.quotas.clone())
-            });
+            let previous = previous
+                .map(|snapshot| snapshot.quotas.clone())
+                .or_else(|| {
+                    state
+                        .registry_ref()
+                        .resolve::<VhostResolver>()?
+                        .snapshot()
+                        .prepared::<HostAppSnapshot>()
+                        .map(|snapshot| snapshot.quotas.clone())
+                });
             let registered = {
-                let mut registered = self.quotas.write().expect("quota registration lock poisoned");
+                let mut registered = self
+                    .quotas
+                    .write()
+                    .expect("quota registration lock poisoned");
                 registered.seal(state.fleet_name(), table)?;
                 registered.clone()
             };
-            let config_check = state.registry_ref().resolve::<claviron_runtime::ConfigCheck>().is_some();
-            table.canonical_entries().map(|(canonical, record)| {
-                registered.prepare(
-                    config_check, canonical, &record.config,
-                    previous.as_ref().and_then(|quotas| quotas.get(canonical)),
-                ).map(|quotas| (canonical.clone(), quotas))
-            }).collect::<Result<HashMap<_, _>>>()?
+            let config_check = state
+                .registry_ref()
+                .resolve::<claviron_runtime::ConfigCheck>()
+                .is_some();
+            table
+                .canonical_entries()
+                .map(|(canonical, record)| {
+                    registered
+                        .prepare(
+                            config_check,
+                            canonical,
+                            &record.config,
+                            previous
+                                .as_ref()
+                                .and_then(|quotas| quotas.get(canonical)),
+                        )
+                        .map(|quotas| (canonical.clone(), quotas))
+                })
+                .collect::<Result<HashMap<_, _>>>()?
         };
         let mut snapshot = HostAppSnapshot {
-            map: HashMap::new(), configs: HashMap::new(),
+            map: HashMap::new(),
+            configs: HashMap::new(),
             #[cfg(feature = "rate-limit")]
             quotas: Arc::new(quotas),
         };
@@ -894,31 +833,24 @@ impl HostAppRegistry {
                 None => routable.app.clone(),
             };
 
-            let app = if let Some(binding) = binding {
-                binding.build_app(
-                    state,
-                    canonical,
-                    Arc::clone(&record.config),
-                    &routable.applications,
-                    &routable.layers,
-                    #[cfg(feature = "rate-limit")]
-                    snapshot.quotas.get(canonical).and_then(Option::as_deref),
-                    #[cfg(feature = "websocket")]
-                    routable.h1_upgrades,
-                )?
-            } else {
-                build_default_app(
-                    state,
-                    canonical,
-                    Arc::clone(&record.config),
-                    &routable.applications,
-                    &routable.layers,
-                    #[cfg(feature = "rate-limit")]
-                    snapshot.quotas.get(canonical).and_then(Option::as_deref),
-                    #[cfg(feature = "websocket")]
-                    routable.h1_upgrades,
-                )?
-            };
+            let router = binding
+                .map(|binding| {
+                    binding.build_router(
+                        state,
+                        canonical,
+                        record.config.clone(),
+                    )
+                })
+                .transpose()?;
+            let app = build_host(
+                state,
+                canonical,
+                record.config.clone(),
+                router,
+                routable,
+                #[cfg(feature = "rate-limit")]
+                snapshot.quotas.get(canonical).and_then(Option::as_deref),
+            )?;
 
             snapshot.configs.insert(canonical.clone(), record.config.clone());
             for host in table.host_keys_for_canonical(canonical) {
@@ -930,28 +862,31 @@ impl HostAppRegistry {
     }
 }
 
-fn build_default_app(
+fn build_host(
     state: &AppState,
     canonical: &Host,
     host_cfg: Arc<HostConfig>,
-    applications: &[Arc<dyn HostHandler>],
-    layers: &[Arc<dyn RouteLayer>],
-    #[cfg(feature = "rate-limit")] quotas: Option<&crate::pipeline::layers::HostQuotas>,
-    #[cfg(feature = "websocket")] h1_upgrades: Vec<H1UpgradeRoute>,
-) -> Result<RustRouter> {
+    router: Option<RustRouter>,
+    contributions: HostContributions,
+    #[cfg(feature = "rate-limit")] quotas: Option<
+        &crate::pipeline::layers::HostQuotas,
+    >,
+) -> Result<HostExecution> {
     #[cfg(feature = "websocket")]
-    let websocket = build_h1_upgrade_registry(canonical, h1_upgrades)?;
+    let mut contributions = contributions;
+    #[cfg(feature = "websocket")]
+    let websocket = build_h1_upgrade_registry(canonical, std::mem::take(&mut contributions.h1_upgrades))?;
     super::host::compile::prepare(
         state,
         canonical,
         host_cfg,
-        applications,
-        layers,
-        #[cfg(feature = "rate-limit")] quotas,
+        router,
+        &contributions,
+        #[cfg(feature = "rate-limit")]
+        quotas,
         #[cfg(feature = "websocket")]
         websocket,
     )
-    .map(RustRouter::Other)
 }
 
 #[cfg(feature = "websocket")]

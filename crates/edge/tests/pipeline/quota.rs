@@ -47,23 +47,55 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
     )
     .unwrap();
     let state = AppState::standalone("quota-composition", ".");
-    registry.register_other("example.test", |_, _, _| Ok(OtherService::Noop));
+    struct Reply;
+    impl crate::pipeline::other::OtherHandler for Reply {
+        fn call(
+            &self,
+            request: http::Request<claviron_http::RouteBody>,
+        ) -> claviron_http::RouteFuture {
+            drop(request);
+            Box::pin(std::future::ready(Ok(http::Response::new(
+                claviron_http::empty_body(),
+            ))))
+        }
+    }
+    registry
+        .register_other("example.test", |_, _, _| Ok(OtherService::new(Reply)));
     let snapshot = registry.build_table(&state, &table, None).unwrap();
     let connection = claviron_http::ext::ConnCtx {
-        state: Default::default(), listener: "public".parse().unwrap(),
+        state: Default::default(),
+        listener: "public".parse().unwrap(),
         proto: Some(claviron_http::listener::HttpProtocol::H1),
-        remote: "192.0.2.1:1234".parse().unwrap(), local_ip: "127.0.0.1".parse().unwrap(),
-        local_port: 8080, real_ip: None, country_code: None, tls: None,
+        remote: "192.0.2.1:1234".parse().unwrap(),
+        local_ip: "127.0.0.1".parse().unwrap(),
+        local_port: 8080,
+        real_ip: None,
+        country_code: None,
+        tls: None,
     };
-    let context = Some(crate::pipeline::host::HostContext { connection: &connection, arrival: crate::service::RequestArrival::Established });
+    let context = Some(crate::pipeline::host::HostContext {
+        connection: &connection,
+        arrival: crate::service::RequestArrival::Established,
+    });
     let run = |snapshot: &HostAppSnapshot, key: &str| {
         use futures_util::FutureExt;
-        let RustRouter::Other(owner) = snapshot.resolve(&key.parse().unwrap()).unwrap() else { panic!("compiled native plan expected"); };
-        owner.handle_in(http::Request::new(claviron_http::empty_body()), context)
-            .now_or_never().expect("ready fixture").unwrap().status()
+        let owner = snapshot.resolve(&key.parse().unwrap()).unwrap();
+        owner
+            .handle_in(http::Request::new(claviron_http::empty_body()), context)
+            .now_or_never()
+            .expect("ready fixture")
+            .unwrap()
+            .status()
     };
     assert_eq!(run(&snapshot, "example.test"), http::StatusCode::OK);
-    assert_eq!(run(&snapshot, "alias.example.test"), http::StatusCode::TOO_MANY_REQUESTS);
-    let reloaded = registry.build_table(&state, &table, Some(&snapshot)).unwrap();
-    assert_eq!(run(&reloaded, "example.test"), http::StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        run(&snapshot, "alias.example.test"),
+        http::StatusCode::TOO_MANY_REQUESTS
+    );
+    let reloaded =
+        registry.build_table(&state, &table, Some(&snapshot)).unwrap();
+    assert_eq!(
+        run(&reloaded, "example.test"),
+        http::StatusCode::TOO_MANY_REQUESTS
+    );
 }

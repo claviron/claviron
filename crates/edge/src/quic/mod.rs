@@ -16,8 +16,8 @@
 
 mod error;
 mod listener;
-mod tls;
 mod server;
+mod tls;
 
 // Native request/response stream adapter; host dispatch lives in vhosts.
 mod request;

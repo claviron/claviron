@@ -1,6 +1,6 @@
 use std::marker::PhantomPinned;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::task::Waker;
 
 use super::*;

@@ -92,7 +92,9 @@ impl DispatchStep for TryFilesStage {
     }
 }
 
-pub(in crate::pipeline) fn scope_steps(config: &HostConfig) -> Vec<Arc<dyn DispatchStep>> {
+pub(in crate::pipeline) fn scope_steps(
+    config: &HostConfig
+) -> Vec<Arc<dyn DispatchStep>> {
     let mut files = config.files.clone();
     files.root = config.root();
     let mut steps: Vec<Arc<dyn DispatchStep>> = Vec::new();
@@ -140,4 +142,3 @@ impl<S> super::HostLayer<S> for TryFilesStage {
         Ok(())
     }
 }
-

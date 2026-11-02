@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use claviron::edge::pipeline::RustRouter;
+use claviron::edge::pipeline::HostExecution;
 use claviron::edge::transport::{
     HostService, VhostResolver, VhostTable, resolve_sni_from_table,
 };
@@ -54,14 +54,14 @@ impl Hosts {
 
     pub fn plain_host(
         &self,
-        app: impl Into<RustRouter>,
+        app: HostExecution,
     ) -> HostService {
         self.bind(app, "plain", json::HOST, HttpProtocol::H1, None)
     }
 
     fn bind(
         &self,
-        app: impl Into<RustRouter>,
+        app: HostExecution,
         listener: &str,
         hostname: &str,
         protocol: HttpProtocol,
@@ -84,12 +84,7 @@ impl Hosts {
         let host =
             resolve_sni_from_table(&self.vhosts.snapshot(), Some(hostname))
                 .expect("benchmark host is published");
-        HostService::new(
-            app,
-            connection,
-            host,
-            listener.policy(),
-        )
+        HostService::new(app, connection, host, listener.policy())
     }
 
     fn listener(
@@ -165,7 +160,7 @@ impl Tls {
     /// Call only after a real TLS handshake; identity comes from that session.
     pub fn host(
         &self,
-        app: impl Into<RustRouter>,
+        app: HostExecution,
         connection: &rustls::ServerConnection,
     ) -> HostService {
         let protocol = match connection.alpn_protocol() {

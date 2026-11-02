@@ -29,8 +29,11 @@ impl<'a> RouteContext<'a> {
     /// Request and response overrides are folded once, from root to scope.
     pub fn policy(&self) -> claviron_http::policy::HttpPolicyOverride {
         let mut policy = self.config.policy();
-        for (_, scope) in self.config.routes.iter().rev()
-            .filter(|(prefix, _)| prefix.as_str() != "/" && prefix.has_path_segment(self.prefix.as_str()))
+        for (_, scope) in
+            self.config.routes.iter().rev().filter(|(prefix, _)| {
+                prefix.as_str() != "/"
+                    && prefix.has_path_segment(self.prefix.as_str())
+            })
         {
             policy.requests = policy.requests.overlay(&scope.requests);
             policy.responses = policy.responses.overlay(&scope.responses);

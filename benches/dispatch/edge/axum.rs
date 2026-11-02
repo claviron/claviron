@@ -13,7 +13,9 @@ fn benchmark(criterion: &mut Criterion) {
     let host = support::edge::axum(router.clone());
     let native = TowerToHyperService::new(router);
     support::plain::run(
-        criterion, "dispatch/edge/axum/plain", host,
+        criterion,
+        "dispatch/edge/axum/plain",
+        host,
         |request| native.call(request).map(|Ok(response)| response),
     );
 }

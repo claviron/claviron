@@ -29,31 +29,37 @@ impl DispatchFuture {
         Self { inner: Work::Ready(ready(result)) }
     }
 
-    pub fn new(work: impl Future<Output = DispatchResult> + Send + 'static) -> Self {
+    pub fn new(
+        work: impl Future<Output = DispatchResult> + Send + 'static
+    ) -> Self {
         Self { inner: Work::Request(Box::pin(work)) }
     }
 
     pub(in crate::pipeline) fn application(work: HostHandlerFuture) -> Self {
         Self { inner: Work::Application(work) }
     }
-
 }
 
 impl Future for DispatchFuture {
     type Output = DispatchResult;
 
-    fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(
+        self: Pin<&mut Self>,
+        context: &mut Context<'_>,
+    ) -> Poll<Self::Output> {
         match &mut self.get_mut().inner {
             Work::Ready(work) => work.poll_unpin(context),
             Work::Request(work) => work.as_mut().poll(context),
-            Work::Application(work) => work.as_mut().poll(context).map(|result| {
-                match result {
-                    ServiceResult::Handled(response) => ServiceResult::Handled(response),
+            Work::Application(work) => {
+                work.as_mut().poll(context).map(|result| match result {
+                    ServiceResult::Handled(response) => {
+                        ServiceResult::Handled(response)
+                    }
                     ServiceResult::Unhandled(request) => {
                         ServiceResult::Unhandled(request.into_request())
                     }
-                }
-            }),
+                })
+            }
         }
     }
 }
@@ -61,5 +67,8 @@ impl Future for DispatchFuture {
 /// A body-owning operation. Registration in a host plan uses HostLayer; this
 /// call contract also serves PHP's selected runner without another plan.
 pub trait DispatchStep: Send + Sync + 'static {
-    fn call(&self, request: Request<RouteBody>) -> DispatchFuture;
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchFuture;
 }

@@ -12,10 +12,13 @@ pub mod support;
 
 fn benchmark(criterion: &mut Criterion) {
     let host = support::edge::json_pipeline();
-    let service = hyper::service::service_fn(move |request: support::json::Input| {
-        host.request(request, RequestArrival::Established)
-            .map_body(boxed_body).dispatch().map(Ok::<_, Infallible>)
-    });
+    let service =
+        hyper::service::service_fn(move |request: support::json::Input| {
+            host.request(request, RequestArrival::Established)
+                .map_body(boxed_body)
+                .dispatch()
+                .map(Ok::<_, Infallible>)
+        });
     support::decoded::run(criterion, "dispatch/edge/json", service);
 }
 

@@ -11,7 +11,9 @@ use claviron_http::{RouteBody, RouteResponse};
 use http::{HeaderValue, Request, Response, StatusCode};
 use http_body::{Body, Frame};
 
-use crate::pipeline::host::{ApplicationHandler, DispatchStep, HostPipelineBuilder};
+use crate::pipeline::host::{
+    ApplicationHandler, DispatchStep, HostPipelineBuilder,
+};
 use claviron_http::ServiceResult;
 
 fn routes(source: &str) -> Vec<LuaRouteConfig> {
@@ -21,14 +23,21 @@ fn routes(source: &str) -> Vec<LuaRouteConfig> {
 #[test]
 fn prepared_scope_owns_its_prefix_and_preserves_declaration_order() {
     let prefix: PathPrefix = serde_yaml::from_str("/api").unwrap();
-    let backend = LuaBackend::new(None, &routes(
-        "- {application: first}\n- {application: last}\n",
-    ), Some(&prefix), HttpPolicyOverride::default()).unwrap();
+    let backend = LuaBackend::new(
+        None,
+        &routes("- {application: first}\n- {application: last}\n"),
+        Some(&prefix),
+        HttpPolicyOverride::default(),
+    )
+    .unwrap();
     for path in ["/api", "/api/item"] {
         assert_eq!(backend.select(path).unwrap().adapter.application(), "last");
     }
     assert!(backend.select("/apiary").is_none());
-    assert!(LuaBackend::new(None, &[], None, HttpPolicyOverride::default()).is_none());
+    assert!(
+        LuaBackend::new(None, &[], None, HttpPolicyOverride::default())
+            .is_none()
+    );
 }
 
 #[derive(Default)]
@@ -104,9 +113,14 @@ fn only_nonmatching_mounts_yield_the_original_body_and_trailers() {
             }))
             .unwrap();
         let mut builder = HostPipelineBuilder::new();
-        builder.layer(Arc::new(backend.clone()) as Arc<dyn DispatchStep>).unwrap();
+        builder
+            .layer(Arc::new(backend.clone()) as Arc<dyn DispatchStep>)
+            .unwrap();
         let pipeline = builder.build();
-        let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("mount dispatch follows head preparation"); };
+        let ServiceResult::Unhandled(prepared) = pipeline.prepare(request)
+        else {
+            panic!("mount dispatch follows head preparation");
+        };
         let mut call = Box::pin(prepared.dispatch_to(Fallback(counts.clone())));
         let mut context = Context::from_waker(Waker::noop());
         let Poll::Ready(response) = call.as_mut().poll(&mut context) else {

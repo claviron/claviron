@@ -1,9 +1,9 @@
 use super::*;
 
 use bytes::Bytes;
-use http::Request;
 #[cfg(feature = "axum")]
 use claviron_http::dispatch::RuleContext;
+use http::Request;
 use http_body::{Body, Frame};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -46,8 +46,8 @@ async fn an_empty_child_scope_does_not_inherit_the_root_file_probe() {
         &state,
         &"example.test".parse().unwrap(),
         Arc::new(config),
-        &[],
-        &[],
+        None,
+        &HostContributions::default(),
         #[cfg(feature = "rate-limit")]
         None,
         #[cfg(feature = "websocket")]
@@ -87,8 +87,8 @@ async fn try_files_precedes_a_declared_php_application_without_starting_php() {
         &state,
         &"example.test".parse().unwrap(),
         Arc::new(config),
-        &[],
-        &[],
+        None,
+        &HostContributions::default(),
         #[cfg(feature = "rate-limit")]
         None,
         #[cfg(feature = "websocket")]
@@ -141,15 +141,18 @@ async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
     let state = AppState::standalone("native-condition", directory.path());
     let registry = Arc::new(HostAppRegistry::default());
     registry
-        .register_route_extension(crate::pipeline::extension::directive::<bool, _>(
-            "allowed",
-            |_, _| Ok(RouteEffect::Condition(Arc::new(Reject))),
-        ))
+        .register_route_extension(crate::pipeline::extension::directive::<
+            bool,
+            _,
+        >("allowed", |_, _| {
+            Ok(RouteEffect::Condition(Arc::new(Reject)))
+        }))
         .unwrap();
     state.registry_ref().insert(registry).unwrap();
-    let config: HostConfig =
-        serde_yaml::from_str("root: public\nroutes:\n  /secret:\n    allowed: false\n")
-            .unwrap();
+    let config: HostConfig = serde_yaml::from_str(
+        "root: public\nroutes:\n  /secret:\n    allowed: false\n",
+    )
+    .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
     let router = Router::new().route(
@@ -159,12 +162,14 @@ async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
             async { http::StatusCode::OK }
         }),
     );
+    let mut contributions = HostContributions::default();
+    contributions.applications.push(crate::pipeline::app::application(router));
     let owner = prepare(
         &state,
         &"example.test".parse().unwrap(),
         Arc::new(config),
-        &[crate::pipeline::app::application(router)],
-        &[],
+        None,
+        &contributions,
         #[cfg(feature = "rate-limit")]
         None,
         #[cfg(feature = "websocket")]

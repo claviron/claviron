@@ -1,17 +1,21 @@
 //! Boot-time normalization of flat host applications and prefix-keyed routes.
 
-use super::{HostConfig, HostFields};
-#[cfg(feature = "php")]
-use super::PhpConfig;
 #[cfg(feature = "lua")]
 use super::LuaRouteConfig;
 #[cfg(feature = "orbit")]
 use super::OrbitRouteConfig;
+#[cfg(feature = "php")]
+use super::PhpConfig;
 #[cfg(feature = "broadcast")]
 use super::PusherConfig;
-use super::{acl, CorsConfig, HostHeadersConfig, RedirectConfig, RequestPolicyOverride, ResponsePolicyOverride, HttpPolicyOverride, StaticConfig, DEFAULT_SERVER_HEADER, is_dynamic_file, HostUpstreamConfig};
 #[cfg(feature = "rate-limit")]
 use super::quota;
+use super::{
+    CorsConfig, DEFAULT_SERVER_HEADER, HostHeadersConfig, HostUpstreamConfig,
+    HttpPolicyOverride, RedirectConfig, RequestPolicyOverride,
+    ResponsePolicyOverride, StaticConfig, acl, is_dynamic_file,
+};
+use super::{HostConfig, HostFields};
 use claviron_helpers::de::opt_one_or_many;
 use claviron_http::config::mapping::RouteMapping;
 use claviron_http::config::routes::RouteTable;
@@ -86,7 +90,6 @@ pub struct RouteConfig {
     pub cors: Option<CorsConfig>,
     #[serde(default)]
     pub headers: Option<HostHeadersConfig>,
-
 }
 
 impl RouteConfig {
@@ -160,7 +163,10 @@ impl RouteConfig {
 
     /// Declared server label, or the library identity.
     pub fn server_name(&self) -> &str {
-        self.headers.as_ref().and_then(|headers| headers.server.as_deref()).unwrap_or(DEFAULT_SERVER_HEADER)
+        self.headers
+            .as_ref()
+            .and_then(|headers| headers.server.as_deref())
+            .unwrap_or(DEFAULT_SERVER_HEADER)
     }
 }
 
@@ -242,14 +248,8 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
                 fallback.insert(key(name), value.clone());
             }
         }
-        let owner_names = [
-            "php",
-            "lua",
-            "orbit",
-            "upstream",
-            "broadcast",
-            "pusher",
-        ];
+        let owner_names =
+            ["php", "lua", "orbit", "upstream", "broadcast", "pusher"];
         if owner_names
             .iter()
             .filter(|name| source.contains_key(key(name)))
@@ -342,7 +342,10 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     let declared_mounts: Vec<_> = entries
         .iter()
         .filter_map(|(prefix, route)| {
-            route.statics.as_ref().filter(|mounts| !mounts.is_empty())
+            route
+                .statics
+                .as_ref()
+                .filter(|mounts| !mounts.is_empty())
                 .map(|mounts| (prefix.clone(), mounts.clone()))
         })
         .collect();
@@ -351,22 +354,25 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
         // descendant or sibling route. Keep directory-group prefixes intact.
         if !config.owns_handler
             && config.statics.as_ref().is_none_or(Vec::is_empty)
-            && let Some((_, mounts)) = declared_mounts
-                .iter()
-                .find(|(ancestor, _)| ancestor.has_path_segment(prefix.as_str()))
+            && let Some((_, mounts)) =
+                declared_mounts.iter().find(|(ancestor, _)| {
+                    ancestor.has_path_segment(prefix.as_str())
+                })
         {
             let config = Arc::get_mut(config)
                 .expect("route configuration has not been published");
-            let mapping = config.files.mapping.as_ref()
-                .expect("prepared route mapping");
+            let mapping =
+                config.files.mapping.as_ref().expect("prepared route mapping");
             let mut inherited = Vec::new();
             for mount in mounts {
                 let mut mount = mount.clone();
-                if let Some(suffix) = mapping.relative_path(mount.path.as_str()) {
+                if let Some(suffix) = mapping.relative_path(mount.path.as_str())
+                {
                     // The directory group is below the selected route.
                     mount.dir = mapping.directory().join(suffix);
                 } else if mount.path.has_path_segment(prefix.as_str()) {
-                    let suffix = prefix.as_str()
+                    let suffix = prefix
+                        .as_str()
                         .strip_prefix(mount.path.as_str().trim_end_matches('/'))
                         .expect("matching static ancestor")
                         .trim_start_matches('/');
@@ -387,10 +393,8 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
             }
         }
     }
-    let mounts: Vec<_> = declared_mounts
-        .into_iter()
-        .flat_map(|(_, mounts)| mounts)
-        .collect();
+    let mounts: Vec<_> =
+        declared_mounts.into_iter().flat_map(|(_, mounts)| mounts).collect();
     if !mounts.is_empty() {
         host.files.statics = Some(mounts);
     }
@@ -427,12 +431,7 @@ fn has_application(source: &Mapping) -> bool {
 fn is_application_directive(name: &str) -> bool {
     matches!(
         name,
-        "php"
-            | "lua"
-            | "orbit"
-            | "upstream"
-            | "broadcast"
-            | "pusher"
+        "php" | "lua" | "orbit" | "upstream" | "broadcast" | "pusher"
     )
 }
 
@@ -458,7 +457,10 @@ fn is_builtin_directive(name: &str) -> bool {
         )
 }
 
-fn validate_feature(prefix: &PathPrefix, name: &str) -> Result<(), String> {
+fn validate_feature(
+    prefix: &PathPrefix,
+    name: &str,
+) -> Result<(), String> {
     let supported = match name {
         "php" => cfg!(feature = "php"),
         "lua" => cfg!(feature = "lua"),
@@ -528,19 +530,31 @@ fn validate(
 }
 
 /// URL scope is owned by the routes key, never an individual feature.
-fn validate_scope(prefix: &PathPrefix, scope: &Mapping) -> Result<(), String> {
+fn validate_scope(
+    prefix: &PathPrefix,
+    scope: &Mapping,
+) -> Result<(), String> {
     if scope.contains_key(key("path")) {
-        return Err(format!("route '{prefix}' uses its key as the URL prefix; use directory for a disk mapping"));
+        return Err(format!(
+            "route '{prefix}' uses its key as the URL prefix; use directory for a disk mapping"
+        ));
     }
     for name in ["php", "lua", "orbit", "redirect"] {
-        let Some(value) = scope.get(key(name)) else { continue; };
+        let Some(value) = scope.get(key(name)) else {
+            continue;
+        };
         let entries = match value {
             Value::Sequence(entries) => entries.as_slice(),
             _ => std::slice::from_ref(value),
         };
         for entry in entries {
-            if entry.as_mapping().is_some_and(|map| map.contains_key(key("path"))) {
-                return Err(format!("'{name}.path' is not supported; declare its scope under routes"));
+            if entry
+                .as_mapping()
+                .is_some_and(|map| map.contains_key(key("path")))
+            {
+                return Err(format!(
+                    "'{name}.path' is not supported; declare its scope under routes"
+                ));
             }
         }
     }
@@ -625,8 +639,10 @@ fn file_mapping(
             .flatten()
     }) {
         Some((ancestor, value)) => {
-            let path: PathBuf = serde_yaml::from_value(value.clone())
-                .map_err(|error| format!("route '{ancestor}' directory: {error}"))?;
+            let path: PathBuf =
+                serde_yaml::from_value(value.clone()).map_err(|error| {
+                    format!("route '{ancestor}' directory: {error}")
+                })?;
             if path.as_os_str().is_empty() {
                 return Err(format!(
                     "route '{ancestor}' directory must not be empty"

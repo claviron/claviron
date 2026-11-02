@@ -11,8 +11,8 @@ use claviron_runtime::{
 use claviron_types::Host;
 use http::StatusCode;
 
-use crate::HostConfig;
 use super::configured_route;
+use crate::HostConfig;
 use crate::pipeline::{
     AnyAuthenticated, AuthContext, H3WebTransportSession, WebTransportAccept,
     WebTransportHandler, WebTransportRegistry, WebTransportReject,
@@ -34,10 +34,7 @@ pub(crate) fn append_routes(
         .ok_or_else(|| Error::msg("Lua requires the WebTransport registry"))?;
     for (prefix, route) in config.lua_routes() {
         for socket in route.websockets() {
-            let path = super::mounted_websocket_path(
-                prefix,
-                &socket.path,
-            );
+            let path = super::mounted_websocket_path(prefix, &socket.path);
             registry.bind_handler(
                 host.clone(),
                 path.clone(),

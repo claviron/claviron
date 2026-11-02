@@ -6,29 +6,34 @@ use crate::pipeline::extension::RouteContext;
 
 use super::DispatchStep;
 use crate::pipeline::layers::prepare_fallback;
-use crate::pipeline::other::OtherService;
 
 #[derive(Clone)]
 pub(super) struct BackendPlan {
-    pub terminal: OtherService,
     pub steps: Vec<Arc<dyn DispatchStep>>,
 }
 
 impl BackendPlan {
-    pub(super) fn prepare(
-        context: &RouteContext<'_>,
-    ) -> Self {
+    pub(super) fn prepare(context: &RouteContext<'_>) -> Self {
         let state = context.state;
         let host = context.host;
         let config = context.route;
-        #[cfg(any(feature = "orbit", feature = "lua", feature = "php_embed", feature = "php_fcgi"))]
+        #[cfg(any(
+            feature = "orbit",
+            feature = "lua",
+            feature = "php_embed",
+            feature = "php_fcgi"
+        ))]
         let policy = context.policy();
-        let terminal = prepare_fallback(state, config);
         let steps = std::iter::empty::<Arc<dyn DispatchStep>>();
         #[cfg(feature = "orbit")]
         let steps = steps.chain(
-            crate::pipeline::link::LinkBackend::new(state, config.orbit(), Some(context.prefix), policy.requests)
-                .map(|owner| Arc::new(owner) as Arc<dyn DispatchStep>),
+            crate::pipeline::link::LinkBackend::new(
+                state,
+                config.orbit(),
+                Some(context.prefix),
+                policy.requests,
+            )
+            .map(|owner| Arc::new(owner) as Arc<dyn DispatchStep>),
         );
         #[cfg(feature = "lua")]
         let steps = steps.chain(
@@ -44,12 +49,8 @@ impl BackendPlan {
         );
         #[cfg(any(feature = "php_embed", feature = "php_fcgi"))]
         let steps = steps.chain(
-            crate::pipeline::embed::php::PhpBackend::new(
-                state,
-                config,
-                policy,
-            )
-            .map(|owner| Arc::new(owner) as Arc<dyn DispatchStep>),
+            crate::pipeline::embed::php::PhpBackend::new(state, config, policy)
+                .map(|owner| Arc::new(owner) as Arc<dyn DispatchStep>),
         );
         #[cfg(feature = "upstream")]
         let steps = steps.chain(
@@ -68,7 +69,6 @@ impl BackendPlan {
             .map(|owner| Arc::new(owner) as Arc<dyn DispatchStep>),
         );
         let _ = host;
-        Self { terminal, steps: steps.collect() }
+        Self { steps: steps.chain(prepare_fallback(state, config)).collect() }
     }
 }
-

@@ -19,7 +19,6 @@ pub struct OrbitRouteConfig {
     /// The name the application process advertises in its lane.
     #[serde(deserialize_with = "deserialize_orbit_application_name")]
     pub application: String,
-
 }
 
 #[cfg(test)]

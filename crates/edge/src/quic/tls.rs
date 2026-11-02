@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::transport::{VhostResolver, VhostTable};
 use crate::transport::tls::TlsHost;
+use crate::transport::{VhostResolver, VhostTable};
 use claviron_http::ListenerId;
 use claviron_http::config::QuicConfig;
 use claviron_runtime::registry::{Error, Result};
@@ -103,11 +103,7 @@ impl H3TlsAccept {
             config: cfg.clone(),
             revocations,
         });
-        Ok(Self {
-            template,
-            live: vhost_resolver,
-            listener: listener.clone(),
-        })
+        Ok(Self { template, live: vhost_resolver, listener: listener.clone() })
     }
     pub(crate) fn template(&self) -> Arc<H3TlsTemplate> {
         self.template.clone()
@@ -153,7 +149,8 @@ impl H3TlsAccept {
                 hosts.insert(name, policy.clone());
             }
         }
-        let fallback = hosts.iter()
+        let fallback = hosts
+            .iter()
             .find(|(name, _)| name.as_single() == Some("default"))
             .and_then(|(_, host)| host.as_ref())
             .map(|host| host.config.clone());
@@ -162,7 +159,8 @@ impl H3TlsAccept {
         let rejected = template.rejected.clone();
         let selector: quinn_deferred_config::Selector =
             Arc::new(move |hello: &ClientHelloView<'_>| {
-                let selected = hello.server_name
+                let selected = hello
+                    .server_name
                     .and_then(|name| name.parse::<Host>().ok())
                     .and_then(|name| match lookup.get(&name) {
                         Some(host) => host.as_ref().map(|host| &host.config),
@@ -170,7 +168,11 @@ impl H3TlsAccept {
                     });
                 selected.cloned().unwrap_or_else(|| rejected.clone())
             });
-        let config = handshake_config(template.base.clone(), selector, &template.config)?;
+        let config = handshake_config(
+            template.base.clone(),
+            selector,
+            &template.config,
+        )?;
         Ok(H3TlsPolicy { hosts, config: Arc::new(config) })
     }
     pub(crate) fn base_config(&self) -> ServerConfig {
@@ -185,9 +187,12 @@ impl H3TlsAccept {
         let policy = hosts
             .prepared_ref::<VhostTlsPolicies>()
             .and_then(|policies| policies.0.get(&self.listener))
-            .ok_or_else(|| Error::msg(format!(
-                "H3 listener '{}' has no published host policy", self.listener
-            )))?;
+            .ok_or_else(|| {
+                Error::msg(format!(
+                    "H3 listener '{}' has no published host policy",
+                    self.listener
+                ))
+            })?;
         let connection = incoming
             .accept_with(policy.config.clone())
             .map_err(|error| Error::msg(format!("H3 accept: {error}")))?
@@ -202,8 +207,8 @@ fn handshake_config(
     selector: quinn_deferred_config::Selector,
     config: &QuicConfig,
 ) -> Result<ServerConfig> {
-    let crypto = DeferredServerConfig::new(base, selector)
-        .map_err(|error| {
+    let crypto =
+        DeferredServerConfig::new(base, selector).map_err(|error| {
             if matches!(
                 error,
                 quinn::crypto::rustls::NoInitialCipherSuite { .. }

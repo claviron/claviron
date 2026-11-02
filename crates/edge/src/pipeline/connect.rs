@@ -208,11 +208,14 @@ impl H2ConnectBinding {
         let name = handler.name();
         let host = context.host.clone();
         let path = context.path.clone();
-        let protocol = match request.extensions().get::<hyper::ext::Protocol>() {
+        let protocol = match request.extensions().get::<hyper::ext::Protocol>()
+        {
             Some(value) if value.as_str().eq_ignore_ascii_case("websocket") => {
                 "websocket"
             }
-            Some(value) if value.as_str().eq_ignore_ascii_case("webtransport") => {
+            Some(value)
+                if value.as_str().eq_ignore_ascii_case("webtransport") =>
+            {
                 "webtransport"
             }
             Some(_) => "other",

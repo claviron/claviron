@@ -133,7 +133,9 @@ fn alias_update_validates_before_removal_and_publishes_once() {
     }
     let generation = *resolver.publications.borrow();
     let new = host("new.test");
-    assert!(resolver.update_alias(Some(&old), new.clone(), host("b.test")).unwrap());
+    assert!(
+        resolver.update_alias(Some(&old), new.clone(), host("b.test")).unwrap()
+    );
     assert_eq!(*resolver.publications.borrow(), generation.wrapping_add(1));
     let current = resolver.snapshot();
     assert!(current.resolve_exact(&old).is_none());

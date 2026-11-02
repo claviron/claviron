@@ -6,8 +6,8 @@ use claviron_http::ext::PathPrefix;
 use claviron_http::rate_limit::{RequestHead, Snapshot};
 
 use super::*;
-use crate::service::{HostResponse, RequestRejection};
 use crate::pipeline::host::HostContext;
+use crate::service::{HostResponse, RequestRejection};
 
 mod prepare;
 
@@ -23,7 +23,9 @@ pub struct QuotaState {
 }
 
 impl AsMut<()> for QuotaState {
-    fn as_mut(&mut self) -> &mut () { &mut self.unit }
+    fn as_mut(&mut self) -> &mut () {
+        &mut self.unit
+    }
 }
 
 impl QuotaState {
@@ -81,7 +83,10 @@ impl QuotaPolicy {
         if self.rules.len() == 1 && self.rules[0].0.as_str() == "/" {
             let quota = self.rules[0].1.clone();
             layer.before_context(move |head, state, context| {
-                record(quota.check(&request_head(head, context)), state.as_mut())
+                record(
+                    quota.check(&request_head(head, context)),
+                    state.as_mut(),
+                )
             });
         } else {
             layer.before_context(move |head, state, context| {
@@ -120,17 +125,25 @@ impl QuotaPolicy {
 struct QuotaHeaders;
 
 impl<S: AsMut<QuotaState>, R> HostLayer<S, R> for QuotaHeaders {
-    fn prepare(self, layer: &mut HostLayerBuilder<S, R>) -> crate::Result<()> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S, R>,
+    ) -> crate::Result<()> {
         layer.after(|head, state: &mut S| {
             claviron_http::rate_limit::apply_header_fields(
-                state.as_mut().snapshot(), head.status, &mut head.headers,
+                state.as_mut().snapshot(),
+                head.status,
+                &mut head.headers,
             );
         });
         Ok(())
     }
 }
 
-fn request_head<'a>(head: &'a RequestParts, context: Option<HostContext<'a>>) -> RequestHead<'a> {
+fn request_head<'a>(
+    head: &'a RequestParts,
+    context: Option<HostContext<'a>>,
+) -> RequestHead<'a> {
     RequestHead {
         method: &head.method,
         uri: &head.uri,
@@ -153,7 +166,9 @@ fn record<R: From<HostResponse>>(
     }
 }
 
-impl<S: AsMut<QuotaState>, R: From<HostResponse>> HostLayer<S, R> for QuotaPolicy {
+impl<S: AsMut<QuotaState>, R: From<HostResponse>> HostLayer<S, R>
+    for QuotaPolicy
+{
     fn prepare(
         self,
         layer: &mut HostLayerBuilder<S, R>,
@@ -166,4 +181,3 @@ impl<S: AsMut<QuotaState>, R: From<HostResponse>> HostLayer<S, R> for QuotaPolic
 #[cfg(test)]
 #[path = "../../../tests/pipeline/layers/quota.rs"]
 mod tests;
-

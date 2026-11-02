@@ -104,10 +104,15 @@ async fn static_wins_then_try_files_then_the_backend_receives_the_unread_body()
     ] {
         let counts = Arc::new(Counts::default());
         let mut builder = HostPipelineBuilder::new();
-        for step in scope_steps(&config) { builder.layer(step).unwrap(); }
+        for step in scope_steps(&config) {
+            builder.layer(step).unwrap();
+        }
         let pipeline = builder.build();
         let (request, address) = request(path, &counts);
-        let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("file work belongs to dispatch"); };
+        let ServiceResult::Unhandled(prepared) = pipeline.prepare(request)
+        else {
+            panic!("file work belongs to dispatch");
+        };
         let response = prepared.dispatch_to(Echo(counts.clone())).await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
@@ -133,11 +138,15 @@ async fn a_terminal_static_miss_cannot_fall_through_to_try_files() {
     config.files.try_files = true;
     let counts = Arc::new(Counts::default());
     let mut builder = HostPipelineBuilder::new();
-    for step in scope_steps(&config) { builder.layer(step).unwrap(); }
+    for step in scope_steps(&config) {
+        builder.layer(step).unwrap();
+    }
     let pipeline = builder.build();
     let (request, _) = request("/item.txt", &counts);
-    let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("file work belongs to dispatch"); };
-        let response = prepared.dispatch_to(Echo(counts.clone())).await;
+    let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else {
+        panic!("file work belongs to dispatch");
+    };
+    let response = prepared.dispatch_to(Echo(counts.clone())).await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     assert_eq!(counts.backend.load(Ordering::Relaxed), 0);
     assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
@@ -151,10 +160,14 @@ fn dynamic_names_reach_the_backend_without_filesystem_or_body_work() {
     config.files.try_files = true;
     let counts = Arc::new(Counts::default());
     let mut builder = HostPipelineBuilder::new();
-    for step in scope_steps(&config) { builder.layer(step).unwrap(); }
+    for step in scope_steps(&config) {
+        builder.layer(step).unwrap();
+    }
     let pipeline = builder.build();
     let (request, _) = request("/index.php", &counts);
-    let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("file work belongs to dispatch"); };
+    let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else {
+        panic!("file work belongs to dispatch");
+    };
     let mut answering = Box::pin(prepared.dispatch_to(Echo(counts.clone())));
     let Poll::Ready(response) =
         answering.as_mut().poll(&mut Context::from_waker(Waker::noop()))

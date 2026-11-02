@@ -12,9 +12,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use claviron_http::config::{
-    HttpSnapshot, HttpYaml, ListenerCapabilities,
-};
+use claviron_http::config::{HttpSnapshot, HttpYaml, ListenerCapabilities};
 #[cfg(feature = "metrics")]
 use claviron_http::metrics::HttpMetricsConfig;
 use claviron_http::watchdog::WatchdogConfig;

@@ -161,9 +161,8 @@ impl HttpsServer {
         let deps = Deps::bind(deps)?;
         let http = self.state.config_reader().snapshot::<Self>()?;
         let groups = build_snapshots(&http, &deps);
-        let generation = prepare_vhosts(&http, &deps, || {
-            self.current.start(groups)
-        })?;
+        let generation =
+            prepare_vhosts(&http, &deps, || self.current.start(groups))?;
         let server = self.clone();
         crate::tcp::listener::serve(
             &self.current,
@@ -189,7 +188,8 @@ pub(crate) fn build_snapshots(
         if !matches!(config.security, TcpSecurity::Tls { .. }) {
             continue;
         }
-        let tls_accept = TlsAccept::new(deps.vhost_resolver.clone(), id.clone());
+        let tls_accept =
+            TlsAccept::new(deps.vhost_resolver.clone(), id.clone());
         groups.insert(
             id.clone(),
             Arc::new(ServerSnapshot {
@@ -221,8 +221,7 @@ fn prepare_vhosts<R>(
                     if !matches!(config.security, TcpSecurity::Tls { .. }) {
                         continue;
                     }
-                    let old = previous
-                        .and_then(|previous| previous.0.get(id));
+                    let old = previous.and_then(|previous| previous.0.get(id));
                     policies.insert(
                         id.clone(),
                         TlsAccept::prepare_policy(

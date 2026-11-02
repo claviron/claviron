@@ -11,7 +11,9 @@ use claviron_http::RouteBody;
 use http::Request;
 use http_body::{Body, Frame};
 
-use crate::pipeline::host::{ApplicationHandler, DispatchStep, HostPipelineBuilder};
+use crate::pipeline::host::{
+    ApplicationHandler, DispatchStep, HostPipelineBuilder,
+};
 use claviron_http::ServiceResult;
 
 #[derive(Default)]
@@ -132,7 +134,10 @@ fn selected_application_never_runs_the_script_owner_and_unhandled_keeps_body() {
         let mut builder = HostPipelineBuilder::new();
         builder.layer(Arc::new(backend) as Arc<dyn DispatchStep>).unwrap();
         let pipeline = builder.build();
-        let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("mount dispatch follows head preparation"); };
+        let ServiceResult::Unhandled(prepared) = pipeline.prepare(request)
+        else {
+            panic!("mount dispatch follows head preparation");
+        };
         let mut call = Box::pin(prepared.dispatch_to(Fallback(counts.clone())));
         let mut context = Context::from_waker(Waker::noop());
         let Poll::Ready(response) = call.as_mut().poll(&mut context) else {
@@ -184,8 +189,13 @@ fn equally_specific_mounts_retain_the_last_declared_owner() {
     let mut builder = HostPipelineBuilder::new();
     builder.layer(Arc::new(backend) as Arc<dyn DispatchStep>).unwrap();
     let pipeline = builder.build();
-    let request = Request::builder().uri("/app/item").body(claviron_http::empty_body()).unwrap();
-    let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("mount dispatch follows head preparation"); };
+    let request = Request::builder()
+        .uri("/app/item")
+        .body(claviron_http::empty_body())
+        .unwrap();
+    let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else {
+        panic!("mount dispatch follows head preparation");
+    };
     let mut call = Box::pin(prepared.dispatch_to(Fallback(counts.clone())));
     let Poll::Ready(response) =
         call.as_mut().poll(&mut Context::from_waker(Waker::noop()))
@@ -209,7 +219,8 @@ fn file_routes_php_preparation_uses_the_same_mapping_as_files() {
         claviron_runtime::AppState::standalone("php-mapping", directory.path());
     for (prefix, disk) in [("/admin", "mapped"), ("/plain", "plain")] {
         let route = config.routes.find(prefix).unwrap();
-        let runtime = prepare_runtimes(&state, route, route.policy()).pop().unwrap();
+        let runtime =
+            prepare_runtimes(&state, route, route.policy()).pop().unwrap();
         assert_eq!(runtime.dir, directory.path().join(disk));
         assert_eq!(
             runtime.dir,

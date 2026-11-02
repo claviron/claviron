@@ -1,5 +1,5 @@
-use crate::pipeline::link::LinkBackend;
 use super::{DispatchStep, HostLayer, HostLayerBuilder};
+use crate::pipeline::link::LinkBackend;
 
 impl<S> HostLayer<S> for LinkBackend {
     fn prepare(

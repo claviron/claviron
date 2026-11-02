@@ -1,5 +1,5 @@
-use crate::pipeline::extension::RouteLayer;
 use super::{HostLayer, HostLayerBuilder};
+use crate::pipeline::extension::RouteLayer;
 
 impl HostLayer for &dyn RouteLayer {
     fn prepare(
@@ -9,4 +9,3 @@ impl HostLayer for &dyn RouteLayer {
         RouteLayer::prepare(self, layer)
     }
 }
-

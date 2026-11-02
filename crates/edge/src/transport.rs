@@ -21,9 +21,9 @@
 //! Other handler against — and a transport reaches its handful of names from
 //! here so that it still has one import path rather than three.
 //!
-//! The names here are re-exports, not a second set of types — a transport and
-//! an application author looking at `OtherService` are looking at the same
-//! `OtherService`. What differs is which of them has to know where it lives.
+//! `HostExecution` is the compiled host owner seen by transports. Rust routers
+//! and native backends are prepared inside that host execution, never selected
+//! by a transport as an alternative to the host plan.
 
 #[cfg(any(feature = "tcp", feature = "quic"))]
 pub(crate) mod instances;
@@ -35,14 +35,14 @@ pub use crate::config::HostConfig;
 pub use crate::loader::resolver::{HostBinding, VhostResolver};
 /// The set of hosts a listener serves, as SNI and authority resolution read it.
 pub use crate::loader::table::VhostTable;
-/// The axum-free dispatch door: a host pinned straight to one adapter.
+/// Application-owned Rust handler registration, without Axum.
 pub use crate::pipeline::other::{OtherHandler, OtherService};
 /// Applications mounted on a host, and the connection-level handlers a
 /// transport dispatches to before routing: CONNECT and WebTransport.
 pub use crate::pipeline::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
-    HostAppRegistry, HostAppResolver, RustRouter,
+    HostAppRegistry, HostAppResolver, HostExecution, RustRouter,
 };
 #[cfg(feature = "webtransport")]
 pub use crate::pipeline::{WebTransportBinding, WebTransportRegistry};
@@ -50,8 +50,8 @@ pub use crate::pipeline::{WebTransportBinding, WebTransportRegistry};
 /// response — the transport's actual reason for depending on this crate.
 pub use crate::service::{
     HostRejection, HostResponse, HostService, PreparedRequest, RequestArrival,
-    RequestAuthority, RequestRejection, VhostCtx,
-    resolve_request_authority, resolve_sni_from_table,
+    RequestAuthority, RequestRejection, VhostCtx, resolve_request_authority,
+    resolve_sni_from_table,
 };
 #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
 pub(crate) mod tls;

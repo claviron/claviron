@@ -1,33 +1,26 @@
-use std::sync::Arc;
+use super::files::fallback_config;
+use crate::HostConfig;
+use crate::pipeline::host::{DispatchFuture, DispatchStep};
 use claviron_files::{FileSite, try_handle_files};
 use claviron_http::config::files::FilesConfig;
 use claviron_http::ext::RealIpExt;
-use claviron_http::{RequestContext, RouteBody, RouteFuture, ServiceResult, err_status};
+use claviron_http::{RequestContext, RouteBody, ServiceResult, err_status};
 use claviron_runtime::AppState;
 use http::{Request, StatusCode};
-use crate::HostConfig;
-use crate::pipeline::other::{OtherHandler, OtherService};
-use super::files::fallback_config;
+use std::sync::Arc;
 
-pub(in crate::pipeline) fn prepare_fallback(state: &AppState, config: &HostConfig) -> OtherService {
+pub(in crate::pipeline) fn prepare_fallback(
+    state: &AppState,
+    config: &HostConfig,
+) -> Option<Arc<dyn DispatchStep>> {
     let files = fallback_config(config);
     if files.spa.is_none() && !files.has_static_index() {
-        OtherService::new(NotFound)
-    } else {
-        OtherService::new(FileFallback { state: state.clone(), files: Arc::new(files) })
+        return None;
     }
-}
-
-struct NotFound;
-
-impl OtherHandler for NotFound {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-    ) -> RouteFuture {
-        drop(request);
-        Box::pin(std::future::ready(Ok(err_status(StatusCode::NOT_FOUND))))
-    }
+    Some(Arc::new(FileFallback {
+        state: state.clone(),
+        files: Arc::new(files),
+    }))
 }
 
 #[derive(Clone)]
@@ -36,13 +29,13 @@ struct FileFallback {
     files: Arc<FilesConfig>,
 }
 
-impl OtherHandler for FileFallback {
+impl DispatchStep for FileFallback {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> RouteFuture {
+    ) -> DispatchFuture {
         let owner = self.clone();
-        Box::pin(async move {
+        DispatchFuture::new(async move {
             let context = RequestContext {
                 uri: request.uri(),
                 headers: request.headers(),
@@ -63,7 +56,7 @@ impl OtherHandler for FileFallback {
             };
             // Retain the original body across file work and release it once.
             drop(request);
-            Ok(response)
+            ServiceResult::Handled(response)
         })
     }
 }

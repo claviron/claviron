@@ -13,7 +13,9 @@ fn incompatible_declared_alias_types_are_rejected() {
 
 #[test]
 fn aliases_share_declarations_and_old_tables_keep_their_owner() {
-    let table: VhostTable = serde_yaml::from_str("app.test: {root: public, aliases: [alias.test]}").unwrap();
+    let table: VhostTable =
+        serde_yaml::from_str("app.test: {root: public, aliases: [alias.test]}")
+            .unwrap();
     let canonical = "app.test".parse().unwrap();
     let alias = "alias.test".parse().unwrap();
     let record = table.record(&canonical).unwrap().clone();
@@ -21,8 +23,14 @@ fn aliases_share_declarations_and_old_tables_keep_their_owner() {
     let old = table.clone();
     let mut candidate = table;
     candidate.remove_host(&canonical);
-    candidate.insert_canonical(canonical.clone(), Arc::new(serde_yaml::from_str("root: changed").unwrap()));
-    assert!(!Arc::ptr_eq(&record.config, &candidate.record(&canonical).unwrap().config));
+    candidate.insert_canonical(
+        canonical.clone(),
+        Arc::new(serde_yaml::from_str("root: changed").unwrap()),
+    );
+    assert!(!Arc::ptr_eq(
+        &record.config,
+        &candidate.record(&canonical).unwrap().config
+    ));
     assert!(Arc::ptr_eq(&record, old.record(&canonical).unwrap()));
     assert!(Arc::ptr_eq(&record.config, &old.record(&alias).unwrap().config));
 }
