@@ -1,8 +1,9 @@
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::pipeline::host::{HostPipeline, HostRequestState};
-use crate::service::RequestArrival;
+use crate::pipeline::host::{HostPipeline, HostPipelineBuilder};
+use crate::pipeline::layers::AuthorityLayer;
+use crate::service::RequestRejection;
 use claviron_http::ServiceResult;
 use claviron_http::ext::{HostKey, HostName, RealIpExt};
 
@@ -23,13 +24,11 @@ fn host() -> VhostCtx {
 fn native_pipeline(
     connection: &Arc<ConnCtx>,
     host: &VhostCtx,
-) -> HostPipeline<HostRequestState, crate::service::HostResponse> {
-    let access = Arc::new(crate::VhostResolver::default());
-    access.upsert_host(
-        host.vhost_key.0.as_ref().clone(),
-        host.vhost_config.clone(),
-    );
-    HostPipeline::for_host(connection, host, access)
+) -> HostPipeline<IdentityState, RequestRejection> {
+    let mut builder = HostPipelineBuilder::new();
+    builder.layer(AuthorityLayer(host.hostname.clone())).unwrap();
+    builder.layer(IdentityPolicy::new(connection.clone(), host)).unwrap();
+    builder.build()
 }
 
 fn connection(ip: Option<IpAddr>) -> Arc<ConnCtx> {
@@ -62,19 +61,11 @@ fn direct_identity_without_a_transport_real_ip_is_shared_between_requests() {
             .header("x-real-ip", client)
             .body(())
             .unwrap();
-        let admitted = pipeline
-            .admit(request, HostRequestState::new(RequestArrival::Established))
-            .unwrap();
-        assert_eq!(admitted.connection.real_ip, Some(accepted.remote.ip()));
-        assert!(Arc::ptr_eq(
-            &admitted.connection,
-            admitted.head.extensions.get::<Arc<ConnCtx>>().unwrap(),
-        ));
-        assert_eq!(
-            admitted.head.extensions.get::<RealIpExt>().unwrap().0,
-            accepted.remote.ip()
-        );
-        identities.push(admitted.connection);
+        let ServiceResult::Unhandled(admitted) = pipeline.prepare_with_state(request, IdentityState::default()) else { panic!("valid authority expected"); };
+        let identified = admitted.head().extensions.get::<Arc<ConnCtx>>().unwrap();
+        assert!(Arc::ptr_eq(identified, &accepted));
+        assert_eq!(admitted.head().extensions.get::<RealIpExt>().unwrap().0, accepted.remote.ip());
+        identities.push(identified.clone());
     }
     assert!(Arc::ptr_eq(&identities[0], &identities[1]));
     assert!(accepted.real_ip.is_none());
@@ -87,7 +78,7 @@ impl Drop for BodyOwner {
 }
 
 #[test]
-fn host_identity_follows_ingress_and_keeps_single_body_ownership() {
+fn explicit_identity_follows_authority_and_keeps_single_body_ownership() {
     let accepted = connection(Some("192.0.2.1".parse().unwrap()));
     let pipeline = native_pipeline(&accepted, &host());
     let dropped = Arc::new(AtomicUsize::new(0));
@@ -100,12 +91,10 @@ fn host_identity_follows_ingress_and_keeps_single_body_ownership() {
         .header("x-real-ip", "203.0.113.1")
         .body(body)
         .unwrap();
-    let admitted = pipeline
-        .admit(request, HostRequestState::new(RequestArrival::Established))
-        .unwrap();
-    assert!(Arc::ptr_eq(&admitted.connection, &accepted));
-    assert_eq!(admitted.body.bytes.as_ptr(), pointer);
-    assert_eq!(admitted.head.uri, "/ok?raw=%2F");
+    let ServiceResult::Unhandled(admitted) = pipeline.prepare_with_state(request, IdentityState::default()) else { panic!("valid authority expected"); };
+    assert!(Arc::ptr_eq(admitted.head().extensions.get::<Arc<ConnCtx>>().unwrap(), &accepted));
+    assert_eq!(admitted.head().uri, "/ok?raw=%2F");
+    let admitted = admitted.map_body(|body| { assert_eq!(body.bytes.as_ptr(), pointer); body });
     assert_eq!(dropped.load(Ordering::Relaxed), 0);
     drop(admitted);
     assert_eq!(dropped.load(Ordering::Relaxed), 1);
@@ -120,16 +109,14 @@ fn host_identity_follows_ingress_and_keeps_single_body_ownership() {
         .unwrap();
     let ServiceResult::Handled(reply) = pipeline.prepare_with_state(
         request,
-        HostRequestState::new(RequestArrival::Established),
+        IdentityState::default(),
     ) else {
         panic!("invalid authority must reject before identity")
     };
-    assert_eq!(
-        reply.response,
-        crate::service::HostResponse::Rejected(RequestRejection::Misdirected)
-    );
-    assert!(reply.state.identity().connection().is_none());
+    reply.finish_with(|reason| {
+        assert_eq!(reason, RequestRejection::Misdirected);
+        reason.into()
+    });
     assert_eq!(dropped.load(Ordering::Relaxed), 2);
-    drop(reply);
     assert_eq!(dropped.load(Ordering::Relaxed), 2);
 }

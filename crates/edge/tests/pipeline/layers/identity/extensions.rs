@@ -1,4 +1,12 @@
 use super::*;
+use http::{Request, Extensions};
+use crate::service::resolve_sni_from_table;
+
+fn inject(template: &ContextExtensions, connection: &Arc<ConnCtx>, request: &mut Request<()>) {
+    let (mut head, body) = std::mem::take(request).into_parts();
+    template.inject_fixed(&mut head, connection, connection.real_ip.unwrap_or_else(|| connection.remote.ip()));
+    *request = Request::from_parts(head, body);
+}
 use claviron_http::config::HttpPolicy;
 use claviron_http::ext::ReceivedAt;
 
@@ -60,11 +68,11 @@ fn assert_context(
 #[test]
 fn prepared_extension_maps_keep_all_types_and_independent_request_ownership() {
     let (connection, host) = direct();
-    let template = identity_pipeline(&connection, &host);
+    let template = ContextExtensions::new(&connection, &host);
     let mut first = Request::new(());
     let mut second = Request::new(());
-    inject(&template, &mut first);
-    inject(&template, &mut second);
+    inject(&template, &connection, &mut first);
+    inject(&template, &connection, &mut second);
     assert_eq!(first.extensions().len(), 8);
     assert_eq!(second.extensions().len(), 8);
     assert_context(first.extensions(), &connection, &host);
@@ -77,7 +85,7 @@ fn prepared_extension_maps_keep_all_types_and_independent_request_ownership() {
     first.extensions_mut().clear();
     assert_context(second.extensions(), &connection, &host);
     let mut third = Request::new(());
-    inject(&template, &mut third);
+    inject(&template, &connection, &mut third);
     assert_context(third.extensions(), &connection, &host);
     assert!(third.extensions().get::<HttpPolicy>().is_none());
     assert!(third.extensions().get::<ReceivedAt>().is_none());
@@ -89,7 +97,7 @@ struct NativeValue(Arc<()>);
 #[test]
 fn existing_extensions_keep_their_boxes_and_unrelated_values() {
     let (connection, host) = direct();
-    let template = identity_pipeline(&connection, &host);
+    let template = ContextExtensions::new(&connection, &host);
     let native = Arc::new(());
     let policy = HttpPolicy::unlimited();
     let received = ReceivedAt(std::time::SystemTime::UNIX_EPOCH);
@@ -113,7 +121,7 @@ fn existing_extensions_keep_their_boxes_and_unrelated_values() {
     let scheme_address =
         request.extensions().get::<http::uri::Scheme>().unwrap()
             as *const http::uri::Scheme;
-    inject(&template, &mut request);
+    inject(&template, &connection, &mut request);
     assert_context(request.extensions(), &connection, &host);
     let value = request.extensions().get::<NativeValue>().unwrap();
     assert_eq!(value as *const NativeValue, address);
@@ -140,13 +148,13 @@ fn existing_extensions_keep_their_boxes_and_unrelated_values() {
 #[test]
 fn empty_allocated_extensions_receive_the_complete_context() {
     let (connection, host) = direct();
-    let template = identity_pipeline(&connection, &host);
+    let template = ContextExtensions::new(&connection, &host);
     let mut request = Request::builder()
         .extension(NativeValue(Arc::new(())))
         .body(())
         .unwrap();
     request.extensions_mut().clear();
-    inject(&template, &mut request);
+    inject(&template, &connection, &mut request);
     assert_eq!(request.extensions().len(), 8);
     assert_context(request.extensions(), &connection, &host);
 }

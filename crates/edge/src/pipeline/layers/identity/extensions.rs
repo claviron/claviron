@@ -103,3 +103,7 @@ impl ContextExtensions {
         set_context(extensions, RealIpExt(ip));
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../tests/pipeline/layers/identity/extensions.rs"]
+mod tests;

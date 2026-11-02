@@ -77,7 +77,3 @@ impl fmt::Display for HostRejection {
         }
     }
 }
-
-#[cfg(test)]
-#[path = "../../tests/service/extensions.rs"]
-mod tests;
