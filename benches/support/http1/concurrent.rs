@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 mod client;
 #[path = "concurrent/cpu.rs"]
 mod cpu;
+#[path = "concurrent/execution.rs"]
+mod execution;
 #[path = "concurrent/process.rs"]
 mod process;
 #[path = "concurrent/server.rs"]
@@ -33,7 +35,16 @@ impl Target {
     }
 }
 
-#[derive(Parser)]
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
+#[value(rename_all = "snake_case")]
+enum ServerExecution {
+    #[default]
+    Shared,
+    CurrentThread,
+}
+
+#[derive(Clone, Parser)]
 struct Args {
     #[arg(long = "bench", hide = true)]
     _bench: bool,
@@ -43,6 +54,8 @@ struct Args {
     connections: NonZeroUsize,
     #[arg(long)]
     server_threads: NonZeroUsize,
+    #[arg(long, value_enum, default_value_t = ServerExecution::Shared)]
+    server_execution: ServerExecution,
     #[arg(long)]
     client_threads: NonZeroUsize,
     #[arg(long, value_parser = seconds)]
@@ -97,6 +110,8 @@ struct Report {
     server_pid: u32,
     connections: usize,
     server_threads: usize,
+    server_execution: ServerExecution,
+    http_threads: usize,
     client_threads: usize,
     warmup_requests: u64,
     samples: Vec<Sample>,
@@ -156,6 +171,11 @@ pub fn run() -> Result<()> {
         server_pid,
         connections: args.connections.get(),
         server_threads: args.server_threads.get(),
+        server_execution: args.server_execution,
+        http_threads: match args.server_execution {
+            ServerExecution::Shared => args.server_threads.get(),
+            ServerExecution::CurrentThread => 1,
+        },
         client_threads: args.client_threads.get(),
         warmup_requests,
         requests,

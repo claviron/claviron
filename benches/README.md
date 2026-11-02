@@ -86,9 +86,23 @@ the narrower dispatch measurements and concurrent server CPU/request results.
 
 `http1-concurrent` accepts one of five owners: native Hyper, native
 `axum::serve`, or registered Edge Other/Axum/Routable. The server is a child
-process with its own multi-thread Tokio runtime. A separate client process
+process with its own main multi-thread Tokio runtime. A separate client process
 keeps the declared TCP connections open, with one in-flight request per connection.
 Connections and both runtime thread counts are required inputs.
+
+`--server-execution shared` serves HTTP on the main runtime. Selecting
+`current_thread` places bind, accept and connection tasks on one additional
+current-thread executor using Claviron's production `CurrentThreadDriver` and
+listener execution specification. All native and Edge controls use the same
+cold placement setup; native HTTP still runs directly through Hyper or
+`axum::serve`. Setup and executor teardown remain outside measurement.
+The benchmark checks the selected runtime flavor before binding.
+
+`--server-threads` always controls the main runtime's thread budget, including
+in `current_thread` mode. It does not count HTTP executors or processes.
+Results record both the execution mode and effective HTTP runtime thread count.
+Each run has one serving process and one listener; a 32-worker fleet is a
+different measurement topology.
 
 Each Edge connection enters the production `ConnectionHandler`, creating its
 own connection context and host-policy cache. Host/application publications
@@ -132,7 +146,8 @@ executable with different owners:
 
 ```sh
 python3 scripts/bench-http.py http1-concurrent-edge-other \
-  --connections 64 --server-threads 4 --client-threads 4 \
+  --connections 1024 --server-threads 4 --client-threads 4 \
+  --server-execution shared \
   --warmup-seconds 3 --measurement-seconds 5 --samples 1
 ```
 
@@ -142,6 +157,12 @@ Substitute `http1-concurrent-hyper`, `http1-concurrent-axum`,
 process CPU accounting and do not use Criterion's serial RTT estimator.
 Use `--samples 1` for one uninterrupted load window; multiple samples drain
 outstanding replies between windows.
+
+Repeat each case with `--server-execution current_thread`, leaving connections,
+main-runtime threads, client threads and timing unchanged. Compare native Hyper
+with Edge Other, and native Axum with Edge Axum, within each execution mode.
+Compare each owner across modes to measure execution placement separately.
+`shared` remains the default when the execution argument is omitted.
 
 For the narrower decoded-dispatch comparison:
 
@@ -167,3 +188,8 @@ invalidate it. Arithmetic differences do not establish statistical significance.
 Keep decoded calls, serial RTT and concurrent server CPU results separate.
 The launcher rejects comparisons with different measurement boundaries or
 thread/connection controls. None of these targets reports request p99.
+
+An explicit `--compare RUN_ID` may compare concurrent runs that differ only in
+HTTP execution placement; automatic history comparisons keep the same mode.
+Other measurement controls must still match. CPU totals include every serving
+process thread, not just the HTTP executor.

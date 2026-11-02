@@ -17,7 +17,10 @@ use tokio::{
     task::JoinSet,
 };
 
-use super::{Args, Command, Reply, Result, Target, cpu, process};
+use super::{
+    Args, Command, Reply, Result, ServerExecution, Target, cpu, execution,
+    process,
+};
 use crate::support::{edge, http1::Server, plain};
 
 pub(super) fn run(args: &Args) -> Result<()> {
@@ -30,13 +33,9 @@ pub(super) fn run(args: &Args) -> Result<()> {
         observed.store(true, Ordering::Relaxed);
         previous(info);
     }));
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(args.server_threads.get())
-        .enable_all()
-        .build()?;
-    let server = runtime.block_on(start(args))?;
+    let server = execution::Running::start(args)?;
     let mut output = std::io::stdout().lock();
-    process::write(&mut output, &Reply::Ready(server.address))?;
+    process::write(&mut output, &Reply::Ready(server.address()))?;
     let mut began = None;
     let control = (|| -> Result<()> {
         for line in std::io::stdin().lock().lines() {
@@ -64,7 +63,7 @@ pub(super) fn run(args: &Args) -> Result<()> {
         }
         Ok(())
     })();
-    runtime.block_on(server.shutdown());
+    server.shutdown()?;
     control?;
     if panicked.load(Ordering::Relaxed) {
         return Err("a server task panicked".into());
@@ -74,7 +73,14 @@ pub(super) fn run(args: &Args) -> Result<()> {
     Ok(())
 }
 
-async fn start(args: &Args) -> Result<Server> {
+pub(super) async fn start(args: &Args) -> Result<Server> {
+    let expected = match args.server_execution {
+        ServerExecution::Shared => tokio::runtime::RuntimeFlavor::MultiThread,
+        ServerExecution::CurrentThread => {
+            tokio::runtime::RuntimeFlavor::CurrentThread
+        }
+    };
+    assert_eq!(tokio::runtime::Handle::current().runtime_flavor(), expected);
     match args.target {
         Target::Axum => Ok(crate::support::http1::axum_plain().await),
         Target::Hyper => {

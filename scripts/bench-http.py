@@ -111,9 +111,14 @@ def build(target):
     return Path(executable)
 
 
-def compatible(first, second):
-    return (first.get("status") == "passed"
-            and first.get("controls") == second.get("controls"))
+def compatible(first, second, execution_change=False):
+    before, after = dict(first.get("controls", {})), dict(second.get("controls", {}))
+    if (execution_change and before.get("schema") == after.get("schema") == 6
+            and before.get("boundary") == after.get("boundary") == "concurrent-http1-server-process-cpu"):
+        for key in ("server_execution", "http_threads"):
+            before.pop(key, None)
+            after.pop(key, None)
+    return first.get("status") == "passed" and before == after
 
 
 def estimate_mean(estimates):
@@ -159,7 +164,9 @@ def validate_concurrent(report, args):
             or report["client_pid"] == report["server_pid"]):
         raise RuntimeError("client and server must be separate processes")
     expected = {"target": CONCURRENT_TARGETS[args.target], "connections": args.connections,
-                "server_threads": args.server_threads, "client_threads": args.client_threads}
+                "server_threads": args.server_threads, "client_threads": args.client_threads,
+                "server_execution": args.server_execution,
+                "http_threads": 1 if args.server_execution == "current_thread" else args.server_threads}
     if any(report.get(key) != value for key, value in expected.items()):
         raise RuntimeError("server/client topology does not match requested controls")
     samples = report.get("samples", [])
@@ -189,6 +196,8 @@ def main():
     parser.add_argument("--samples", type=int, required=True)
     parser.add_argument("--connections", type=positive_int)
     parser.add_argument("--server-threads", type=positive_int)
+    parser.add_argument("--server-execution", choices=("shared", "current_thread"),
+                        help="HTTP execution placement; concurrent targets default to shared")
     parser.add_argument("--client-threads", type=positive_int)
     parser.add_argument("--compare", help="Compare with this local run ID, including the other target.")
     args = parser.parse_args()
@@ -196,8 +205,10 @@ def main():
     topology = (args.connections, args.server_threads, args.client_threads)
     if concurrent and not all(topology):
         parser.error("concurrent targets require --connections, --server-threads and --client-threads")
-    if not concurrent and any(value is not None for value in topology):
-        parser.error("connection/thread options apply only to concurrent targets")
+    if not concurrent and (any(value is not None for value in topology) or args.server_execution is not None):
+        parser.error("connection/thread/execution options apply only to concurrent targets")
+    if concurrent:
+        args.server_execution = args.server_execution or "shared"
     if args.samples <= 0:
         parser.error("--samples must be positive")
     # Only Criterion targets require at least ten statistical samples.
@@ -227,7 +238,7 @@ def main():
         "source": source,
         "artifact_sha256": file_digest(executable),
         "controls": {
-            "schema": 5 if concurrent else 4,
+            "schema": 6 if concurrent else 4,
             "boundary": BENCHMARKS[args.target][1],
             "workload_sha256": {
                 path.relative_to(ROOT).as_posix(): file_digest(path)
@@ -259,11 +270,13 @@ def main():
         },
     }
     if concurrent:
-        record["controls"].update(server_threads=args.server_threads, client_threads=args.client_threads)
+        record["controls"].update(server_threads=args.server_threads, client_threads=args.client_threads,
+                                  server_execution=args.server_execution,
+                                  http_threads=1 if args.server_execution == "current_thread" else args.server_threads)
     previous = [json.loads(path.read_text()) for path in sorted(HISTORY.glob("*/run.json"))]
     if args.compare:
         baseline = next((old for old in previous if old["run_id"] == args.compare), None)
-        if baseline is None or not compatible(baseline, record):
+        if baseline is None or not compatible(baseline, record, execution_change=True):
             raise RuntimeError("requested baseline is missing, incomplete or has different measurement controls")
     else:
         baseline = next((old for old in reversed(previous)
@@ -277,6 +290,7 @@ def main():
         arguments = [str(executable), "--target", CONCURRENT_TARGETS[args.target],
                      "--connections", str(args.connections),
                      "--server-threads", str(args.server_threads),
+                     "--server-execution", args.server_execution,
                      "--client-threads", str(args.client_threads),
                      "--warmup-seconds", str(args.warmup_seconds),
                      "--measurement-seconds", str(args.measurement_seconds),
@@ -315,6 +329,9 @@ def main():
         raise RuntimeError(f"run is invalid ({record['status']}); retained at {metadata}")
     mean = mean_time(record)
     metric = "server CPU ns/request" if concurrent else "ns/request"
+    if concurrent:
+        print(f"HTTP execution: {args.server_execution}; HTTP runtime threads: {record['measurements']['http_threads']}; "
+              f"main runtime threads: {args.server_threads}")
     print(f"{run_id}: {mean:.3f} {metric}")
     if args.target in PLAIN_TARGETS:
         native = estimate_mean(record["components_ns"]["native"])
