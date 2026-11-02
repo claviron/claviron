@@ -28,8 +28,8 @@ claviron-sys.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
 futures-util.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
@@ -38,8 +38,8 @@ libc.workspace = true
 tracing.workspace = true
 
 # ── Published sibling libraries shared through workspace dependencies ───
-congif.workspace = true
-continuo.workspace = true
+congif = { workspace = true, features = ["yaml"] }
+continuo = { workspace = true, features = ["config", "events", "fleet", "registry", "support"] }
 dotenw.workspace = true
 orbitive.workspace = true
 
@@ -50,3 +50,7 @@ path = "tests/env_scrub.rs"
 [[test]]
 name = "events"
 path = "tests/events.rs"
+
+[dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }

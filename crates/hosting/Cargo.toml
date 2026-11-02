@@ -42,14 +42,14 @@ claviron-types = { workspace = true, default-features = false }
 async-trait = { workspace = true, optional = true }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 
 # ── Database / cache backends ───────────────────────────────────────────
-sqlx.workspace = true
+sqlx = { workspace = true, features = ["derive", "runtime-tokio", "time"] }
 
 # ── Time / identifiers ──────────────────────────────────────────────────
-time.workspace = true
+time = { workspace = true, features = ["serde"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
@@ -57,4 +57,4 @@ tracing.workspace = true
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }

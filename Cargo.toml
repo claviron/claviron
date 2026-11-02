@@ -2,8 +2,8 @@
 name = "claviron"
 keywords = ["http", "runtime", "php", "http3", "shared-memory"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming", "concurrency"]
-authors.workspace = true
 description = "Embeddable Rust runtime and server fabric for fleet-aware application servers"
+authors.workspace = true
 edition.workspace = true
 version.workspace = true
 publish.workspace = true
@@ -11,7 +11,6 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 include = ["/src/**/*.rs", "/build.rs", "/README.md", "/LICENSE-MIT", "/LICENSE-APACHE"]
-
 
 [features]
 # Sections below are grouped by concern, alphabetised within each group.
@@ -34,7 +33,7 @@ http = ["runtime", "dep:claviron-http"]
 rate-limit = ["http", "dep:claviron-orbit", "claviron-orbit/quota", "claviron-http/rate-limit", "claviron-edge?/rate-limit"]
 axum = ["http", "claviron-http/axum", "dep:axum", "claviron-edge?/axum", "claviron-files?/axum", "claviron-runner?/axum"]
 # Native benchmark handlers. Adapt existing compositions without selecting one.
-bench = ["axum", "dep:serde", "dep:async-trait"]
+bench = ["axum", "dep:serde", "dep:async-trait", "tokio/time"]
 logging = ["dep:claviron-logging"]
 # Declared log channels (logging.yaml): records buffered in an Orbit ring and
 # written by one writer per fleet. See crates/logging/ARCHITECTURE.md.
@@ -84,6 +83,9 @@ server = [
     "runtime",
     "orbit",
     "sys",
+    "tokio/macros",
+    "tokio/rt",
+    "tokio/signal",
     "claviron-http?/server",
     "claviron-db?/server",
     "claviron-hosting?/server",
@@ -197,10 +199,10 @@ claviron-upstream = { workspace = true, optional = true }
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait = { workspace = true, optional = true }
 tokio.workspace = true
-tokio-util = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml.workspace = true
 
@@ -215,22 +217,22 @@ sqlx = { workspace = true, optional = true }
 
 # ── Time / identifiers ──────────────────────────────────────────────────
 humantime-serde = { workspace = true, optional = true }
-time.workspace = true
+time = { workspace = true, features = ["formatting"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
 tracing.workspace = true
 
 # ── HTTP/3 (QUIC) ───────────────────────────────────────────────────────
-quinn = { workspace = true, optional = true }
-quinn-deferred-config = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
+quinn-deferred-config = { workspace = true, optional = true, features = ["rustls-aws-lc-rs"] }
 
 # ── Published sibling libraries shared through workspace dependencies ───
 orbitive.workspace = true
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 
 # ── HTTP operation benchmarks ──────────────────────────────────────────
 bytes.workspace = true
@@ -239,14 +241,14 @@ futures-util.workspace = true
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
-hyper.workspace = true
-hyper-util = { workspace = true, features = ["service"] }
+hyper = { workspace = true, features = ["client", "http1", "server"] }
+hyper-util = { workspace = true, features = ["service", "tokio"] }
 serde = { workspace = true, features = ["derive"] }
-clap.workspace = true
+clap = { workspace = true, features = ["derive"] }
 
 # ── TLS benchmark preparation ──────────────────────────────────────────
-rcgen.workspace = true
-rustls.workspace = true
+rcgen = { workspace = true, features = ["pem"] }
+rustls = { workspace = true, features = ["aws_lc_rs", "logging", "std", "tls12"] }
 
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
@@ -434,25 +436,18 @@ claviron-tasks = { version = "0.2.0-alpha.24", path = "crates/tasks" }
 claviron-tls = { version = "0.2.0-alpha.24", path = "crates/tls", default-features = false }
 claviron-types = { version = "0.2.0-alpha.24", path = "crates/types", default-features = false }
 claviron-upstream = { version = "0.2.0-alpha.24", path = "crates/upstream" }
-
 # ── Async runtime & primitives ───────────────────────────────────────
 arc-swap = "1.9"
 async-trait = "0.1"
 futures = "0.3"
 futures-util = "0.3"
 pin-project-lite = "0.2"
-tokio = { version = "1", features = ["full"] }
-tokio-util = { version = "0.7", features = ["compat", "io"] }
+tokio = "1"
+tokio-util = "0.7"
 # ── Serialization & parsing ──────────────────────────────────────────
-rkyv = { version = "0.8.18", default-features = false, features = [
-    "bytecheck",
-    "little_endian",
-    "pointer_width_32",
-    "std",
-    "unaligned",
-] }
-clap = { version = "4.6", features = ["derive"] }
-serde = { version = "1", features = ["derive", "rc"] }
+rkyv = { version = "0.8.18", default-features = false }
+clap = "4.6"
+serde = "1"
 serde_json = "1.0"
 serde_regex = "1.1"
 serde_yaml = "0.9"
@@ -460,12 +455,10 @@ hex = "0.4"
 hmac = "0.13"
 md-5 = "0.11"
 sha2 = "0.11"
-
 # ── Proc macros ─────────────────────────────────────────────────────
 proc-macro2 = "1.0"
 quote = "1.0"
-syn = { version = "3", features = ["full", "extra-traits"] }
-
+syn = "3"
 # ── HTTP core ────────────────────────────────────────────────────────
 fastwebsockets = "0.10"
 headers = "0.4"
@@ -473,98 +466,75 @@ http = "1.4"
 http-body = "1.0"
 http-body-util = "0.1"
 httpdate = "1"
-hyper = { version = "1.12", features = ["server", "http2", "http1", "client"] }
-hyper-util = { version = "0.1", features = ["tokio", "server", "http2", "http1"] }
+hyper = "1.12"
+hyper-util = "0.1"
 percent-encoding = "2.3"
-
 # ── Web framework (axum + tower) ─────────────────────────────────────
 axum = "0.8"
-tower = { version = "0.5", features = ["timeout", "limit", "util"] }
-tower-http = { version = "0.7", features = ["full"] }
-
+tower = "0.5"
 # ── PHP / FFI ────────────────────────────────────────────────────────
-fastcgi-client = { version = "0.12", features = ["tokio"] }
-ext-php-rs = { version = "0.16", default-features = false, features = ["embed", "enum", "observer", "runtime", "smartstring"] }
-
+fastcgi-client = "0.12"
+ext-php-rs = { version = "0.16", default-features = false }
 # ── TLS / certificates ───────────────────────────────────────────────
-rcgen = { version = "^0.14", features = ["pem", "x509-parser"] }
-rustls = { version = "0.23", default-features = false, features = ["logging", "std", "tls12", "aws_lc_rs"] }
+rcgen = "^0.14"
+rustls = { version = "0.23", default-features = false }
 tokio-rustls = "0.26"
 rustls-native-certs = "0.8"
 x509-parser = "0.18"
-
 # ── Crypto / hashing / encoding ──────────────────────────────────────
-base64ct = { version = "1.8", features = ["alloc"] }
-blake3 = { version = "1.8" }
+base64ct = "1.8"
+blake3 = "1.8"
 fastrand = "2.4"
 sha1 = "0.11.0"
-
 # ── Database / cache backends ────────────────────────────────────────
 # Keep Redis off its rustls feature; the default server profile does not need
 # Redis TLS right now.
-redis = { version = "1.7", features = ["tokio-comp", "connection-manager", "aio", "streams"] }
-sqlx = { version = "0.9", default-features = false, features = [
-    "runtime-tokio",
-    "macros",
-    "json",
-    "uuid",
-    "time",
-    # Numeric/decimal round-trips in the PHP type layer.
-    "bigdecimal",
-] }
-cacache = { version = "13.1", default-features = false, features = ["tokio-runtime", "mmap"] }
-
+redis = "1.7"
+sqlx = { version = "0.9", default-features = false }
+cacache = { version = "13.1", default-features = false }
 # ── System / OS bindings ─────────────────────────────────────────────
 hostname = "0.4"
 dirs = "7"
 libc = "0.2"
-nix = { version = "0.31", features = ["process", "signal", "user", "fs"] }
+nix = "0.31"
 socket2 = "0.6"
-
 # ── Networking utilities ─────────────────────────────────────────────
-hickory-resolver = { version = "0.26.3", default-features = false, features = ["tokio", "system-config"] }
-ipnet = { version = "2.12", features = ["serde"] }
+hickory-resolver = { version = "0.26.3", default-features = false }
+ipnet = "2.12"
 maxminddb = "0.32"
-url = { version = "2.5", features = ["serde"] }
-
+url = "2.5"
 # ── Time / identifiers ───────────────────────────────────────────────
 chrono = { version = "0.4", default-features = true } # used for tasks/cron only
 cron = "0.17"
 humantime = "2.3"
 humantime-serde = "1"
-time = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
-uuid = { version = "1.26", features = ["serde", "v4"] }
-
+time = "0.3"
+uuid = "1.26"
 # ── Logging / errors / diagnostics ───────────────────────────────────
 thiserror = "2.0"
 tracing = "0.1"
 tracing-journald = "0.3"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "local-time", "fmt", "ansi"] }
-
+tracing-subscriber = "0.3"
 # ── In-memory caching / concurrent maps ──────────────────────────────
 dashmap = "6.1"
-moka = { version = "0.12", features = ["sync"] }
+moka = "0.12"
 once_cell = "1.21"
-
 # ── Compression / mime detection ─────────────────────────────────────
 brotli = "9"
 infer = "0.22"
 mime_guess = "2"
 zstd = "0.14"
-
 # ── Misc utilities ───────────────────────────────────────────────────
-byte-unit = { version = "5.2", features = ["serde"] }
+byte-unit = "5.2"
 bytes = "1.11"
 inventory = "0.3"
 regex = "1.12"
-
 # ── HTTP/3 (QUIC) ────────────────────────────────────────────────────
 # Public Quinn stays on the released 0.11 line. `quinn-deferred-config`
 # layers ClientHello-based ServerConfig selection on top until the
 # upstream API lands.
-quinn = { version = "0.11", default-features = false, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
-quinn-deferred-config = { version = "0.1", default-features = false, features = ["rustls-aws-lc-rs"] }
-
+quinn = { version = "0.11", default-features = false }
+quinn-deferred-config = { version = "0.1", default-features = false }
 # ─────────────────────────────────────────────────────────────────────
 # H3 forks published on crates.io include the merged upstream fixes.
 # Keep direct H3 consumers on the same fork family to share Rust types.
@@ -573,14 +543,13 @@ quinn-deferred-config = { version = "0.1", default-features = false, features = 
 h3 = { package = "h3-forked", version = "0.0.4" }
 h3-quinn = { package = "h3-quinn-forked", version = "0.0.4" }
 h3-webtransport = { package = "h3-webtransport-forked", version = "0.0.4" }
-
 # ── Published sibling libraries shared through workspace dependencies ──
 # Bounded state and shared-memory coordination across fleet processes.
 orbitive = { version = "0.6.1", default-features = false }
 # Typed service registry, lifecycle ordering and process-local events.
-continuo = { version = "0.11.0", default-features = false, features = ["registry", "support", "events", "config", "fleet"] }
+continuo = { version = "0.11.0", default-features = false }
 # Typed configuration loading, composition and reload notifications.
-congif = { version = "0.0.1", features = ["yaml"] }
+congif = "0.0.1"
 # Environment snapshots without changing process-global environment variables.
 dotenw = { version = "0.0.1", default-features = false }
 

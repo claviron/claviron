@@ -24,15 +24,15 @@ claviron-runtime.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
 async-trait = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["macros", "net", "rt", "sync"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 serde_yaml.workspace = true
 
 # ── Time / identifiers ──────────────────────────────────────────────────
-time.workspace = true
+time = { workspace = true, features = ["formatting"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 # The OTLP channel adapter: OpenTelemetry's logs bridge and its OTLP/HTTP
@@ -45,7 +45,7 @@ thiserror.workspace = true
 tracing.workspace = true
 # System journal output for the configured tracing sink.
 tracing-journald.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, features = ["ansi", "env-filter", "fmt", "local-time"] }
 
 # ── Misc utilities ──────────────────────────────────────────────────────
 bytes = { workspace = true, optional = true }

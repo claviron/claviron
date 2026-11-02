@@ -29,11 +29,11 @@ claviron-runtime.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
 async-trait.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
 # ── HTTP core ───────────────────────────────────────────────────────────
@@ -41,7 +41,7 @@ fastwebsockets.workspace = true
 http.workspace = true
 http-body-util.workspace = true
 hyper.workspace = true
-hyper-util.workspace = true
+hyper-util = { workspace = true, features = ["tokio"] }
 
 # ── Web framework (axum + tower) ────────────────────────────────────────
 axum.workspace = true
@@ -61,6 +61,12 @@ bytes.workspace = true
 orbitive.workspace = true
 
 [dev-dependencies]
+# ── HTTP core ───────────────────────────────────────────────────────────
+hyper = { workspace = true, features = ["client", "http1", "server"] }
+
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "time"] }
+
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-http = { workspace = true, features = ["axum", "server"] }
 
@@ -68,7 +74,7 @@ claviron-http = { workspace = true, features = ["axum", "server"] }
 serde_yaml.workspace = true
 
 # ── Web framework (axum + tower) ────────────────────────────────────────
-tower.workspace = true
+tower = { workspace = true, features = ["util"] }
 
 # ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

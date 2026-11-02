@@ -32,33 +32,39 @@ claviron-helpers.workspace = true
 claviron-http = { workspace = true, optional = true }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
-tokio = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["io-util", "macros", "net", "rt", "time"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 hex.workspace = true
 hmac.workspace = true
 # Pusher body_md5 payload digest; request signatures use HMAC-SHA256.
 md-5.workspace = true
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true
 
 # ── HTTP core ───────────────────────────────────────────────────────────
 http = { workspace = true, optional = true }
-hyper = { workspace = true, optional = true }
-hyper-util = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, optional = true, features = ["tokio"] }
 
 # ── Web framework (axum + tower) ────────────────────────────────────────
 axum = { workspace = true, optional = true }
 
 # ── Networking utilities ────────────────────────────────────────────────
-url.workspace = true
+url = { workspace = true, features = ["serde"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
 tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
+# ── HTTP core ───────────────────────────────────────────────────────────
+hyper = { workspace = true, features = ["client", "http1", "server"] }
+
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-runtime.workspace = true
 

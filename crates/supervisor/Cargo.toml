@@ -27,16 +27,16 @@ claviron-sys.workspace = true
 arc-swap.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "signal", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
-nix.workspace = true
+nix = { workspace = true, features = ["process", "signal"] }
 
 # ── Time / identifiers ──────────────────────────────────────────────────
 humantime.workspace = true
@@ -46,7 +46,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 # ── Misc utilities ──────────────────────────────────────────────────────
-byte-unit.workspace = true
+byte-unit = { workspace = true, features = ["serde"] }
 bytes.workspace = true
 
 # ── Published sibling libraries shared through workspace dependencies ───
@@ -54,5 +54,5 @@ orbitive = { workspace = true, features = ["metrics"], optional = true }
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
-tokio = { workspace = true, features = ["test-util"] }
+tokio = { workspace = true, features = ["macros", "rt", "sync", "test-util", "time"] }
 tempfile = "3"

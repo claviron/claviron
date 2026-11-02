@@ -52,12 +52,12 @@ claviron-tls = { workspace = true, optional = true }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
-tokio = { workspace = true, features = ["io-util", "net", "rt", "sync"] }
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync"] }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 clap = { workspace = true, features = ["derive"], optional = true }
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml.workspace = true
 
@@ -74,7 +74,7 @@ axum = { workspace = true, optional = true }
 tower = { workspace = true, features = ["util"] }
 
 # ── TLS / certificates ──────────────────────────────────────────────────
-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true, features = ["std"] }
 tokio-rustls = { workspace = true, optional = true }
 
 # ── System / OS bindings ────────────────────────────────────────────────
@@ -89,10 +89,10 @@ bytes.workspace = true
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
-tokio = { workspace = true, features = ["io-util", "macros", "rt", "test-util"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util"] }
 
 # ── TLS / certificates ──────────────────────────────────────────────────
-rcgen.workspace = true
+rcgen = { workspace = true, features = ["pem"] }
 
 # ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

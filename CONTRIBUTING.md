@@ -81,6 +81,10 @@ Use existing feature combinations before introducing a new feature. Preserve
 optional dependency boundaries: adding an adapter must not silently select an
 engine, listener, or serving composition.
 
+Keep dependency versions and default-feature policy in `[workspace.dependencies]`.
+Select features in the consuming crate; test-only features belong in
+`[dev-dependencies]`. Select specific Tokio features instead of `full`.
+
 Keep operational policy in typed configuration. Preserve the owning component's
 cancellation, drain, and resource-ownership contracts. Explain safety invariants
 next to unsafe code. When behavior or a boundary changes, update its architecture

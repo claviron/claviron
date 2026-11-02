@@ -22,15 +22,15 @@ claviron-runtime.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
 futures-util.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
 # ── Time / identifiers ──────────────────────────────────────────────────
-uuid.workspace = true
+uuid = { workspace = true, features = ["v4"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
@@ -38,3 +38,7 @@ tracing.workspace = true
 
 # ── Misc utilities ──────────────────────────────────────────────────────
 bytes.workspace = true
+
+[dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["macros", "rt", "time"] }

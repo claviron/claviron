@@ -34,12 +34,12 @@ claviron-runtime.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
 async-trait.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs", "rt", "sync"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 # Validated binary archives for composite cache values.
-rkyv.workspace = true
-serde.workspace = true
+rkyv = { workspace = true, features = ["bytecheck", "little_endian", "pointer_width_32", "std", "unaligned"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml.workspace = true
 
@@ -48,11 +48,11 @@ axum = { workspace = true, optional = true }
 
 # ── Database / cache backends ───────────────────────────────────────────
 # Content-addressed disk storage for the file cache driver.
-cacache = { workspace = true, optional = true }
-redis = { workspace = true, optional = true }
+cacache = { workspace = true, optional = true, features = ["mmap", "tokio-runtime"] }
+redis = { workspace = true, optional = true, features = ["connection-manager", "tokio-comp"] }
 
 # ── Networking utilities ────────────────────────────────────────────────
-url = { workspace = true, optional = true }
+url = { workspace = true, optional = true, features = ["serde"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
@@ -62,4 +62,7 @@ tracing.workspace = true
 bytes.workspace = true
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["macros", "rt"] }
+
 tempfile = "3"

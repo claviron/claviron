@@ -15,14 +15,14 @@ include.workspace = true
 
 [dependencies]
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 
 # ── Crypto / hashing / encoding ─────────────────────────────────────────
-base64ct.workspace = true
+base64ct = { workspace = true, features = ["alloc"] }
 
 # ── Time / identifiers ──────────────────────────────────────────────────
 humantime.workspace = true
-time.workspace = true
+time = { workspace = true, features = ["formatting", "parsing"] }
 uuid.workspace = true
 
 # ── Misc utilities ──────────────────────────────────────────────────────

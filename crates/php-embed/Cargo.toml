@@ -42,6 +42,8 @@ mysql = [
     "claviron-db/mysql",
     "dep:sqlx",
     "dep:time",
+    "sqlx/json",
+    "sqlx/time",
 ]
 postgres = [
     "dep:claviron-db",
@@ -49,6 +51,10 @@ postgres = [
     "claviron-db/postgres",
     "dep:sqlx",
     "dep:time",
+    "sqlx/bigdecimal",
+    "sqlx/json",
+    "sqlx/time",
+    "sqlx/uuid",
 ]
 
 [dependencies]
@@ -69,11 +75,11 @@ claviron-tasks = { workspace = true, optional = true }
 arc-swap.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["fs", "macros", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml.workspace = true
 
@@ -84,13 +90,13 @@ http-body-util.workspace = true
 
 # ── PHP / FFI ───────────────────────────────────────────────────────────
 # Embedded PHP lifecycle, Zend value conversion and native registrations.
-ext-php-rs.workspace = true
+ext-php-rs = { workspace = true, features = ["embed", "enum", "observer", "runtime", "smartstring"] }
 
 # ── Crypto / hashing / encoding ─────────────────────────────────────────
 fastrand.workspace = true
 
 # ── Database / cache backends ───────────────────────────────────────────
-sqlx = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true, features = ["runtime-tokio"] }
 
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
@@ -113,6 +119,9 @@ congif.workspace = true
 orbitive.workspace = true
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["macros", "rt", "time"] }
+
 # ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"
 

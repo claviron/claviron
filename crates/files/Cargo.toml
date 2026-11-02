@@ -35,11 +35,11 @@ claviron-tasks = { workspace = true, optional = true }
 arc-swap.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "rt"] }
+tokio-util = { workspace = true, features = ["io", "rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 
 # ── HTTP core ───────────────────────────────────────────────────────────
 http.workspace = true
@@ -71,10 +71,13 @@ mime_guess.workspace = true
 zstd.workspace = true
 
 # ── Misc utilities ──────────────────────────────────────────────────────
-byte-unit.workspace = true
+byte-unit = { workspace = true, features = ["serde"] }
 bytes.workspace = true
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["macros", "rt"] }
+
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
 

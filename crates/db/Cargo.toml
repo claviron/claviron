@@ -33,16 +33,16 @@ claviron-runtime = { workspace = true, optional = true }
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros", "rt", "sync"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 
 # ── Database / cache backends ───────────────────────────────────────────
-sqlx = { workspace = true }
+sqlx = { workspace = true, features = ["runtime-tokio"] }
 
 # ── Networking utilities ────────────────────────────────────────────────
-url.workspace = true
+url = { workspace = true, features = ["serde"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true

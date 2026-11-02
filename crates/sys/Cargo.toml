@@ -21,10 +21,10 @@ legacy-linux = []
 
 [dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
-tokio.workspace = true
+tokio = { workspace = true, features = ["net", "rt", "signal", "time"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 
 # ── Crypto / hashing / encoding ─────────────────────────────────────────
 # Stable filesystem lock names derived from process identity names.
@@ -43,5 +43,8 @@ tracing.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["macros", "rt"] }
+
 # ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

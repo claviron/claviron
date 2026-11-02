@@ -46,10 +46,10 @@ arc-swap = { workspace = true, optional = true }
 async-trait.workspace = true
 futures-util = { workspace = true, optional = true }
 pin-project-lite.workspace = true
-tokio = { workspace = true, features = ["fs"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, optional = true }
 # Regex patterns in static-route caching configuration.
 serde_regex.workspace = true
@@ -69,10 +69,10 @@ axum = { workspace = true, optional = true }
 sha1 = { workspace = true, optional = true }
 
 # ── TLS / certificates ──────────────────────────────────────────────────
-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true, features = ["std"] }
 
 # ── Networking utilities ────────────────────────────────────────────────
-ipnet.workspace = true
+ipnet = { workspace = true, features = ["serde"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 tracing.workspace = true
@@ -81,7 +81,7 @@ tracing.workspace = true
 once_cell.workspace = true
 
 # ── Misc utilities ──────────────────────────────────────────────────────
-byte-unit.workspace = true
+byte-unit = { workspace = true, features = ["serde"] }
 bytes.workspace = true
 regex.workspace = true
 
@@ -90,15 +90,16 @@ orbitive = { workspace = true, optional = true }
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "rt-multi-thread", "sync", "test-util", "time"] }
 futures-util.workspace = true
-tokio = { workspace = true, features = ["test-util"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
 
 # ── HTTP core ───────────────────────────────────────────────────────────
-hyper-util.workspace = true
-tower.workspace = true
+hyper = { workspace = true, features = ["client", "http1", "server"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+tower = { workspace = true, features = ["util"] }
 
 # ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

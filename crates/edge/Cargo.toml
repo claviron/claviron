@@ -89,13 +89,13 @@ claviron-upstream = { workspace = true, optional = true }
 arc-swap.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
-tokio.workspace = true
-tokio-util = { workspace = true, features = ["rt"], optional = true }
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["io", "rt"], optional = true }
 
 regex.workspace = true
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive", "rc"] }
 serde_json.workspace = true
 serde_yaml.workspace = true
 
@@ -104,23 +104,23 @@ fastwebsockets = { workspace = true, optional = true }
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
-hyper = { workspace = true, optional = true }
-hyper-util = { workspace = true, optional = true }
+hyper = { workspace = true, optional = true, features = ["http1", "http2", "server"] }
+hyper-util = { workspace = true, optional = true, features = ["tokio"] }
 percent-encoding = { workspace = true, optional = true }
 
 # ── Web framework (axum + tower) ────────────────────────────────────────
 axum = { workspace = true, optional = true }
-tower.workspace = true
+tower = { workspace = true, features = ["util"] }
 
 # ── TLS / certificates ──────────────────────────────────────────────────
-rustls = { workspace = true, optional = true }
+rustls = { workspace = true, optional = true, features = ["std"] }
 tokio-rustls = { workspace = true, optional = true }
 
 # ── System / OS bindings ────────────────────────────────────────────────
 socket2 = { workspace = true, optional = true }
 
 # ── Networking utilities ────────────────────────────────────────────────
-ipnet.workspace = true
+ipnet = { workspace = true, features = ["serde"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
@@ -133,13 +133,13 @@ bytes.workspace = true
 h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, features = ["datagram"], optional = true }
 h3-webtransport = { workspace = true, optional = true }
-quinn = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
 # Select each host's QUIC TLS configuration from its ClientHello SNI.
-quinn-deferred-config = { workspace = true, optional = true }
+quinn-deferred-config = { workspace = true, optional = true, features = ["rustls-aws-lc-rs"] }
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
-tokio = { workspace = true, features = ["test-util"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
 
 # ── HTTP core ───────────────────────────────────────────────────────────
 http-body.workspace = true

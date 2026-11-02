@@ -20,4 +20,4 @@ proc-macro = true
 # ── Proc macros ─────────────────────────────────────────────────────────
 proc-macro2.workspace = true
 quote.workspace = true
-syn.workspace = true
+syn = { workspace = true, features = ["full"] }

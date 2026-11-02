@@ -27,11 +27,11 @@ claviron-runtime.workspace = true
 arc-swap.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 
 # ── HTTP core ───────────────────────────────────────────────────────────
 http.workspace = true
@@ -51,12 +51,15 @@ continuo = { workspace = true, features = ["fleet"] }
 orbitive = { workspace = true, features = ["arena", "cache", "cell", "events", "lock", "counter", "invoke-tokio", "link-tokio", "link-events", "stream-tokio"] }
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
+
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
-nix.workspace = true
+nix = { workspace = true, features = ["process", "signal"] }
 tempfile = "3"
 
 [[test]]

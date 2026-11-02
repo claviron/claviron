@@ -37,14 +37,14 @@ claviron-types = { workspace = true, features = ["ssl"] }
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
 async-trait.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs", "macros", "rt", "sync"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 
 # ── TLS / certificates ──────────────────────────────────────────────────
-rustls.workspace = true
+rustls = { workspace = true, features = ["aws_lc_rs", "logging", "std", "tls12"] }
 # X.509 certificate parsing for chain loading and mTLS identity checks.
 x509-parser.workspace = true
 
@@ -59,8 +59,11 @@ time.workspace = true
 orbitive = { workspace = true, features = ["rustls"] }
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["macros", "rt"] }
+
 claviron-hosting = { workspace = true, features = ["sqlite"] }
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde_yaml.workspace = true
-sqlx = { workspace = true, features = ["sqlite"] }
+sqlx = { workspace = true, features = ["runtime-tokio", "sqlite"] }
 tempfile = "3"

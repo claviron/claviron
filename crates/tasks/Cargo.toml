@@ -31,11 +31,11 @@ claviron-sys.workspace = true
 arc-swap.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
-tokio.workspace = true
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive", "rc"] }
 serde_yaml.workspace = true
 
 # ── Crypto / hashing / encoding ─────────────────────────────────────────
@@ -43,7 +43,7 @@ blake3.workspace = true
 fastrand.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
-nix.workspace = true
+nix = { workspace = true, features = ["process", "signal"] }
 
 # ── Time / identifiers ──────────────────────────────────────────────────
 chrono.workspace = true
@@ -64,6 +64,9 @@ dotenw.workspace = true
 orbitive.workspace = true
 
 [dev-dependencies]
+# ── Async runtime & primitives ──────────────────────────────────────────
+tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde_json.workspace = true
 

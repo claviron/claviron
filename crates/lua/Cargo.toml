@@ -68,11 +68,11 @@ claviron-tasks = { workspace = true, optional = true }
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["fs", "rt", "sync", "time"] }
-tokio-util.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde = { workspace = true, optional = true }
+serde = { workspace = true, optional = true, features = ["derive"] }
 serde_json.workspace = true
 serde_yaml = { workspace = true, optional = true }
 
@@ -82,7 +82,7 @@ http = { workspace = true, optional = true }
 http-body = { workspace = true, optional = true }
 http-body-util = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true }
-hyper-util = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true, features = ["tokio"] }
 # Method-specific route lookup for Lua applications.
 matchit = "0.9"
 # Outbound claviron.fetch requests under the configured host policy.
@@ -94,7 +94,7 @@ reqwest = { version = "0.13", default-features = false, features = ["rustls", "h
 mlua = { version = "0.12", features = ["lua55", "vendored", "async", "send", "serde"] }
 
 # ── Database / cache backends ───────────────────────────────────────────
-sqlx = { workspace = true, optional = true }
+sqlx = { workspace = true, optional = true, features = ["runtime-tokio"] }
 # The facade does not re-export TransactionManager. Use SQLx's own transaction
 # machinery while retaining the pool lease for error-only connection retirement.
 sqlx-core = { version = "0.9", default-features = false, optional = true }
@@ -109,4 +109,4 @@ regex.workspace = true
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
-tokio = { workspace = true, features = ["macros", "rt"] }
+tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "rt-multi-thread", "sync"] }

@@ -14,7 +14,7 @@ keywords = ["authentication", "identity", "session", "csrf", "security"]
 categories = ["authentication", "asynchronous"]
 
 [features]
-csrf = ["dep:hmac", "dep:sha2", "dep:hex"]
+csrf = ["dep:hmac", "dep:sha2", "dep:hex", "uuid/v4"]
 orbit = ["dep:orbitive", "orbitive/auth"]
 users = []
 authorization = []
@@ -39,12 +39,12 @@ uuid.workspace = true
 thiserror.workspace = true
 
 # ── Published sibling libraries shared through workspace dependencies ───
-continuo.workspace = true
+continuo = { workspace = true, features = ["events"] }
 orbitive = { workspace = true, optional = true }
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
-tokio.workspace = true
+tokio = { workspace = true, features = ["macros", "rt"] }
 
 [[test]]
 name = "orbit"

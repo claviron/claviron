@@ -22,7 +22,7 @@ claviron-helpers.workspace = true
 async-trait.workspace = true
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 
 # ── Networking utilities ────────────────────────────────────────────────
 # Country lookup from the configured MaxMind database.
@@ -33,7 +33,7 @@ tracing.workspace = true
 
 # ── In-memory caching / concurrent maps ─────────────────────────────────
 # Process-local IP-to-country lookup cache.
-moka.workspace = true
+moka = { workspace = true, features = ["sync"] }
 once_cell.workspace = true
 
 [dev-dependencies]

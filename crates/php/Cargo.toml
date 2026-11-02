@@ -26,7 +26,7 @@ claviron-http.workspace = true
 claviron-runtime.workspace = true
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde.workspace = true
+serde = { workspace = true, features = ["derive"] }
 
 # ── HTTP core ───────────────────────────────────────────────────────────
 http.workspace = true
