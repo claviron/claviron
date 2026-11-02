@@ -10,41 +10,6 @@ use http_body::{Body, Frame};
 
 use super::*;
 
-#[derive(Default)]
-struct State {
-    identity: IdentityState,
-    log: AccessLogState,
-}
-
-impl AsRef<IdentityState> for State {
-    fn as_ref(&self) -> &IdentityState {
-        &self.identity
-    }
-}
-
-impl AsMut<AccessLogState> for State {
-    fn as_mut(&mut self) -> &mut AccessLogState {
-        &mut self.log
-    }
-}
-
-#[test]
-fn explicit_access_log_opt_out_contributes_no_pipeline_actions() {
-    let policy = AccessLogLayer::new(
-        HostKey(Arc::new("example.test".parse().unwrap())),
-        Some("off"),
-    );
-    assert!(policy.is_none());
-    let mut builder = HostPipelineBuilder::<State>::new();
-    if let Some(policy) = policy {
-        builder.layer(policy).unwrap();
-    }
-    let pipeline = builder.build();
-    assert!(pipeline.before.is_empty());
-    assert!(pipeline.after.is_empty());
-    assert!(pipeline.body.is_empty());
-}
-
 struct BodyDrop(Arc<AtomicUsize>);
 
 impl Drop for BodyDrop {

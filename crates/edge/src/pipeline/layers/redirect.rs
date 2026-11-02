@@ -144,3 +144,7 @@ impl<S, R: From<HostResponse>> HostLayer<S, R> for HttpsRedirectLayer {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/pipeline/layers/redirect.rs"]
+mod tests;

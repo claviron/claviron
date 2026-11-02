@@ -78,3 +78,7 @@ pub fn prepare_headers<S>(
     if let Some(layer) = HeaderClearLayer::new(clear) { builder.layer(layer)?; }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../../../tests/pipeline/layers/headers.rs"]
+mod tests;
