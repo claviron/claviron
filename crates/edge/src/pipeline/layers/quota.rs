@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use claviron_http::ext::PathPrefix;
 use claviron_http::rate_limit::{RequestHead, Snapshot};
+use http::request::Parts as RequestParts;
 
 use super::*;
 use crate::pipeline::host::HostContext;

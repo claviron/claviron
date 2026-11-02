@@ -8,7 +8,6 @@ use claviron_http::{RouteBody, RouteResponse};
 use http::Request;
 #[cfg(feature = "acme")]
 use http::Response;
-use http::request::Parts as RequestParts;
 use std::ops::ControlFlow;
 
 #[cfg(feature = "access-log")]
