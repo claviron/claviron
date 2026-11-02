@@ -22,6 +22,7 @@ trait Admission: Send + Sync {
         request: &RequestHead<'_>,
     ) -> std::result::Result<Option<Snapshot>, Rejection>;
     fn config(&self) -> &QuotaConfig;
+    fn reports_headers(&self) -> bool;
 }
 
 impl<K: KeyProvider> Admission for RateLimiter<K> {
@@ -34,12 +35,14 @@ impl<K: KeyProvider> Admission for RateLimiter<K> {
     fn config(&self) -> &QuotaConfig {
         self.store().config()
     }
+    fn reports_headers(&self) -> bool { self.reports_headers() }
 }
 
 #[derive(Clone)]
 pub(crate) struct RegisteredQuota(Arc<dyn Admission>);
 
 impl RegisteredQuota {
+    pub(crate) fn reports_headers(&self) -> bool { self.0.reports_headers() }
     pub(crate) fn check(
         &self,
         request: &RequestHead<'_>,
@@ -139,6 +142,8 @@ impl QuotaRegistrations {
     ) -> Result<Option<Arc<HostQuotas>>> {
         let declarations = declarations(config);
         let registered = self.entries.get(host).cloned().unwrap_or_default();
+        // Structural validation ran in seal(); dry runs never claim SHM owners.
+        if config_check { return Ok(None); }
         if let Some(previous) = previous {
             let unchanged = match previous {
                 Some(old) => {
@@ -160,11 +165,6 @@ impl QuotaRegistrations {
             return Ok(previous.clone());
         }
         if declarations.is_empty() && registered.is_empty() {
-            return Ok(None);
-        }
-        // A config check must not claim SHM owner rows beside a serving fleet.
-        // Structural validation ran in seal(); no request will be served here.
-        if config_check {
             return Ok(None);
         }
         let mut rules = registered.clone();

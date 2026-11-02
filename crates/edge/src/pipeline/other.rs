@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use claviron_http::{RouteBody, RouteFuture};
 use http::{Request, Response};
+use super::host::{ContextFuture, ContextHandler, HostContext};
 
 /// Low-level HTTP extension point without owning a listener.
 ///
@@ -68,6 +69,8 @@ pub trait OtherHandler: Send + Sync + 'static {
 #[derive(Clone)]
 pub enum OtherService {
     Handler(Arc<dyn OtherHandler>),
+    /// A prepared pipeline with a borrowed transport input.
+    Pipeline(Arc<dyn ContextHandler>),
     /// An empty response without an application handler.
     Noop,
 }
@@ -80,6 +83,7 @@ impl OtherService {
     pub(crate) fn times_its_head(&self) -> bool {
         match self {
             Self::Handler(handler) => handler.times_its_head(),
+            Self::Pipeline(handler) => handler.times_its_head(),
             Self::Noop => false,
         }
     }
@@ -96,10 +100,22 @@ impl OtherService {
     ) -> RouteFuture {
         match self {
             Self::Handler(handler) => handler.call(req),
+            Self::Pipeline(handler) => handler.clone().call(req),
             Self::Noop => Box::pin(async move {
                 drop(req);
                 Ok(Response::new(claviron_http::empty_body()))
             }),
+        }
+    }
+
+    pub fn handle_in<'a>(
+        &'a self,
+        request: Request<RouteBody>,
+        context: Option<HostContext<'a>>,
+    ) -> ContextFuture<'a> {
+        match self {
+            Self::Pipeline(handler) => handler.call_in(request, context),
+            _ => self.handle(request),
         }
     }
 }

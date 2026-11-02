@@ -20,6 +20,8 @@ use crate::pipeline::other::OtherService;
 use crate::HostConfig;
 
 struct Compiler<'a> {
+    #[cfg(feature = "rate-limit")]
+    quotas: Option<&'a crate::pipeline::layers::HostQuotas>,
     #[cfg(feature = "broadcast")]
     state: &'a AppState,
     applications: &'a [Arc<dyn HostHandler>],
@@ -58,6 +60,29 @@ impl Compiler<'_> {
         for layer in self.layers.iter().chain(layers) {
             builder.layer(layer.as_ref()).map_err(|error| Error::msg(error.to_string()))?;
         }
+        #[cfg(feature = "rate-limit")]
+        if let Some(quotas) = self.quotas {
+            let builder = crate::pipeline::layers::QuotaPolicy::attach(builder, quotas)
+                .map_err(|error| Error::msg(error.to_string()))?;
+            return self.finish_scope(
+                builder, plan.terminal, applications, steps,
+                #[cfg(feature = "websocket")] accept_applications,
+            );
+        }
+        self.finish_scope(
+            builder, plan.terminal, applications, steps,
+            #[cfg(feature = "websocket")] accept_applications,
+        )
+    }
+
+    fn finish_scope<S: Default + Send + 'static>(
+        &self,
+        mut builder: HostPipelineBuilder<S>,
+        terminal: OtherService,
+        applications: &[Arc<dyn HostHandler>],
+        steps: Vec<Arc<dyn super::DispatchStep>>,
+        #[cfg(feature = "websocket")] accept_applications: bool,
+    ) -> Result<OtherService> {
         #[cfg(feature = "websocket")]
         if accept_applications && let Some(websocket) = &self.websocket {
             builder.layer(websocket.clone()).map_err(|error| Error::msg(error.to_string()))?;
@@ -68,7 +93,7 @@ impl Compiler<'_> {
         for step in steps {
             builder.layer(step).map_err(|error| Error::msg(error.to_string()))?;
         }
-        bind_other(builder, plan.terminal)
+        bind_other(builder, terminal)
             .map_err(|error| Error::msg(error.to_string()))
     }
 }
@@ -79,11 +104,14 @@ pub(crate) fn prepare(
     config: Arc<HostConfig>,
     applications: &[Arc<dyn HostHandler>],
     layers: &[Arc<dyn RouteLayer>],
+    #[cfg(feature = "rate-limit")] quotas: Option<&crate::pipeline::layers::HostQuotas>,
     #[cfg(feature = "websocket")] websocket: Option<
         Arc<crate::pipeline::H1UpgradeRegistry>,
     >,
 ) -> Result<OtherService> {
     let compiler = Compiler {
+        #[cfg(feature = "rate-limit")]
+        quotas,
         #[cfg(feature = "broadcast")]
         state,
         applications,
@@ -164,13 +192,13 @@ pub(crate) fn prepare(
         ));
     }
     let rejected = compiler.scope(fallback, base, false, None, &layers)?;
-    let mut builder = HostPipelineBuilder::new();
+    let mut builder = HostPipelineBuilder::<()>::new();
     builder.layer(RouteSelectionLayer::new(RouteDispatch {
         entries: Arc::new(RouteTable::new(entries)),
         fallback: default,
         rejected,
     })).map_err(|error| Error::msg(error.to_string()))?;
-    Ok(OtherService::new(Arc::new(builder.build())))
+    Ok(OtherService::Pipeline(Arc::new(builder.build())))
 }
 
 #[cfg(test)]

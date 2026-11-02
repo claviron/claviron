@@ -7,6 +7,7 @@ use claviron_http::rate_limit::{RequestHead, Snapshot};
 
 use super::*;
 use crate::service::{HostResponse, RequestRejection};
+use crate::pipeline::host::HostContext;
 
 mod prepare;
 
@@ -18,6 +19,11 @@ use prepare::RegisteredQuota;
 #[derive(Default)]
 pub struct QuotaState {
     snapshot: Option<Snapshot>,
+    unit: (),
+}
+
+impl AsMut<()> for QuotaState {
+    fn as_mut(&mut self) -> &mut () { &mut self.unit }
 }
 
 impl QuotaState {
@@ -34,14 +40,26 @@ impl AsMut<QuotaState> for QuotaState {
 
 /// A cold-prepared layer sharing the host's existing quota authority.
 ///
-/// Install after identity and access checks. Key providers see only the parsed
-/// head and its typed extensions. Preparing another layer shares debt; it does
-/// not open or reset a store. Unconfigured hosts have no quota plan.
+/// Install after identity and access checks. Key providers borrow the parsed
+/// head, typed extensions and accepted connection. Preparing another layer
+/// shares debt; it does not open or reset a store. Unconfigured hosts have no
+/// quota plan.
 pub struct QuotaPolicy {
     rules: Arc<[(PathPrefix, RegisteredQuota)]>,
 }
 
 impl QuotaPolicy {
+    pub(crate) fn attach(
+        builder: HostPipelineBuilder,
+        quotas: &HostQuotas,
+    ) -> crate::Result<HostPipelineBuilder<QuotaState>> {
+        let mut builder = builder.with_state::<QuotaState>();
+        if quotas.rules.iter().any(|(_, quota)| quota.reports_headers()) {
+            builder.prepend_layer(QuotaHeaders)?;
+        }
+        builder.layer(Self::new(quotas))?;
+        Ok(builder)
+    }
     pub fn new(quotas: &HostQuotas) -> Self {
         Self::from_rules(quotas.rules.clone())
     }
@@ -62,12 +80,12 @@ impl QuotaPolicy {
         // Choose the uniform path once, rather than testing it per request.
         if self.rules.len() == 1 && self.rules[0].0.as_str() == "/" {
             let quota = self.rules[0].1.clone();
-            layer.before(move |head, state| {
-                record(quota.check(&request_head(head)), state.as_mut())
+            layer.before_context(move |head, state, context| {
+                record(quota.check(&request_head(head, context)), state.as_mut())
             });
         } else {
-            layer.before(move |head, state| {
-                record(self.check_scoped(head), state.as_mut())
+            layer.before_context(move |head, state, context| {
+                record(self.check_scoped(head, context), state.as_mut())
             });
         }
     }
@@ -75,6 +93,7 @@ impl QuotaPolicy {
     fn check_scoped(
         &self,
         head: &RequestParts,
+        context: Option<HostContext<'_>>,
     ) -> Result<Option<Snapshot>, HostResponse> {
         let paths = super::acl::comparison_paths(head.uri.path())?;
         let selected = self.select(&paths.separated);
@@ -85,7 +104,7 @@ impl QuotaPolicy {
             return Err(RequestRejection::AmbiguousPath.into());
         }
         match selected {
-            Some((_, quota)) => quota.check(&request_head(head)),
+            Some((_, quota)) => quota.check(&request_head(head, context)),
             None => Ok(None),
         }
     }
@@ -98,12 +117,26 @@ impl QuotaPolicy {
     }
 }
 
-fn request_head(head: &RequestParts) -> RequestHead<'_> {
+struct QuotaHeaders;
+
+impl<S: AsMut<QuotaState>, R> HostLayer<S, R> for QuotaHeaders {
+    fn prepare(self, layer: &mut HostLayerBuilder<S, R>) -> crate::Result<()> {
+        layer.after(|head, state: &mut S| {
+            claviron_http::rate_limit::apply_header_fields(
+                state.as_mut().snapshot(), head.status, &mut head.headers,
+            );
+        });
+        Ok(())
+    }
+}
+
+fn request_head<'a>(head: &'a RequestParts, context: Option<HostContext<'a>>) -> RequestHead<'a> {
     RequestHead {
         method: &head.method,
         uri: &head.uri,
         headers: &head.headers,
         extensions: &head.extensions,
+        connection: context.map(|context| context.connection),
     }
 }
 

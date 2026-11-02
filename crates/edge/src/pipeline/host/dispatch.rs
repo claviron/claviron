@@ -4,7 +4,7 @@ use std::future::{Future, Ready, ready};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use claviron_http::{RouteBody, RouteFuture, RouteResponse, ServiceResult};
+use claviron_http::{RouteBody, RouteResponse, ServiceResult};
 use futures_util::FutureExt;
 use http::Request;
 
@@ -22,7 +22,6 @@ enum Work {
     Ready(Ready<DispatchResult>),
     Request(Pin<Box<dyn Future<Output = DispatchResult> + Send>>),
     Application(HostHandlerFuture),
-    Response(RouteFuture),
 }
 
 impl DispatchFuture {
@@ -38,9 +37,6 @@ impl DispatchFuture {
         Self { inner: Work::Application(work) }
     }
 
-    pub(in crate::pipeline) fn response(work: RouteFuture) -> Self {
-        Self { inner: Work::Response(work) }
-    }
 }
 
 impl Future for DispatchFuture {
@@ -56,12 +52,6 @@ impl Future for DispatchFuture {
                     ServiceResult::Unhandled(request) => {
                         ServiceResult::Unhandled(request.into_request())
                     }
-                }
-            }),
-            Work::Response(work) => work.as_mut().poll(context).map(|result| {
-                match result {
-                    Ok(response) => ServiceResult::Handled(response),
-                    Err(never) => match never {},
                 }
             }),
         }

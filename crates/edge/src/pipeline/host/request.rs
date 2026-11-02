@@ -25,14 +25,29 @@ impl<S, R> HostPipeline<S, R> {
     pub fn prepare_with_state<B>(
         &self,
         request: Request<B>,
-        mut state: S,
+        state: S,
     ) -> ServiceResult<PreparedReply<'_, S, R>, PreparedRequest<'_, B, S, R>>
     {
+        self.prepare_in(request, state, None)
+    }
+
+    /// Execute active head actions with borrowed transport facts. The context
+    /// remains outside request extensions and cannot outlive this exchange.
+    pub fn prepare_in<'p, B>(
+        &'p self,
+        request: Request<B>,
+        mut state: S,
+        context: Option<HostContext<'p>>,
+    ) -> ServiceResult<PreparedReply<'p, S, R>, PreparedRequest<'p, B, S, R>> {
         let (mut head, body) = request.into_parts();
         let mut next = 0;
         while let Some(step) = self.before.get(next) {
-            let Action::Head(action) = &step.action else { break };
-            if let ControlFlow::Break(response) = action(&mut head, &mut state) {
+            let decision = match &step.action {
+                Action::Head(action) => action(&mut head, &mut state),
+                Action::ContextHead(action) => action(&mut head, &mut state, context),
+                _ => break,
+            };
+            if let ControlFlow::Break(response) = decision {
                 return ServiceResult::Handled(PreparedReply {
                     pipeline: self, response, state, scope: step.scope,
                 });
@@ -40,7 +55,7 @@ impl<S, R> HostPipeline<S, R> {
             next += 1;
         }
         ServiceResult::Unhandled(PreparedRequest {
-            pipeline: self, head, body, state, next,
+            pipeline: self, head, body, state, next, context,
         })
     }
 }
@@ -65,6 +80,7 @@ impl<'p, B, S, R> PreparedRequest<'p, B, S, R> {
             body: map(self.body),
             state: self.state,
             next: self.next,
+            context: self.context,
         }
     }
 
@@ -90,13 +106,25 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
         F: FnOnce(Request<RouteBody>) -> A + Send + 'p,
         A: Future<Output = RouteResponse> + Send + 'p,
     {
-        let Self { pipeline, mut head, mut body, mut state, next } = self;
+        let Self { pipeline, mut head, mut body, mut state, next, context } = self;
         for step in &pipeline.before[next..] {
             match &step.action {
                 Action::Head(action) => {
                     if let ControlFlow::Break(response) = action(&mut head, &mut state) {
                         return pipeline.finish(response, state, step.scope);
                     }
+                }
+                Action::ContextHead(action) => {
+                    if let ControlFlow::Break(response) = action(&mut head, &mut state, context) {
+                        return pipeline.finish(response, state, step.scope);
+                    }
+                }
+                Action::ContextRequest(action) => {
+                    let response = match action.call_in(Request::from_parts(head, body), context).await {
+                        Ok(response) => response,
+                        Err(never) => match never {},
+                    };
+                    return pipeline.finish(response, state, step.scope);
                 }
                 Action::AsyncHead(action) => {
                     if let ControlFlow::Break(response) = action.call(&mut head, &mut state).await {

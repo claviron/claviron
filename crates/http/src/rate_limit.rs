@@ -14,6 +14,8 @@ pub struct RequestHead<'a> {
     pub uri: &'a Uri,
     pub headers: &'a HeaderMap,
     pub extensions: &'a Extensions,
+    /// Accepted transport facts, when supplied by the request driver.
+    pub connection: Option<&'a crate::ext::ConnCtx>,
 }
 
 impl<'a> RequestHead<'a> {
@@ -23,6 +25,7 @@ impl<'a> RequestHead<'a> {
             uri: request.uri(),
             headers: request.headers(),
             extensions: request.extensions(),
+            connection: None,
         }
     }
 }
@@ -61,8 +64,11 @@ impl KeyProvider for IpKey {
         let ip = request
             .extensions
             .get::<crate::ext::RealIpExt>()
-            .ok_or(KeyError::Missing)?
-            .0;
+            .map(|ip| ip.0)
+            .or_else(|| request.connection.map(|connection| {
+                connection.real_ip.unwrap_or_else(|| connection.remote.ip())
+            }))
+            .ok_or(KeyError::Missing)?;
         let ip = match ip {
             IpAddr::V6(ip) => {
                 ip.to_ipv4_mapped().map(IpAddr::V4).unwrap_or(IpAddr::V6(ip))
@@ -165,6 +171,10 @@ impl<K: KeyProvider> RateLimiter<K> {
         &self.store
     }
 
+    pub fn reports_headers(&self) -> bool {
+        self.headers
+    }
+
     pub fn check(
         &self,
         request: &RequestHead<'_>,
@@ -221,17 +231,20 @@ pub fn apply_headers<B>(
     snapshot: Option<Snapshot>,
     response: &mut http::Response<B>,
 ) {
+    apply_header_fields(snapshot, response.status(), response.headers_mut());
+}
+
+pub fn apply_header_fields(
+    snapshot: Option<Snapshot>,
+    status: http::StatusCode,
+    headers: &mut HeaderMap,
+) {
     if let Some(snapshot) = snapshot
-        && (response.status().is_success()
-            || response.status() == http::StatusCode::SWITCHING_PROTOCOLS)
+        && (status.is_success() || status == http::StatusCode::SWITCHING_PROTOCOLS)
     {
-        response
-            .headers_mut()
-            .insert("x-ratelimit-limit", snapshot.limit.into());
-        response
-            .headers_mut()
-            .insert("x-ratelimit-remaining", snapshot.remaining.into());
-        response.headers_mut().insert(
+        headers.insert("x-ratelimit-limit", snapshot.limit.into());
+        headers.insert("x-ratelimit-remaining", snapshot.remaining.into());
+        headers.insert(
             http::header::CACHE_CONTROL,
             http::HeaderValue::from_static("private, no-store"),
         );

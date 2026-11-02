@@ -22,6 +22,7 @@ mod backend;
 mod binding;
 mod builder;
 pub(crate) mod compile;
+mod context;
 mod dispatch;
 mod handler;
 mod owner;
@@ -29,6 +30,7 @@ mod request;
 mod response;
 
 pub use application::ApplicationHandler;
+pub use context::{ContextFuture, ContextHandler, HostContext};
 pub(crate) use binding::HostPolicy;
 pub use dispatch::{DispatchFuture, DispatchResult, DispatchStep};
 pub use handler::{HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest};
@@ -38,10 +40,16 @@ type HeadAction<S, R> =
     Box<dyn Fn(&mut RequestParts, &mut S) -> ControlFlow<R> + Send + Sync>;
 type RequestAction =
     Box<dyn Fn(Request<RouteBody>) -> DispatchFuture + Send + Sync>;
+type ContextHeadAction<S, R> = Box<
+    dyn for<'a> Fn(&mut RequestParts, &mut S, Option<HostContext<'a>>) -> ControlFlow<R>
+        + Send + Sync,
+>;
 
 enum Action<S, R> {
     Head(HeadAction<S, R>),
+    ContextHead(ContextHeadAction<S, R>),
     Request(RequestAction),
+    ContextRequest(Box<dyn ContextHandler>),
     AsyncHead(Box<dyn AsyncHeadAction<S>>),
 }
 
@@ -107,6 +115,7 @@ pub struct PreparedRequest<'p, B, S = (), R = RouteResponse> {
     body: B,
     state: S,
     next: usize,
+    context: Option<HostContext<'p>>,
 }
 
 /// An early reply plus the request state and already-entered response scope.

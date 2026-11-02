@@ -93,6 +93,8 @@ pub(crate) struct ResolvedRouteExtensions {
 pub struct HostAppSnapshot {
     map: HashMap<Host, RustRouter>,
     configs: HashMap<Host, Arc<HostConfig>>,
+    #[cfg(feature = "rate-limit")]
+    quotas: Arc<HashMap<Host, Option<Arc<crate::pipeline::layers::HostQuotas>>>>,
 }
 
 impl HostAppSnapshot {
@@ -317,6 +319,7 @@ impl Binding {
         host_cfg: Arc<HostConfig>,
         applications: &[Arc<dyn HostHandler>],
         layers: &[Arc<dyn RouteLayer>],
+        #[cfg(feature = "rate-limit")] quotas: Option<&crate::pipeline::layers::HostQuotas>,
         #[cfg(feature = "websocket")] h1_upgrades: Vec<H1UpgradeRoute>,
     ) -> Result<RustRouter> {
         let app = match self {
@@ -339,25 +342,46 @@ impl Binding {
         for layer in layers {
             builder.layer(layer.as_ref()).map_err(|error| Error::msg(error.to_string()))?;
         }
-        #[cfg(feature = "websocket")]
-        if let Some(websocket) = websocket {
-            builder.layer(websocket).map_err(|error| Error::msg(error.to_string()))?;
+        #[cfg(feature = "rate-limit")]
+        if let Some(quotas) = quotas {
+            let builder = crate::pipeline::layers::QuotaPolicy::attach(builder, quotas)
+                .map_err(|error| Error::msg(error.to_string()))?;
+            return finish_binding(
+                builder, app, applications,
+                #[cfg(feature = "websocket")] websocket,
+            );
         }
-        for application in applications {
-            builder.layer(application.clone()).map_err(|error| Error::msg(error.to_string()))?;
-        }
-        if builder.is_empty() {
-            return Ok(app);
-        }
-        let owner = match &app {
-            #[cfg(feature = "axum")]
-            RustRouter::Axum(router) => super::app::owner(router.clone()),
-            RustRouter::Other(owner) => owner.clone(),
-        };
-        let layered = super::host::bind_other(builder, owner)
-            .map_err(|error| Error::msg(error.to_string()))?;
-        Ok(RustRouter::Other(layered))
+        finish_binding(
+            builder, app, applications,
+            #[cfg(feature = "websocket")] websocket,
+        )
     }
+}
+
+fn finish_binding<S: Default + Send + 'static>(
+    mut builder: HostPipelineBuilder<S>,
+    app: RustRouter,
+    applications: &[Arc<dyn HostHandler>],
+    #[cfg(feature = "websocket")] websocket: Option<Arc<super::layers::WebSocketStage>>,
+) -> Result<RustRouter> {
+    #[cfg(feature = "websocket")]
+    if let Some(websocket) = websocket {
+        builder.layer(websocket).map_err(|error| Error::msg(error.to_string()))?;
+    }
+    for application in applications {
+        builder.layer(application.clone()).map_err(|error| Error::msg(error.to_string()))?;
+    }
+    if builder.is_empty() {
+        return Ok(app);
+    }
+    let owner = match app {
+        #[cfg(feature = "axum")]
+        RustRouter::Axum(router) => super::app::owner(router),
+        RustRouter::Other(owner) => owner,
+    };
+    let layered = super::host::bind_other(builder, owner)
+        .map_err(|error| Error::msg(error.to_string()))?;
+    Ok(RustRouter::Other(layered))
 }
 
 #[derive(Default)]
@@ -450,7 +474,8 @@ pub struct HostAppRegistry {
 
 impl HostAppRegistry {
     /// Bind a prepared limiter to this canonical host/prefix. It runs at the
-    /// same head-admission point as config, before Axum, Other or sessions.
+    /// same head-admission point as config, before the selected Rust router
+    /// or backend. Native H2 CONNECT and H3 session admission is separate.
     /// Register before the first host preparation; duplicate config/Rust
     /// definitions are errors. The limiter retains its own KeyProvider.
     #[cfg(feature = "rate-limit")]
@@ -782,7 +807,31 @@ impl HostAppRegistry {
         table: &crate::loader::table::VhostTable,
         previous: Option<&HostAppSnapshot>,
     ) -> Result<HostAppSnapshot> {
-        let mut snapshot = HostAppSnapshot::default();
+        #[cfg(feature = "rate-limit")]
+        let quotas = {
+            let previous = previous.map(|snapshot| snapshot.quotas.clone()).or_else(|| {
+                state.registry_ref().resolve::<VhostResolver>()?
+                    .snapshot().prepared::<HostAppSnapshot>()
+                    .map(|snapshot| snapshot.quotas.clone())
+            });
+            let registered = {
+                let mut registered = self.quotas.write().expect("quota registration lock poisoned");
+                registered.seal(state.fleet_name(), table)?;
+                registered.clone()
+            };
+            let config_check = state.registry_ref().resolve::<claviron_runtime::ConfigCheck>().is_some();
+            table.canonical_entries().map(|(canonical, record)| {
+                registered.prepare(
+                    config_check, canonical, &record.config,
+                    previous.as_ref().and_then(|quotas| quotas.get(canonical)),
+                ).map(|quotas| (canonical.clone(), quotas))
+            }).collect::<Result<HashMap<_, _>>>()?
+        };
+        let mut snapshot = HostAppSnapshot {
+            map: HashMap::new(), configs: HashMap::new(),
+            #[cfg(feature = "rate-limit")]
+            quotas: Arc::new(quotas),
+        };
         let mut custom_bindings = HashMap::<Host, Binding>::new();
         let custom_bindings_snapshot =
             self.inner.read().expect("host app registry lock poisoned").clone();
@@ -873,6 +922,8 @@ impl HostAppRegistry {
                     Arc::clone(&record.config),
                     &routable.applications,
                     &routable.layers,
+                    #[cfg(feature = "rate-limit")]
+                    snapshot.quotas.get(canonical).and_then(Option::as_deref),
                     #[cfg(feature = "websocket")]
                     routable.h1_upgrades,
                 )?
@@ -883,6 +934,8 @@ impl HostAppRegistry {
                     Arc::clone(&record.config),
                     &routable.applications,
                     &routable.layers,
+                    #[cfg(feature = "rate-limit")]
+                    snapshot.quotas.get(canonical).and_then(Option::as_deref),
                     #[cfg(feature = "websocket")]
                     routable.h1_upgrades,
                 )?
@@ -904,6 +957,7 @@ fn build_default_app(
     host_cfg: Arc<HostConfig>,
     applications: &[Arc<dyn HostHandler>],
     layers: &[Arc<dyn RouteLayer>],
+    #[cfg(feature = "rate-limit")] quotas: Option<&crate::pipeline::layers::HostQuotas>,
     #[cfg(feature = "websocket")] h1_upgrades: Vec<H1UpgradeRoute>,
 ) -> Result<RustRouter> {
     #[cfg(feature = "websocket")]
@@ -914,6 +968,7 @@ fn build_default_app(
         host_cfg,
         applications,
         layers,
+        #[cfg(feature = "rate-limit")] quotas,
         #[cfg(feature = "websocket")]
         websocket,
     )
