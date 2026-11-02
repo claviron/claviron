@@ -11,13 +11,15 @@ use crate::pipeline::host::{HostHandlerFuture, HostLayerBuilder, HostRequest};
 fn duplicate_snapshot_binding_keeps_the_original_application() {
     let host: Host = "example.test".parse().unwrap();
     let mut snapshot = HostAppSnapshot::default();
-    let mut first: HostApp = RustRouter::Other(OtherService::Noop).into();
-    first.server_header = Some(http::HeaderValue::from_static("first"));
-    snapshot.insert(host.clone(), first).unwrap();
-    let mut second: HostApp = RustRouter::Other(OtherService::Noop).into();
-    second.server_header = Some(http::HeaderValue::from_static("second"));
-    assert!(snapshot.insert(host.clone(), second).is_err());
-    assert_eq!(snapshot.resolve(&host).unwrap().server_header.unwrap(), "first");
+    struct Original;
+    impl crate::pipeline::other::OtherHandler for Original {
+        fn call(&self, _: Request<claviron_http::RouteBody>) -> claviron_http::RouteFuture { panic!("snapshot insertion is cold"); }
+    }
+    let first: Arc<dyn crate::pipeline::other::OtherHandler> = Arc::new(Original);
+    snapshot.insert(host.clone(), RustRouter::Other(OtherService::Handler(first.clone()))).unwrap();
+    assert!(snapshot.insert(host.clone(), RustRouter::Other(OtherService::Noop)).is_err());
+    let RustRouter::Other(OtherService::Handler(retained)) = snapshot.resolve(&host).unwrap() else { panic!("original owner was replaced"); };
+    assert!(Arc::ptr_eq(&first, &retained));
 }
 
 struct Tag;
@@ -50,20 +52,11 @@ impl RouteLayer for Inactive {
 
 #[test]
 fn inactive_provider_layers_keep_the_original_axum_call_boundary() {
-    let state = AppState::standalone("inactive-composition", ".");
-    let host = "example.test".parse().unwrap();
-    let binding = Binding::Axum(Arc::new(|_| Router::new()));
-    let app = binding
-        .build_app(
-            &state,
-            &host,
-            Arc::new(HostConfig::new("public")),
-            &[],
-            &[Arc::new(Inactive)],
-            #[cfg(feature = "websocket")]
-            Vec::new(),
-        )
-        .unwrap();
+    let mut builder = HostPipelineBuilder::new();
+    builder.layer(&Inactive as &dyn RouteLayer).unwrap();
+    let app = finish_binding(builder, RustRouter::Axum(Router::new()), &[],
+        #[cfg(feature = "websocket")] None,
+    ).unwrap();
     assert!(matches!(app, RustRouter::Axum(_)));
 }
 
@@ -145,6 +138,8 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
         config.clone(),
         &prepared.applications,
         &prepared.layers,
+        #[cfg(feature = "rate-limit")]
+        None,
         #[cfg(feature = "websocket")]
         Vec::new(),
     )
@@ -158,6 +153,8 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
         config,
         &prepared.applications,
         &prepared.layers,
+        #[cfg(feature = "rate-limit")]
+        None,
         #[cfg(feature = "websocket")]
         Vec::new(),
     )

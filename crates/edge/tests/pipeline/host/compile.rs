@@ -1,6 +1,9 @@
 use super::*;
 
 use bytes::Bytes;
+use http::Request;
+#[cfg(feature = "axum")]
+use claviron_http::dispatch::RuleContext;
 use http_body::{Body, Frame};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -45,6 +48,8 @@ async fn an_empty_child_scope_does_not_inherit_the_root_file_probe() {
         Arc::new(config),
         &[],
         &[],
+        #[cfg(feature = "rate-limit")]
+        None,
         #[cfg(feature = "websocket")]
         None,
     )
@@ -84,6 +89,8 @@ async fn try_files_precedes_a_declared_php_application_without_starting_php() {
         Arc::new(config),
         &[],
         &[],
+        #[cfg(feature = "rate-limit")]
+        None,
         #[cfg(feature = "websocket")]
         None,
     )
@@ -141,7 +148,7 @@ async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
         .unwrap();
     state.registry_ref().insert(registry).unwrap();
     let config: HostConfig =
-        serde_yaml::from_str("routes:\n  /secret:\n    allowed: false\n")
+        serde_yaml::from_str("root: public\nroutes:\n  /secret:\n    allowed: false\n")
             .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let observed = calls.clone();
@@ -158,6 +165,8 @@ async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
         Arc::new(config),
         &[crate::pipeline::app::application(router)],
         &[],
+        #[cfg(feature = "rate-limit")]
+        None,
         #[cfg(feature = "websocket")]
         None,
     )

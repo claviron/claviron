@@ -1,8 +1,9 @@
 use super::*;
 use crate::pipeline::host::{
-    HostLayer, HostLayerBuilder, HostPipeline, HostPipelineBuilder,
+    HostLayerBuilder, HostPipeline, HostPipelineBuilder,
 };
 use bytes::Bytes;
+use crate::pipeline::layers::HostLayer;
 use claviron_http::{ServiceResult, boxed_body};
 use http::{HeaderValue, Response};
 use http_body::{Body, Frame};
@@ -22,7 +23,7 @@ struct Counts {
     replies: AtomicUsize,
 }
 
-// The terminal API must accept the original non-Clone body without erasure.
+// Native boxing must retain this non-Clone source and its original buffer.
 struct OriginalBody {
     frame: Option<Bytes>,
     counts: Arc<Counts>,
@@ -56,7 +57,7 @@ impl Drop for Owner {
 }
 
 struct Reply {
-    request: Option<Request<OriginalBody>>,
+    request: Option<Request<RouteBody>>,
     owner: Owner,
 }
 
@@ -71,14 +72,14 @@ impl Future for Reply {
             return Poll::Pending;
         }
         let body = self.request.take().unwrap().into_body();
-        Poll::Ready(Response::new(boxed_body(body)))
+        Poll::Ready(Response::new(body))
     }
 }
 
-impl ApplicationHandler<OriginalBody> for Owner {
+impl ApplicationHandler for Owner {
     fn call(
         self,
-        request: Request<OriginalBody>,
+        request: Request<RouteBody>,
     ) -> impl Future<Output = RouteResponse> + Send {
         self.0.calls.fetch_add(1, Ordering::Relaxed);
         Reply { request: Some(request), owner: self }
@@ -129,7 +130,7 @@ fn typed_application_is_not_called_before_first_poll() {
     let ServiceResult::Unhandled(request) = pipeline.prepare(request) else {
         panic!("the terminal owner must receive the unclaimed request");
     };
-    let answering = request.dispatch_to(Owner(counts.clone()));
+    let answering = request.map_body(boxed_body).dispatch_to(Owner(counts.clone()));
     assert_eq!(counts.calls.load(Ordering::Relaxed), 0);
     drop(answering);
     assert_eq!(counts.owners.load(Ordering::Relaxed), 1);
@@ -146,7 +147,7 @@ fn pending_typed_application_cancellation_drops_body_and_owner_once() {
     let ServiceResult::Unhandled(request) = pipeline.prepare(request) else {
         panic!("the terminal owner must receive the unclaimed request");
     };
-    let mut answering = Box::pin(request.dispatch_to(Owner(counts.clone())));
+    let mut answering = Box::pin(request.map_body(boxed_body).dispatch_to(Owner(counts.clone())));
     let mut cx = Context::from_waker(Waker::noop());
     assert!(answering.as_mut().poll(&mut cx).is_pending());
     assert_eq!(counts.calls.load(Ordering::Relaxed), 1);
@@ -168,7 +169,7 @@ fn typed_application_transfers_original_payload_and_finishes_response_scope() {
     let ServiceResult::Unhandled(request) = pipeline.prepare(request) else {
         panic!("the terminal owner must receive the unclaimed request");
     };
-    let mut answering = Box::pin(request.dispatch_to(Owner(counts.clone())));
+    let mut answering = Box::pin(request.map_body(boxed_body).dispatch_to(Owner(counts.clone())));
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
         panic!("reply-head delivery must not read the request body");

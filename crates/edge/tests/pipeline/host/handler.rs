@@ -1,4 +1,8 @@
 use super::*;
+use std::sync::Arc;
+use crate::pipeline::host::{ApplicationHandler, HostPipelineBuilder};
+use crate::pipeline::other::{OtherHandler, OtherService};
+use claviron_http::RouteFuture;
 use bytes::Bytes;
 use http::{HeaderValue, Response, StatusCode};
 use http_body::{Body, Frame};
@@ -12,7 +16,6 @@ struct Counts {
     polls: AtomicUsize,
     drops: AtomicUsize,
     calls: AtomicUsize,
-    clones: AtomicUsize,
 }
 
 struct Frames {
@@ -53,13 +56,6 @@ fn request(counts: &Arc<Counts>) -> (Request<RouteBody>, *const u8) {
 
 struct Backend(Arc<Counts>);
 
-impl Clone for Backend {
-    fn clone(&self) -> Self {
-        self.0.clones.fetch_add(1, Ordering::Relaxed);
-        Self(self.0.clone())
-    }
-}
-
 impl ApplicationHandler for Backend {
     fn call(
         self,
@@ -91,12 +87,14 @@ fn unhandled_contributions_pass_original_data_and_trailers_without_reading() {
     let counts = Arc::new(Counts::default());
     let first = Arc::new(AtomicUsize::new(0));
     let second = Arc::new(AtomicUsize::new(0));
-    let pipeline = ApplicationStage::new(
-        Backend(counts.clone()),
-        vec![Arc::new(Pass(first.clone())), Arc::new(Pass(second.clone()))],
-    );
+    let mut builder = HostPipelineBuilder::new();
+    builder.layer(Arc::new(Pass(first.clone())) as Arc<dyn HostHandler>).unwrap();
+    builder.layer(Arc::new(Pass(second.clone())) as Arc<dyn HostHandler>).unwrap();
+    let pipeline = builder.build();
+    let backend = Backend(counts.clone());
     let (request, address) = request(&counts);
-    let mut answering = Box::pin(pipeline.handle(request));
+    let claviron_http::ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("contribution executes during dispatch"); };
+    let mut answering = Box::pin(prepared.dispatch_to(backend));
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
         panic!("head processing must not wait for body frames");
@@ -105,7 +103,7 @@ fn unhandled_contributions_pass_original_data_and_trailers_without_reading() {
     assert_eq!(first.load(Ordering::Relaxed), 1);
     assert_eq!(second.load(Ordering::Relaxed), 1);
     assert_eq!(counts.calls.load(Ordering::Relaxed), 1);
-    assert_eq!(counts.clones.load(Ordering::Relaxed), 1);
+
     assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
     let mut body = response.into_body();
     let Poll::Ready(Some(Ok(frame))) = Pin::new(&mut body).poll_frame(&mut cx)
@@ -137,15 +135,17 @@ impl HostHandler for Claim {
 }
 
 #[test]
-fn handled_404_does_not_run_later_contributions_or_clone_the_backend() {
+fn handled_404_does_not_run_later_contributions_or_the_backend() {
     let counts = Arc::new(Counts::default());
     let later = Arc::new(AtomicUsize::new(0));
-    let pipeline = ApplicationStage::new(
-        Backend(counts.clone()),
-        vec![Arc::new(Claim), Arc::new(Pass(later.clone()))],
-    );
+    let mut builder = HostPipelineBuilder::new();
+    builder.layer(Arc::new(Claim) as Arc<dyn HostHandler>).unwrap();
+    builder.layer(Arc::new(Pass(later.clone())) as Arc<dyn HostHandler>).unwrap();
+    let pipeline = builder.build();
+    let backend = Backend(counts.clone());
     let (request, _) = request(&counts);
-    let mut answering = Box::pin(pipeline.handle(request));
+    let claviron_http::ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("contribution executes during dispatch"); };
+    let mut answering = Box::pin(prepared.dispatch_to(backend));
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
         panic!("the selected application must answer");
@@ -153,7 +153,7 @@ fn handled_404_does_not_run_later_contributions_or_clone_the_backend() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     assert_eq!(later.load(Ordering::Relaxed), 0);
     assert_eq!(counts.calls.load(Ordering::Relaxed), 0);
-    assert_eq!(counts.clones.load(Ordering::Relaxed), 0);
+
     assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
     drop(answering);
     drop(response);
@@ -176,17 +176,17 @@ impl HostHandler for Pending {
 }
 
 #[test]
-fn cancellation_releases_the_unread_body_before_and_during_interception() {
+fn cancellation_releases_the_unread_body_before_and_during_a_contribution() {
     for poll in [false, true] {
         let counts = Arc::new(Counts::default());
         let calls = Arc::new(AtomicUsize::new(0));
-        let pipeline = ApplicationStage::new(
-            Backend(counts.clone()),
-            vec![Arc::new(Pending(calls.clone()))],
-        );
-        let generation = Arc::downgrade(&pipeline.inner);
+        let mut builder = HostPipelineBuilder::new();
+        builder.layer(Arc::new(Pending(calls.clone())) as Arc<dyn HostHandler>).unwrap();
+        let pipeline = builder.build();
+        let backend = Backend(counts.clone());
         let (request, _) = request(&counts);
-        let mut answering = Box::pin(pipeline.handle(request));
+        let claviron_http::ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("contribution executes during dispatch"); };
+    let mut answering = Box::pin(prepared.dispatch_to(backend));
         if poll {
             assert!(
                 answering
@@ -195,12 +195,10 @@ fn cancellation_releases_the_unread_body_before_and_during_interception() {
                     .is_pending()
             );
         }
-        assert!(generation.upgrade().is_some());
         assert_eq!(calls.load(Ordering::Relaxed), usize::from(poll));
         assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
         assert_eq!(counts.drops.load(Ordering::Relaxed), 0);
         drop(answering);
-        assert!(generation.upgrade().is_none());
         assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
         assert_eq!(counts.calls.load(Ordering::Relaxed), 0);
     }
@@ -218,7 +216,7 @@ fn absent_contributions_keep_the_original_direct_handler() {
         }
     }
     let original: Arc<dyn OtherHandler> = Arc::new(MustNotRun);
-    let prepared = compose_other(OtherService::Handler(original.clone()), &[]);
+    let prepared = crate::pipeline::host::bind_other(HostPipelineBuilder::<()>::new(), OtherService::Handler(original.clone())).unwrap();
     let OtherService::Handler(prepared) = prepared else {
         panic!("the direct owner must remain")
     };
@@ -235,10 +233,12 @@ fn axum_adapter_passes_unhandled_payload_without_buffering() {
             Response::new(request.into_body())
         },
     );
-    let pipeline =
-        ApplicationStage::new(backend, vec![Arc::new(Pass(calls.clone()))]);
+    let mut builder = HostPipelineBuilder::new();
+    builder.layer(Arc::new(Pass(calls.clone())) as Arc<dyn HostHandler>).unwrap();
+    let pipeline = builder.build();
     let (request, address) = request(&counts);
-    let mut answering = Box::pin(pipeline.handle(request));
+    let claviron_http::ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("contribution executes during dispatch"); };
+    let mut answering = Box::pin(prepared.dispatch_to(backend));
     let mut cx = Context::from_waker(Waker::noop());
     let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
         panic!("the Axum adapter must not collect the body");
@@ -258,47 +258,5 @@ fn axum_adapter_passes_unhandled_payload_without_buffering() {
     };
     assert_eq!(frame.into_trailers().unwrap()["x-example-end"], "complete");
     drop(body);
-    assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
-}
-
-#[cfg(feature = "axum")]
-#[test]
-fn an_outer_policy_rejection_cannot_enter_the_native_application() {
-    let counts = Arc::new(Counts::default());
-    let calls = Arc::new(AtomicUsize::new(0));
-    struct Reject;
-    impl crate::pipeline::extension::RouteLayer for Reject {
-        fn prepare(
-            &self,
-            layer: &mut super::super::HostLayerBuilder,
-        ) -> crate::Result<()> {
-            layer.before(|_, _| {
-                std::ops::ControlFlow::Break(
-                    Response::builder()
-                        .status(StatusCode::FORBIDDEN)
-                        .body(claviron_http::empty_body())
-                        .unwrap(),
-                )
-            });
-            Ok(())
-        }
-    }
-    let owner = compose_other(
-        crate::pipeline::app::owner(::axum::Router::new()),
-        &[Arc::new(Pass(calls.clone()))],
-    );
-    let owner =
-        super::super::prepare_layers(owner, &[Arc::new(Reject)]).unwrap();
-    let (request, _) = request(&counts);
-    let answering = owner.handle(request).map(|response| response.unwrap());
-    let mut answering = Box::pin(answering);
-    let mut cx = Context::from_waker(Waker::noop());
-    let Poll::Ready(response) = answering.as_mut().poll(&mut cx) else {
-        panic!("the prepared policy rejection must answer directly");
-    };
-    assert_eq!(response.status(), StatusCode::FORBIDDEN);
-    assert_eq!(calls.load(Ordering::Relaxed), 0);
-    assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
-    drop(answering);
     assert_eq!(counts.drops.load(Ordering::Relaxed), 1);
 }

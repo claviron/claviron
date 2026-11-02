@@ -11,7 +11,7 @@ use std::task::{Context, Poll, Waker};
 fn service(config: &str, listener: RequestPolicy, owner: OtherService) -> HostService {
     let table = serde_yaml::from_str(&format!("app.test: {{root: public, {config}}}")).unwrap();
     let host = resolve_sni_from_table(&table, Some("app.test")).unwrap();
-    HostService::new(owner, Arc::new(ConnCtx {
+    HostService::new(RustRouter::Other(owner), Arc::new(ConnCtx {
         state: Default::default(), listener: "public".parse().unwrap(),
         proto: Some(HttpProtocol::H1), remote: "192.0.2.1:1234".parse().unwrap(),
         local_ip: "127.0.0.1".parse().unwrap(), local_port: 8080,

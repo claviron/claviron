@@ -12,7 +12,8 @@ use http::{Request, Response, StatusCode};
 use http_body::{Body, Frame};
 use http_body_util::BodyExt;
 
-use crate::pipeline::host::{ApplicationHandler, DispatchChain};
+use crate::pipeline::host::{ApplicationHandler, HostPipelineBuilder};
+use claviron_http::ServiceResult;
 
 #[derive(Default)]
 struct Counts {
@@ -102,10 +103,12 @@ async fn static_wins_then_try_files_then_the_backend_receives_the_unread_body()
         ("/missing.txt", &[0, 255, 13, 10][..], 1),
     ] {
         let counts = Arc::new(Counts::default());
-        let pipeline =
-            DispatchChain::new(Echo(counts.clone()), scope_steps(&config));
+        let mut builder = HostPipelineBuilder::new();
+        for step in scope_steps(&config) { builder.layer(step).unwrap(); }
+        let pipeline = builder.build();
         let (request, address) = request(path, &counts);
-        let response = pipeline.handle(request).await;
+        let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("file work belongs to dispatch"); };
+        let response = prepared.dispatch_to(Echo(counts.clone())).await;
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
         assert_eq!(counts.backend.load(Ordering::Relaxed), backend_calls);
@@ -129,10 +132,12 @@ async fn a_terminal_static_miss_cannot_fall_through_to_try_files() {
     config.files.statics = Some(vec![mount(false)]);
     config.files.try_files = true;
     let counts = Arc::new(Counts::default());
-    let pipeline =
-        DispatchChain::new(Echo(counts.clone()), scope_steps(&config));
+    let mut builder = HostPipelineBuilder::new();
+    for step in scope_steps(&config) { builder.layer(step).unwrap(); }
+    let pipeline = builder.build();
     let (request, _) = request("/item.txt", &counts);
-    let response = pipeline.handle(request).await;
+    let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("file work belongs to dispatch"); };
+        let response = prepared.dispatch_to(Echo(counts.clone())).await;
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
     assert_eq!(counts.backend.load(Ordering::Relaxed), 0);
     assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
@@ -145,10 +150,12 @@ fn dynamic_names_reach_the_backend_without_filesystem_or_body_work() {
     config.files.statics = Some(vec![mount(false)]);
     config.files.try_files = true;
     let counts = Arc::new(Counts::default());
-    let pipeline =
-        DispatchChain::new(Echo(counts.clone()), scope_steps(&config));
+    let mut builder = HostPipelineBuilder::new();
+    for step in scope_steps(&config) { builder.layer(step).unwrap(); }
+    let pipeline = builder.build();
     let (request, _) = request("/index.php", &counts);
-    let mut answering = Box::pin(pipeline.handle(request));
+    let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("file work belongs to dispatch"); };
+    let mut answering = Box::pin(prepared.dispatch_to(Echo(counts.clone())));
     let Poll::Ready(response) =
         answering.as_mut().poll(&mut Context::from_waker(Waker::noop()))
     else {

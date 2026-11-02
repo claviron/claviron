@@ -11,7 +11,8 @@ use claviron_http::{RouteBody, RouteResponse};
 use http::{HeaderValue, Request, Response, StatusCode};
 use http_body::{Body, Frame};
 
-use crate::pipeline::host::{ApplicationHandler, DispatchChain};
+use crate::pipeline::host::{ApplicationHandler, DispatchStep, HostPipelineBuilder};
+use claviron_http::ServiceResult;
 
 fn routes(source: &str) -> Vec<LuaRouteConfig> {
     serde_yaml::from_str(source).unwrap()
@@ -109,11 +110,11 @@ fn only_nonmatching_mounts_yield_the_original_body_and_trailers() {
                 counts: counts.clone(),
             }))
             .unwrap();
-        let pipeline = DispatchChain::new(
-            Fallback(counts.clone()),
-            vec![Arc::new(backend.clone())],
-        );
-        let mut call = Box::pin(pipeline.handle(request));
+        let mut builder = HostPipelineBuilder::new();
+        builder.layer(Arc::new(backend.clone()) as Arc<dyn DispatchStep>).unwrap();
+        let pipeline = builder.build();
+        let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("mount dispatch follows head preparation"); };
+        let mut call = Box::pin(prepared.dispatch_to(Fallback(counts.clone())));
         let mut context = Context::from_waker(Waker::noop());
         let Poll::Ready(response) = call.as_mut().poll(&mut context) else {
             panic!(

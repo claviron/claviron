@@ -11,7 +11,8 @@ use claviron_http::RouteBody;
 use http::Request;
 use http_body::{Body, Frame};
 
-use crate::pipeline::host::{ApplicationHandler, DispatchChain};
+use crate::pipeline::host::{ApplicationHandler, DispatchStep, HostPipelineBuilder};
+use claviron_http::ServiceResult;
 
 #[derive(Default)]
 struct Counts {
@@ -51,7 +52,7 @@ impl DispatchStep for ScriptDeclines {
         request: Request<RouteBody>,
     ) -> DispatchFuture {
         self.0.scripts.fetch_add(1, Ordering::Relaxed);
-        // Exercise the trusted resolver handoff, including capability restore.
+        // Only mount selection is tested; this owner declines without claiming the body.
         DispatchFuture::ready(ServiceResult::Unhandled(request))
     }
 }
@@ -128,11 +129,11 @@ fn selected_application_never_runs_the_script_owner_and_unhandled_keeps_body() {
                 counts: counts.clone(),
             }))
             .unwrap();
-        let pipeline = DispatchChain::new(
-            Fallback(counts.clone()),
-            vec![Arc::new(backend)],
-        );
-        let mut call = Box::pin(pipeline.handle(request));
+        let mut builder = HostPipelineBuilder::new();
+        builder.layer(Arc::new(backend) as Arc<dyn DispatchStep>).unwrap();
+        let pipeline = builder.build();
+        let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("mount dispatch follows head preparation"); };
+        let mut call = Box::pin(prepared.dispatch_to(Fallback(counts.clone())));
         let mut context = Context::from_waker(Waker::noop());
         let Poll::Ready(response) = call.as_mut().poll(&mut context) else {
             panic!("mount selection must not wait for the body or start PHP");
@@ -180,16 +181,12 @@ fn equally_specific_mounts_retain_the_last_declared_owner() {
     ])
     .unwrap();
     let counts = Arc::new(Counts::default());
-    let pipeline =
-        DispatchChain::new(Fallback(counts.clone()), vec![Arc::new(backend)]);
-    let mut call = Box::pin(
-        pipeline.handle(
-            Request::builder()
-                .uri("/app/item")
-                .body(claviron_http::empty_body())
-                .unwrap(),
-        ),
-    );
+    let mut builder = HostPipelineBuilder::new();
+    builder.layer(Arc::new(backend) as Arc<dyn DispatchStep>).unwrap();
+    let pipeline = builder.build();
+    let request = Request::builder().uri("/app/item").body(claviron_http::empty_body()).unwrap();
+    let ServiceResult::Unhandled(prepared) = pipeline.prepare(request) else { panic!("mount dispatch follows head preparation"); };
+    let mut call = Box::pin(prepared.dispatch_to(Fallback(counts.clone())));
     let Poll::Ready(response) =
         call.as_mut().poll(&mut Context::from_waker(Waker::noop()))
     else {

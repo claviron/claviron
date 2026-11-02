@@ -182,7 +182,7 @@ fn only_active_actions_are_bound_once() {
     assert_eq!(pipeline.after.len(), 2);
     for _ in 0..2 {
         let request = unhandled(
-            pipeline.prepare_with_state(Request::new(()), Vec::new()),
+            pipeline.prepare_with_state(Request::new(empty_body()), Vec::new()),
         );
         let response =
             ready(request.dispatch(|_| async { Response::new(empty_body()) }));
@@ -212,7 +212,7 @@ fn failed_layer_leaves_no_partial_actions_or_captures() {
     assert!(pipeline.before.is_empty());
     assert!(pipeline.after.is_empty());
     let response = ready(
-        unhandled(pipeline.prepare(Request::new(())))
+        unhandled(pipeline.prepare(Request::new(empty_body())))
             .dispatch(|_| async { Response::new(empty_body()) }),
     );
     assert_eq!(response.status(), StatusCode::OK);
@@ -295,7 +295,7 @@ fn later_response_only_layer_does_not_decorate_earlier_rejection() {
         }))
         .unwrap();
     let pipeline = builder.build();
-    let ServiceResult::Handled(reply) = pipeline.prepare(Request::new(()))
+    let ServiceResult::Handled(reply) = pipeline.prepare(Request::new(empty_body()))
     else {
         panic!("expected early reply")
     };
@@ -320,9 +320,8 @@ fn unhandled_body_reaches_terminal_once_with_original_buffers_and_trailers() {
     let prepared = unhandled(pipeline.prepare(request));
     assert_eq!(counts.polls.load(Ordering::Relaxed), 0);
     assert_eq!(prepared.head().extensions.get::<u32>(), Some(&17));
-    let prepared = prepared.map_body(|body| body);
     let checked = counts.clone();
-    let response = ready(prepared.dispatch(move |request| async move {
+    let response = ready(prepared.map_body(boxed_body).dispatch(move |request| async move {
         assert_eq!(request.headers()["x-example"], "original");
         assert_eq!(request.uri().query(), Some("source=body"));
         let mut body = request.into_body();
@@ -393,7 +392,7 @@ fn cancelling_before_first_poll_never_starts_handler_or_response_actions() {
     let prepared = unhandled(
         pipeline.prepare_with_state(request, DropGuard(dropped.clone())),
     );
-    let future = prepared.dispatch(|_| -> std::future::Ready<RouteResponse> {
+    let future = prepared.map_body(boxed_body).dispatch(|_| -> std::future::Ready<RouteResponse> {
         panic!("handler must not start before first poll")
     });
     drop(future);
@@ -412,7 +411,7 @@ fn cancelling_pending_handler_drops_request_and_state_once() {
     let prepared = unhandled(
         pipeline.prepare_with_state(request, DropGuard(dropped.clone())),
     );
-    let mut future = Box::pin(prepared.dispatch(move |request| {
+    let mut future = Box::pin(prepared.map_body(boxed_body).dispatch(move |request| {
         entered.fetch_add(1, Ordering::Relaxed);
         async move {
             futures_util::future::pending::<()>().await;
@@ -443,7 +442,7 @@ fn cancellation_while_reading_body_releases_its_single_owner() {
     let prepared = unhandled(
         pipeline.prepare_with_state(request, DropGuard(dropped.clone())),
     );
-    let mut future = Box::pin(prepared.dispatch(|request| async move {
+    let mut future = Box::pin(prepared.map_body(boxed_body).dispatch(|request| async move {
         let mut body = request.into_body();
         assert!(body.frame().await.unwrap().unwrap().is_data());
         let _ = body.frame().await;
@@ -468,7 +467,7 @@ fn body_wait_resumes_only_when_original_source_wakes_it() {
     let (mut request, counts, _) = request();
     let gate = Arc::new(Gate::default());
     request.body_mut().gate = Some(gate.clone());
-    let mut future = Box::pin(unhandled(pipeline.prepare(request)).dispatch(
+    let mut future = Box::pin(unhandled(pipeline.prepare(request)).map_body(boxed_body).dispatch(
         |request| async move {
             let mut body = request.into_body();
             while let Some(frame) = body.frame().await {
@@ -539,8 +538,8 @@ fn response_body_keeps_moved_guard_until_completion_or_cancellation() {
             pipeline
                 .prepare_with_state(request, Some(DropGuard(dropped.clone()))),
         );
-        let mut response = ready(prepared.dispatch(|request| async {
-            Response::new(boxed_body(request.into_body()))
+        let mut response = ready(prepared.map_body(boxed_body).dispatch(|request| async {
+            Response::new(request.into_body())
         }));
         assert_eq!(dropped.load(Ordering::Relaxed), 0);
         let first = ready(response.body_mut().frame()).unwrap().unwrap();
@@ -568,8 +567,8 @@ fn streaming_body_errors_reach_the_response_consumer() {
             std::io::Error::other("example stream failure"),
         )]));
     let mut response =
-        ready(unhandled(pipeline.prepare(Request::new(body))).dispatch(
-            |request| async { Response::new(boxed_body(request.into_body())) },
+        ready(unhandled(pipeline.prepare(Request::new(body))).map_body(boxed_body).dispatch(
+            |request| async { Response::new(request.into_body()) },
         ));
     let error = ready(response.body_mut().frame()).unwrap().unwrap_err();
     assert_eq!(error.to_string(), "example stream failure");
@@ -595,11 +594,11 @@ fn interleaved_requests_share_plan_but_not_typed_state() {
         }))
         .unwrap();
     let pipeline = builder.build();
-    let first = unhandled(pipeline.prepare_with_state(Request::new(()), 10));
-    let second = unhandled(pipeline.prepare_with_state(Request::new(()), 20));
+    let first = unhandled(pipeline.prepare_with_state(Request::new(empty_body()), 10));
+    let second = unhandled(pipeline.prepare_with_state(Request::new(empty_body()), 20));
     assert_eq!(first.head().extensions.get::<usize>(), Some(&11));
     assert_eq!(second.head().extensions.get::<usize>(), Some(&21));
-    let reply = |_: Request<()>| async { Response::new(empty_body()) };
+    let reply = |_: Request<RouteBody>| async { Response::new(empty_body()) };
     let second = ready(second.dispatch(reply));
     let first = ready(first.dispatch(reply));
     assert_eq!(first.headers()["x-example-state"], "11");
