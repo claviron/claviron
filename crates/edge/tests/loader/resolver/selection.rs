@@ -1,6 +1,6 @@
 use super::*;
 use crate::pipeline::other::{OtherHandler, OtherService};
-use crate::pipeline::{Admission, HostApp, HostAppSnapshot, RustRouter};
+use crate::pipeline::{HostAppSnapshot, RustRouter};
 use crate::service::{
     VhostCtx, resolve_request_authority, resolve_sni_from_table,
 };
@@ -24,6 +24,16 @@ fn resolver() -> VhostResolver {
     resolver
 }
 
+struct Named(HeaderValue);
+impl OtherHandler for Named {
+    fn call(&self, request: Request<RouteBody>) -> RouteFuture {
+        drop(request);
+        let mut response = http::Response::new(claviron_http::empty_body());
+        response.headers_mut().insert("x-generation", self.0.clone());
+        Box::pin(std::future::ready(Ok(response)))
+    }
+}
+
 fn applications(
     table: &VhostTable,
     marker: Option<&str>,
@@ -35,11 +45,7 @@ fn applications(
         let root = record.config.root();
         let name = marker
             .unwrap_or_else(|| root.file_name().unwrap().to_str().unwrap());
-        let app = HostApp {
-            admission: Admission::limited(Some(1)),
-            server_header: Some(HeaderValue::from_str(name).unwrap()),
-            ..RustRouter::Other(OtherService::Noop).into()
-        };
+        let app = RustRouter::Other(OtherService::new(Named(HeaderValue::from_str(name).unwrap())));
         apps.insert(canonical.clone(), app).unwrap();
     }
     Ok(apps)
@@ -69,10 +75,10 @@ fn assert_selected(
     marker: &str,
 ) {
     assert_eq!(ctx.vhost_key.0.as_ref(), &host(canonical));
-    assert_eq!(
-        ctx.application.as_ref().unwrap().server_header.as_ref().unwrap(),
-        marker
-    );
+    let RustRouter::Other(owner) = ctx.application.as_ref().unwrap() else { panic!("native owner expected"); };
+    let mut response = owner.handle(Request::new(claviron_http::empty_body()));
+    let Poll::Ready(Ok(response)) = response.as_mut().poll(&mut Context::from_waker(Waker::noop())) else { panic!("ready owner expected"); };
+    assert_eq!(response.headers()["x-generation"], marker);
 }
 
 #[test]
@@ -99,15 +105,8 @@ fn host_selection_alias_default_and_sni_share_the_bound_application() {
     let alias = resolve(&table, "alias.test").unwrap();
     let first = canonical.application.unwrap();
     let second = alias.application.unwrap();
-    let mut cx = Context::from_waker(Waker::noop());
-    let mut entering = pin!(first.admission.enter(None));
-    let Poll::Ready(Some(place)) = entering.as_mut().poll(&mut cx) else {
-        panic!("the first request must be admitted");
-    };
-    let mut queued = pin!(second.admission.enter(None));
-    assert!(queued.as_mut().poll(&mut cx).is_pending());
-    drop(place);
-    assert!(matches!(queued.as_mut().poll(&mut cx), Poll::Ready(Some(_))));
+    let (RustRouter::Other(OtherService::Handler(first)), RustRouter::Other(OtherService::Handler(second))) = (first, second) else { panic!("shared prepared handlers expected"); };
+    assert!(Arc::ptr_eq(&first, &second));
 }
 
 #[test]
@@ -154,10 +153,7 @@ fn host_selection_reload_keeps_old_contexts_and_applies_alias_removal_and_recrea
         "default",
         "fallback",
     );
-    assert!(matches!(
-        resolver.request_policy(&host("b.test")),
-        crate::pipeline::host::PolicySnapshot::Removed
-    ));
+    assert!(resolver.snapshot().canonical_config(&host("b.test")).is_none());
     assert!(resolver.delete_host(&host("default")));
     assert!(resolve(&resolver.snapshot(), "alias.test").is_none());
     resolver.upsert_host(
