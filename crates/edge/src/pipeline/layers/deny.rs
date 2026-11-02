@@ -10,7 +10,10 @@ pub struct DenyLayer {
 
 impl DenyLayer {
     pub fn new(matcher: RegexSet) -> Option<Self> {
-        (!matcher.is_empty()).then_some(Self { matcher })
+        if matcher.is_empty() {
+            return None;
+        }
+        Some(Self { matcher })
     }
 }
 
