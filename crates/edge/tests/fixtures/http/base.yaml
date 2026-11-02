@@ -1,6 +1,5 @@
 defaults:
-  request:
-    deny: ['^/private']
+  deny: ['^/private']
 listeners:
   local:
     transport: tcp
