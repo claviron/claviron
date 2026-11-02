@@ -1,23 +1,5 @@
-//! An HTTP exchange between an edge worker and an application process on the
-//! same host, carried over shared memory.
-//!
-//! No socket, no HTTP parsing on the wire, no connection to pool. The edge
-//! writes a header frame into the target's inbox lane and the body into a
-//! duplex stream slot; the application answers the same way. Both ends read
-//! the geometry from here so they cannot disagree about it — Orbit refuses to
-//! open a segment whose shape differs from the code's, and two constants in
-//! two crates eventually drift.
-//!
-//! ## What is addressed, and what crosses
-//!
-//! The addressing is an application name in a lane, and it carries frames
-//! whose kind says what they are. HTTP exchanges, application commands,
-//! application snapshot rows, and edge shutdown notices share the inbox.
-//! The lane and name are transport addressing; the hosted application's
-//! runtime-qualified identity is carried separately on management commands.
-//!
-//! `TRANSPORT_PLAN.md` beside this crate records the shape, what is
-//! deliberately absent from it, and why.
+//! Shared-memory application transport: inbox frames and duplex body streams.
+//! All participants in a fleet must use the same compiled geometry.
 
 use orbitive::link::{InboxGeometry, LinkSpec};
 use orbitive::stream::StreamSpec;
@@ -47,8 +29,7 @@ pub use orbitive::link::{
     Admission, DirectoryWatcher, Inbox, Joined, LANE_NAME_MAX, Received,
     Reclaimed, Routing,
 };
-// The stream types a participant needs to hold a slot open between exchanges,
-// so neither end has to depend on `orbitive` to name what it is keeping.
+// Stream slot ownership types.
 pub use orbitive::stream::{Endpoint, StreamId, Ticket};
 pub use peer::{
     ApplicationConnected, ApplicationDisconnected, EdgeConnected,
@@ -58,130 +39,51 @@ pub use segment::{INBOX_GEOMETRY, TransportSegment};
 pub use service::{LinkedApplication, TransportService};
 pub use target::TransportTarget;
 
-/// Lanes one transport fleet holds.
-///
-/// Applications meet their callers in the explicitly selected `fleet_name`:
-/// segments are `/orbit-<fleet_name>-195-<uid>` and
-/// `/orbit-<fleet_name>-211-<uid>`. Application names select lanes within
-/// that namespace. Capacity, isolation and segment lifetime are per fleet;
-/// callers reuse one client for all applications in the same fleet.
-///
-/// This is that fleet's geometry, so it is the ceiling rather than the current
-/// count: every edge worker plus every application worker in this namespace that may
-/// run at once. Both ends read it from here, and a process that disagreed would
-/// be refused at open rather than read a table of a different shape. Masters
-/// take no lane — they serve no traffic. Eight edge workers and an application
-/// of eight workers is sixteen; 32 leaves room. It is address space, reserved
-/// rather than occupied: a lane nobody claims costs no memory.
-///
-/// Only the fleet namespace is part of a POSIX SHM name. An application
-/// identity need only fit the lane's advertised-name field. Other kinds in
-/// the runner's process-family fleet retain their own independent geometry.
+/// Maximum participant lanes per transport fleet, fixed at build time.
 pub const TRANSPORT_FLEET_CAPACITY: usize =
     orbitive::core::compile::usize_from_env(
         option_env!("ORBIT_TRANSPORT_FLEET_CAPACITY"),
         32,
     );
 
-/// Inbox ring: one lane per fleet node, fixed-size frames, many writers and
-/// the lane's owner reading, followed by one directory-watcher slot per lane
-/// and one interest entry per lane and per watcher. Kind `195`; the layout
-/// without interest entries was kind `196`, the one without watcher slots
-/// kind `202`. A segment that grows takes a new kind rather than a bigger
-/// shape under the old one.
+/// SHM kind for the inbox layout, including directory watchers and interests.
 pub const TRANSPORT_INBOX_KIND: u8 = 195;
 
-/// Frames one node's lane holds before a writer is refused. That refusal is a
-/// 503: a full lane is never overwritten, because an overwritten request is a
-/// request that vanished.
-///
-/// It must hold what one caller may have outstanding to one target, which is
-/// the same question `TRANSPORT_LANE_CAPACITY` answers from the other end —
-/// so it is the same number.
-///
-/// A shallower lane was tried on 2026-09-24 and reverted the same day. The
-/// argument for it was that depth is what a caller chooses a target by, and a
-/// long queue makes that reading stale. True, and beside the point: choosing
-/// needs somewhere else to go. With one process serving a name there is no
-/// second target, so a shallow lane does not redirect work, it refuses it —
-/// sixty-four clients against one process filled thirty-two slots and the
-/// rest were answered `503` by an edge with a healthy application in front of
-/// it.
-///
-/// Depth stays honest for a different reason: the far side must not hold a
-/// backlog the caller cannot see. That is a property of what the application
-/// buffers internally, not of how deep this is.
+/// Frames per inbox lane, fixed at build time. Full lanes reject new frames.
 pub const TRANSPORT_INBOX_CAPACITY: usize =
     orbitive::core::compile::usize_from_env(
         option_env!("ORBIT_TRANSPORT_INBOX_CAPACITY"),
         128,
     );
 
-/// Bytes one frame holds: an exchange's head — the HTTP request's own header
-/// block, and a few dozen bytes of ours around it (correlation, the lane to
-/// answer on, the stream ticket). Never a body: bodies take the stream.
-///
-/// **A frame is read in one piece, so this is the header limit.** It is not
-/// ours to choose: the host that puts this transport behind its listeners
-/// already decided how large a header block it accepts, and a frame smaller
-/// than that refuses, with a 503, requests the host has let in. The edge takes
-/// 16 KiB of HTTP/2 header list by default (`max_header_list_size`), so this is
-/// 16 KiB and 1 KiB for our own fields. A host that raises its limit raises
-/// this with it, in every binary that maps the table.
+/// Maximum frame bytes, including HTTP headers and transport metadata.
+/// Fixed at build time; body bytes use the duplex stream.
 pub const TRANSPORT_INBOX_PAYLOAD_CAPACITY: usize =
     orbitive::core::compile::usize_from_env(
         option_env!("ORBIT_TRANSPORT_INBOX_PAYLOAD_CAPACITY"),
         17_408,
     );
 
-/// Body streams: per-node lanes of duplex slots, one slot per exchange —
-/// request body one way, response body the other. Kind `211`.
+/// SHM kind for duplex request/response body streams.
 pub const TRANSPORT_STREAM_KIND: u8 = 211;
 
-/// Concurrent exchanges a node may *originate*.
-///
-/// A slot comes from the creator's lane, and the edge creates; an application
-/// worker opens the other side and consumes none of its own.
-///
-/// 128, which is what a Unix socket profile in `upstream.yaml` gives itself
-/// as `max_live`. The number is the same question on both transports — how
-/// many exchanges may be in flight from one worker at once — so answering it
-/// differently would put a thumb on the comparison.
+/// Concurrent exchanges a node may originate, fixed at build time.
+/// Each exchange occupies one slot in its creator's lane.
 pub const TRANSPORT_LANE_CAPACITY: usize =
     orbitive::core::compile::usize_from_env(
         option_env!("ORBIT_TRANSPORT_LANE_CAPACITY"),
         128,
     );
 
-/// Bytes each direction holds before its writer waits.
-///
-/// A window, not a body limit: a larger body only makes the writer wait more
-/// often, and nothing here caps what an application may send.
-///
-/// 64 KiB, sized for what actually crosses. A request's headers are under a
-/// kilobyte and its body is usually absent; a reply is a JSON document of a
-/// few kilobytes or an HTML page whose median is tens. All of those cross in
-/// one window with the writer never waiting, and the address space the table
-/// reserves stays in the hundreds of megabytes rather than the gigabytes.
-///
-/// The window does bound bulk throughput at `buffer / wake latency`, and an
-/// earlier value of 256 KiB was chosen from a ~55 µs wake measured on the
-/// `xd01` guest. That measurement was withdrawn on 2026-09-24 along with the
-/// rest of that run — see the `edge-server` project's results — so it is not
-/// a reason for
-/// anything until it is taken again on a host. A deployment that moves large
-/// bodies raises this, in every binary that maps the table.
+/// Buffered bytes per stream direction before the writer waits.
+/// Fixed at build time; total body size is not limited by this window.
 pub const TRANSPORT_BUFFER_BYTES: usize =
     orbitive::core::compile::usize_from_env(
         option_env!("ORBIT_TRANSPORT_BUFFER_BYTES"),
         65_536,
     );
 
-/// The body stream table, separate from `orbit-stream`'s default kind `246`.
-///
-/// Worker-to-worker coordination wants many narrow lanes; this wants fewer and
-/// wider. Independent specs are independent tables: separate segments, separate
-/// epochs, and a reset on one leaves the other alone.
+/// Body stream table geometry, independent of other Orbit stream tables.
 pub const TRANSPORT_STREAM_SPEC: StreamSpec = StreamSpec::new(
     TRANSPORT_STREAM_KIND,
     TRANSPORT_LANE_CAPACITY,
@@ -190,8 +92,7 @@ pub const TRANSPORT_STREAM_SPEC: StreamSpec = StreamSpec::new(
 
 const _: () = assert!(TRANSPORT_FLEET_CAPACITY <= u16::MAX as usize);
 
-/// The two generic physical resources Claviron assigns to its application
-/// transport. HTTP framing and application routing remain in this crate.
+/// Combined fleet, inbox and body stream geometry for application transport.
 pub const TRANSPORT_LINK_SPEC: LinkSpec =
     transport_link_spec(TRANSPORT_FLEET_CAPACITY as u16);
 
@@ -207,22 +108,12 @@ const fn transport_link_spec(fleet_capacity: u16) -> LinkSpec {
     )
 }
 
-/// Whether this host can park a reader on a lane.
-///
-/// A lane's reader waits on a word and is woken by whoever writes. That needs
-/// a shared-memory wait primitive — futex, `_umtx_op`, or
-/// `os_sync_wait_on_address` from macOS 14.4. Where there is none, this
-/// transport has no way to sleep that is not a poll, so a process refuses at
-/// boot rather than burning a core pretending to wait.
+/// Whether this host supports notified shared-memory reader waits.
 pub fn parking_supported() -> bool {
     orbitive::link::parking_supported()
 }
 
-/// What can go wrong before an exchange is anyone's to answer.
-///
-/// Every variant here is something the caller turns into a status: the first
-/// three are a 503 — capacity, not time — and a reply that no longer has a
-/// caller is dropped rather than raised.
+/// Application transport errors.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("the target's inbox lane is full")]
