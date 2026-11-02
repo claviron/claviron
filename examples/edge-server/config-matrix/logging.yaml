@@ -1,3 +1,0 @@
-system_log: {path: logs/edge-matrix.log, format: line, truncate: true}
-access_log: null
-channels: {}

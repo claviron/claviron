@@ -1,2 +1,0 @@
-# Use the supervisor's declared defaults, including an unbounded graceful drain.
-{}

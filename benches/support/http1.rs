@@ -28,14 +28,14 @@ use tokio::task::JoinHandle;
 use super::{json, plain};
 
 pub struct Server {
-    pub(crate) address: SocketAddr,
+    pub address: SocketAddr,
     pub(crate) stop: oneshot::Sender<()>,
     pub(crate) task: JoinHandle<()>,
     pub(crate) selects_host: bool,
 }
 
 impl Server {
-    pub(crate) async fn shutdown(self) {
+    pub async fn shutdown(self) {
         let _ = self.stop.send(());
         self.task.await.expect("HTTP benchmark server must finish cleanly");
     }

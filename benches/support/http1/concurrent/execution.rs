@@ -63,7 +63,7 @@ impl Running {
                     Ok(())
                 }),
                 context,
-            ))
+            )).await
         });
         let server = match runtime.block_on(received) {
             Ok(server) => server,
