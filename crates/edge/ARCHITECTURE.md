@@ -54,18 +54,24 @@ absent from the compiled plan:
 
 | Order | Entry | Selected by |
 | --- | --- | --- |
-| 1 | Trusted proxy / real IP | Nonempty forwarding headers and trusted networks on listeners exposing this host. |
-| 2 | Access-log start | Effective host/prefix channel or logging default; `off` and absent channels install no layer or log state. |
-| 3 | Deny → IP ACL | Nonempty HTTP deny defaults; restrictive host/prefix ACL rules. |
-| 4 | Quota admission | Prepared host quota rules. |
-| 5 | CORS admission / preflight | Effective host/prefix CORS declaration. |
-| 6 | Request-body bounds | Effective listener → host → prefix size/idle policy; both off installs no layer. |
-| 7 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
-| 8 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
-| 9 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
-| 10 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
-| 11 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
-| 12 | Index/SPA file fallback | An index or SPA declaration. |
+| 1 | Response-header hooks | Effective HTTP defaults → host → prefix edits; empty declarations install nothing. |
+| 2 | Trusted proxy / real IP | Nonempty forwarding headers and trusted networks on listeners exposing this host. |
+| 3 | Access-log start | Effective host/prefix channel or logging default; `off` and absent channels install no layer or log state. |
+| 4 | Deny → IP ACL | Nonempty HTTP deny defaults; restrictive host/prefix ACL rules. |
+| 5 | Quota admission | Prepared host quota rules. |
+| 6 | CORS admission / preflight | Effective host/prefix CORS declaration. |
+| 7 | Request-body bounds | Effective listener → host → prefix size/idle policy; both off installs no layer. |
+| 8 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
+| 9 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
+| 10 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
+| 11 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
+| 12 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
+| 13 | Index/SPA file fallback | An index or SPA declaration. |
+
+Header hooks are registered before request policies, so they also cover early
+refusals. Edits fold from outer to inner at preparation; within one declaration,
+unset precedes set. Response hooks unwind in reverse order. No implicit Server
+header is added and header handling never reads or wraps the response body.
 
 Proxy and ACL borrow accepted connection facts. Forwarding changes only the
 request's `RealIpExt`; an untrusted peer cannot choose its ACL or quota identity.

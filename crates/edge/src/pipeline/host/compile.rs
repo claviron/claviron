@@ -21,7 +21,7 @@ use crate::pipeline::extension::{RouteContext, RouteLayer};
 use crate::pipeline::layers::{AccessLogLayer, AccessLogState};
 use crate::pipeline::layers::{
     AclLayer, CorsLayer, CorsState, DenyLayer, ProxyLayer, RequestBodyLayer,
-    RouteSelectionLayer, scope_steps,
+    RouteSelectionLayer, prepare_headers, scope_steps,
 };
 use crate::pipeline::{RouteProtocol, RustRouter};
 
@@ -99,6 +99,7 @@ struct Compiler<'a> {
     host: &'a Host,
     config: &'a HostConfig,
     requests: RequestPolicy,
+    headers: Option<&'a claviron_http::config::host::HostHeadersConfig>,
     #[cfg(feature = "rate-limit")]
     quotas: Option<&'a crate::pipeline::layers::HostQuotas>,
     #[cfg(feature = "broadcast")]
@@ -162,6 +163,15 @@ impl Compiler<'_> {
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
         let mut builder = HostPipelineBuilder::new();
+        prepare_headers(
+            &mut builder,
+            self.headers.into_iter().chain(
+                self.config
+                    .scopes_at(prefix)
+                    .filter_map(|scope| scope.headers.as_ref()),
+            ),
+        )
+        .map_err(|error| Error::msg(error.to_string()))?;
         if let Some(proxy) = &self.proxy {
             builder
                 .layer(proxy.clone())
@@ -361,6 +371,7 @@ impl HostCompiler<'_> {
             host,
             config: &config,
             requests,
+            headers: self.http.map(|http| http.headers.as_ref()),
             router,
             #[cfg(feature = "rate-limit")]
             quotas,

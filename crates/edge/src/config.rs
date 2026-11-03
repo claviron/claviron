@@ -257,6 +257,20 @@ impl HostConfig {
         policy
     }
 
+    /// Borrow root and matching prefix declarations from outermost to nearest.
+    pub(crate) fn scopes_at<'a>(
+        &'a self,
+        prefix: &'a PathPrefix,
+    ) -> impl DoubleEndedIterator<Item = &'a RouteConfig> {
+        std::iter::once(&self.fields.routing).chain(
+            self.routes.iter().rev().filter_map(move |(ancestor, scope)| {
+                (ancestor.as_str() != "/"
+                    && ancestor.has_path_segment(prefix.as_str()))
+                .then_some(&scope.fields.routing)
+            }),
+        )
+    }
+
     #[cfg(all(
         feature = "lua",
         any(feature = "websocket", feature = "webtransport")

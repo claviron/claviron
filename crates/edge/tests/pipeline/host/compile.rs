@@ -14,6 +14,9 @@ struct Unread(Arc<AtomicUsize>);
 #[path = "compile/defense.rs"]
 mod defense;
 
+#[path = "compile/headers.rs"]
+mod headers;
+
 #[cfg(feature = "access-log")]
 #[test]
 fn access_log_off_overrides_the_host_channel_and_inherits_into_children() {

@@ -57,15 +57,15 @@ impl<S> HostLayer<S> for HeaderClearLayer {
     }
 }
 
-/// Resolve inheritance before registration. No default Server value is added.
+/// Fold outer-to-inner declarations before registration. No default Server
+/// value is added; absent/empty declarations install no actions.
 /// Response hooks unwind, so Set is registered first and Clear runs first.
-pub fn prepare_headers<S>(
+pub fn prepare_headers<'a, S>(
     builder: &mut HostPipelineBuilder<S>,
-    defaults: Option<&HostHeadersConfig>,
-    scope: &HostHeadersConfig,
+    scopes: impl IntoIterator<Item = &'a HostHeadersConfig>,
 ) -> crate::Result<()> {
     let mut actions = HashMap::new();
-    for headers in defaults.into_iter().chain(std::iter::once(scope)) {
+    for headers in scopes {
         if let Some(server) = &headers.server {
             let value = HeaderValue::from_str(server).map_err(|error| {
                 crate::Error::Invalid(format!("invalid Server header: {error}"))

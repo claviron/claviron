@@ -859,15 +859,11 @@ CORS policy/configuration and allowlist evaluation are always available under
 pub fn build_served_by(served_by: &str) -> SetResponseHeaderLayer<HeaderValue>
 ```
 
-A thin wrapper around `tower-http`'s `SetResponseHeaderLayer` for callers
-building their own Tower stacks. Edge itself stores a prepared baseline in
-each `HostApp` rather than installing this layer. `HttpYaml.defaults.headers` and
-`HttpSnapshot.headers` reuse `HostHeadersConfig` for server-wide response
-defaults. `http.yaml`'s `defaults.headers.server` replaces the ordinary `"claviron"`
-baseline; explicit vhost/route header policy wins. Listener configuration has
-no separate header field. Standalone applications retain their response identity
-unless a global or vhost override is explicitly declared. Validation and merging
-happen before publication, not on the request path.
+A Tower helper for application-owned stacks. Edge instead prepares native
+response hooks from `HttpSnapshot.headers` and host/prefix declarations.
+Only explicit edits are installed; there is no implicit Server header.
+Inheritance and validation finish before publication. Listeners declare no
+separate header policy.
 
 #### MoreHeaders — per-vhost set / unset
 
@@ -878,10 +874,8 @@ pub fn build_more_headers(
 ) -> MoreHeadersLayer
 ```
 
-Per-vhost response-header overrides — nginx `headers-more`
-parity (`more_set_headers` / `more_clear_headers`). The vhost
-router builder reads `HostConfig.headers.{set,unset}` and
-hands the precompiled lists to this layer.
+Application-owned Tower response-header overrides. Edge uses its own
+`HeaderSetLayer` and `HeaderClearLayer` in the native host plan.
 
 Application order: **unset first, then set**. Each name in
 `unset` is removed from the outgoing response (looped to

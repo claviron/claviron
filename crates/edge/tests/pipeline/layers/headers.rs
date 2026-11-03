@@ -8,7 +8,7 @@ fn apply(
     scope: &HostHeadersConfig,
 ) -> RouteResponse {
     let mut builder = HostPipelineBuilder::<()>::new();
-    prepare_headers(&mut builder, Some(defaults), scope).unwrap();
+    prepare_headers(&mut builder, [defaults, scope]).unwrap();
     let pipeline = builder.build();
     let ServiceResult::Unhandled(prepared) =
         pipeline.prepare(Request::new(empty_body()))
@@ -38,7 +38,7 @@ fn explicit_scope_header_edits_override_defaults_without_an_implicit_server() {
     assert_eq!(response.headers()["x-revive"], "host");
     assert!(!response.headers().contains_key("x-remove"));
     let mut builder = HostPipelineBuilder::<()>::new();
-    prepare_headers(&mut builder, None, &HostHeadersConfig::default()).unwrap();
+    prepare_headers(&mut builder, [&HostHeadersConfig::default()]).unwrap();
     assert!(builder.is_empty());
 }
 
@@ -49,6 +49,6 @@ fn invalid_programmatic_server_values_fail_during_layer_preparation() {
         server: Some("invalid\nvalue".into()),
         ..HostHeadersConfig::default()
     };
-    assert!(prepare_headers(&mut builder, None, &invalid).is_err());
+    assert!(prepare_headers(&mut builder, [&invalid]).is_err());
     assert!(builder.is_empty());
 }

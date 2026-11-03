@@ -6,15 +6,8 @@ use claviron_helpers::de::one_or_many;
 use http::{HeaderName, HeaderValue};
 use serde::Deserialize;
 
-/// Default `Server:` header value when a host doesn't override.
-///
-/// Goes through every response leaving the host pipeline. Lowercase on
-/// purpose — nginx historically did not let operators rename their
-/// `Server:` header at all; claviron lifts that restriction down to
-/// per-vhost scope (a tiny but real security knob — fingerprinters key
-/// off the `Server:` token to pick exploit payloads). The default is the
-/// product name in plain casing; vhosts can swap in a generic value
-/// (`"web"`, `"caddy"`, `"nginx"`) to throw scanners off.
+/// Library identity for callers that explicitly request a server label.
+/// This value is not automatically inserted into response headers.
 pub const DEFAULT_SERVER_HEADER: &str = "claviron";
 
 /// Server-wide defaults or per-vhost response-header configuration — nginx
@@ -32,15 +25,12 @@ pub const DEFAULT_SERVER_HEADER: &str = "claviron";
 /// or invalid values surface as a yaml parse error with the offending
 /// line, never reach the runtime.
 ///
-/// Scope note: Edge's common exchange applies this policy outside application
-/// routing, whenever explicitly configured, regardless of whether the owner
-/// is a configured host plan, Axum or another Rust handler.
+/// Edge folds HTTP defaults, host and prefix declarations at boot/reload.
+/// Only effective edits enter the selected HostPipeline as response hooks.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
 pub struct HostHeadersConfig {
-    /// Override the `Server:` response header for this vhost. When unset,
-    /// ordinary edge owners use the server-wide `http.yaml` default, or
-    /// [`DEFAULT_SERVER_HEADER`]. Standalone owners retain their own identity
-    /// unless a server-wide or vhost override was explicitly configured.
+    /// Explicit `Server:` value. Absence preserves inherited edits or the
+    /// application's header; no library label is added automatically.
     #[serde(default, deserialize_with = "deserialize_server")]
     pub server: Option<String>,
     /// Override (set/replace) named headers on every response. Each
