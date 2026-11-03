@@ -10,6 +10,8 @@ contracts, not protocol standards or chronological decision records.
 - [HOST_PIPELINE](HOST_PIPELINE.md): bind connections to their accepted host;
   prepare host policy and compose native applications and backends without
   bypassing admission.
+- [EDGE_BACKENDS](EDGE_BACKENDS.md): application execution and forwarding owners;
+  HTTP policy, body delivery and protocol boundaries at their pipeline handoff.
 - [EARLY_DATA_POLICY](EARLY_DATA_POLICY.md): transport acceptance of 0-RTT
   does not grant application permission to execute replayable work.
 - [CONNECTION_HIJACK](CONNECTION_HIJACK.md): PHP and native Rust borrow the same

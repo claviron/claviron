@@ -30,6 +30,12 @@ waits, consuming calls and response hooks share one flat plan. `Unhandled`
 transfers the same unread body; a handled status never signals fallthrough.
 Only reached layers shape a reply. Axum is an application adapter.
 
+## Backend contract
+
+[EDGE_BACKENDS](../../docs/design/EDGE_BACKENDS.md) defines the application-server
+boundary, policy ownership and body delivery rules for Rust applications, Embed,
+Upstream and Link.
+
 ## HostPipeline order
 
 [`host/compile.rs`](src/pipeline/host/compile.rs) builds each host's scope plans at
