@@ -25,7 +25,7 @@ use claviron_http::{RouteBody, ServiceResult};
 use claviron_lua::serve::{LuaApplicationAdapter, LuaApplications};
 use http::Request;
 
-use crate::pipeline::host::{DispatchFuture, DispatchStep};
+use crate::pipeline::host::{DispatchCall, DispatchStep};
 
 struct Mount {
     path: Option<PathPrefix>,
@@ -90,12 +90,12 @@ impl DispatchStep for LuaBackend {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         let Some(mount) = self.select(request.uri().path()) else {
-            return DispatchFuture::ready(ServiceResult::Unhandled(request));
+            return DispatchCall::ready(ServiceResult::Unhandled(request));
         };
         let adapter = mount.adapter.clone();
-        DispatchFuture::new(async move {
+        DispatchCall::new(async move {
             ServiceResult::Handled(adapter.handle(request).await)
         })
     }

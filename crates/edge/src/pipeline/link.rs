@@ -26,7 +26,7 @@ use claviron_http::{
 use futures_util::StreamExt;
 use http::Request;
 
-use super::host::{DispatchFuture, DispatchStep};
+use super::host::{DispatchCall, DispatchStep};
 use claviron_http::ext::{ConnCtx, PathPrefix};
 use claviron_http::policy::{
     BodyNeed, HttpPolicy, RequestPolicy, RequestPolicyOverride,
@@ -112,18 +112,18 @@ impl DispatchStep for LinkBackend {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         let Some(route) = self.select(request.uri().path()) else {
-            return DispatchFuture::ready(ServiceResult::Unhandled(request));
+            return DispatchCall::ready(ServiceResult::Unhandled(request));
         };
         let Some(target) = route.target.clone() else {
-            return DispatchFuture::ready(ServiceResult::Handled(unavailable(
+            return DispatchCall::ready(ServiceResult::Handled(unavailable(
                 "the Link route has no prepared destination",
             )));
         };
         let requests = route.requests;
         let shutdown = route.shutdown.clone();
-        DispatchFuture::new(async move {
+        DispatchCall::new(async move {
             ServiceResult::Handled(
                 dispatch(target, requests, shutdown, request).await,
             )

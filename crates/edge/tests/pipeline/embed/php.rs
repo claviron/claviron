@@ -52,10 +52,10 @@ impl DispatchStep for ScriptDeclines {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         self.0.scripts.fetch_add(1, Ordering::Relaxed);
         // Only mount selection is tested; this owner declines without claiming the body.
-        DispatchFuture::ready(ServiceResult::Unhandled(request))
+        DispatchCall::ready(ServiceResult::Unhandled(request))
     }
 }
 
@@ -64,14 +64,14 @@ impl DispatchStep for Answer {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         drop(request);
         let response = Response::builder()
             .status(StatusCode::SERVICE_UNAVAILABLE)
             .header("x-example-owner", self.0)
             .body(claviron_http::empty_body())
             .unwrap();
-        DispatchFuture::ready(ServiceResult::Handled(response))
+        DispatchCall::ready(ServiceResult::Handled(response))
     }
 }
 

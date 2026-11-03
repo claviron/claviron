@@ -1,7 +1,7 @@
 //! Concrete host actions and adapters prepared for HostPipeline.
 
 use super::host::{
-    DispatchFuture, DispatchStep, HostLayerBuilder, HostPipelineBuilder,
+    DispatchCall, DispatchStep, HostLayerBuilder, HostPipelineBuilder,
 };
 use claviron_http::{RouteBody, RouteResponse};
 #[cfg(feature = "access-log")]

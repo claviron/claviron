@@ -8,7 +8,7 @@ use claviron_upstream::binding::{UpstreamApp, call_upstream_service};
 use claviron_upstream::proxy::service::UpstreamRequestPolicy;
 use http::{Request, StatusCode};
 
-use super::host::{DispatchFuture, DispatchStep};
+use super::host::{DispatchCall, DispatchStep};
 
 /// One configured upstream application. Selection retains its existing live
 /// profile binding; accepted IO belongs to the selected service generation.
@@ -53,7 +53,7 @@ impl DispatchStep for UpstreamStage {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         let path = request.uri().path();
         let service = self
             .app
@@ -62,12 +62,12 @@ impl DispatchStep for UpstreamStage {
         let Some(service) = service else {
             // This configured owner retains its explicit excludes and final
             // 404; a miss must not enter another backend or read the body.
-            return DispatchFuture::ready(ServiceResult::Handled(err_status(
+            return DispatchCall::ready(ServiceResult::Handled(err_status(
                 StatusCode::NOT_FOUND,
             )));
         };
         let policy = self.policy;
-        DispatchFuture::new(async move {
+        DispatchCall::new(async move {
             ServiceResult::Handled(
                 call_upstream_service(
                     service,

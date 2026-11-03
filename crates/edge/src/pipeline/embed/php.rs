@@ -11,7 +11,7 @@ use claviron_runtime::AppState;
 use http::{Request, Response, StatusCode};
 
 use crate::HostConfig;
-use crate::pipeline::host::{DispatchFuture, DispatchStep};
+use crate::pipeline::host::{DispatchCall, DispatchStep};
 
 #[cfg(feature = "php_embed")]
 mod app;
@@ -119,9 +119,9 @@ impl DispatchStep for PhpBackend {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         let backend = self.clone();
-        DispatchFuture::new(async move {
+        DispatchCall::new(async move {
             let mut request = request;
             for mount in backend.mounts.iter() {
                 if mount.path.as_ref().is_some_and(|prefix| {
@@ -129,7 +129,19 @@ impl DispatchStep for PhpBackend {
                 }) {
                     continue;
                 }
-                request = match mount.owner.call(request).await {
+                let work = match mount.owner.call(request) {
+                    DispatchCall::Ready(ServiceResult::Handled(response)) => {
+                        return ServiceResult::Handled(response);
+                    }
+                    DispatchCall::Ready(ServiceResult::Unhandled(
+                        unhandled,
+                    )) => {
+                        request = unhandled;
+                        continue;
+                    }
+                    DispatchCall::Pending(work) => work,
+                };
+                request = match work.await {
                     ServiceResult::Handled(response) => {
                         return ServiceResult::Handled(response);
                     }
@@ -163,7 +175,7 @@ impl DispatchStep for UnavailableApplication {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         drop(request);
         let mut response = Response::new(empty_body());
         *response.status_mut() = StatusCode::SERVICE_UNAVAILABLE;
@@ -171,7 +183,7 @@ impl DispatchStep for UnavailableApplication {
             http::header::RETRY_AFTER,
             http::HeaderValue::from_static("1"),
         );
-        DispatchFuture::ready(ServiceResult::Handled(response))
+        DispatchCall::ready(ServiceResult::Handled(response))
     }
 }
 

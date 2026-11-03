@@ -19,9 +19,9 @@ impl DispatchStep for Script {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         let adapter = self.0.clone();
-        DispatchFuture::new(async move {
+        DispatchCall::new(async move {
             match adapter.try_handle(request).await {
                 Ok(ServiceResult::Handled(response)) => {
                     ServiceResult::Handled(response)

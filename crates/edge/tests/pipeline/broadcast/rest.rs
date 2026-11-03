@@ -60,7 +60,11 @@ async fn rest_claims_only_its_paths_and_never_reinterprets_a_handled_404() {
             .uri(uri)
             .body(claviron_http::bytes_body(payload))
             .unwrap();
-        let body = match rest.call(request).await {
+        let result = match rest.call(request) {
+            DispatchCall::Ready(result) => result,
+            DispatchCall::Pending(work) => work.await,
+        };
+        let body = match result {
             ServiceResult::Handled(response) => {
                 assert!(handled);
                 assert_eq!(response.status(), StatusCode::NOT_FOUND);

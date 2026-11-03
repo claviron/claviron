@@ -12,7 +12,7 @@ use claviron_http::ext::RealIpExt;
 use claviron_http::{RequestContext, RouteBody, ServiceResult};
 use http::Request;
 
-use super::{DispatchFuture, DispatchStep};
+use super::{DispatchCall, DispatchStep};
 use crate::HostConfig;
 
 /// One explicit, prepared static mount. The file service owns mapping/security.
@@ -34,9 +34,9 @@ impl DispatchStep for StaticStage {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         let mount = self.mount.clone();
-        DispatchFuture::new(async move {
+        DispatchCall::new(async move {
             let context = RequestContext {
                 uri: request.uri(),
                 headers: request.headers(),
@@ -71,9 +71,9 @@ impl DispatchStep for TryFilesStage {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         let site = self.site.clone();
-        DispatchFuture::new(async move {
+        DispatchCall::new(async move {
             match claviron_files::try_files_for_site(
                 site.as_ref(),
                 request.uri(),

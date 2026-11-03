@@ -56,13 +56,10 @@ impl<S> HostLayerBuilder<S> {
     /// Transfer the request to one prepared asynchronous owner. Unhandled must
     /// return that same request; a response status never means fallthrough.
     /// A ready miss needs no future allocation. Only active work is erased by
-    /// the owner's DispatchFuture; this callback is allocated at preparation.
+    /// the owner's DispatchCall; this callback is allocated at preparation.
     pub fn request(
         &mut self,
-        action: impl Fn(Request<RouteBody>) -> DispatchFuture
-        + Send
-        + Sync
-        + 'static,
+        action: impl Fn(Request<RouteBody>) -> DispatchCall + Send + Sync + 'static,
     ) -> &mut Self {
         self.before.push(Action::Request(Box::new(action)));
         self

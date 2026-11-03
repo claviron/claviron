@@ -26,10 +26,10 @@ pub use connect::{
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
 };
 pub use host::{
-    ApplicationHandler, AsyncHeadAction, DispatchFuture, DispatchResult,
-    DispatchStep, HostExecution, HostHandler, HostHandlerFuture,
-    HostHandlerResult, HostLayerBuilder, HostPipeline, HostPipelineBuilder,
-    HostRequest,
+    ApplicationHandler, AsyncHeadAction, DispatchCall, DispatchFuture,
+    DispatchResult, DispatchStep, HostExecution, HostHandler,
+    HostHandlerFuture, HostHandlerResult, HostLayerBuilder, HostPipeline,
+    HostPipelineBuilder, HostRequest,
 };
 #[cfg(feature = "websocket")]
 pub use layers::WebSocketStage;

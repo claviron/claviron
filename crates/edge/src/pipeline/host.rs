@@ -33,7 +33,9 @@ mod response;
 pub use application::ApplicationHandler;
 pub(crate) use binding::HostPolicy;
 pub use context::{ContextFuture, ContextHandler, HostContext};
-pub use dispatch::{DispatchFuture, DispatchResult, DispatchStep};
+pub use dispatch::{
+    DispatchCall, DispatchFuture, DispatchResult, DispatchStep,
+};
 pub use execution::HostExecution;
 pub use handler::{
     HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest,
@@ -42,7 +44,7 @@ pub use handler::{
 type HeadAction<S, R> =
     Box<dyn Fn(&mut RequestParts, &mut S) -> ControlFlow<R> + Send + Sync>;
 type RequestAction =
-    Box<dyn Fn(Request<RouteBody>) -> DispatchFuture + Send + Sync>;
+    Box<dyn Fn(Request<RouteBody>) -> DispatchCall + Send + Sync>;
 type ContextHeadAction<S, R> = Box<
     dyn for<'a> Fn(
             &mut RequestParts,

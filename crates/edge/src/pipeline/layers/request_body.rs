@@ -31,22 +31,20 @@ impl<S> HostLayer<S> for RequestBodyLayer {
         layer.request(move |request| {
             if declared_length_within(request.headers(), self.max_size).is_err()
             {
-                return DispatchFuture::ready(ServiceResult::Handled(
+                return DispatchCall::ready(ServiceResult::Handled(
                     claviron_http::err_status(
                         http::StatusCode::PAYLOAD_TOO_LARGE,
                     ),
                 ));
             }
             if request.body().is_end_stream() {
-                return DispatchFuture::ready(ServiceResult::Unhandled(
-                    request,
-                ));
+                return DispatchCall::ready(ServiceResult::Unhandled(request));
             }
             let request = request.map(|body| {
                 GuardedBody::new(body, self.max_size, self.read_timeout)
                     .boxed_unsync()
             });
-            DispatchFuture::ready(ServiceResult::Unhandled(request))
+            DispatchCall::ready(ServiceResult::Unhandled(request))
         });
         Ok(())
     }

@@ -11,7 +11,7 @@ use claviron_runtime::AppState;
 use claviron_types::Host;
 use http::Request;
 
-use super::{DispatchFuture, DispatchStep, HostLayer, HostLayerBuilder};
+use super::{DispatchCall, DispatchStep, HostLayer, HostLayerBuilder};
 use crate::HostConfig;
 
 /// One host generation's exact HTTP/1 WebSocket endpoints.
@@ -58,17 +58,17 @@ impl DispatchStep for WebSocketStage {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         let Some(binding) = self.bindings.get(request.uri().path()) else {
-            return DispatchFuture::ready(ServiceResult::Unhandled(request));
+            return DispatchCall::ready(ServiceResult::Unhandled(request));
         };
         let H1UpgradeBinding::Handler(handler) = binding;
         if !handler.is_upgrade(&request) {
-            return DispatchFuture::ready(ServiceResult::Unhandled(request));
+            return DispatchCall::ready(ServiceResult::Unhandled(request));
         }
         let (state, host, binding) =
             (self.state.clone(), self.host.clone(), binding.clone());
-        DispatchFuture::new(try_h1_upgrade(state, host, binding, request))
+        DispatchCall::new(try_h1_upgrade(state, host, binding, request))
     }
 }
 

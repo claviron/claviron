@@ -24,22 +24,20 @@ impl<S> HostLayer<S> for Http01Layer {
     ) -> crate::Result<()> {
         layer.request(move |request| {
             let Some(token) = request.uri().path().strip_prefix(PREFIX) else {
-                return DispatchFuture::ready(ServiceResult::Unhandled(
-                    request,
-                ));
+                return DispatchCall::ready(ServiceResult::Unhandled(request));
             };
             if token.is_empty()
                 || !token.bytes().all(|byte| {
                     byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')
                 })
             {
-                return DispatchFuture::ready(ServiceResult::Handled(
+                return DispatchCall::ready(ServiceResult::Handled(
                     claviron_http::err_status(http::StatusCode::FORBIDDEN),
                 ));
             }
             let path = self.directory.join(token);
             drop(request);
-            DispatchFuture::new(async move {
+            DispatchCall::new(async move {
                 let response = match tokio::fs::read(path).await {
                     Ok(bytes) => {
                         let mut response = Response::new(

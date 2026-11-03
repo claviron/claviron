@@ -155,7 +155,22 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
                     }
                 }
                 Action::Request(action) => {
-                    match action(Request::from_parts(head, body)).await {
+                    let work = match action(Request::from_parts(head, body)) {
+                        DispatchCall::Ready(ServiceResult::Handled(
+                            response,
+                        )) => {
+                            return pipeline
+                                .finish(response, state, step.scope);
+                        }
+                        DispatchCall::Ready(ServiceResult::Unhandled(
+                            request,
+                        )) => {
+                            (head, body) = request.into_parts();
+                            continue;
+                        }
+                        DispatchCall::Pending(work) => work,
+                    };
+                    match work.await {
                         ServiceResult::Handled(response) => {
                             return pipeline
                                 .finish(response, state, step.scope);

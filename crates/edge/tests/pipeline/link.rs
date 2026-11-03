@@ -36,8 +36,8 @@ impl Drop for UnreadBody {
 #[test]
 fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
     use super::{
-        DispatchStep, LinkBackend, LinkRoute, RequestPolicyOverride,
-        ServiceResult,
+        DispatchCall, DispatchStep, LinkBackend, LinkRoute,
+        RequestPolicyOverride, ServiceResult,
     };
     let backend = LinkBackend {
         routes: vec![LinkRoute {
@@ -56,9 +56,11 @@ fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
             .uri(path)
             .body(claviron_http::boxed_body(UnreadBody(drops.clone())))
             .unwrap();
-        let mut call = std::pin::pin!(backend.call(request));
-        match poll_once(call.as_mut()) {
-            Poll::Ready(ServiceResult::Handled(response)) => {
+        let DispatchCall::Ready(result) = backend.call(request) else {
+            panic!("mount selection is synchronous");
+        };
+        match result {
+            ServiceResult::Handled(response) => {
                 assert!(handled);
                 assert_eq!(
                     response.status(),
@@ -67,13 +69,12 @@ fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
                 assert_eq!(response.headers()["retry-after"], "1");
                 assert_eq!(drops.load(Ordering::Relaxed), 1);
             }
-            Poll::Ready(ServiceResult::Unhandled(request)) => {
+            ServiceResult::Unhandled(request) => {
                 assert!(!handled);
                 assert_eq!(request.uri().path(), path);
                 assert_eq!(drops.load(Ordering::Relaxed), 0);
                 drop(request);
             }
-            Poll::Pending => panic!("mount selection is synchronous"),
         }
         assert_eq!(drops.load(Ordering::Relaxed), 1);
     }

@@ -175,7 +175,7 @@ Disabled file steps allocate no prepared file owner.
 - [`log`](src/pipeline/host/access_log.rs) — Optional access-channel selection and record/body lifetime transfer.
 - [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
 - [`handler.rs`](src/pipeline/host/handler.rs) — Routable contributions; Unhandled retains the unread body capability.
-- [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Ready/async request calls; reuse existing future erasure.
+- [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Consume synchronous DispatchCall decisions before await; only compact pending futures enter suspended state, reusing existing application erasure.
 - [`selection.rs`](src/pipeline/host/selection.rs) — Prefix/condition selection as a HostLayer; single-scope hosts omit it.
 - [`execution.rs`](src/pipeline/host/execution.rs) — Published host execution; separate from the Axum/Other router choice.
 - [`compile.rs`](src/pipeline/host/compile.rs) — Compile prefix scopes, conditions, Rust contributions and backend owners.
@@ -288,6 +288,7 @@ ownership and isolated state transitions without provider boot or live listeners
 ### `pipeline/host/`
 
 - [`application.rs`](tests/pipeline/host/application.rs) — Deferred calls, cancellation and payload/response scope.
+- [`dispatch.rs`](tests/pipeline/host/dispatch.rs) — Compact pending state, synchronous unread-body transfer, existing erasure and cancellation.
 - [`handler.rs`](tests/pipeline/host/handler.rs) — Rust fallthrough, terminal status, cancellation and optional Axum adapter.
 - [`compile.rs`](tests/pipeline/host/compile.rs) — Scope conditions and Static/TryFiles/backend precedence.
 

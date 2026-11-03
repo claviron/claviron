@@ -10,7 +10,7 @@ use http::Request;
 
 use crate::HostConfig;
 use crate::pipeline::host::ApplicationHandler;
-use crate::pipeline::host::{DispatchFuture, DispatchStep};
+use crate::pipeline::host::{DispatchCall, DispatchStep};
 
 enum Endpoints {
     Publish(HashSet<String>),
@@ -51,18 +51,18 @@ impl RestOwner {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         match self {
             Self::Fleet(owner) => {
                 let owner = owner.clone();
-                DispatchFuture::new(async move {
+                DispatchCall::new(async move {
                     let response = owner.call(request).await;
                     ServiceResult::Handled(response)
                 })
             }
             Self::Http(adapter) => {
                 let adapter = adapter.clone();
-                DispatchFuture::new(async move {
+                DispatchCall::new(async move {
                     let Ok(response) = adapter.handle(request).await;
                     ServiceResult::Handled(response)
                 })
@@ -80,9 +80,9 @@ impl DispatchStep for Rest {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         if !self.endpoints.accepts(request.uri().path()) {
-            return DispatchFuture::ready(ServiceResult::Unhandled(request));
+            return DispatchCall::ready(ServiceResult::Unhandled(request));
         }
         self.owner.call(request)
     }

@@ -8,10 +8,9 @@ use claviron_http::upgrade::{
 };
 use claviron_runtime::registry::Result;
 use http_body::{Body, Frame};
-use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
 
 struct Handler(Arc<AtomicUsize>);
 
@@ -126,10 +125,8 @@ fn ordinary_requests_pass_the_original_body_inline_on_exact_path_lookup() {
             .uri(path)
             .body(claviron_http::boxed_body(Unread(drops.clone())))
             .unwrap();
-        let mut decision = stage.call(request);
-        let Poll::Ready(ServiceResult::Unhandled(request)) =
-            Pin::new(&mut decision)
-                .poll(&mut Context::from_waker(Waker::noop()))
+        let DispatchCall::Ready(ServiceResult::Unhandled(request)) =
+            stage.call(request)
         else {
             panic!("ordinary requests must pass synchronously");
         };

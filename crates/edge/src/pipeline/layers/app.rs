@@ -1,4 +1,4 @@
-use super::{DispatchFuture, HostLayer, HostLayerBuilder};
+use super::{DispatchCall, HostLayer, HostLayerBuilder};
 use crate::pipeline::RustRouter;
 use crate::pipeline::host::{
     ContextFuture, ContextHandler, HostContext, HostHandler, HostRequest,
@@ -40,7 +40,7 @@ impl<S> HostLayer<S> for Arc<dyn HostHandler> {
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
         layer.request(move |request| {
-            DispatchFuture::application(self.call(HostRequest::new(request)))
+            DispatchCall::application(self.call(HostRequest::new(request)))
         });
         Ok(())
     }

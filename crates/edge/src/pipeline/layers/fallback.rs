@@ -1,6 +1,6 @@
 use super::files::fallback_config;
 use crate::HostConfig;
-use crate::pipeline::host::{DispatchFuture, DispatchStep};
+use crate::pipeline::host::{DispatchCall, DispatchStep};
 use claviron_files::{FileSite, try_handle_files};
 use claviron_http::config::files::FilesConfig;
 use claviron_http::ext::RealIpExt;
@@ -33,9 +33,9 @@ impl DispatchStep for FileFallback {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         let owner = self.clone();
-        DispatchFuture::new(async move {
+        DispatchCall::new(async move {
             let context = RequestContext {
                 uri: request.uri(),
                 headers: request.headers(),

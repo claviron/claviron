@@ -34,9 +34,9 @@ impl DispatchStep for Application {
     fn call(
         &self,
         request: Request<RouteBody>,
-    ) -> DispatchFuture {
+    ) -> DispatchCall {
         let adapter = self.0.clone();
-        DispatchFuture::new(async move {
+        DispatchCall::new(async move {
             match adapter.handle(request).await {
                 Ok(response) => ServiceResult::Handled(response),
                 Err(never) => match never {},
