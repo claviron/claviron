@@ -21,8 +21,7 @@ import tomllib
 from urllib.parse import urlsplit
 
 
-ROOT = Path(__file__).resolve().parents[2]
-PROJECT = "claviron"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class ReleaseError(Exception):
@@ -227,7 +226,7 @@ def main(argv=None):
     parser.add_argument("--send", action="store_true", help="Actually push a prepared distribution")
     args = parser.parse_args(argv)
     try:
-        config = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"][PROJECT]["composer"]
+        config = tomllib.loads((ROOT / "pyproject.toml").read_text())["tool"]["packagist"]
         package = next((p for p in config["packages"] if p["name"] == args.package), None)
         if package is None:
             raise ReleaseError("Unknown configured Composer package.")

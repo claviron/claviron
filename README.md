@@ -107,9 +107,9 @@ Lua likewise supports fresh script states and persistent application states.
 Laravel's native and Composer adapters live in the independent
 [Lumenize library](https://github.com/claviron/lumenize). A custom Edge host
 registers those adapters during its own boot without using Lumenize Runner.
-The [Symfony Composer adapter](php/symfony/README.md) remains available as PHP
-source; it has no Rust workspace package or facade feature. The general PHP
-engine stays framework-independent, selected with `php_embed`.
+The [Symfony Composer adapter](https://github.com/claviron/skene/tree/main/php)
+lives in Skene. The general PHP engine stays framework-independent, selected
+with `php_embed`.
 
 ### Companion JavaScript integrations
 

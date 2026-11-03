@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-// Run from the repository root: php -n php/sapi/tests/stubs.php
+// Run from the repository root: php -n php/tests/stubs.php
 $stub = dirname(__DIR__) . '/fallback/functions.php';
 require dirname(__DIR__) . '/fallback/types.php';
 require dirname(__DIR__) . '/fallback/types.php';

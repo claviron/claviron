@@ -30,19 +30,12 @@ state-directory = "target/publisher"
 
 # Composer distribution mirrors are generated from committed package snapshots.
 # These paths are local tooling inputs, never published package metadata.
-[tool.claviron.composer]
+[tool.packagist]
 state-directory = "target/composer"
 
-[[tool.claviron.composer.packages]]
+[[tool.packagist.packages]]
 name = "claviron/sapi"
 remote = "git@github.com:claviron/sapi.git"
-directory = "php/sapi"
+directory = "php"
 license = "LICENSE-MIT"
 include = ["composer.json", "README.md", "src", "fallback"]
-
-[[tool.claviron.composer.packages]]
-name = "claviron/symfony"
-remote = "git@github.com:claviron/symfony.git"
-directory = "php/symfony"
-license = "LICENSE-MIT"
-include = ["composer.json", "README.md", "src", "stubs"]

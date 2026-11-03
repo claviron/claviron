@@ -5,7 +5,7 @@ In-process PHP runtime: `libphp.so` linked into the claviron worker via
 between this runtime and the FastCGI/FPM runner happens in the vhost
 router at boot.
 
-The framework-neutral Composer package in the repository's `php/sapi/` is named `claviron/sapi`.
+The framework-neutral Composer package in the repository's `php/` is named `claviron/sapi`.
 Laravel and Symfony Composer adapters depend on this package. The Rust crate
 remains `claviron-php-embed`; source paths and PHP namespaces are unchanged.
 Consumers must refresh their Composer lockfile and installed package metadata
