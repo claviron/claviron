@@ -99,15 +99,19 @@ impl<S, R> Default for HostPipelineBuilder<S, R> {
     }
 }
 
-#[cfg(any(feature = "rate-limit", feature = "access-log"))]
-struct UnitHead(Box<dyn AsyncHeadAction<()>>);
+struct StateHead<S, F> {
+    action: Box<dyn AsyncHeadAction<S>>,
+    project: F,
+}
 
-#[cfg(any(feature = "rate-limit", feature = "access-log"))]
-impl<S: AsMut<()>> AsyncHeadAction<S> for UnitHead {
+impl<S, T, F> AsyncHeadAction<T> for StateHead<S, F>
+where
+    F: Fn(&mut T) -> &mut S + Send + Sync,
+{
     fn call<'a>(
         &'a self,
         head: &'a mut RequestParts,
-        state: &'a mut S,
+        state: &'a mut T,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<Output = ControlFlow<RouteResponse>>
@@ -115,7 +119,7 @@ impl<S: AsMut<()>> AsyncHeadAction<S> for UnitHead {
                 + 'a,
         >,
     > {
-        self.0.call(head, state.as_mut())
+        self.action.call(head, (self.project)(state))
     }
 }
 
@@ -125,6 +129,19 @@ impl<R: 'static> HostPipelineBuilder<(), R> {
     pub(crate) fn with_state<S: AsMut<()> + 'static>(
         self
     ) -> HostPipelineBuilder<S, R> {
+        self.map_state(AsMut::as_mut)
+    }
+}
+
+impl<S: 'static, R: 'static> HostPipelineBuilder<S, R> {
+    /// Embed existing state in a selected plan without adding a runtime node.
+    pub(crate) fn map_state<T: 'static, F>(
+        self,
+        project: F,
+    ) -> HostPipelineBuilder<T, R>
+    where
+        F: Fn(&mut T) -> &mut S + Copy + Send + Sync + 'static,
+    {
         let layers = self
             .layers
             .into_iter()
@@ -134,13 +151,13 @@ impl<R: 'static> HostPipelineBuilder<(), R> {
                     .into_iter()
                     .map(|action| match action {
                         Action::Head(action) => Action::Head(Box::new(
-                            move |head, state: &mut S| {
-                                action(head, state.as_mut())
+                            move |head, state: &mut T| {
+                                action(head, project(state))
                             },
                         )),
                         Action::ContextHead(action) => Action::ContextHead(
-                            Box::new(move |head, state: &mut S, context| {
-                                action(head, state.as_mut(), context)
+                            Box::new(move |head, state: &mut T, context| {
+                                action(head, project(state), context)
                             }),
                         ),
                         Action::Request(action) => Action::Request(action),
@@ -148,7 +165,10 @@ impl<R: 'static> HostPipelineBuilder<(), R> {
                             Action::ContextRequest(action)
                         }
                         Action::AsyncHead(action) => {
-                            Action::AsyncHead(Box::new(UnitHead(action)))
+                            Action::AsyncHead(Box::new(StateHead {
+                                action,
+                                project,
+                            }))
                         }
                     })
                     .collect(),
@@ -157,19 +177,19 @@ impl<R: 'static> HostPipelineBuilder<(), R> {
                     .into_iter()
                     .map(|action| {
                         Box::new(
-                            move |head: &mut ResponseParts, state: &mut S| {
-                                action(head, state.as_mut())
+                            move |head: &mut ResponseParts, state: &mut T| {
+                                action(head, project(state))
                             },
-                        ) as ResponseAction<S>
+                        ) as ResponseAction<T>
                     })
                     .collect(),
                 body: layer
                     .body
                     .into_iter()
                     .map(|action| {
-                        Box::new(move |body: RouteBody, state: &mut S| {
-                            action(body, state.as_mut())
-                        }) as BodyAction<S>
+                        Box::new(move |body: RouteBody, state: &mut T| {
+                            action(body, project(state))
+                        }) as BodyAction<T>
                     })
                     .collect(),
             })

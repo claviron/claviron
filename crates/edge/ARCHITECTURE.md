@@ -51,12 +51,13 @@ absent from the compiled plan:
 | 2 | Access-log start | Effective host/prefix channel or logging default; `off` and absent channels install no layer or log state. |
 | 3 | Deny → IP ACL | Nonempty HTTP deny defaults; restrictive host/prefix ACL rules. |
 | 4 | Quota admission | Prepared host quota rules. |
-| 5 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
-| 6 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
-| 7 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
-| 8 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
-| 9 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
-| 10 | Index/SPA file fallback | An index or SPA declaration. |
+| 5 | CORS admission / preflight | Effective host/prefix CORS declaration. |
+| 6 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
+| 7 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
+| 8 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
+| 9 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
+| 10 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
+| 11 | Index/SPA file fallback | An index or SPA declaration. |
 
 Proxy and ACL borrow accepted connection facts. Forwarding changes only the
 request's `RealIpExt`; an untrusted peer cannot choose its ACL or quota identity.
@@ -75,12 +76,17 @@ log state; quota state is added independently when admission is configured.
 same unread request to the next entry. If nothing handles it, the plan returns
 404. A terminal `RustRouter` with no preceding actions uses the direct-call path.
 
+CORS captures the accepted origin and registers its response hook after access-log
+start, before Deny/ACL/Quota. Its admission action follows quota, so preflight
+spends quota and allowed-origin refusals retain CORS headers. Ordinary OPTIONS
+requests without Access-Control-Request-Method continue to applications. Origin
+patterns starting with `^` compile at boot; other origins match exactly. No
+CORS declaration means no CORS actions or request state. Explicit `disabled`
+refuses requests carrying Origin. Broadcast's own CORS policy remains separate.
+
 Response-head and body hooks run in reverse order, only for reached scopes.
-Registered route layers determine custom policy order after quota. The compiler
-connects proxy, deny, ACL and quota declarations to their prepared layers;
-`RouteConfig.cors` is not yet connected to `CorsLayer` in this composition.
-Broadcast's own CORS policy is separate. Response-head deadline ownership remains
-separate from transport limits.
+Registered route layers determine custom policy order after CORS admission.
+Response-head deadline ownership remains separate from transport limits.
 
 ## Reload and ownership
 
@@ -215,8 +221,6 @@ Disabled file steps allocate no prepared file owner.
 - [`redirect.rs`](src/pipeline/host/redirect.rs) — Scoped redirects and prepared Location values; URL selection belongs to the common route table.
 - [`quota.rs`](src/pipeline/host/quota.rs) — Rate-admission layer for typed or native replies and its committed snapshot.
 - [`quota/prepare.rs`](src/pipeline/host/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
-- [`cors.rs`](src/pipeline/host/cors.rs) — Explicit CORS layer, boot-compiled origin matcher and request-owned accepted origin.
-- [`cors/rules.rs`](src/pipeline/host/cors/rules.rs) — Origin admission, preflight response and CORS response headers.
 - [`http01.rs`](src/pipeline/host/http01.rs) — Optional ACME file layer with validated single-component tokens.
 - [`headers.rs`](src/pipeline/host/headers.rs) — Separate Set/Clear layers and cold header inheritance.
 - [`body`](src/pipeline/host/request_body.rs) — Explicit size/idle bounds; empty bodies keep their original owner.
@@ -234,6 +238,8 @@ Disabled file steps allocate no prepared file owner.
 
 ### `pipeline/layers/`
 
+- [`cors.rs`](src/pipeline/layers/cors.rs) — Boot-compiled origin selection, early response context and post-quota admission.
+- [`cors/rules.rs`](src/pipeline/layers/cors/rules.rs) — Preflight detection, response headers and Vary token selection without String/Vec assembly.
 - [`log.rs`](src/pipeline/layers/log.rs) — Access-record hooks borrow accepted facts without IdentityState; inactive channels install no layer.
 
 ### `pipeline/embed/`
@@ -344,10 +350,11 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`dispatch.rs`](tests/pipeline/host/dispatch.rs) — Compact pending state, synchronous unread-body transfer, existing erasure and cancellation.
 - [`handler.rs`](tests/pipeline/host/handler.rs) — Rust fallthrough, terminal status, cancellation and optional Axum adapter.
 - [`compile.rs`](tests/pipeline/host/compile.rs) — Scope conditions and Static/TryFiles/backend precedence.
-- [`compile/defense.rs`](tests/pipeline/host/compile/defense.rs) — Proxy trust, Deny/ACL/Quota order, extension admission, body ownership and absent-rule direct calls.
+- [`compile/defense.rs`](tests/pipeline/host/compile/defense.rs) — Proxy trust, defense order, CORS scope inheritance and quota replies, body ownership and absent-rule direct calls.
 
 ### `pipeline/layers/`
 
+- [`cors.rs`](tests/pipeline/layers/cors.rs) — Origin matching, preflight/OPTIONS ownership, early refusals, Vary and cancellation.
 - [`identity.rs`](tests/pipeline/layers/identity.rs) — Accepted identity reuse and unchanged body ownership.
 - [`identity/extensions.rs`](tests/pipeline/layers/identity/extensions.rs) — Typed values, existing box reuse and independent extension maps.
 - [`acl/path.rs`](tests/pipeline/layers/acl/path.rs) — Segment specificity, escaped paths and ambiguous slashes.

@@ -313,3 +313,180 @@ fn an_allow_all_child_still_overrides_a_deny_all_parent() {
     }
     assert_eq!(calls.load(Ordering::Relaxed), 1);
 }
+
+#[test]
+fn cors_absence_keeps_the_direct_router_and_scoped_policies_inherit_at_boot() {
+    use futures_util::FutureExt;
+    let state = AppState::standalone("cors-scopes", ".");
+    let calls = Arc::new(AtomicUsize::new(0));
+    let host = "example.test".parse().unwrap();
+    for (config, expected_kind) in [
+        ("{}", "other"),
+        (
+            "cors: permissive\nroutes:\n  /private:\n    cors: disabled\n  /private/child: {}\n  /restricted:\n    cors: {policy: allowlist, origins: ['https://ui.example.test']}\n",
+            "pipeline",
+        ),
+    ] {
+        let owner = HostCompiler { state: &state, http: None }
+            .prepare(
+                &host,
+                Arc::new(serde_yaml::from_str(config).unwrap()),
+                Some(RustRouter::Other(OtherService::new(Reply(
+                    calls.clone(),
+                )))),
+                &HostContributions::default(),
+                #[cfg(feature = "rate-limit")]
+                None,
+                #[cfg(feature = "websocket")]
+                None,
+            )
+            .unwrap();
+        assert_eq!(owner.kind(), expected_kind);
+        for (path, origin, expected, header) in [
+            (
+                "/public",
+                "https://other.example.test",
+                StatusCode::OK,
+                Some("*"),
+            ),
+            (
+                "/private/child",
+                "https://ui.example.test",
+                StatusCode::FORBIDDEN,
+                None,
+            ),
+            (
+                "/restricted",
+                "https://ui.example.test",
+                StatusCode::OK,
+                Some("https://ui.example.test"),
+            ),
+            (
+                "/restricted",
+                "https://other.example.test",
+                StatusCode::FORBIDDEN,
+                None,
+            ),
+        ] {
+            let drops = Arc::new(AtomicUsize::new(0));
+            let reply = owner
+                .handle(
+                    Request::builder()
+                        .uri(path)
+                        .header("origin", origin)
+                        .body(claviron_http::boxed_body(Unread(drops.clone())))
+                        .unwrap(),
+                )
+                .now_or_never()
+                .expect("head fixture must be ready")
+                .unwrap();
+            if expected_kind == "other" {
+                assert_eq!(reply.status(), StatusCode::OK);
+                assert!(
+                    !reply
+                        .headers()
+                        .contains_key("access-control-allow-origin")
+                );
+            } else {
+                assert_eq!(reply.status(), expected, "{path}: {origin}");
+                assert_eq!(
+                    reply
+                        .headers()
+                        .get("access-control-allow-origin")
+                        .map(|value| value.to_str().unwrap()),
+                    header
+                );
+            }
+            drop(reply);
+            assert_eq!(drops.load(Ordering::Relaxed), 1);
+        }
+    }
+}
+
+#[cfg(feature = "rate-limit")]
+#[test]
+fn cors_preflight_spends_quota_and_quota_refusal_keeps_cors_headers() {
+    use crate::config::quota::RateLimitConfig;
+    use crate::pipeline::layers::QuotaRegistrations;
+    use claviron_orbit::quota::{QuotaBacking, QuotaConfig, QuotaTable};
+    use futures_util::FutureExt;
+    use std::num::{NonZeroU64, NonZeroUsize};
+    use std::time::Duration;
+
+    let state = AppState::standalone("cors-quota", ".");
+    let mut config: HostConfig = serde_yaml::from_str("cors: {policy: allowlist, credentials: true, origins: ['https://ui.example.test']}").unwrap();
+    config.rate_limit = Some(RateLimitConfig {
+        namespace: "cors-quota".into(),
+        cost: NonZeroU64::new(1).unwrap(),
+        headers: true,
+        quota: QuotaConfig {
+            units: NonZeroU64::new(1).unwrap(),
+            period: Duration::from_secs(3600),
+            burst: NonZeroU64::new(1).unwrap(),
+            table: QuotaTable {
+                slots: NonZeroUsize::new(8).unwrap(),
+                shards: NonZeroUsize::new(1).unwrap(),
+                key_bytes: NonZeroUsize::new(64).unwrap(),
+                probes: NonZeroUsize::new(8).unwrap(),
+            },
+            cas_attempts: NonZeroUsize::new(64).unwrap(),
+            store: QuotaBacking::LocalGuard {},
+        },
+    });
+    let host = "example.test".parse().unwrap();
+    let quotas = QuotaRegistrations::default()
+        .prepare(false, &host, &config, None)
+        .unwrap()
+        .unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let owner = HostCompiler { state: &state, http: None }
+        .prepare(
+            &host,
+            Arc::new(config),
+            Some(RustRouter::Other(OtherService::new(Reply(calls.clone())))),
+            &HostContributions::default(),
+            Some(&quotas),
+            #[cfg(feature = "websocket")]
+            None,
+        )
+        .unwrap();
+    let accepted = connection();
+    let drops = Arc::new(AtomicUsize::new(0));
+    for (method, expected) in [
+        (http::Method::OPTIONS, StatusCode::NO_CONTENT),
+        (http::Method::GET, StatusCode::TOO_MANY_REQUESTS),
+    ] {
+        let mut request = Request::builder()
+            .method(method.clone())
+            .header("origin", "https://ui.example.test");
+        if method == http::Method::OPTIONS {
+            request = request.header("access-control-request-method", "GET");
+        }
+        let reply = owner
+            .handle_in(
+                request
+                    .body(claviron_http::boxed_body(Unread(drops.clone())))
+                    .unwrap(),
+                Some(HostContext {
+                    connection: &accepted,
+                    arrival: RequestArrival::Established,
+                }),
+            )
+            .now_or_never()
+            .expect("head fixture must be ready")
+            .unwrap();
+        assert_eq!(reply.status(), expected);
+        assert_eq!(
+            reply.headers()["access-control-allow-origin"],
+            "https://ui.example.test"
+        );
+        assert_eq!(reply.headers()["access-control-allow-credentials"], "true");
+        if expected == StatusCode::TOO_MANY_REQUESTS {
+            assert!(reply.headers().contains_key("retry-after"));
+        } else {
+            assert_eq!(reply.headers()["x-ratelimit-remaining"], "0");
+        }
+    }
+    assert_eq!(calls.load(Ordering::Relaxed), 0);
+    assert_eq!(drops.load(Ordering::Relaxed), 2);
+}

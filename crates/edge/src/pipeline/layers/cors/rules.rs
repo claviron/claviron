@@ -1,38 +1,45 @@
-//! Transport-independent CORS admission and response shaping.
+//! Header-only CORS decisions and response shaping.
+
 use claviron_http::{RouteResponse, empty_body};
 use http::{HeaderMap, HeaderValue, Method, StatusCode};
 
+use super::CorsState;
 use crate::config::cors::{CorsConfig, CorsPolicy};
 
 pub(super) fn check(
     method: &Method,
     headers: &HeaderMap,
-    allows: impl FnOnce(&str) -> bool,
-) -> (Option<RouteResponse>, Option<HeaderValue>) {
-    let origin = headers
-        .get(http::header::ORIGIN)
-        .and_then(|header| header.to_str().ok());
-
-    let Some(origin) = origin else {
-        return (None, None);
-    };
-
-    if !allows(origin) {
+    state: &CorsState,
+) -> Option<RouteResponse> {
+    if state.denied {
         let mut response = RouteResponse::new(empty_body());
         *response.status_mut() = StatusCode::FORBIDDEN;
-        return (Some(response), None);
+        return Some(response);
     }
-    let accepted_origin = headers.get(http::header::ORIGIN).cloned();
-
-    if *method == Method::OPTIONS {
-        let mut response = RouteResponse::new(empty_body());
-        *response.status_mut() = StatusCode::NO_CONTENT;
-        let response_headers = response.headers_mut();
-        mirror_preflight(headers, response_headers);
-        return (Some(response), accepted_origin);
+    if state.origin.is_none()
+        || *method != Method::OPTIONS
+        || !headers.contains_key(http::header::ACCESS_CONTROL_REQUEST_METHOD)
+    {
+        return None;
     }
-
-    (None, accepted_origin)
+    let mut response = RouteResponse::new(empty_body());
+    *response.status_mut() = StatusCode::NO_CONTENT;
+    let response_headers = response.headers_mut();
+    response_headers.insert(
+        http::header::ACCESS_CONTROL_ALLOW_METHODS,
+        headers[http::header::ACCESS_CONTROL_REQUEST_METHOD].clone(),
+    );
+    if let Some(headers) =
+        headers.get(http::header::ACCESS_CONTROL_REQUEST_HEADERS)
+    {
+        response_headers.insert(
+            http::header::ACCESS_CONTROL_ALLOW_HEADERS,
+            headers.clone(),
+        );
+    }
+    add_vary(response_headers, "access-control-request-method");
+    add_vary(response_headers, "access-control-request-headers");
+    Some(response)
 }
 
 pub(super) fn finish(
@@ -40,119 +47,44 @@ pub(super) fn finish(
     origin: Option<&HeaderValue>,
     headers: &mut HeaderMap,
 ) {
-    // Only the origin accepted by check reaches this response phase.
-    if let Some(origin) = origin.and_then(|value| value.to_str().ok()) {
-        set_cors_headers(headers, origin, cors);
-        add_vary(headers, cors);
+    if cors.policy == CorsPolicy::Disabled {
+        return;
     }
-}
-
-fn mirror_preflight(
-    request_headers: &HeaderMap,
-    response_headers: &mut HeaderMap,
-) {
-    if let Some(method) =
-        request_headers.get(http::header::ACCESS_CONTROL_REQUEST_METHOD)
-    {
-        response_headers
-            .insert(http::header::ACCESS_CONTROL_ALLOW_METHODS, method.clone());
+    let reflect = cors.policy == CorsPolicy::Allowlist || cors.credentials;
+    if reflect {
+        // Cached replies also vary when Origin is absent or refused.
+        add_vary(headers, "origin");
     }
-    if let Some(headers) =
-        request_headers.get(http::header::ACCESS_CONTROL_REQUEST_HEADERS)
-    {
-        response_headers.insert(
-            http::header::ACCESS_CONTROL_ALLOW_HEADERS,
-            headers.clone(),
-        );
-    }
-    response_headers.insert(
-        http::header::ACCESS_CONTROL_MAX_AGE,
-        HeaderValue::from_static("600"),
-    );
-}
-
-fn set_cors_headers(
-    headers: &mut HeaderMap,
-    origin: &str,
-    cors: &CorsConfig,
-) {
-    use http::header::{
-        ACCESS_CONTROL_ALLOW_CREDENTIALS, ACCESS_CONTROL_ALLOW_ORIGIN,
+    let Some(origin) = origin else {
+        return;
     };
-
-    match cors.policy {
-        CorsPolicy::Permissive if cors.credentials => {
-            headers.insert(
-                ACCESS_CONTROL_ALLOW_ORIGIN,
-                HeaderValue::from_str(origin)
-                    .unwrap_or(HeaderValue::from_static("null")),
-            );
-            headers.insert(
-                ACCESS_CONTROL_ALLOW_CREDENTIALS,
-                HeaderValue::from_static("true"),
-            );
-        }
-        CorsPolicy::Permissive => {
-            headers.insert(
-                ACCESS_CONTROL_ALLOW_ORIGIN,
-                HeaderValue::from_static("*"),
-            );
-            headers.remove(ACCESS_CONTROL_ALLOW_CREDENTIALS);
-        }
-        CorsPolicy::Allowlist => {
-            headers.insert(
-                ACCESS_CONTROL_ALLOW_ORIGIN,
-                HeaderValue::from_str(origin)
-                    .unwrap_or(HeaderValue::from_static("null")),
-            );
-            if cors.credentials {
-                headers.insert(
-                    ACCESS_CONTROL_ALLOW_CREDENTIALS,
-                    HeaderValue::from_static("true"),
-                );
-            } else {
-                headers.remove(ACCESS_CONTROL_ALLOW_CREDENTIALS);
-            }
-        }
-        CorsPolicy::Disabled => {}
+    headers.insert(
+        http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        if reflect { origin.clone() } else { HeaderValue::from_static("*") },
+    );
+    if cors.credentials {
+        headers.insert(
+            http::header::ACCESS_CONTROL_ALLOW_CREDENTIALS,
+            HeaderValue::from_static("true"),
+        );
+    } else {
+        headers.remove(http::header::ACCESS_CONTROL_ALLOW_CREDENTIALS);
     }
 }
 
 fn add_vary(
     headers: &mut HeaderMap,
-    cors: &CorsConfig,
+    name: &'static str,
 ) {
-    use http::header::VARY;
-
-    let vary_origin = matches!(cors.policy, CorsPolicy::Allowlist)
-        || (matches!(cors.policy, CorsPolicy::Permissive) && cors.credentials);
-    let mut parts =
-        vec!["access-control-request-method", "access-control-request-headers"];
-    if vary_origin {
-        parts.insert(0, "origin");
-    }
-
-    if let Some(existing) = headers.get(VARY) {
-        let Ok(existing) = existing.to_str() else {
-            return;
-        };
-        if existing.trim() == "*" {
-            return;
-        }
-        let mut merged: Vec<&str> = existing
-            .split(',')
-            .map(str::trim)
-            .filter(|part| !part.is_empty())
-            .collect();
-        for part in parts {
-            if !merged.iter().any(|item| item.eq_ignore_ascii_case(part)) {
-                merged.push(part);
-            }
-        }
-        headers
-            .insert(VARY, HeaderValue::from_str(&merged.join(", ")).unwrap());
+    if headers.get_all(http::header::VARY).iter().any(|value| {
+        value.to_str().is_ok_and(|value| {
+            value.split(',').any(|part| {
+                let part = part.trim();
+                part == "*" || part.eq_ignore_ascii_case(name)
+            })
+        })
+    }) {
         return;
     }
-
-    headers.insert(VARY, HeaderValue::from_str(&parts.join(", ")).unwrap());
+    headers.append(http::header::VARY, HeaderValue::from_static(name));
 }

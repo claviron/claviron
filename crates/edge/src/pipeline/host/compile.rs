@@ -21,8 +21,28 @@ use crate::pipeline::extension::{RouteContext, RouteLayer};
 #[cfg(feature = "access-log")]
 use crate::pipeline::layers::{AccessLogLayer, AccessLogState};
 use crate::pipeline::layers::{
-    AclLayer, DenyLayer, ProxyLayer, RouteSelectionLayer, scope_steps,
+    AclLayer, CorsLayer, CorsState, DenyLayer, ProxyLayer, RouteSelectionLayer,
+    scope_steps,
 };
+
+#[derive(Default)]
+struct CorsExchange<S> {
+    cors: CorsState,
+    inner: S,
+}
+
+impl<S> AsMut<CorsState> for CorsExchange<S> {
+    fn as_mut(&mut self) -> &mut CorsState {
+        &mut self.cors
+    }
+}
+
+struct ScopePlan<'a> {
+    applications: &'a [Arc<dyn HostHandler>],
+    steps: Vec<Arc<dyn super::DispatchStep>>,
+    accept_applications: bool,
+    cors: Option<CorsLayer>,
+}
 
 #[cfg(feature = "access-log")]
 #[derive(Default)]
@@ -70,7 +90,6 @@ pub(crate) struct HostCompiler<'a> {
 struct Compiler<'a> {
     #[cfg(feature = "access-log")]
     host: &'a Host,
-    #[cfg(feature = "access-log")]
     config: &'a HostConfig,
     #[cfg(feature = "rate-limit")]
     quotas: Option<&'a crate::pipeline::layers::HostQuotas>,
@@ -95,7 +114,7 @@ impl Compiler<'_> {
         accept_applications: bool,
         handler: Option<&Arc<dyn HostHandler>>,
         layers: &[Arc<dyn RouteLayer>],
-        #[cfg(feature = "access-log")] prefix: &claviron_http::ext::PathPrefix,
+        prefix: &claviron_http::ext::PathPrefix,
     ) -> Result<HostExecution> {
         let mut steps = scope_steps(&config);
         #[cfg(feature = "broadcast")]
@@ -113,6 +132,18 @@ impl Compiler<'_> {
             applications
         });
         let applications = selected.as_deref().unwrap_or(registered);
+        let scope = ScopePlan {
+            applications,
+            steps,
+            accept_applications,
+            cors: self
+                .config
+                .setting_at(prefix, |scope| scope.cors.as_ref())
+                .cloned()
+                .map(CorsLayer::new)
+                .transpose()
+                .map_err(|error| Error::msg(error.to_string()))?,
+        };
         let mut extensions = HostPipelineBuilder::new();
         for layer in self.layers.iter().chain(layers) {
             extensions
@@ -147,26 +178,72 @@ impl Compiler<'_> {
                 builder
                     .layer(log)
                     .map_err(|error| Error::msg(error.to_string()))?;
-                builder.append(access.with_state());
+                let mut access = access.with_state();
                 crate::pipeline::layers::QuotaPolicy::attach_to(
-                    &mut builder,
+                    &mut access,
                     quotas,
                 )
                 .map_err(|error| Error::msg(error.to_string()))?;
-                builder.append(extensions.with_state());
-                return self.finish_scope(
+                return self.finish_policy(
                     builder,
-                    applications,
-                    steps,
-                    accept_applications,
+                    access,
+                    extensions.with_state(),
+                    scope,
                 );
             }
             let mut builder = builder.with_state::<LoggedState<()>>();
             builder
                 .layer(log)
                 .map_err(|error| Error::msg(error.to_string()))?;
-            builder.append(access.with_state());
-            builder.append(extensions.with_state());
+            return self.finish_policy(
+                builder,
+                access.with_state(),
+                extensions.with_state(),
+                scope,
+            );
+        }
+        #[cfg(feature = "rate-limit")]
+        if let Some(quotas) = self.quotas {
+            let access =
+                crate::pipeline::layers::QuotaPolicy::attach(access, quotas)
+                    .map_err(|error| Error::msg(error.to_string()))?;
+            return self.finish_policy(
+                builder.with_state(),
+                access,
+                extensions.with_state(),
+                scope,
+            );
+        }
+        self.finish_policy(builder, access, extensions, scope)
+    }
+
+    fn finish_policy<S: Default + Send + 'static>(
+        &self,
+        mut builder: HostPipelineBuilder<S>,
+        access: HostPipelineBuilder<S>,
+        extensions: HostPipelineBuilder<S>,
+        scope: ScopePlan<'_>,
+    ) -> Result<HostExecution> {
+        let ScopePlan { applications, steps, accept_applications, cors } =
+            scope;
+        if let Some(cors) = cors {
+            let mut builder = builder
+                .map_state(|state: &mut CorsExchange<S>| &mut state.inner);
+            let (capture, admission) = cors.split();
+            builder
+                .layer(capture)
+                .map_err(|error| Error::msg(error.to_string()))?;
+            builder.append(
+                access
+                    .map_state(|state: &mut CorsExchange<S>| &mut state.inner),
+            );
+            builder
+                .layer(admission)
+                .map_err(|error| Error::msg(error.to_string()))?;
+            builder.append(
+                extensions
+                    .map_state(|state: &mut CorsExchange<S>| &mut state.inner),
+            );
             return self.finish_scope(
                 builder,
                 applications,
@@ -175,19 +252,6 @@ impl Compiler<'_> {
             );
         }
         builder.append(access);
-        #[cfg(feature = "rate-limit")]
-        if let Some(quotas) = self.quotas {
-            let mut builder =
-                crate::pipeline::layers::QuotaPolicy::attach(builder, quotas)
-                    .map_err(|error| Error::msg(error.to_string()))?;
-            builder.append(extensions.with_state());
-            return self.finish_scope(
-                builder,
-                applications,
-                steps,
-                accept_applications,
-            );
-        }
         builder.append(extensions);
         self.finish_scope(builder, applications, steps, accept_applications)
     }
@@ -245,7 +309,6 @@ impl HostCompiler<'_> {
         let compiler = Compiler {
             #[cfg(feature = "access-log")]
             host,
-            #[cfg(feature = "access-log")]
             config: &config,
             router,
             #[cfg(feature = "rate-limit")]
@@ -298,7 +361,6 @@ impl HostCompiler<'_> {
             true,
             None,
             &layers,
-            #[cfg(feature = "access-log")]
             &root,
         )?;
         if config.entry_rules().is_empty() {
@@ -341,7 +403,6 @@ impl HostCompiler<'_> {
                         true,
                         resolved.handler.as_ref(),
                         &resolved.layers,
-                        #[cfg(feature = "access-log")]
                         prefix,
                     )?;
                     let conditions = resolved.conditions;
@@ -360,15 +421,8 @@ impl HostCompiler<'_> {
                 ConfiguredRoute { pipeline: owner, conditions },
             ));
         }
-        let rejected = compiler.scope(
-            fallback,
-            base,
-            false,
-            None,
-            &layers,
-            #[cfg(feature = "access-log")]
-            &root,
-        )?;
+        let rejected =
+            compiler.scope(fallback, base, false, None, &layers, &root)?;
         let mut builder = HostPipelineBuilder::<()>::new();
         builder
             .layer(RouteSelectionLayer::new(RouteDispatch {

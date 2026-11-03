@@ -1,4 +1,6 @@
-//! CORS admission and response shaping, installed only for a declared policy.
+//! Declared CORS policy: early response context and post-quota admission.
+
+use std::sync::Arc;
 
 use super::*;
 use claviron_http::config::cors::{CorsConfig, CorsPolicy};
@@ -9,6 +11,7 @@ mod rules;
 #[derive(Default)]
 pub struct CorsState {
     origin: Option<HeaderValue>,
+    denied: bool,
 }
 
 impl CorsState {
@@ -23,61 +26,87 @@ impl AsMut<CorsState> for CorsState {
     }
 }
 
-pub struct CorsLayer {
+struct PreparedCors {
     config: CorsConfig,
+    patterns: regex::RegexSet,
 }
 
-impl CorsLayer {
-    pub fn new(config: CorsConfig) -> Self {
-        Self { config }
+impl PreparedCors {
+    fn allows(
+        &self,
+        origin: &HeaderValue,
+    ) -> bool {
+        let Ok(origin) = origin.to_str() else {
+            return false;
+        };
+        match self.config.policy {
+            CorsPolicy::Disabled => false,
+            CorsPolicy::Permissive => true,
+            CorsPolicy::Allowlist => {
+                self.config.origins.iter().any(|allowed| allowed == origin)
+                    || self.patterns.is_match(origin)
+            }
+        }
     }
 }
 
-impl<S: AsMut<CorsState>> HostLayer<S> for CorsLayer {
+/// Boot-compiled CORS policy. An absent declaration creates no layer or state.
+/// Explicit `disabled` retains its Origin-refusal policy.
+pub struct CorsLayer {
+    policy: Arc<PreparedCors>,
+}
+
+impl CorsLayer {
+    pub fn new(config: CorsConfig) -> crate::Result<Self> {
+        let patterns = if config.policy == CorsPolicy::Allowlist {
+            regex::RegexSet::new(
+                config.origins.iter().filter(|origin| origin.starts_with('^')),
+            )
+            .map_err(|error| {
+                crate::Error::Invalid(format!(
+                    "invalid CORS origin pattern: {error}"
+                ))
+            })?
+        } else {
+            regex::RegexSet::empty()
+        };
+        Ok(Self { policy: Arc::new(PreparedCors { config, patterns }) })
+    }
+
+    /// Register response ownership before defenses, but decide preflight and
+    /// refusals after quota. Both actions share one request-local CorsState.
+    pub(crate) fn split<S: AsMut<CorsState>>(
+        self
+    ) -> (impl HostLayer<S>, impl HostLayer<S>) {
+        (CorsCapture(self.policy), CorsAdmission)
+    }
+}
+
+struct CorsCapture(Arc<PreparedCors>);
+struct CorsAdmission;
+
+impl<S: AsMut<CorsState>> HostLayer<S> for CorsCapture {
     fn prepare(
         self,
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        if self.config.policy == CorsPolicy::Disabled {
-            layer.before(|head, _| {
-                if head
-                    .headers
-                    .get(http::header::ORIGIN)
-                    .and_then(|value| value.to_str().ok())
-                    .is_some()
-                {
-                    ControlFlow::Break(claviron_http::err_status(
-                        http::StatusCode::FORBIDDEN,
-                    ))
+        let policy = self.0.clone();
+        layer.before(move |head, state| {
+            let state = state.as_mut();
+            state.origin = None;
+            state.denied = false;
+            if let Some(origin) = head.headers.get(http::header::ORIGIN) {
+                if policy.allows(origin) {
+                    state.origin = Some(origin.clone());
                 } else {
-                    ControlFlow::Continue(())
+                    state.denied = true;
                 }
-            });
-            return Ok(());
-        }
-        let config = self.config;
-        match &config.policy {
-            CorsPolicy::Permissive => register_check(layer, |_| true),
-            CorsPolicy::Allowlist => {
-                let matcher =
-                    regex::RegexSet::new(&config.origins).map_err(|error| {
-                        crate::Error::Invalid(format!(
-                            "invalid CORS origin pattern: {error}"
-                        ))
-                    })?;
-                let origins = config.origins.clone();
-                register_check(layer, move |origin| {
-                    origins.iter().any(|allowed| allowed == origin)
-                        || matcher.is_match(origin)
-                });
             }
-            CorsPolicy::Disabled => {
-                unreachable!("disabled policy was prepared separately")
-            }
-        }
+            ControlFlow::Continue(())
+        });
         layer.after(move |head, state| {
             rules::finish(
-                &config,
+                &self.0.config,
                 state.as_mut().origin.as_ref(),
                 &mut head.headers,
             );
@@ -86,17 +115,32 @@ impl<S: AsMut<CorsState>> HostLayer<S> for CorsLayer {
     }
 }
 
-fn register_check<S: AsMut<CorsState>>(
-    layer: &mut HostLayerBuilder<S>,
-    allows: impl Fn(&str) -> bool + Send + Sync + 'static,
-) {
-    layer.before(move |head, state| {
-        let (reply, origin) =
-            rules::check(&head.method, &head.headers, &allows);
-        state.as_mut().origin = origin;
-        match reply {
-            Some(reply) => ControlFlow::Break(reply),
-            None => ControlFlow::Continue(()),
-        }
-    });
+impl<S: AsMut<CorsState>> HostLayer<S> for CorsAdmission {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
+        layer.before(|head, state| {
+            match rules::check(&head.method, &head.headers, state.as_mut()) {
+                Some(reply) => ControlFlow::Break(reply),
+                None => ControlFlow::Continue(()),
+            }
+        });
+        Ok(())
+    }
 }
+
+impl<S: AsMut<CorsState>> HostLayer<S> for CorsLayer {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder<S>,
+    ) -> crate::Result<()> {
+        let (capture, admission) = self.split();
+        capture.prepare(layer)?;
+        admission.prepare(layer)
+    }
+}
+
+#[cfg(test)]
+#[path = "../../../tests/pipeline/layers/cors.rs"]
+mod tests;
