@@ -18,7 +18,6 @@ flowchart LR
 
 | Layer | Work |
 | --- | --- |
-| EarlyData | H3 replay policy. |
 | Identity / Proxy | Explicit typed metadata or trusted forwarding identity. |
 | Deny / ACL / Redirect | Configured request decisions. |
 | CORS / HeaderSet / HeaderClear | Origin admission and response headers. |
@@ -35,6 +34,9 @@ host per request; TLS H1/H2 and H3 compare request authority with the accepted
 SNI hostname before pipeline or native session dispatch. Hyper H1 upgrades are
 compiled with `websocket`; registered host endpoints still require H1 and the
 host's upgrade permission.
+QUIC listener 0-RTT capability and host replay policy are independent. Only
+native early streams are checked, after SNI resolution and before dispatch;
+refused streams return 425. No protocol-policy layer enters HostPipeline.
 
 ## Execution and ownership
 

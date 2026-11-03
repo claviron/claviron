@@ -4,7 +4,8 @@
 use std::pin::Pin;
 
 use super::error::{log_stream_error, request_interrupted};
-use crate::transport::{HostService, RequestArrival};
+use crate::config::EarlyDataPolicy;
+use crate::transport::{HostService, RequestArrival, RequestRejection};
 use bytes::{Buf, Bytes};
 use claviron_http::boxed_body;
 use futures_util::future::poll_fn;
@@ -303,6 +304,23 @@ where
     }
 }
 
+/// Applied only to native 0-RTT streams, after listener/SNI host admission.
+/// The listener chooses DenyAll here when it cannot accept early data.
+pub(super) fn check_early_data(
+    policy: EarlyDataPolicy,
+    method: &http::Method,
+) -> Result<(), RequestRejection> {
+    let allowed = match policy {
+        EarlyDataPolicy::AllowAll => true,
+        EarlyDataPolicy::DenyAll => false,
+        EarlyDataPolicy::AllowIdempotent => matches!(
+            *method,
+            http::Method::GET | http::Method::HEAD | http::Method::OPTIONS
+        ),
+    };
+    if allowed { Ok(()) } else { Err(RequestRejection::TooEarly) }
+}
+
 /// Connection-bound host; native receive/send streams keep their ownership.
 #[derive(Clone)]
 pub(crate) struct H3RequestHandler {
@@ -318,18 +336,13 @@ impl H3RequestHandler {
         &self,
         head: Request<()>,
         mut stream: H3RequestStream<Q>,
+        arrival: RequestArrival,
     ) where
         Q: h3::quic::Connection<Bytes>,
-        H3BidiStream<Q>:
-            h3::quic::BidiStream<Bytes> + h3::quic::Is0rtt + Send + 'static,
+        H3BidiStream<Q>: h3::quic::BidiStream<Bytes> + Send + 'static,
         <H3BidiStream<Q> as h3::quic::BidiStream<Bytes>>::RecvStream:
             Send + 'static,
     {
-        let arrival = if stream.is_0rtt() {
-            RequestArrival::EarlyData
-        } else {
-            RequestArrival::Established
-        };
         let prepared = self.host.request(head, arrival);
         // WebTransport has its native accept path in the listener. WebSocket
         // CONNECT is not implemented over H3; it must not enter body buffering.

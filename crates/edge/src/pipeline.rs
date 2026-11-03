@@ -56,6 +56,3 @@ pub use wt::{
     WebTransportBinding, WebTransportHandler, WebTransportRegistry,
     WebTransportReject, WebTransportResult, webtransport_session_ended,
 };
-
-#[cfg(feature = "http3")]
-pub use layers::EarlyDataLayer;

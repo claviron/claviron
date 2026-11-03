@@ -35,7 +35,9 @@ use rustls::pki_types::CertificateDer;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
-use crate::quic::request::{H3RequestHandler, send_status_response};
+use crate::quic::request::{
+    H3RequestHandler, check_early_data, send_status_response,
+};
 use crate::quic::server::{H3Listener, ServerSnapshot};
 
 enum StreamCompletion {
@@ -337,6 +339,11 @@ impl H3Listener {
             error!("QUIC listener has no QUIC settings");
             return;
         };
+        let early_data = if settings.quic.enable_early_data {
+            vctx.vhost_config.transport.h3.early_data
+        } else {
+            crate::config::EarlyDataPolicy::DenyAll
+        };
         h3_builder.max_field_section_size(settings.quic.max_field_section_size);
         let Some(input_capacity) = std::num::NonZeroUsize::new(
             settings.quic.max_concurrent_bidi_streams as usize,
@@ -475,8 +482,22 @@ impl H3Listener {
                         continue;
                     }
 
+                    let arrival = if stream.is_0rtt() {
+                        if let Err(reason) = check_early_data(early_data, h3_head.method()) {
+                            streams.spawn(async move {
+                                send_status_response(&mut stream, reason.status()).await;
+                                stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+                                StreamCompletion::Request
+                            });
+                            continue;
+                        }
+                        RequestArrival::EarlyData
+                    } else {
+                        RequestArrival::Established
+                    };
+
                     if is_web_transport_connect(&h3_head) {
-                        if stream.is_0rtt() {
+                        if arrival == RequestArrival::EarlyData {
                             streams.spawn(async move {
                                 send_status_response(&mut stream, StatusCode::TOO_EARLY).await;
                                 StreamCompletion::Request
@@ -517,7 +538,7 @@ impl H3Listener {
 
                     let handler = request_handler.clone();
                     streams.spawn(async move {
-                        handler.serve::<H3QuinnConnection>(h3_head, stream).await;
+                        handler.serve::<H3QuinnConnection>(h3_head, stream, arrival).await;
                         StreamCompletion::Request
                     });
                 }

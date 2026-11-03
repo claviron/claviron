@@ -80,12 +80,17 @@ TLS H1/H2 and H3 validate each request authority against the hostname pinned by
 SNI before pipeline or native session dispatch: malformed authority returns 400,
 a different hostname returns 421. Plain H1 validates and resolves authority on
 each request; keep-alive does not pin it to the first host or require trusted
-forwarding. Listener eligibility is compiled before connection acceptance; it
-adds no RejectLayer to the host plan.
+forwarding. Listener eligibility is compiled before connection acceptance.
 
 Native Hyper H1 upgrade support is compiled with `websocket`. A WebSocket stage
 still requires registered endpoints, host `transport.h1.upgrade: true` and H1
 support in both the host and the listener. H2-only and QUIC plans omit it.
+
+QUIC `quic.enable_early_data` controls listener 0-RTT capability. After SNI host
+resolution, only early streams consult the host's `transport.h3.early_data`
+policy; refusals return 425 before dispatch. Established streams skip this
+check. WebTransport rejects 0-RTT independently. A host policy cannot enable
+listener 0-RTT; declaring it is valid even on listeners without early data.
 
 Within the selected scope, entries follow this order. Every entry is conditional
 on effective configuration (including inherited defaults) or explicit Rust
@@ -419,7 +424,7 @@ Disabled file steps allocate no prepared file owner.
 - [`tls.rs`](src/quic/tls.rs) — Deferred SNI authentication and coherent host/TLS selector views.
 - [`listener.rs`](src/quic/listener.rs) — Endpoint groups, connection capacity, concurrent request/session stream driving.
 - [`listener/drain.rs`](src/quic/listener/drain.rs) — Join connection-owned children on completion, explicit force or panic.
-- [`request.rs`](src/quic/request.rs) — H3-only framing validation, lazy frame/trailer adaptation and response IO.
+- [`request.rs`](src/quic/request.rs) — H3 replay/framing checks, lazy frame/trailer adaptation and response IO.
 - [`error.rs`](src/quic/error.rs) — Normal closure and interrupted-stream classification.
 - [`wt.rs`](src/quic/wt.rs) — Authorize and hand native WebTransport sessions to applications.
 - [`wt/streams.rs`](src/quic/wt/streams.rs) — Bounded per-session input; a saturated session never blocks the shared driver.

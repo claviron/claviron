@@ -74,3 +74,32 @@ fn framing_validation_is_independent_of_body_policy() {
         );
     }
 }
+
+#[test]
+fn early_data_host_policy_rejects_replay_before_body_or_backend_work() {
+    use http::Method;
+    for method in [
+        Method::GET,
+        Method::HEAD,
+        Method::OPTIONS,
+        Method::POST,
+        Method::PUT,
+        Method::DELETE,
+        Method::CONNECT,
+    ] {
+        let safe =
+            matches!(method, Method::GET | Method::HEAD | Method::OPTIONS);
+        assert_eq!(
+            check_early_data(EarlyDataPolicy::AllowIdempotent, &method),
+            if safe { Ok(()) } else { Err(RequestRejection::TooEarly) }
+        );
+        assert_eq!(
+            check_early_data(EarlyDataPolicy::DenyAll, &method),
+            Err(RequestRejection::TooEarly)
+        );
+        assert_eq!(
+            check_early_data(EarlyDataPolicy::AllowAll, &method),
+            Ok(())
+        );
+    }
+}
