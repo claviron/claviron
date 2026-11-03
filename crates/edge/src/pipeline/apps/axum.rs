@@ -4,41 +4,15 @@ use claviron_runtime::AppState;
 use std::sync::Arc;
 
 use axum::Router;
-use axum::extract::FromRequestParts;
-use axum::response::{IntoResponse, Response};
 use claviron_http::{RouteBody, RouteResponse, ServiceResult};
 use futures_util::FutureExt;
-use http::{Request, StatusCode, request::Parts};
+use http::Request;
 use std::future::Future;
 use tower::ServiceExt;
 
-use crate::config::{HostConfig, HostConfigExt};
 use crate::pipeline::host::{
     ApplicationHandler, HostHandler, HostHandlerFuture, HostRequest,
 };
-
-/// Rejection for the [`HostConfigExt`] extractor.
-pub struct HostRejection(StatusCode, &'static str);
-
-impl IntoResponse for HostRejection {
-    fn into_response(self) -> Response {
-        (self.0, self.1).into_response()
-    }
-}
-
-impl<S: Send + Sync> FromRequestParts<S> for HostConfigExt {
-    type Rejection = HostRejection;
-
-    async fn from_request_parts(
-        parts: &mut Parts,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        let config = parts.extensions.get::<Arc<HostConfig>>().cloned().ok_or(
-            HostRejection(StatusCode::BAD_REQUEST, "Missing HostConfig"),
-        )?;
-        Ok(HostConfigExt(config))
-    }
-}
 
 struct AxumApplication(Router);
 

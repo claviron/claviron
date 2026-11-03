@@ -4,10 +4,9 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use claviron_http::ext::{ConnCtx, HostKey, HostName, RealIpExt};
-use claviron_http::listener::{HttpProtocol, ListenerId};
+use claviron_http::listener::HttpProtocol;
 use http::{Extensions, request::Parts, uri::Scheme};
 
-use crate::config::HostConfig;
 use crate::service::VhostCtx;
 
 /// Replace a request-owned value in its existing box, or allocate it once when
@@ -35,12 +34,10 @@ pub(super) struct ContextExtensions {
 }
 
 struct FixedContext {
-    listener: ListenerId,
     protocol: Option<HttpProtocol>,
     scheme: Scheme,
     hostname: HostName,
     key: HostKey,
-    config: Arc<HostConfig>,
 }
 
 impl FixedContext {
@@ -48,14 +45,12 @@ impl FixedContext {
         &self,
         extensions: &mut Extensions,
     ) {
-        set_context(extensions, self.listener.clone());
         set_context(extensions, self.scheme.clone());
         if let Some(protocol) = self.protocol {
             set_context(extensions, protocol);
         }
         set_context(extensions, self.hostname.clone());
         set_context(extensions, self.key.clone());
-        set_context(extensions, self.config.clone());
     }
 }
 
@@ -65,12 +60,10 @@ impl ContextExtensions {
         host: &VhostCtx,
     ) -> Self {
         let fixed = FixedContext {
-            listener: connection.listener.clone(),
             protocol: connection.proto,
             scheme: connection.scheme(),
             hostname: host.hostname.clone(),
             key: host.vhost_key.clone(),
-            config: host.vhost_config.clone(),
         };
         let mut template = Extensions::new();
         template.insert(connection.clone());

@@ -666,8 +666,8 @@ clone it to attach that request's resolved client IP, without mutating the
 connection baseline. The fields cover:
 
 - The mandatory typed listener-group identity (`listener`), independent of
-  which address in that group accepted the connection. It is also injected
-  directly as a `ListenerId` request extension.
+  which address in that group accepted the connection. Request consumers read
+  it through `ConnCtx`.
 - The peer socket address (`remote`) and the listener-side address
   (`local_ip` / `local_port`). The latter is what binds the
   connection to a particular listening socket — a deployment with

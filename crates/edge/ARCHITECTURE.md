@@ -164,7 +164,7 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 | `server` | Provider, host compilation and transport-facing APIs. |
 | `tcp`, `tls` | Native cleartext H1; optional TLS H1/H2. |
 | `http3`, `quic` | H3 contracts; native Quinn/H3 driver. |
-| `axum` | Rust router adapter and HostConfigExt extractor. |
+| `axum` | Rust router adapter. |
 | `lua` | Native Lua backend. |
 | `php`, `php_embed`, `php_fcgi` | PHP declarations; Embed or FastCGI adapters. |
 | `orbit`, `upstream` | Link or HTTP-upstream dispatch. |
@@ -223,7 +223,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`routable.rs`](src/pipeline/routable.rs) — Provider-owned contributions, native layers and exclusive host bindings.
 - [`extension.rs`](src/pipeline/extension.rs) — Typed directives and boot-time RouteContext; borrow inherited settings and prepare effective policy.
 - [`routing.rs`](src/pipeline/routing.rs) — Shared prefix dispatch and route-extension re-exports.
-- [`apps/axum.rs`](src/pipeline/apps/axum.rs) — Axum host registration, ApplicationHandler/HostHandler adaptation and HostConfigExt extractor.
+- [`apps/axum.rs`](src/pipeline/apps/axum.rs) — Axum host registration and ApplicationHandler/HostHandler adaptation.
 - [`apps/warp.rs`](src/pipeline/apps/warp.rs) — Warp host registration and native handler adaptation.
 - [`apps/other.rs`](src/pipeline/apps/other.rs) — Other host registration and re-exports of the shared HTTP handler contract.
 - [`connect.rs`](src/pipeline/connect.rs) — H2 CONNECT registry, explicit binding execution, authentication payload and session context.
@@ -248,8 +248,6 @@ Disabled file steps allocate no prepared file owner.
 - [`response.rs`](src/pipeline/host/response.rs) — Run only reached response/body actions, in reverse registration order.
 - [`binding.rs`](src/pipeline/host/binding.rs) — Accepted connection facts and narrowed declaration data; no implicit actions.
 - [`protocol.rs`](src/pipeline/host/protocol.rs) — Independent authority, rejection, early-data and H1-upgrade layers.
-- [`identity.rs`](src/pipeline/host/identity.rs) — Explicit typed metadata layer; retain accepted connection ownership without normalization copies.
-- [`identity/extensions.rs`](src/pipeline/host/identity/extensions.rs) — Typed metadata in request-owned extension boxes.
 - [`deny.rs`](src/pipeline/host/deny.rs) — Explicit nonempty URI matcher; no transport snapshot or proof wrapper.
 - [`proxy.rs`](src/pipeline/host/proxy.rs) — Trusted-peer forwarding layer; only request RealIpExt changes.
 - [`acl.rs`](src/pipeline/host/acl.rs) — Explicit ACL layer; borrow accepted identity or a selected forwarding result.
@@ -270,6 +268,8 @@ Disabled file steps allocate no prepared file owner.
 
 ### `pipeline/layers/`
 
+- [`identity.rs`](src/pipeline/layers/identity.rs) — Explicit connection, scheme, protocol and host identity metadata; listener identity remains in ConnCtx.
+- [`identity/extensions.rs`](src/pipeline/layers/identity/extensions.rs) — Request-owned extension boxes; host configuration stays in boot/reload preparation.
 - [`headers.rs`](src/pipeline/layers/headers.rs) — Effective response edits folded before publication; no implicit Server header.
 - [`reply.rs`](src/pipeline/layers/reply.rs) — Boot-selected response size/idle guards; absent bounds install no action.
 - [`body.rs`](src/pipeline/layers/body.rs) — Cold size/idle selection and one lazy body guard after CORS admission.
@@ -395,7 +395,7 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`body.rs`](tests/pipeline/layers/body.rs) — Early declared-size refusal, lazy byte accounting and unchanged frame/trailer ownership.
 - [`cors.rs`](tests/pipeline/layers/cors.rs) — Origin matching, preflight/OPTIONS ownership, early refusals, Vary and cancellation.
 - [`identity.rs`](tests/pipeline/layers/identity.rs) — Accepted identity reuse and unchanged body ownership.
-- [`identity/extensions.rs`](tests/pipeline/layers/identity/extensions.rs) — Typed values, existing box reuse and independent extension maps.
+- [`identity/extensions.rs`](tests/pipeline/layers/identity/extensions.rs) — Runtime metadata, existing box reuse, independent maps and no host-configuration retention.
 - [`acl/path.rs`](tests/pipeline/layers/acl/path.rs) — Segment specificity, escaped paths and ambiguous slashes.
 - [`quota.rs`](tests/pipeline/layers/quota.rs) — Borrowed connection identity, shared debt, cancellation and committed reply headers.
 - [`quota/prepare.rs`](tests/pipeline/layers/quota/prepare.rs) — Resource collisions, prefix selection, config checks and reload restrictions.

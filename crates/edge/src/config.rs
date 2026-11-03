@@ -347,16 +347,3 @@ impl claviron_files::FileSite for HostConfig {
 /// host-wide file policy. Canonical host metadata remains a separate handle.
 #[derive(Clone)]
 pub struct SelectedRoute(pub Arc<HostConfig>);
-
-/// Shared handle to the active host configuration. Axum extraction is supplied
-/// by the optional application adapter.
-#[derive(Clone)]
-pub struct HostConfigExt(pub Arc<HostConfig>);
-
-impl Deref for HostConfigExt {
-    type Target = HostConfig;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}

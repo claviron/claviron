@@ -12,10 +12,7 @@ use http::Request;
 use crate::http::handler::handle_pusher_request;
 use crate::{PusherConfig, PusherTarget};
 
-/// Build the per-host Pusher router. The `Arc<PusherConfig>` is pinned as a
-/// router Extension so the handler can extract it without going through
-/// `HostConfigExt` — that would introduce a cycle (host-config knows
-/// `PusherConfig`; the router would re-import host-config to read it back).
+/// Build the per-host Pusher router with its own configuration extension.
 pub fn http_pusher_router(cfg: Arc<PusherConfig>) -> Router {
     Router::new()
         .route("/app/{key}", any(http_pusher_handler))

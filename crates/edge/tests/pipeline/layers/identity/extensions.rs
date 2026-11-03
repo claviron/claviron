@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::HostConfig;
 use crate::service::resolve_sni_from_table;
 use http::{Extensions, Request};
 
@@ -43,10 +44,7 @@ fn assert_context(
     host: &VhostCtx,
 ) {
     assert!(Arc::ptr_eq(extensions.get::<Arc<ConnCtx>>().unwrap(), connection));
-    assert_eq!(
-        extensions.get::<claviron_http::ListenerId>(),
-        Some(&connection.listener)
-    );
+    assert!(extensions.get::<claviron_http::ListenerId>().is_none());
     assert_eq!(
         extensions.get::<claviron_tls::Proto>(),
         connection.proto.as_ref()
@@ -67,22 +65,19 @@ fn assert_context(
         &extensions.get::<HostKey>().unwrap().0,
         &host.vhost_key.0
     ));
-    assert!(Arc::ptr_eq(
-        extensions.get::<Arc<HostConfig>>().unwrap(),
-        &host.vhost_config
-    ));
+    assert!(extensions.get::<Arc<HostConfig>>().is_none());
 }
 
 #[test]
-fn prepared_extension_maps_keep_all_types_and_independent_request_ownership() {
+fn prepared_extension_maps_keep_runtime_metadata_and_independent_ownership() {
     let (connection, host) = direct();
     let template = ContextExtensions::new(&connection, &host);
     let mut first = Request::new(());
     let mut second = Request::new(());
     inject(&template, &connection, &mut first);
     inject(&template, &connection, &mut second);
-    assert_eq!(first.extensions().len(), 8);
-    assert_eq!(second.extensions().len(), 8);
+    assert_eq!(first.extensions().len(), 6);
+    assert_eq!(second.extensions().len(), 6);
     assert_context(first.extensions(), &connection, &host);
     assert_context(second.extensions(), &connection, &host);
     assert!(!std::ptr::eq(
@@ -97,6 +92,9 @@ fn prepared_extension_maps_keep_all_types_and_independent_request_ownership() {
     assert_context(third.extensions(), &connection, &host);
     assert!(third.extensions().get::<HttpPolicy>().is_none());
     assert!(third.extensions().get::<ReceivedAt>().is_none());
+    let config = Arc::downgrade(&host.vhost_config);
+    drop(host);
+    assert!(config.upgrade().is_none());
 }
 
 #[derive(Clone)]
@@ -163,6 +161,6 @@ fn empty_allocated_extensions_receive_the_complete_context() {
         .unwrap();
     request.extensions_mut().clear();
     inject(&template, &connection, &mut request);
-    assert_eq!(request.extensions().len(), 8);
+    assert_eq!(request.extensions().len(), 6);
     assert_context(request.extensions(), &connection, &host);
 }
