@@ -14,6 +14,29 @@ struct Unread(Arc<AtomicUsize>);
 #[path = "compile/defense.rs"]
 mod defense;
 
+#[cfg(feature = "access-log")]
+#[test]
+fn access_log_off_overrides_the_host_channel_and_inherits_into_children() {
+    let config: HostConfig = serde_yaml::from_str(
+        "access_log: access\nroutes:\n  /private:\n    access_log: off\n  /private/child: {}\n  /private/explicit:\n    access_log: events\n",
+    ).unwrap();
+    for (prefix, expected) in [
+        ("/", "access"),
+        ("/public", "access"),
+        ("/private", "off"),
+        ("/private/child", "off"),
+        ("/private/explicit", "events"),
+    ] {
+        let prefix: claviron_http::ext::PathPrefix =
+            serde_yaml::from_str(prefix).unwrap();
+        assert_eq!(
+            config.setting_at(&prefix, |scope| scope.access_log()),
+            Some(expected),
+            "{prefix}",
+        );
+    }
+}
+
 impl Body for Unread {
     type Data = Bytes;
     type Error = std::convert::Infallible;

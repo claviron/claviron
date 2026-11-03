@@ -48,14 +48,15 @@ absent from the compiled plan:
 | Order | Entry | Selected by |
 | --- | --- | --- |
 | 1 | Trusted proxy / real IP | Nonempty forwarding headers and trusted networks on listeners exposing this host. |
-| 2 | Deny → IP ACL | Nonempty HTTP deny defaults; restrictive host/prefix ACL rules. |
-| 3 | Quota admission | Prepared host quota rules. |
-| 4 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
-| 5 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
-| 6 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
-| 7 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
-| 8 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
-| 9 | Index/SPA file fallback | An index or SPA declaration. |
+| 2 | Access-log start | Effective host/prefix channel or logging default; `off` and absent channels install no layer or log state. |
+| 3 | Deny → IP ACL | Nonempty HTTP deny defaults; restrictive host/prefix ACL rules. |
+| 4 | Quota admission | Prepared host quota rules. |
+| 5 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
+| 6 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
+| 7 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
+| 8 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
+| 9 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
+| 10 | Index/SPA file fallback | An index or SPA declaration. |
 
 Proxy and ACL borrow accepted connection facts. Forwarding changes only the
 request's `RealIpExt`; an untrusted peer cannot choose its ACL or quota identity.
@@ -63,6 +64,12 @@ ACL refusals do not charge quota. Quota refusals do not enter application
 extensions. Authentication, sessions and CSRF remain application/framework work.
 An allow-all ACL alone installs no action; an allow-all child remains an explicit
 exception when a parent is restrictive. A deny-all rule remains active.
+
+Access logging starts after forwarding and before access/quota refusals. Its
+head hook records the response status; its guard moves into a nonempty response
+body until end/drop. Empty responses finish the record without a body wrapper.
+`access_log: off` overrides inherited channels. Only logging-enabled plans own
+log state; quota state is added independently when admission is configured.
 
 `Handled` ends dispatch, including error responses. `Unhandled` transfers the
 same unread request to the next entry. If nothing handles it, the plan returns
@@ -136,7 +143,7 @@ owns native framing and buffered/streamed body bounds during this transition.
 - [`lib.rs`](src/lib.rs) — Public exports and registration; master/serving-process composition.
 - [`config.rs`](src/config.rs) — Host identity, transport policy and normalized route views; read-only backend accessors.
 - [`provider.rs`](src/provider.rs) — Congif HTTP configuration owner; validate capabilities and atomically publish HttpSnapshot.
-- [`log`](src/log.rs) — Optional access-record producer and response-body accounting guard.
+- [`log`](src/log.rs) — Optional access-record producer; retained metadata, response progress and body/drop accounting.
 - [`listener.rs`](src/listener.rs) — Hosting alias notifications and atomic candidate updates; PostgreSQL NOTIFY or hosting events.
 - [`transport.rs`](src/transport.rs) — Public transport-facing re-exports; loader and service remain internal.
 - [`transport/instances.rs`](src/transport/instances.rs) — Cold listener declarations, retained handles and weak references to draining instances.
@@ -214,7 +221,6 @@ Disabled file steps allocate no prepared file owner.
 - [`headers.rs`](src/pipeline/host/headers.rs) — Separate Set/Clear layers and cold header inheritance.
 - [`body`](src/pipeline/host/request_body.rs) — Explicit size/idle bounds; empty bodies keep their original owner.
 - [`reply.rs`](src/pipeline/host/reply.rs) — Explicit response size/idle guards; absent limits install no guard.
-- [`log`](src/pipeline/host/access_log.rs) — Optional access-channel selection and record/body lifetime transfer.
 - [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
 - [`handler.rs`](src/pipeline/host/handler.rs) — Routable contributions; Unhandled retains the unread body capability.
 - [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Consume synchronous DispatchCall decisions before await; only compact pending futures enter suspended state, reusing existing application erasure.
@@ -225,6 +231,10 @@ Disabled file steps allocate no prepared file owner.
 - [`files.rs`](src/pipeline/host/files.rs) — Separate Static and TryFiles steps using the shared files API.
 - [`extension.rs`](src/pipeline/host/extension.rs) — Route-layer preparation adapter.
 - [`websocket.rs`](src/pipeline/host/websocket.rs) — Prepared exact H1 endpoints before Rust/file/backend dispatch.
+
+### `pipeline/layers/`
+
+- [`log.rs`](src/pipeline/layers/log.rs) — Access-record hooks borrow accepted facts without IdentityState; inactive channels install no layer.
 
 ### `pipeline/embed/`
 
@@ -292,6 +302,7 @@ ownership and isolated state transitions without provider boot or live listeners
 
 ### Entry and configuration
 
+- [`log.rs`](tests/log.rs) — Active body accounting, original frames, gRPC trailers, cancellation and empty/error responses without logger boot.
 - [`transport/instances.rs`](tests/transport/instances.rs) — Retain unchanged/draining listener identities and release retired allocations.
 
 - [`authority.rs`](tests/authority.rs) — Explicit authority-layer rejection, aliases and unchanged request metadata.
@@ -346,7 +357,6 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`deny.rs`](tests/pipeline/layers/deny.rs) — Empty declarations omit the layer; active rules match the path.
 - [`headers.rs`](tests/pipeline/layers/headers.rs) — Explicit header overrides and rejected invalid values.
 - [`reply.rs`](tests/pipeline/layers/reply.rs) — Declared response guards, frames/trailers and drop ownership.
-- [`log`](tests/pipeline/layers/access_log.rs) — Inactive record state preserves response/body ownership.
 - [`files.rs`](tests/pipeline/layers/files.rs) — File misses, dynamic-name exclusion and unread backend bodies.
 - [`websocket.rs`](tests/pipeline/layers/websocket.rs) — Protocol-gated exact endpoints and ordinary request passthrough.
 

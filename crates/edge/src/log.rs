@@ -1,20 +1,14 @@
-//! Access records: one per request a host serves, written to the log channel
-//! `logging.yaml` names in `access_log`.
-//!
-//! Made in [`HostService::dispatch`](crate::service::HostService), where every
-//! request passes exactly once — Other paths included. A guard is created
-//! there, learns the status from the reply head, and moves into the reply
-//! body; it counts what the body sends and writes the record when the body
-//! ends or is dropped. A streamed reply, an event stream ended at shutdown
-//! and a client that left mid-body are recorded with their real duration and
-//! size. Replies the edge gives itself (503 at admission, 504 at the head)
-//! are recorded too: the guard is dropped with them.
+//! Access-record producer and response-body accounting for HostPipeline.
+//! The prepared layer starts a record, captures the response head and transfers
+//! its guard to the body until completion/drop. Cancellation before a response
+//! retains an unknown HTTP status. Records own only their required metadata.
 //! gRPC status is recorded separately from HTTP status, from the response
 //! headers or final trailers. An absent status is never inferred as success.
 //!
 //! Writing is a copy into this process's lane of the log ring; nothing here
 //! waits or does I/O.
 
+use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
@@ -22,13 +16,16 @@ use std::time::Instant;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use claviron_http::ext::{ClientAuthStatus, ConnCtx};
-use claviron_http::{RouteBody, RouteBodyError, RouteResponse};
+use claviron_http::ext::{ClientAuthStatus, ConnCtx, RealIpExt};
+use claviron_http::{RouteBody, RouteBodyError};
 use claviron_logging::pipeline::{
     ChannelId, Level, LogChannels, Record, Value,
 };
 use claviron_runtime::registry::{self, Bootable};
 use claviron_runtime::{AppState, Component};
+use claviron_types::PeerIdentity;
+use http::request::Parts;
+use http::uri::PathAndQuery;
 use http::{HeaderMap, Method, StatusCode, Version};
 use http_body::{Body, Frame, SizeHint};
 use http_body_util::BodyExt;
@@ -53,7 +50,10 @@ impl AccessLogTarget {
         if channel == Some(OFF) {
             return None;
         }
-        Some(Self { log: ACCESS_LOG.get()?, channel: channel.map(Arc::from) })
+        let target =
+            Self { log: ACCESS_LOG.get()?, channel: channel.map(Arc::from) };
+        target.channel()?;
+        Some(target)
     }
 
     pub(crate) fn channel(&self) -> Option<ChannelId> {
@@ -66,27 +66,36 @@ impl AccessLogTarget {
     pub(crate) fn begin(
         &self,
         channel: ChannelId,
-        host: &str,
-        method: &Method,
-        path: &str,
-        version: Version,
-        connection: &Arc<ConnCtx>,
+        host: Arc<str>,
+        head: &Parts,
+        connection: &ConnCtx,
     ) -> AccessGuard {
         AccessGuard {
             log: self.log,
             channel,
             started: Instant::now(),
-            admitted: None,
             head: None,
-            host: host.to_owned(),
-            method: method.clone(),
-            path: path.to_owned(),
-            version,
-            connection: Arc::clone(connection),
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            grpc_status: None,
-            bytes: 0,
-            complete: false,
+            host,
+            method: head.method.clone(),
+            path: head.uri.path_and_query().cloned(),
+            version: head.version,
+            client: head
+                .extensions
+                .get::<RealIpExt>()
+                .map(|ip| ip.0)
+                .or(connection.real_ip)
+                .unwrap_or_else(|| connection.remote.ip()),
+            client_identity: connection
+                .tls
+                .as_ref()
+                .filter(|tls| {
+                    matches!(tls.client_auth, ClientAuthStatus::Verified)
+                })
+                .and_then(|tls| tls.client_cert.as_ref())
+                .and_then(|cert| cert.identity.as_ref())
+                .filter(|identity| identity.common_names.len() == 1)
+                .cloned(),
+            progress: AccessProgress::default(),
         }
     }
 }
@@ -135,60 +144,56 @@ pub(crate) struct AccessGuard {
     log: &'static AccessLog,
     channel: ChannelId,
     started: Instant,
-    admitted: Option<Instant>,
     head: Option<Instant>,
-    host: String,
+    host: Arc<str>,
     method: Method,
-    path: String,
+    path: Option<PathAndQuery>,
     version: Version,
-    connection: Arc<ConnCtx>,
-    status: StatusCode,
+    client: IpAddr,
+    client_identity: Option<Arc<PeerIdentity>>,
+    progress: AccessProgress,
+}
+
+#[derive(Default)]
+struct AccessProgress {
+    status: Option<StatusCode>,
     grpc_status: Option<u32>,
     bytes: u64,
     complete: bool,
 }
 
+impl AsMut<AccessProgress> for AccessGuard {
+    fn as_mut(&mut self) -> &mut AccessProgress {
+        &mut self.progress
+    }
+}
+
 impl AccessGuard {
-    pub(crate) fn admitted(&mut self) {
-        self.admitted = Some(Instant::now());
-    }
-
-    /// A reply the edge gives itself, with no body to follow.
-    pub(crate) fn replied(
-        mut self,
-        status: StatusCode,
-    ) {
-        self.status = status;
-        self.head = Some(Instant::now());
-        self.complete = true;
-    }
-
-    /// The application's reply head; the record is written when `body` ends.
-    pub(crate) fn wrap(
-        mut self,
-        response: RouteResponse,
-    ) -> RouteResponse {
-        self.record_head(response.status(), response.headers());
-        response.map(|body| self.wrap_body(body))
-    }
-
     pub(crate) fn record_head(
         &mut self,
         status: StatusCode,
         headers: &HeaderMap,
     ) {
-        self.status = status;
-        self.grpc_status = grpc_status(headers);
+        self.progress.record_head(status, headers);
         self.head = Some(Instant::now());
     }
 
     pub(crate) fn wrap_body(
-        mut self,
+        self,
         body: RouteBody,
     ) -> RouteBody {
-        // An empty body is never polled.
-        self.complete = body.is_end_stream();
-        AccessBody { inner: body, guard: self }.boxed_unsync()
+        AccessBody::wrap(body, self)
+    }
+}
+
+impl AccessProgress {
+    fn record_head(
+        &mut self,
+        status: StatusCode,
+        headers: &HeaderMap,
+    ) {
+        self.status = Some(status);
+        self.grpc_status = grpc_status(headers);
     }
 }
 
@@ -198,50 +203,47 @@ impl Drop for AccessGuard {
             at.map(|at| at.duration_since(self.started).as_micros() as u64)
         };
         let total = self.started.elapsed().as_micros() as u64;
-        let client = self
-            .connection
-            .real_ip
-            .unwrap_or_else(|| self.connection.remote.ip())
-            .to_string();
-        let mut fields = vec![
-            ("host", Value::Str(&self.host)),
-            ("method", Value::Str(self.method.as_str())),
-            ("path", Value::Str(&self.path)),
-            ("status", Value::U64(u64::from(self.status.as_u16()))),
-            ("bytes", Value::U64(self.bytes)),
-            ("protocol", Value::Str(protocol(self.version))),
-            ("client", Value::Str(&client)),
-            ("total_us", Value::U64(total)),
-            ("complete", Value::Bool(self.complete)),
-        ];
-        let client_cn = self
-            .connection
-            .tls
-            .as_ref()
-            .filter(|tls| matches!(tls.client_auth, ClientAuthStatus::Verified))
-            .and_then(|tls| tls.client_cert.as_ref())
-            .and_then(|cert| cert.identity.as_ref())
-            .and_then(|identity| match identity.common_names.as_slice() {
+        let client = self.client.to_string();
+        let mut fields = [("", Value::Bool(false)); 12];
+        let mut count = 0;
+        let mut push = |name, value| {
+            fields[count] = (name, value);
+            count += 1;
+        };
+        push("host", Value::Str(&self.host));
+        push("method", Value::Str(self.method.as_str()));
+        push(
+            "path",
+            Value::Str(self.path.as_ref().map_or("", PathAndQuery::path)),
+        );
+        push("bytes", Value::U64(self.progress.bytes));
+        push("protocol", Value::Str(protocol(self.version)));
+        push("client", Value::Str(&client));
+        push("total_us", Value::U64(total));
+        push("complete", Value::Bool(self.progress.complete));
+        if let Some(status) = self.progress.status {
+            push("status", Value::U64(u64::from(status.as_u16())));
+        }
+        let client_cn = self.client_identity.as_ref().and_then(|identity| {
+            match identity.common_names.as_slice() {
                 [name] => Some(name.as_str()),
                 _ => None,
-            });
+            }
+        });
         if let Some(client_cn) = client_cn {
-            fields.push(("client_cn", Value::Str(client_cn)));
+            push("client_cn", Value::Str(client_cn));
         }
-        if let Some(status) = self.grpc_status {
-            fields.push(("grpc_status", Value::U64(u64::from(status))));
-        }
-        if let Some(queue) = micros(self.admitted) {
-            fields.push(("queue_us", Value::U64(queue)));
+        if let Some(status) = self.progress.grpc_status {
+            push("grpc_status", Value::U64(u64::from(status)));
         }
         if let Some(head) = micros(self.head) {
-            fields.push(("head_us", Value::U64(head)));
+            push("head_us", Value::U64(head));
         }
         let record = Record {
             level: Level::Info,
             target: "",
             message: "",
-            fields: &fields,
+            fields: &fields[..count],
         };
         if let Err(error) = self.log.channels.emit(self.channel, &record) {
             tracing::debug!(%error, "access record not written");
@@ -269,12 +271,25 @@ fn protocol(version: Version) -> &'static str {
 }
 
 /// The reply body, carrying the guard to its end.
-struct AccessBody {
+struct AccessBody<G> {
     inner: RouteBody,
-    guard: AccessGuard,
+    guard: G,
 }
 
-impl Body for AccessBody {
+impl<G: AsMut<AccessProgress> + Send + Unpin + 'static> AccessBody<G> {
+    fn wrap(
+        inner: RouteBody,
+        mut guard: G,
+    ) -> RouteBody {
+        if inner.is_end_stream() {
+            guard.as_mut().complete = true;
+            return inner;
+        }
+        Self { inner, guard }.boxed_unsync()
+    }
+}
+
+impl<G: AsMut<AccessProgress> + Unpin> Body for AccessBody<G> {
     type Data = Bytes;
     type Error = RouteBodyError;
 
@@ -284,23 +299,24 @@ impl Body for AccessBody {
     ) -> Poll<Option<Result<Frame<Bytes>, RouteBodyError>>> {
         let this = &mut *self;
         let polled = Pin::new(&mut this.inner).poll_frame(cx);
+        let progress = this.guard.as_mut();
         match &polled {
             Poll::Ready(Some(Ok(frame))) => {
                 if let Some(data) = frame.data_ref() {
-                    this.guard.bytes += data.len() as u64;
+                    progress.bytes += data.len() as u64;
                 }
                 if let Some(trailers) = frame.trailers_ref()
                     && trailers.contains_key("grpc-status")
                 {
                     // The final RPC outcome supersedes a header status.
-                    this.guard.grpc_status = grpc_status(trailers);
+                    progress.grpc_status = grpc_status(trailers);
                 }
                 // A body that knows its end is not polled again for `None`.
                 if this.inner.is_end_stream() {
-                    this.guard.complete = true;
+                    progress.complete = true;
                 }
             }
-            Poll::Ready(None) => this.guard.complete = true,
+            Poll::Ready(None) => progress.complete = true,
             _ => {}
         }
         polled
@@ -314,3 +330,7 @@ impl Body for AccessBody {
         self.inner.size_hint()
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/log.rs"]
+mod tests;

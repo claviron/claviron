@@ -57,11 +57,19 @@ impl QuotaPolicy {
         quotas: &HostQuotas,
     ) -> crate::Result<HostPipelineBuilder<QuotaState>> {
         let mut builder = builder.with_state::<QuotaState>();
+        Self::attach_to(&mut builder, quotas)?;
+        Ok(builder)
+    }
+
+    pub(crate) fn attach_to<S: AsMut<QuotaState>>(
+        builder: &mut HostPipelineBuilder<S>,
+        quotas: &HostQuotas,
+    ) -> crate::Result<()> {
         if quotas.rules.iter().any(|(_, quota)| quota.reports_headers()) {
             builder.prepend_layer(QuotaHeaders)?;
         }
         builder.layer(Self::new(quotas))?;
-        Ok(builder)
+        Ok(())
     }
     pub fn new(quotas: &HostQuotas) -> Self {
         Self::from_rules(quotas.rules.clone())

@@ -2,8 +2,7 @@
 
 use std::sync::Arc;
 
-use claviron_http::ext::{ConnCtx, HostKey};
-use http::{Method, StatusCode, Version};
+use claviron_types::Host;
 
 use super::*;
 use crate::log::{AccessGuard, AccessLogTarget};
@@ -20,116 +19,49 @@ impl AsMut<AccessLogState> for AccessLogState {
     }
 }
 
-impl AccessLogState {
-    /// Mark the actual capacity admission point, not merely head preparation.
-    pub fn admitted(&mut self) {
-        if let Some(guard) = self.guard.as_mut() {
-            guard.admitted();
-        }
-    }
-
-    /// Complete an edge-generated empty reply and release the record.
-    pub fn replied(
-        self,
-        status: StatusCode,
-    ) {
-        if let Some(guard) = self.guard {
-            guard.replied(status);
-        }
-    }
-
-    /// Transfer the record to the response stream without collecting it.
-    pub fn finish(
-        self,
-        response: RouteResponse,
-    ) -> RouteResponse {
-        match self.guard {
-            Some(guard) => guard.wrap(response),
-            None => response,
-        }
-    }
-}
-
 /// Access-record actions prepared after the process's logging capability boots.
 ///
-/// `off` and an absent producer capability return `None`. A named/default channel
-/// is resolved at request start so logging reloads still affect existing
-/// connections. The layer retains no HostConfig or application generation.
-/// Install after identity and outside response shaping/body guards. Call the
-/// state's admitted method only when execution actually acquires capacity.
+/// `off`, an absent producer or an unselected channel returns `None`.
+/// Active channel membership remains live across logging reloads. Accepted
+/// facts are borrowed; no identity-injection layer or application is retained.
+/// Prepare before request checks whose replies must be recorded and outside
+/// response shaping/body guards.
 #[derive(Clone)]
 pub struct AccessLogLayer {
     target: AccessLogTarget,
-    canonical: HostKey,
+    canonical: Arc<str>,
 }
 
 impl AccessLogLayer {
     pub fn new(
-        canonical: HostKey,
+        canonical: &Host,
         channel: Option<&str>,
     ) -> Option<Self> {
-        Some(Self { target: AccessLogTarget::prepare(channel)?, canonical })
-    }
-
-    /// Native dispatch can borrow its request without splitting or boxing it.
-    pub fn begin<B>(
-        &self,
-        request: &Request<B>,
-        connection: &Arc<ConnCtx>,
-    ) -> AccessLogState {
-        self.start(
-            request.method(),
-            request.uri().path(),
-            request.version(),
-            connection,
-        )
-    }
-
-    fn start(
-        &self,
-        method: &Method,
-        path: &str,
-        version: Version,
-        connection: &Arc<ConnCtx>,
-    ) -> AccessLogState {
-        let Some(channel) = self.target.channel() else {
-            return AccessLogState::default();
-        };
-        AccessLogState {
-            guard: Some(self.target.begin(
-                channel,
-                &self.canonical.0.to_cow_str(),
-                method,
-                path,
-                version,
-                connection,
-            )),
-        }
+        Some(Self {
+            target: AccessLogTarget::prepare(channel)?,
+            canonical: canonical.to_cow_str().into(),
+        })
     }
 }
 
 impl<S> HostLayer<S> for AccessLogLayer
 where
-    S: AsRef<IdentityState> + AsMut<AccessLogState>,
+    S: AsMut<AccessLogState>,
 {
     fn prepare(
         self,
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.before(move |head, state| {
-            let record = state
-                .as_ref()
-                .connection()
-                .map(|connection| {
-                    self.start(
-                        &head.method,
-                        head.uri.path(),
-                        head.version,
-                        connection,
-                    )
-                })
-                .unwrap_or_default();
-            *state.as_mut() = record;
+        layer.before_context(move |head, state, context| {
+            state.as_mut().guard = context.and_then(|context| {
+                let channel = self.target.channel()?;
+                Some(self.target.begin(
+                    channel,
+                    self.canonical.clone(),
+                    head,
+                    context.connection,
+                ))
+            });
             ControlFlow::Continue(())
         });
         layer.after(|head, state| {
@@ -144,7 +76,3 @@ where
         Ok(())
     }
 }
-
-#[cfg(test)]
-#[path = "../../../tests/pipeline/layers/access_log.rs"]
-mod tests;

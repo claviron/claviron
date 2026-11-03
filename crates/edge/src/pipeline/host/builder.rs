@@ -99,10 +99,10 @@ impl<S, R> Default for HostPipelineBuilder<S, R> {
     }
 }
 
-#[cfg(feature = "rate-limit")]
+#[cfg(any(feature = "rate-limit", feature = "access-log"))]
 struct UnitHead(Box<dyn AsyncHeadAction<()>>);
 
-#[cfg(feature = "rate-limit")]
+#[cfg(any(feature = "rate-limit", feature = "access-log"))]
 impl<S: AsMut<()>> AsyncHeadAction<S> for UnitHead {
     fn call<'a>(
         &'a self,
@@ -119,7 +119,7 @@ impl<S: AsMut<()>> AsyncHeadAction<S> for UnitHead {
     }
 }
 
-#[cfg(feature = "rate-limit")]
+#[cfg(any(feature = "rate-limit", feature = "access-log"))]
 impl<R: 'static> HostPipelineBuilder<(), R> {
     /// Preserve state-independent extension actions in a typed host plan.
     pub(crate) fn with_state<S: AsMut<()> + 'static>(

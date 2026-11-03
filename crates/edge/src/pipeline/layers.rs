@@ -4,14 +4,13 @@ use super::host::{
     DispatchCall, DispatchStep, HostLayerBuilder, HostPipelineBuilder,
 };
 use claviron_http::{RouteBody, RouteResponse};
-#[cfg(feature = "access-log")]
-use http::Request;
 #[cfg(feature = "acme")]
 use http::Response;
 use std::ops::ControlFlow;
 
 mod acl;
 mod app;
+mod body;
 mod call;
 mod cors;
 mod deny;
@@ -34,7 +33,6 @@ mod proxy;
 mod quota;
 mod redirect;
 mod reply;
-mod body;
 mod selection;
 #[cfg(feature = "upstream")]
 mod upstream;
@@ -42,6 +40,7 @@ mod upstream;
 mod websocket;
 
 pub use acl::AclLayer;
+pub use body::RequestBodyLayer;
 pub use cors::{CorsLayer, CorsState};
 pub use deny::DenyLayer;
 pub(super) use fallback::prepare_fallback;
@@ -63,7 +62,6 @@ pub(crate) use quota::QuotaRegistrations;
 pub use quota::{HostQuotas, QuotaPolicy, QuotaState};
 pub use redirect::{HttpsRedirectLayer, RedirectLayer};
 pub use reply::ReplyPolicy;
-pub use body::RequestBodyLayer;
 pub use selection::RouteSelectionLayer;
 #[cfg(feature = "websocket")]
 pub use websocket::WebSocketStage;

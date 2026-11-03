@@ -8,6 +8,7 @@ use claviron_http::ServiceResult;
 use claviron_http::ext::{HostKey, HostName, RealIpExt};
 
 use super::*;
+use http::Request;
 
 fn host() -> VhostCtx {
     VhostCtx {
