@@ -93,7 +93,9 @@ per-request registration, body decoding or implicit collection.
 
 Each plain listener has one fixed `NonServingPipeline` for `non_ssl: redirect`
 (the default) and `reject`. The selected host is passed as input; no application
-pipeline is built. A single optional `InterceptsNonServing` binding receives the
+pipeline is built. A fixed binding or `bind_non_serving_interception_with` factory
+prepares the optional interceptor at boot/reload. The factory runs only for plain
+listeners; None installs no hook. A prepared `InterceptsNonServing` receives the
 request and borrowed context before the policy. `Handled` replies; `Unhandled`
 continues to redirect/reject. This path does not query `Routable`.
 

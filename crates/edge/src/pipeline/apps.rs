@@ -315,6 +315,10 @@ pub(crate) struct HostContributions {
     h1_upgrades: Vec<H1UpgradeRoute>,
 }
 
+type NonServingFactory = dyn Fn(&AppState) -> Result<Option<Arc<dyn InterceptsNonServing>>>
+    + Send
+    + Sync;
+
 /// Bootstrap-time registry for code-defined vhost bindings.
 ///
 /// # Position in the design
@@ -376,7 +380,7 @@ pub(crate) struct HostContributions {
 pub struct HostAppRegistry {
     inner: RwLock<HashMap<String, Binding>>,
     routables: RwLock<Vec<Arc<dyn Routable>>>,
-    non_serving_interception: RwLock<Option<Arc<dyn InterceptsNonServing>>>,
+    non_serving_interception: RwLock<Option<Arc<NonServingFactory>>>,
     route_extensions: RwLock<Vec<Arc<dyn RouteExtension>>>,
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
     #[cfg(feature = "rate-limit")]
@@ -390,6 +394,22 @@ impl HostAppRegistry {
         &self,
         interception: Arc<dyn InterceptsNonServing>,
     ) -> Result<()> {
+        self.bind_non_serving_interception_with(move |_| {
+            Ok(Some(interception.clone()))
+        })
+    }
+
+    /// Prepare the optional interceptor once per plain-listener publication.
+    /// Read configuration already staged for this boot/reload. Returning None
+    /// installs no hook, request context or body adapter. Errors keep the
+    /// previously published listener generation.
+    pub fn bind_non_serving_interception_with(
+        &self,
+        prepare: impl Fn(&AppState) -> Result<Option<Arc<dyn InterceptsNonServing>>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Result<()> {
         let mut slot = self
             .non_serving_interception
             .write()
@@ -399,7 +419,7 @@ impl HostAppRegistry {
                 "non-serving interception is already bound",
             ));
         }
-        *slot = Some(interception);
+        *slot = Some(Arc::new(prepare));
         Ok(())
     }
 
@@ -851,11 +871,23 @@ impl HostAppRegistry {
             configs: HashMap::new(),
             http: http.clone(),
             #[cfg(feature = "tcp")]
-            non_serving_interception: self
-                .non_serving_interception
-                .read()
-                .expect("non-serving interception lock poisoned")
-                .clone(),
+            non_serving_interception: {
+                if http.as_ref().is_some_and(|input| {
+                    input.listeners.values().any(|listener| {
+                        RouteProtocol::from(listener.as_ref())
+                            == RouteProtocol::Http
+                    })
+                }) {
+                    let prepare = self
+                        .non_serving_interception
+                        .read()
+                        .expect("non-serving interception lock poisoned")
+                        .clone();
+                    prepare.map(|prepare| prepare(state)).transpose()?.flatten()
+                } else {
+                    None
+                }
+            },
             #[cfg(feature = "rate-limit")]
             quotas: Arc::new(quotas),
         };

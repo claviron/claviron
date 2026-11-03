@@ -70,6 +70,9 @@ Non-serving policies remain available when the host's application protocols
 exclude H1. TLS TCP and QUIC still require a compatible application protocol.
 
 `InterceptsNonServing` is an optional single `dyn` binding on `HostAppRegistry`.
+A fixed binding or `bind_non_serving_interception_with` factory selects it during
+plain-listener preparation. The factory reads staged configuration; None installs
+no hook, and failure retains the old publication. TLS/QUIC do not call it.
 Its request-time call precedes both redirect and reject. It receives `HostRequest`
 and borrowed `NonServingContext` (host config, canonical key, connection and
 effective HTTP policy). Handled is terminal; Unhandled retains the same unread

@@ -268,3 +268,114 @@ fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
     }
     assert_eq!(calls.load(Ordering::Relaxed), 3);
 }
+
+#[test]
+#[cfg(feature = "tcp")]
+fn non_serving_factory_is_cold_optional_and_retains_published_generations() {
+    use crate::pipeline::{HostHandlerResult, HostRequest};
+    use crate::{InterceptsNonServing, NonServingContext};
+    struct Interception;
+    impl InterceptsNonServing for Interception {
+        fn intercept<'a>(
+            &'a self,
+            request: HostRequest,
+            _: NonServingContext<'a>,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = HostHandlerResult> + Send + 'a,
+            >,
+        > {
+            Box::pin(std::future::ready(
+                claviron_http::ServiceResult::Unhandled(request),
+            ))
+        }
+    }
+    let state = AppState::standalone("non-serving-factory", ".");
+    let http: HttpSnapshot =
+        serde_yaml::from_str(super::protocol::LISTENERS).unwrap();
+    let table = serde_yaml::from_str("example.test: {root: public}").unwrap();
+    let registry = HostAppRegistry::default();
+    let mode = Arc::new(AtomicUsize::new(0));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let interception: Arc<dyn InterceptsNonServing> = Arc::new(Interception);
+    registry
+        .bind_non_serving_interception_with({
+            let (mode, calls, interception) =
+                (mode.clone(), calls.clone(), interception.clone());
+            move |_| {
+                calls.fetch_add(1, Ordering::Relaxed);
+                match mode.load(Ordering::Relaxed) {
+                    0 => Ok(None),
+                    1 => Ok(Some(interception.clone())),
+                    _ => Err(Error::msg("invalid interception configuration")),
+                }
+            }
+        })
+        .unwrap();
+    assert!(
+        registry.bind_non_serving_interception(interception.clone()).is_err()
+    );
+    let input = crate::transport::publication::select_listener(
+        &http,
+        &"plain".parse().unwrap(),
+    )
+    .unwrap();
+    let inactive =
+        registry.prepare_listener(&state, &table, &input, None).unwrap();
+    assert!(
+        inactive
+            .prepared::<HostAppSnapshot>()
+            .unwrap()
+            .non_serving_interception()
+            .is_none()
+    );
+    mode.store(1, Ordering::Relaxed);
+    let active = registry
+        .prepare_listener(&state, &table, &input, Some(&inactive))
+        .unwrap();
+    let retained = active.prepared::<HostAppSnapshot>().unwrap();
+    assert!(Arc::ptr_eq(
+        &retained.non_serving_interception().unwrap(),
+        &interception
+    ));
+    mode.store(0, Ordering::Relaxed);
+    let disabled = registry
+        .prepare_listener(&state, &table, &input, Some(&active))
+        .unwrap();
+    assert!(
+        disabled
+            .prepared::<HostAppSnapshot>()
+            .unwrap()
+            .non_serving_interception()
+            .is_none()
+    );
+    assert!(Arc::ptr_eq(
+        &retained.non_serving_interception().unwrap(),
+        &interception
+    ));
+    mode.store(2, Ordering::Relaxed);
+    assert!(
+        registry
+            .prepare_listener(&state, &table, &input, Some(&active))
+            .is_err()
+    );
+    assert!(retained.non_serving_interception().is_some());
+    let before = calls.load(Ordering::Relaxed);
+    for name in ["tls", "quic"] {
+        let input = crate::transport::publication::select_listener(
+            &http,
+            &name.parse().unwrap(),
+        )
+        .unwrap();
+        let selected =
+            registry.prepare_listener(&state, &table, &input, None).unwrap();
+        assert!(
+            selected
+                .prepared::<HostAppSnapshot>()
+                .unwrap()
+                .non_serving_interception()
+                .is_none()
+        );
+    }
+    assert_eq!(calls.load(Ordering::Relaxed), before);
+}

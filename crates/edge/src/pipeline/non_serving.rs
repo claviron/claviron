@@ -9,6 +9,7 @@ use claviron_http::ext::{ConnCtx, HostKey};
 use claviron_http::policy::HttpPolicy;
 
 /// Borrowed input to the optional non-serving interceptor.
+#[derive(Clone, Copy)]
 pub struct NonServingContext<'a> {
     pub config: &'a HostConfig,
     pub key: &'a HostKey,
