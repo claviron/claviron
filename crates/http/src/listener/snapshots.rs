@@ -57,22 +57,23 @@ impl<S: ListenerSnapshot> ListenerSnapshots<S> {
             .active
             .lock()
             .map_err(|_| Error::msg("listener lifecycle lock poisoned"))?;
-        for (id, previous) in active.iter() {
-            for (next_id, next) in &candidate {
-                if id == next_id && !previous.same_binding(next) {
-                    return Err(Error::msg(format!(
-                        "listener '{id}' bind/gate changed; service restart required"
-                    )));
-                }
-                if id != next_id && previous.binding_conflicts(next) {
-                    return Err(Error::msg(format!(
-                        "listener '{next_id}' conflicts with running listener '{id}'; stop it before changing ownership"
-                    )));
-                }
-            }
+        for next in candidate.values() {
+            validate_listener(&active, next.as_ref())?;
         }
         self.current.store(Some(Arc::new(candidate)));
         Ok(())
+    }
+
+    /// Validate one policy update against every active bind owner.
+    pub fn validate_listener(
+        &self,
+        snapshot: &S,
+    ) -> Result<()> {
+        let active = self
+            .active
+            .lock()
+            .map_err(|_| Error::msg("listener lifecycle lock poisoned"))?;
+        validate_listener(&active, snapshot)
     }
 
     /// Capture a fresh generation from the provider's current desired config.
@@ -111,13 +112,7 @@ impl<S: ListenerSnapshot> ListenerSnapshots<S> {
                 "listener '{id}' is already running"
             )));
         }
-        for (other_id, other) in active.iter() {
-            if other.binding_conflicts(&snapshot) {
-                return Err(Error::msg(format!(
-                    "listener '{id}' conflicts with running listener '{other_id}'"
-                )));
-            }
-        }
+        validate_listener(&active, snapshot.as_ref())?;
         let groups = Arc::new(BTreeMap::from([(id.clone(), snapshot.clone())]));
         let mut current = self
             .current
@@ -163,6 +158,26 @@ fn validate_ids<S: ListenerSnapshot>(groups: &Groups<S>) -> Result<()> {
             return Err(Error::msg(format!(
                 "listener key '{id}' does not match snapshot identity '{}'",
                 snapshot.listener_id()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn validate_listener<S: ListenerSnapshot>(
+    active: &Groups<S>,
+    next: &S,
+) -> Result<()> {
+    let id = next.listener_id();
+    for (other_id, old) in active {
+        if id == other_id && !old.same_binding(next) {
+            return Err(Error::msg(format!(
+                "listener '{id}' bind/gate changed; service restart required"
+            )));
+        }
+        if id != other_id && old.binding_conflicts(next) {
+            return Err(Error::msg(format!(
+                "listener '{id}' conflicts with running listener '{other_id}'; stop it before changing ownership"
             )));
         }
     }

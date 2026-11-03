@@ -253,6 +253,12 @@ contract, not when an application service would be the clearer owner.
 
 ## 2. Edge configuration boundary
 
+`listener::ListenerSnapshots` coordinates bind/gate ownership independently of
+request execution. `validate_listener` checks a candidate against active owners;
+a generation lease retains ownership until its sockets and accepted work drain.
+Consumers may keep their prepared request/TLS snapshots in instance-owned atomic
+slots while sharing this cold binding catalog across transport drivers.
+
 `config` owns the pure `HttpYaml`, listener declaration, resolved listener
 policy and override types. There is no reader of its own: every consumer is a
 Congif `Configurable` that declares `http.yaml` as its source, and
