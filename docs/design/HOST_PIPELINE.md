@@ -4,6 +4,20 @@
 flattens the selected actions into an immutable plan. An omitted or empty layer
 leaves no runtime entry. Active actions use indirect calls.
 
+## Application first
+
+Applications register providers, shared services and request owners. Host bindings
+select where those contributions are exposed; each listener/host pair gets its
+own prepared pipeline while retaining the providers' shared state.
+
+The pipeline composes Rust routers, Embed, Link, Upstream and native file steps.
+Axum, Warp and Other are application adapters inside that plan. Host admission
+and configured policies run before the selected owner. Authentication and session
+policy remain with application providers and frameworks.
+
+[EDGE_BACKENDS](EDGE_BACKENDS.md) defines request handoff;
+[LIFETIME_POLICY](LIFETIME_POLICY.md) defines preparation and publication.
+
 ## Preparation
 
 ```mermaid
@@ -19,7 +33,8 @@ flowchart LR
 | Layer | Work |
 | --- | --- |
 | Identity / Proxy | Explicit typed metadata or trusted forwarding identity. |
-| Deny / ACL / Redirect | Configured request decisions. |
+| Deny / ACL | Configured access decisions. |
+| Redirect | Custom host/prefix target after Routable contributions, before the Rust router. |
 | CORS / HeaderSet / HeaderClear | Origin admission and response headers. |
 | Quota | Committed rate admission. |
 | RequestBody / Reply | Declared streaming size and idle bounds. |
@@ -34,9 +49,24 @@ host per request; TLS H1/H2 and H3 compare request authority with the accepted
 SNI hostname before pipeline or native session dispatch. Hyper H1 upgrades are
 compiled with `websocket`; registered host endpoints still require H1 and the
 host's upgrade permission.
+
 QUIC listener 0-RTT capability and host replay policy are independent. Only
 native early streams are checked, after SNI resolution and before dispatch;
 refused streams return 425. No protocol-policy layer enters HostPipeline.
+
+## Routable contributions
+
+`Routable` provides a typed extension API in place of a conventional edge
+server's loadable module API. Registered providers implement this Rust trait;
+host and listener-protocol matching run at boot/reload. A provider can contribute
+handlers, `RouteLayer` actions, WebSocket endpoints and `RouteExtension` codecs.
+A directive compiles into a handler, layer or route condition. Requests execute
+the prepared contributions; they do not query the provider again.
+
+These contributions precede custom `redirect` and the terminal `RustRouter`
+(Axum, Warp or Other). `Handled` stops; `Unhandled` retains the unread body for
+the next action. A custom redirect terminates that scope before router, file or
+backend dispatch. Plain `non_ssl: redirect` remains a separate listener policy.
 
 ## Execution and ownership
 
@@ -52,9 +82,9 @@ refused streams return 425. No protocol-policy layer enters HostPipeline.
   guards retain only the resources transferred to their bodies.
 
 `HostExecution` is the published host owner for every transport. `RustRouter`
-selects only an application-owned Axum router or an Other Rust handler/router
+selects an application-owned Axum/Warp router or an Other Rust handler/router
 inside that plan. Other has no pipeline, fallback or built-in backend variants.
-Both router choices use the same scope compiler. A direct Rust call is retained
+All router choices use the same scope compiler. A direct Rust call is retained
 only when preparation contributes no preceding action.
 
 The driver is a flat loop. There is no recursive `Next`, Tower wrapper chain,

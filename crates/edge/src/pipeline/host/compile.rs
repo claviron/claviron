@@ -22,8 +22,9 @@ use crate::pipeline::extension::{RouteContext, RouteLayer};
 #[cfg(feature = "access-log")]
 use crate::pipeline::layers::{AccessLogLayer, AccessLogState};
 use crate::pipeline::layers::{
-    AclLayer, CorsLayer, CorsState, DenyLayer, ProxyLayer, ReplyPolicy,
-    RequestBodyLayer, RouteSelectionLayer, prepare_headers, scope_steps,
+    AclLayer, CorsLayer, CorsState, DenyLayer, ProxyLayer, RedirectLayer,
+    ReplyPolicy, RequestBodyLayer, RouteSelectionLayer, prepare_headers,
+    scope_steps,
 };
 use crate::pipeline::{RouteProtocol, RustRouter};
 
@@ -51,6 +52,7 @@ struct ScopePlan<'a> {
     cors: Option<CorsLayer>,
     body: Option<RequestBodyLayer>,
     reply: Option<ReplyPolicy>,
+    redirect: Option<RedirectLayer>,
 }
 
 #[cfg(feature = "access-log")]
@@ -133,11 +135,19 @@ impl Compiler<'_> {
         layers: &[Arc<dyn RouteLayer>],
         prefix: &claviron_http::ext::PathPrefix,
     ) -> Result<HostExecution> {
-        let steps = scope_steps(&config);
+        let redirect = self
+            .config
+            .setting_at(prefix, |scope| scope.redirect.as_ref())
+            .and_then(|rules| rules.first())
+            .map(RedirectLayer::new);
+        let steps =
+            if redirect.is_none() { scope_steps(&config) } else { Vec::new() };
         #[cfg(feature = "broadcast")]
-        let broadcast = crate::pipeline::apps::broadcast::rest::prepare(
-            self.state, &config,
-        );
+        let broadcast = if redirect.is_none() {
+            crate::pipeline::apps::broadcast::rest::prepare(self.state, &config)
+        } else {
+            None
+        };
         let registered =
             if accept_applications { self.applications } else { &[] };
         let selected = handler.filter(|_| accept_applications).map(|handler| {
@@ -165,6 +175,7 @@ impl Compiler<'_> {
                 .map_err(|error| Error::msg(error.to_string()))?,
             body: RequestBodyLayer::new(policy.requests),
             reply: ReplyPolicy::new(policy.responses),
+            redirect,
         };
         let mut extensions = HostPipelineBuilder::new();
         for layer in self.layers.iter().chain(layers) {
@@ -299,6 +310,7 @@ impl Compiler<'_> {
             policy,
             accept_applications,
             body,
+            redirect,
             #[cfg(feature = "broadcast")]
             broadcast,
             ..
@@ -319,6 +331,12 @@ impl Compiler<'_> {
             builder
                 .layer(Backend::new(application.clone(), policy))
                 .map_err(|error| Error::msg(error.to_string()))?;
+        }
+        if let Some(redirect) = redirect {
+            builder
+                .layer(redirect)
+                .map_err(|error| Error::msg(error.to_string()))?;
+            return Ok(builder.build().into_execution());
         }
         if accept_applications && let Some(router) = &self.router {
             if builder.is_empty() {

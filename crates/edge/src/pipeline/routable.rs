@@ -52,9 +52,9 @@ pub(crate) fn matches_protocol(
     }
 }
 
-/// Provider-owned Rust applications bound to selected edge hosts at preparation.
-/// Applications and declared layers enter the native host plan. A contribution
-/// can explicitly adapt an Axum router without wrapping the native downstream.
+/// Provider contributions prepared for selected hosts and listener protocols.
+/// Handlers, layers, directives and native upgrades enter the host plan before
+/// custom redirects and the application's terminal RustRouter.
 pub trait Routable: AnyComponent<AppState> {
     /// Select listener protocols at boot/reload. The default accepts all.
     /// Unselected contributions leave no request-time action or protocol check.

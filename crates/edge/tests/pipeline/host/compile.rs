@@ -17,6 +17,9 @@ mod defense;
 #[path = "compile/headers.rs"]
 mod headers;
 
+#[path = "compile/redirect.rs"]
+mod redirect;
+
 #[cfg(feature = "access-log")]
 #[test]
 fn access_log_off_overrides_the_host_channel_and_inherits_into_children() {

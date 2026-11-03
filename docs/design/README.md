@@ -5,11 +5,8 @@ contracts, not protocol standards or chronological decision records.
 
 ## Application and transport
 
-- [APPLICATION_FIRST](APPLICATION_FIRST.md): applications define their work and
-  shared state; host bindings select how their parts are presented and admitted.
-- [HOST_PIPELINE](HOST_PIPELINE.md): bind connections to their accepted host;
-  prepare host policy and compose native applications and backends without
-  bypassing admission.
+- [HOST_PIPELINE](HOST_PIPELINE.md): application composition, host admission and
+  boot/reload preparation of active policies and request owners.
 - [EDGE_BACKENDS](EDGE_BACKENDS.md): application execution and forwarding owners;
   HTTP policy, body delivery and protocol boundaries at their pipeline handoff.
 - [EARLY_DATA_POLICY](EARLY_DATA_POLICY.md): transport acceptance of 0-RTT

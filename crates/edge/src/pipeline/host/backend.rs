@@ -95,6 +95,12 @@ pub(super) struct BackendPlan {
 
 impl BackendPlan {
     pub(super) fn prepare(context: &RouteContext<'_>) -> Self {
+        if context
+            .setting(|scope| scope.redirect.as_ref())
+            .is_some_and(|rules| !rules.is_empty())
+        {
+            return Self { steps: Vec::new(), fallback: None };
+        }
         let state = context.state;
         let host = context.host;
         let config = context.route;

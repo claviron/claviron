@@ -12,7 +12,8 @@ two different decisions in Claviron.
 The QUIC listener's `enable_early_data` enables transport acceptance; it is off
 by default. A host's `transport.h3.early_data` then decides which early requests
 may reach its application. Setting host policy does not enable a listener or
-turn on HTTP/3 by itself.
+turn on HTTP/3 by itself. The same host can use several listeners, so a host
+policy remains valid when one of those listeners has early data disabled.
 
 The policy values are:
 
@@ -29,9 +30,10 @@ your GET handler is free of side effects.
 ## Arrival belongs to the transport
 
 The native transport supplies `RequestArrival`; an application header is not
-evidence that a request arrived in 0-RTT. Shared host admission first validates
-the request's authority and transport capability. A wrong host remains a 421
-even if early-data policy would also refuse the method.
+evidence that a request arrived in 0-RTT. The native H3 listener first compares
+request authority with the SNI-pinned host, then applies its captured host policy
+only to early streams. A wrong host remains a 421 even if early-data policy
+would also refuse the method.
 
 A disallowed early request receives **425 Too Early**. Marking an H1 or H2
 request as early does not make it an admitted QUIC request. Established
@@ -54,7 +56,9 @@ permission to establish every kind of native session in early data.
 
 - [Host transport policy](../../crates/http/src/config/transport.rs).
 - [QUIC listener configuration](../../crates/http/src/config/yaml/quic.rs).
-- [Transport arrival and host admission](../../crates/edge/src/service/host.rs).
+- [Native H3 admission](../../crates/edge/src/quic/listener.rs).
+- [Host replay decision](../../crates/edge/src/quic/request.rs).
 - [QUIC TLS configurations](../../crates/edge/src/quic/tls.rs).
-- [Authority-before-early-data regression checks](../../crates/edge/tests/service/host.rs).
-- [Connection binding](HOST_PIPELINE.md#connection-binding).
+- [Authority checks](../../crates/edge/tests/service/host/authority.rs).
+- [Replay-policy checks](../../crates/edge/tests/quic/request.rs).
+- [Binding and reload](HOST_PIPELINE.md#binding-and-reload).

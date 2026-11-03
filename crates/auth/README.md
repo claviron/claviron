@@ -8,8 +8,8 @@ on your application's concrete types.
 The crate also supplies ready-made fleet-session authentication and CSRF
 mechanisms. You can use these alongside your own providers.
 
-Application, host and session ownership follow
-[APPLICATION_FIRST](../../docs/design/APPLICATION_FIRST.md).
+[HostPipeline](../../docs/design/HOST_PIPELINE.md#application-first) describes
+how hosts expose application providers and their shared services.
 
 ## Features
 

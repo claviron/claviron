@@ -112,10 +112,17 @@ registration. No layer is installed unconditionally.
 | 9 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
 | 10 | Identity | Required by a prepared Backend; absent from native file-only plans. |
 | 11 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
-| 12 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
-| 13 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
-| 14 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
-| 15 | Index/SPA file fallback | An index or SPA declaration. |
+| 12 | Rust contributions and scope handler | Matching Routables or a handler directive. |
+| 13 | Custom redirect | Effective host/prefix `redirect`; terminal after contributions, before the Rust router. |
+| 14 | RustRouter | An explicit Axum/Warp/Other binding. |
+| 15 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
+| 16 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
+| 17 | Index/SPA file fallback | An index or SPA declaration. |
+
+Custom `redirect` terminates a serving host's selected scope after Routable
+contributions; it does not change `non_ssl`. Redirecting scopes prepare no later
+file/backend owners. Plain `non_ssl: redirect` instead uses the listener's shared
+NonServingPipeline and its `redirect_port`.
 
 `Backend<B>` is the request handoff contract for Rust routers/handlers,
 embedded runtimes, Upstream and Link. WebSocket and broadcast application calls
@@ -337,30 +344,61 @@ may retain a direct Rust call; selecting Other never bypasses host layers.
 Disabled file steps allocate no prepared file owner.
 
 - [`host.rs`](src/pipeline/host.rs) — HostLayer/HostPipeline types and typed request/reply capabilities.
+- [`context.rs`](src/pipeline/host/context.rs) — Borrowed connection, selected-host and arrival facts.
+- [`owner.rs`](src/pipeline/host/owner.rs) — Retain prepared owners while direct calls await.
 - [`builder.rs`](src/pipeline/host/builder.rs) — Flatten active actions once; failed layer preparation changes nothing.
 - [`request.rs`](src/pipeline/host/request.rs) — Flat head/async/request execution, unread body transfer and reached response scopes.
 - [`response.rs`](src/pipeline/host/response.rs) — Run only reached response/body actions, in reverse registration order.
 - [`binding.rs`](src/pipeline/host/binding.rs) — Accepted connection facts and narrowed declaration data; no implicit actions.
-- [`deny.rs`](src/pipeline/host/deny.rs) — Explicit nonempty URI matcher; no transport snapshot or proof wrapper.
-- [`proxy.rs`](src/pipeline/host/proxy.rs) — Trusted-peer forwarding layer; only request RealIpExt changes.
-- [`acl.rs`](src/pipeline/host/acl.rs) — Explicit ACL layer; borrow accepted identity or a selected forwarding result.
-- [`acl/path.rs`](src/pipeline/host/acl/path.rs) — Compiled segment ACLs and unambiguous comparison paths.
-- [`redirect.rs`](src/pipeline/host/redirect.rs) — Scoped redirects and prepared Location values; URL selection belongs to the common route table.
-- [`quota.rs`](src/pipeline/host/quota.rs) — Rate-admission layer for typed or native replies and its committed snapshot.
-- [`quota/prepare.rs`](src/pipeline/host/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
 - [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
 - [`handler.rs`](src/pipeline/host/handler.rs) — Routable contributions; Unhandled retains the unread body capability.
 - [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Consume synchronous DispatchCall decisions before await; only compact pending futures enter suspended state, reusing existing application erasure.
-- [`selection.rs`](src/pipeline/host/selection.rs) — Prefix/condition selection as a HostLayer; single-scope hosts omit it.
 - [`execution.rs`](src/pipeline/host/execution.rs) — Published host execution; separate from the Axum/Other router choice.
 - [`compile.rs`](src/pipeline/host/compile.rs) — Compile prefix scopes, conditions, Rust contributions and backend owners.
 - [`backend.rs`](src/pipeline/host/backend.rs) — Backend/BackendHandler handoff contract and cold backend preparation.
-- [`files.rs`](src/pipeline/host/files.rs) — Separate Static and TryFiles steps using the shared files API.
-- [`extension.rs`](src/pipeline/host/extension.rs) — Route-layer preparation adapter.
-- [`websocket.rs`](src/pipeline/host/websocket.rs) — Prepared exact H1 endpoints before Rust/file/backend dispatch.
 
 ### `pipeline/layers/`
 
+`HostLayer::prepare` supplies cold builder actions. Concrete implementations
+and their preparation paths:
+
+| Implementation | Native preparation |
+| --- | --- |
+| `ProxyLayer`, `DenyLayer`, `AclLayer` | Effective nonempty listener/host access policy. |
+| `HeaderSetLayer`, `HeaderClearLayer` | Folded response-header edits. |
+| `AccessLogLayer` | A selected access channel. |
+| `ReplyPolicy`, `RequestBodyLayer` | Effective nonempty response/request body bounds. |
+| `CorsLayer`, `CorsCapture`, `CorsAdmission` | A declared CORS policy, split around access/quota admission. |
+| `QuotaPolicy`, `QuotaHeaders` | Prepared quota rules; response headers only when requested by a rule. |
+| `RouteSelectionLayer` | Multiple scopes or a route condition. |
+| `&dyn RouteLayer` | Registered provider/directive effects. |
+| `IdentityPolicy` | The first Backend marks its metadata insertion; the direct-router path uses the same contract. |
+| `Backend<B>` | Effective-policy handoff to a prepared backend. |
+| `RustRouter`, `Arc<dyn HostHandler>` | Through `Backend`; their own HostLayer implementations support explicit builder use. |
+| `StaticStage`, `TryFilesStage`, `Arc<dyn DispatchStep>` | Native file/fallback steps; the Arc adapter installs their consuming calls. |
+| `LinkBackend`, `LuaBackend`, `PhpBackend`, `UpstreamStage` | Configured owners through `Backend`; typed HostLayer adapters support explicit builder use. |
+| `Arc<WebSocketStage>` | Registered H1 endpoints through `Backend`, gated by host and listener capabilities. |
+| `RedirectLayer` | First effective custom redirect, after contributions and before the terminal router. |
+| `HttpsRedirectLayer` | Explicit builder API; plain non-serving policy uses `NonServingPipeline`. |
+
+- [`deny.rs`](src/pipeline/layers/deny.rs) — Explicit nonempty URI matcher; no transport snapshot or proof wrapper.
+- [`proxy.rs`](src/pipeline/layers/proxy.rs) — Trusted-peer forwarding layer; only request RealIpExt changes.
+- [`acl.rs`](src/pipeline/layers/acl.rs) — Explicit ACL layer; borrow accepted identity or a selected forwarding result.
+- [`acl/path.rs`](src/pipeline/layers/acl/path.rs) — Compiled segment ACLs and unambiguous comparison paths.
+- [`redirect.rs`](src/pipeline/layers/redirect.rs) — Scoped redirects and prepared Location values; URL selection belongs to the common route table.
+- [`quota.rs`](src/pipeline/layers/quota.rs) — Rate-admission layer for typed or native replies and its committed snapshot.
+- [`quota/prepare.rs`](src/pipeline/layers/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
+- [`selection.rs`](src/pipeline/layers/selection.rs) — Prefix/condition selection as a HostLayer; single-scope hosts omit it.
+- [`files.rs`](src/pipeline/layers/files.rs) — Separate Static and TryFiles steps using the shared files API.
+- [`extension.rs`](src/pipeline/layers/extension.rs) — Route-layer preparation adapter.
+- [`websocket.rs`](src/pipeline/layers/websocket.rs) — Prepared exact H1 endpoints before Rust/file/backend dispatch.
+- [`layers.rs`](src/pipeline/layers.rs) — HostLayer preparation contract and concrete exports.
+- [`app.rs`](src/pipeline/layers/app.rs) — RustRouter and HostHandler builder adapters.
+- [`call.rs`](src/pipeline/layers/call.rs) — Shared DispatchStep builder adapter.
+- [`embed.rs`](src/pipeline/layers/embed.rs) — Lua/PHP builder adapters through Backend.
+- [`link.rs`](src/pipeline/layers/link.rs) — Link Backend builder adapter.
+- [`upstream.rs`](src/pipeline/layers/upstream.rs) — Upstream Backend builder adapter.
+- [`fallback.rs`](src/pipeline/layers/fallback.rs) — Index/SPA fallback without repeating Static or TryFiles.
 - [`identity.rs`](src/pipeline/layers/identity.rs) — Explicit accepted-connection and selected-host metadata; scheme, protocol and TLS remain in ConnCtx.
 - [`identity/extensions.rs`](src/pipeline/layers/identity/extensions.rs) — One metadata export at Backend entry; preserve existing boxes and request-local forwarding.
 - [`headers.rs`](src/pipeline/layers/headers.rs) — Effective response edits folded before publication; no implicit Server header.
@@ -369,6 +407,7 @@ Disabled file steps allocate no prepared file owner.
 - [`cors.rs`](src/pipeline/layers/cors.rs) — Boot-compiled origin selection, early response context and post-quota admission.
 - [`cors/rules.rs`](src/pipeline/layers/cors/rules.rs) — Preflight detection, response headers and Vary token selection without String/Vec assembly.
 - [`log.rs`](src/pipeline/layers/log.rs) — Access-record hooks borrow accepted facts; inactive channels install no layer.
+
 
 ### `pipeline/embed/`
 
@@ -483,6 +522,7 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`handler.rs`](tests/pipeline/host/handler.rs) — Rust fallthrough, terminal status, cancellation and optional Axum adapter.
 - [`compile.rs`](tests/pipeline/host/compile.rs) — Scope conditions and Static/TryFiles/backend precedence.
 - [`compile/defense.rs`](tests/pipeline/host/compile/defense.rs) — Defense order, CORS/quota replies, body-policy narrowing and absent-rule direct calls.
+- [`compile/redirect.rs`](tests/pipeline/host/compile/redirect.rs) — Scoped redirects after contributions, terminal router ordering and unread body ownership.
 - [`compile/headers.rs`](tests/pipeline/host/compile/headers.rs) — Header inheritance, early refusals and absent-policy direct calls.
 
 ### `pipeline/layers/`
