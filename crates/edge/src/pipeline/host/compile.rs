@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use claviron_http::config::{HttpSnapshot, routes::RouteTable};
+use claviron_http::config::{HttpSnapshot, RequestPolicy, routes::RouteTable};
 use claviron_http::dispatch::{ConfiguredRoute, RouteDispatch};
 use claviron_runtime::{
     AppState,
@@ -21,8 +21,8 @@ use crate::pipeline::extension::{RouteContext, RouteLayer};
 #[cfg(feature = "access-log")]
 use crate::pipeline::layers::{AccessLogLayer, AccessLogState};
 use crate::pipeline::layers::{
-    AclLayer, CorsLayer, CorsState, DenyLayer, ProxyLayer, RouteSelectionLayer,
-    scope_steps,
+    AclLayer, CorsLayer, CorsState, DenyLayer, ProxyLayer, RequestBodyLayer,
+    RouteSelectionLayer, scope_steps,
 };
 
 #[derive(Default)]
@@ -42,6 +42,7 @@ struct ScopePlan<'a> {
     steps: Vec<Arc<dyn super::DispatchStep>>,
     accept_applications: bool,
     cors: Option<CorsLayer>,
+    body: Option<RequestBodyLayer>,
 }
 
 #[cfg(feature = "access-log")]
@@ -87,10 +88,16 @@ pub(crate) struct HostCompiler<'a> {
     pub(crate) http: Option<&'a HttpSnapshot>,
 }
 
+pub(crate) struct HostCompileTarget<'a> {
+    pub(crate) host: &'a Host,
+    pub(crate) requests: RequestPolicy,
+}
+
 struct Compiler<'a> {
     #[cfg(feature = "access-log")]
     host: &'a Host,
     config: &'a HostConfig,
+    requests: RequestPolicy,
     #[cfg(feature = "rate-limit")]
     quotas: Option<&'a crate::pipeline::layers::HostQuotas>,
     #[cfg(feature = "broadcast")]
@@ -143,6 +150,9 @@ impl Compiler<'_> {
                 .map(CorsLayer::new)
                 .transpose()
                 .map_err(|error| Error::msg(error.to_string()))?,
+            body: RequestBodyLayer::new(
+                self.config.requests_at(prefix, self.requests),
+            ),
         };
         let mut extensions = HostPipelineBuilder::new();
         for layer in self.layers.iter().chain(layers) {
@@ -224,7 +234,7 @@ impl Compiler<'_> {
         extensions: HostPipelineBuilder<S>,
         scope: ScopePlan<'_>,
     ) -> Result<HostExecution> {
-        let ScopePlan { applications, steps, accept_applications, cors } =
+        let ScopePlan { applications, steps, accept_applications, cors, body } =
             scope;
         if let Some(cors) = cors {
             let mut builder = builder
@@ -240,29 +250,42 @@ impl Compiler<'_> {
             builder
                 .layer(admission)
                 .map_err(|error| Error::msg(error.to_string()))?;
-            builder.append(
-                extensions
-                    .map_state(|state: &mut CorsExchange<S>| &mut state.inner),
-            );
             return self.finish_scope(
                 builder,
+                extensions
+                    .map_state(|state: &mut CorsExchange<S>| &mut state.inner),
                 applications,
                 steps,
                 accept_applications,
+                body,
             );
         }
         builder.append(access);
-        builder.append(extensions);
-        self.finish_scope(builder, applications, steps, accept_applications)
+        self.finish_scope(
+            builder,
+            extensions,
+            applications,
+            steps,
+            accept_applications,
+            body,
+        )
     }
 
     fn finish_scope<S: Default + Send + 'static>(
         &self,
         mut builder: HostPipelineBuilder<S>,
+        extensions: HostPipelineBuilder<S>,
         applications: &[Arc<dyn HostHandler>],
         steps: Vec<Arc<dyn super::DispatchStep>>,
         accept_applications: bool,
+        body: Option<RequestBodyLayer>,
     ) -> Result<HostExecution> {
+        if let Some(body) = body {
+            builder
+                .layer(body)
+                .map_err(|error| Error::msg(error.to_string()))?;
+        }
+        builder.append(extensions);
         #[cfg(feature = "websocket")]
         if accept_applications && let Some(websocket) = &self.websocket {
             builder
@@ -305,11 +328,38 @@ impl HostCompiler<'_> {
             Arc<crate::pipeline::H1UpgradeRegistry>,
         >,
     ) -> Result<HostExecution> {
+        self.prepare_target(
+            HostCompileTarget { host, requests: RequestPolicy::unlimited() },
+            config,
+            router,
+            contributions,
+            #[cfg(feature = "rate-limit")]
+            quotas,
+            #[cfg(feature = "websocket")]
+            websocket,
+        )
+    }
+
+    pub(crate) fn prepare_target(
+        &self,
+        target: HostCompileTarget<'_>,
+        config: Arc<HostConfig>,
+        router: Option<RustRouter>,
+        contributions: &HostContributions,
+        #[cfg(feature = "rate-limit")] quotas: Option<
+            &crate::pipeline::layers::HostQuotas,
+        >,
+        #[cfg(feature = "websocket")] websocket: Option<
+            Arc<crate::pipeline::H1UpgradeRegistry>,
+        >,
+    ) -> Result<HostExecution> {
+        let HostCompileTarget { host, requests } = target;
         let state = self.state;
         let compiler = Compiler {
             #[cfg(feature = "access-log")]
             host,
             config: &config,
+            requests,
             router,
             #[cfg(feature = "rate-limit")]
             quotas,

@@ -31,7 +31,11 @@ impl CleartextHostCache {
     ) -> Option<VhostCtx> {
         // Always resolve against the current publication: an old entry must
         // never revive a removed host or keep an alias's previous target.
-        let host = self.identity.resolve(authority, table);
+        let host = self.identity.resolve(
+            authority,
+            table,
+            Some(&self.connection.listener),
+        );
         if host.is_none() {
             self.current = None;
         }

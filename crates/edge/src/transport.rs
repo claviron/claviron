@@ -51,7 +51,7 @@ pub use crate::pipeline::{WebTransportBinding, WebTransportRegistry};
 pub use crate::service::{
     HostRejection, HostResponse, HostService, PreparedRequest, RequestArrival,
     RequestAuthority, RequestRejection, VhostCtx, resolve_request_authority,
-    resolve_sni_from_table,
+    resolve_sni_for_listener, resolve_sni_from_table,
 };
 #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
 pub(crate) mod tls;

@@ -10,10 +10,6 @@ fn interrupted_body_does_not_generate_a_bad_request_response() {
         RequestBodyError::malformed().response_status(),
         Some(StatusCode::BAD_REQUEST)
     );
-    assert_eq!(
-        RequestBodyError::too_large().response_status(),
-        Some(StatusCode::PAYLOAD_TOO_LARGE)
-    );
 }
 
 #[test]
@@ -35,21 +31,21 @@ fn unsupported_websocket_connect_is_decided_from_the_head_only() {
 }
 
 #[test]
-fn declared_body_limits_reject_before_body_adaptation() {
+fn framing_validation_is_independent_of_body_policy() {
     for (value, expected) in [
-        ("16", Ok(Some(16))),
-        ("0", Ok(Some(0))),
-        ("17", Err(BodyErrorKind::TooLarge)),
+        ("16", Ok(())),
+        ("0", Ok(())),
+        ("17000000", Ok(())),
         ("bad", Err(BodyErrorKind::Malformed)),
     ] {
         let mut headers = HeaderMap::new();
         headers.insert(http::header::CONTENT_LENGTH, value.parse().unwrap());
         assert_eq!(
-            checked_request_framing(&headers, 16).map_err(|e| e.kind()),
+            checked_request_framing(&headers).map_err(|e| e.kind),
             expected
         );
     }
-    assert_eq!(checked_request_framing(&HeaderMap::new(), 0).unwrap(), None);
+    checked_request_framing(&HeaderMap::new()).unwrap();
 
     // Connection-level fields describe an H1 connection, not the message on a
     // QUIC stream, and RFC 9114 §4.2 makes carrying one malformed. Same set
@@ -59,7 +55,7 @@ fn declared_body_limits_reject_before_body_adaptation() {
         headers.insert(&field, "chunked".parse().unwrap());
         headers.insert(http::header::CONTENT_LENGTH, "1".parse().unwrap());
         assert_eq!(
-            checked_request_framing(&headers, 16).map_err(|e| e.kind()),
+            checked_request_framing(&headers).map_err(|e| e.kind),
             Err(BodyErrorKind::Malformed),
             "{field} should be refused"
         );
@@ -67,13 +63,13 @@ fn declared_body_limits_reject_before_body_adaptation() {
 
     // `TE` is the exception H3 keeps, and only at this value.
     for (value, expected) in
-        [("trailers", Ok(Some(1))), ("gzip", Err(BodyErrorKind::Malformed))]
+        [("trailers", Ok(())), ("gzip", Err(BodyErrorKind::Malformed))]
     {
         let mut headers = HeaderMap::new();
         headers.insert(http::header::TE, value.parse().unwrap());
         headers.insert(http::header::CONTENT_LENGTH, "1".parse().unwrap());
         assert_eq!(
-            checked_request_framing(&headers, 16).map_err(|e| e.kind()),
+            checked_request_framing(&headers).map_err(|e| e.kind),
             expected
         );
     }

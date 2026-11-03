@@ -824,6 +824,23 @@ incoming forwarding headers cannot supply it.
 
 ## 5. Edge policy boundary
 
+### Body guards
+
+`body.rs` owns streaming size and idle-read bounds, independent of transport.
+`guard_size`, `guard_idle` and `guard_size_and_idle` select concrete guards;
+the unused counter/timer has zero-sized state. Each creates at most one erased
+body wrapper, preserving data bytes, trailers, size hints and cancellation
+ownership. Timers arm only on pending reads and reset after each frame.
+`guard_body` selects from optional declarations; no bounds or an ended body
+keeps its original owner. `GuardedBody` serves callers retaining a concrete body.
+
+Edge selects guards in HostPipeline at boot/reload, after CORS admission and
+before extensions/backends. H3 supplies lazy receive frames to the same layer;
+protocol framing validation remains in the H3 driver. Declared over-limit
+Content-Length is rejected before body polling; streamed overruns surface
+BodyLimit to the consumer. `guard_reply` reuses the same guard mechanics.
+
+
 Host selection and Edge exchange policy do not belong in this primitive crate.
 Reusable ACL/CORS data lives under HTTP config; Edge owns host declarations,
 deny/ACL, response-header and CORS enforcement. HTTP's optional RateLimiter

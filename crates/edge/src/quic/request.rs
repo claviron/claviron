@@ -5,14 +5,14 @@ use std::pin::Pin;
 
 use super::error::{log_stream_error, request_interrupted};
 use crate::transport::{HostService, RequestArrival};
-use bytes::{Buf, BufMut, Bytes, BytesMut};
+use bytes::{Buf, Bytes};
 use claviron_http::boxed_body;
 use futures_util::future::poll_fn;
 use futures_util::stream::try_unfold;
 use http::{HeaderMap, Request, Response, StatusCode};
 use http_body::{Body as HttpBody, Frame};
-use http_body_util::{Full, StreamBody};
-use tracing::{debug, error, warn};
+use http_body_util::StreamBody;
+use tracing::{debug, error};
 
 pub(crate) type H3BidiStream<Q> =
     <Q as h3::quic::OpenStreams<Bytes>>::BidiStream;
@@ -22,7 +22,6 @@ pub(crate) type H3RequestStream<Q> =
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum BodyErrorKind {
     Malformed,
-    TooLarge,
     Interrupted,
 }
 
@@ -36,14 +35,6 @@ impl RequestBodyError {
         Self { kind: BodyErrorKind::Malformed }
     }
 
-    const fn too_large() -> Self {
-        Self { kind: BodyErrorKind::TooLarge }
-    }
-
-    const fn kind(self) -> BodyErrorKind {
-        self.kind
-    }
-
     fn from_stream_error(error: &h3::error::StreamError) -> Self {
         if request_interrupted(error) {
             Self { kind: BodyErrorKind::Interrupted }
@@ -55,7 +46,6 @@ impl RequestBodyError {
     const fn response_status(self) -> Option<StatusCode> {
         match self.kind {
             BodyErrorKind::Malformed => Some(StatusCode::BAD_REQUEST),
-            BodyErrorKind::TooLarge => Some(StatusCode::PAYLOAD_TOO_LARGE),
             BodyErrorKind::Interrupted => None,
         }
     }
@@ -69,9 +59,6 @@ impl std::fmt::Display for RequestBodyError {
         match self.kind {
             BodyErrorKind::Malformed => {
                 f.write_str("invalid HTTP/3 request body")
-            }
-            BodyErrorKind::TooLarge => {
-                f.write_str("HTTP/3 request body exceeds configured limit")
             }
             BodyErrorKind::Interrupted => {
                 f.write_str("HTTP/3 request transport ended")
@@ -127,9 +114,8 @@ const CONNECTION_SPECIFIC_FIELDS: [http::HeaderName; 5] = [
 /// hands us the rest of the map as sent, so a `Transfer-Encoding` would travel
 /// intact to an upstream free to read the framing the other way.
 fn checked_request_framing(
-    headers: &HeaderMap,
-    max_body_size: usize,
-) -> Result<Option<usize>, RequestBodyError> {
+    headers: &HeaderMap
+) -> Result<(), RequestBodyError> {
     if CONNECTION_SPECIFIC_FIELDS
         .iter()
         .any(|field| headers.contains_key(field))
@@ -142,14 +128,8 @@ fn checked_request_framing(
         return Err(RequestBodyError::malformed());
     }
 
-    let content_length = parse_content_length(headers)?;
-    if let Some(len) = content_length
-        && len > max_body_size
-    {
-        return Err(RequestBodyError::too_large());
-    }
-
-    Ok(content_length)
+    parse_content_length(headers)?;
+    Ok(())
 }
 
 async fn finish_response_stream<S>(
@@ -192,63 +172,10 @@ async fn send_head_response<S>(
     finish_response_stream(stream, "sending status response").await;
 }
 
-/// Buffered body read with running byte-count enforcement against
-/// `max_body_size`. `content_length` (when present) is only used as a
-/// pre-allocation hint — the actual limit check runs against bytes
-/// received, so chunked / no-content-length requests are bounded too.
-/// Used by the buffered dispatch path; streaming path uses
-/// [`into_request_body_stream`] instead.
-async fn read_request_body_with_limit<S>(
-    stream: &mut h3::server::RequestStream<S, Bytes>,
-    max_body_size: usize,
-    content_length: Option<usize>,
-) -> Result<Bytes, RequestBodyError>
-where
-    S: h3::quic::RecvStream,
-{
-    let mut total = 0usize;
-    let mut body_bytes = BytesMut::with_capacity(content_length.unwrap_or(0));
-
-    loop {
-        match stream.recv_data().await {
-            Ok(Some(chunk)) => {
-                let chunk_len = chunk.remaining();
-                total = total
-                    .checked_add(chunk_len)
-                    .ok_or(RequestBodyError::too_large())?;
-
-                if total > max_body_size {
-                    return Err(RequestBodyError::too_large());
-                }
-
-                body_bytes.reserve(chunk_len);
-                body_bytes.put(chunk);
-            }
-            Ok(None) => break,
-            Err(err) => {
-                log_stream_error(&err, "recv_data");
-                return Err(RequestBodyError::from_stream_error(&err));
-            }
-        }
-    }
-
-    if let Err(err) = stream.recv_trailers().await {
-        log_stream_error(&err, "recv_trailers");
-        return Err(RequestBodyError::from_stream_error(&err));
-    }
-
-    Ok(body_bytes.freeze())
-}
-
-/// Adapt an H3 receive stream into an `http_body::Frame` `Stream` so
-/// the body can flow through Tower/Axum without buffering the whole
-/// payload. Carries the running byte count and enforces `max_body_size`
-/// per chunk; emits trailers as a single trailing `Frame::trailers`.
-/// Counterpart to [`read_request_body_with_limit`] for the streaming
-/// dispatch path.
+/// Adapt native H3 data and trailers without buffering or request policy.
+/// HostPipeline guards the resulting body only when bounds were declared.
 fn into_request_body_stream<S>(
-    recv_stream: h3::server::RequestStream<S, Bytes>,
-    max_body_size: usize,
+    recv_stream: h3::server::RequestStream<S, Bytes>
 ) -> impl futures_util::Stream<Item = Result<Frame<Bytes>, RequestBodyError>>
 + Send
 + 'static
@@ -256,10 +183,9 @@ where
     S: h3::quic::RecvStream + Send + 'static,
 {
     try_unfold(
-        (recv_stream, 0usize, false),
-        move |(mut recv_stream, total, trailers_sent): (
+        (recv_stream, false),
+        move |(mut recv_stream, trailers_sent): (
             h3::server::RequestStream<S, Bytes>,
-            usize,
             bool,
         )| async move {
             if trailers_sent {
@@ -269,19 +195,8 @@ where
             match recv_stream.recv_data().await {
                 Ok(Some(mut chunk)) => {
                     let chunk_len = chunk.remaining();
-                    let next_total = total
-                        .checked_add(chunk_len)
-                        .ok_or(RequestBodyError::too_large())?;
-
-                    if next_total > max_body_size {
-                        return Err(RequestBodyError::too_large());
-                    }
-
                     let bytes = chunk.copy_to_bytes(chunk_len);
-                    Ok(Some((
-                        Frame::data(bytes),
-                        (recv_stream, next_total, false),
-                    )))
+                    Ok(Some((Frame::data(bytes), (recv_stream, false))))
                 }
                 Ok(None) => match recv_stream.recv_trailers().await {
                     Ok(Some(trailers)) => {
@@ -291,7 +206,7 @@ where
                         );
                         Ok(Some((
                             Frame::trailers(trailers),
-                            (recv_stream, total, true),
+                            (recv_stream, true),
                         )))
                     }
                     Ok(None) => Ok(None),
@@ -388,14 +303,7 @@ where
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum RequestBodyMode {
-    Buffered,
-    Streaming,
-}
-
-/// Connection-bound application and accepted body limit. Request tasks borrow
-/// no live providers and retain their native receive/send stream ownership.
+/// Connection-bound host; native receive/send streams keep their ownership.
 #[derive(Clone)]
 pub(crate) struct H3RequestHandler {
     host: HostService,
@@ -410,7 +318,6 @@ impl H3RequestHandler {
         &self,
         head: Request<()>,
         mut stream: H3RequestStream<Q>,
-        mode: RequestBodyMode,
     ) where
         Q: h3::quic::Connection<Bytes>,
         H3BidiStream<Q>:
@@ -432,77 +339,20 @@ impl H3RequestHandler {
             stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
             return;
         }
-        // The listener's ceiling, already narrowed by this host. Resolved once
-        // in the retained host binding, so every enforcement point below
-        // reads one number rather than choosing between two.
-        // No limit declared means nothing to refuse. The helpers below still
-        // take a number until H3 bodies pass `GuardedBody` like the others
-        // (`docs/REVIEW.md` §3e, step 4).
-        let max_body_size = prepared.max_body_size().unwrap_or(usize::MAX);
-        let content_length = match checked_request_framing(
-            prepared.request().headers(),
-            max_body_size,
-        ) {
-            Ok(length) => length,
-            Err(error) => {
-                reject_body(
-                    &mut stream,
-                    error,
-                    prepared.request(),
-                    max_body_size,
-                )
-                .await;
-                return;
+        if let Err(error) =
+            checked_request_framing(prepared.request().headers())
+        {
+            if let Some(status) = error.response_status() {
+                send_status_response(&mut stream, status).await;
             }
-        };
-
-        match mode {
-            RequestBodyMode::Streaming => {
-                let (mut send, recv) = stream.split();
-                let body = boxed_body(StreamBody::new(
-                    into_request_body_stream(recv, max_body_size),
-                ));
-                let response = prepared.map_body(|()| body).dispatch().await;
-                if send_response_body(&mut send, response).await {
-                    finish_response_stream(
-                        &mut send,
-                        "sending streaming response body",
-                    )
-                    .await;
-                }
-            }
-            RequestBodyMode::Buffered => {
-                let bytes = match read_request_body_with_limit(
-                    &mut stream,
-                    max_body_size,
-                    content_length,
-                )
-                .await
-                {
-                    Ok(bytes) => bytes,
-                    Err(error) => {
-                        reject_body(
-                            &mut stream,
-                            error,
-                            prepared.request(),
-                            max_body_size,
-                        )
-                        .await;
-                        return;
-                    }
-                };
-                let response = prepared
-                    .map_body(|()| boxed_body(Full::new(bytes)))
-                    .dispatch()
-                    .await;
-                if send_response_body(&mut stream, response).await {
-                    finish_response_stream(
-                        &mut stream,
-                        "sending buffered response body",
-                    )
-                    .await;
-                }
-            }
+            stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+            return;
+        }
+        let (mut send, recv) = stream.split();
+        let body = boxed_body(StreamBody::new(into_request_body_stream(recv)));
+        let response = prepared.map_body(|()| body).dispatch().await;
+        if send_response_body(&mut send, response).await {
+            finish_response_stream(&mut send, "sending response body").await;
         }
     }
 }
@@ -511,26 +361,6 @@ fn unsupported_websocket_connect(request: &Request<()>) -> bool {
     request.method() == http::Method::CONNECT
         && request.extensions().get::<h3::ext::Protocol>()
             == Some(&h3::ext::Protocol::WEBSOCKET)
-}
-
-async fn reject_body<S>(
-    stream: &mut h3::server::RequestStream<S, Bytes>,
-    error: RequestBodyError,
-    request: &Request<()>,
-    max_body_size: usize,
-) where
-    S: h3::quic::RecvStream + h3::quic::SendStream<Bytes>,
-{
-    let Some(status) = error.response_status() else {
-        // The transport is gone, not malformed. There is no peer to send 400 to.
-        return;
-    };
-    if error.kind() == BodyErrorKind::TooLarge {
-        warn!(method = %request.method(), uri = %request.uri(), max_body_size,
-                "H3 request body exceeds the accepted listener limit");
-        stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
-    }
-    send_status_response(stream, status).await;
 }
 
 #[cfg(test)]

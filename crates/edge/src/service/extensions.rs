@@ -28,10 +28,27 @@ pub fn resolve_sni_from_table(
     table: &VhostTable,
     server_name: Option<&str>,
 ) -> Result<VhostCtx, HostRejection> {
+    resolve_sni(table, server_name, None)
+}
+
+/// Select the ready plan for an accepted listener from the same publication.
+pub fn resolve_sni_for_listener(
+    table: &VhostTable,
+    server_name: Option<&str>,
+    listener: &claviron_http::ListenerId,
+) -> Result<VhostCtx, HostRejection> {
+    resolve_sni(table, server_name, Some(listener))
+}
+
+fn resolve_sni(
+    table: &VhostTable,
+    server_name: Option<&str>,
+    listener: Option<&claviron_http::ListenerId>,
+) -> Result<VhostCtx, HostRejection> {
     let sni = server_name.ok_or(HostRejection::Missing)?;
     let host = Host::from_str(sni)
         .map_err(|error| HostRejection::Invalid(sni.to_owned(), error))?;
-    match table.resolve_with_application(&host) {
+    match table.resolve_application_on(&host, listener) {
         Some((record, application)) => {
             let key = &record.canonical;
             debug!("resolved SNI '{}' => canonical key '{:?}'", sni, key);

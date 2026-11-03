@@ -52,12 +52,13 @@ absent from the compiled plan:
 | 3 | Deny → IP ACL | Nonempty HTTP deny defaults; restrictive host/prefix ACL rules. |
 | 4 | Quota admission | Prepared host quota rules. |
 | 5 | CORS admission / preflight | Effective host/prefix CORS declaration. |
-| 6 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
-| 7 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
-| 8 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
-| 9 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
-| 10 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
-| 11 | Index/SPA file fallback | An index or SPA declaration. |
+| 6 | Request-body bounds | Effective listener → host → prefix size/idle policy; both off installs no layer. |
+| 7 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
+| 8 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
+| 9 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
+| 10 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
+| 11 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
+| 12 | Index/SPA file fallback | An index or SPA declaration. |
 
 Proxy and ACL borrow accepted connection facts. Forwarding changes only the
 request's `RealIpExt`; an untrusted peer cannot choose its ACL or quota identity.
@@ -85,8 +86,21 @@ CORS declaration means no CORS actions or request state. Explicit `disabled`
 refuses requests carrying Origin. Broadcast's own CORS policy remains separate.
 
 Response-head and body hooks run in reverse order, only for reached scopes.
-Registered route layers determine custom policy order after CORS admission.
+Request-body guarding follows CORS admission and precedes registered route layers.
 Response-head deadline ownership remains separate from transport limits.
+
+Body bounds select size-only, idle-only or combined guarding at boot/reload.
+Nonempty bodies receive one wrapper; frame bytes and trailers retain their owners.
+Immediate frames need no idle timer. Empty bodies retain their original owner.
+Listener defaults are narrowed through the host root and prefix ancestors;
+`off` cannot widen an inherited ceiling. Listener-specific plans publish with
+host declarations and are selected during native host binding. Equivalent
+listener bounds share a prepared plan; unlimited listeners use the shared plan.
+
+H1/H2/H3 enter this same pipeline with lazy `RouteBody` values. H3 validates
+its protocol framing and adapts receive frames; it neither buffers requests
+before dispatch nor applies a second size limit. Backend owners decide whether
+they need to collect an already-guarded body.
 
 ## Reload and ownership
 
@@ -139,8 +153,7 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 
 Features compile capabilities; declarations and registration select what runs.
 Transport snapshots retain wire/listener settings. New policy execution uses
-explicit host layers; TCP handoff installs no fallback policy executor. H3 still
-owns native framing and buffered/streamed body bounds during this transition.
+explicit host layers; TCP handoff installs no fallback policy executor. H3 owns native framing and lazy receive/send stream adaptation.
 
 ## `src/`
 
@@ -223,7 +236,6 @@ Disabled file steps allocate no prepared file owner.
 - [`quota/prepare.rs`](src/pipeline/host/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
 - [`http01.rs`](src/pipeline/host/http01.rs) — Optional ACME file layer with validated single-component tokens.
 - [`headers.rs`](src/pipeline/host/headers.rs) — Separate Set/Clear layers and cold header inheritance.
-- [`body`](src/pipeline/host/request_body.rs) — Explicit size/idle bounds; empty bodies keep their original owner.
 - [`reply.rs`](src/pipeline/host/reply.rs) — Explicit response size/idle guards; absent limits install no guard.
 - [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
 - [`handler.rs`](src/pipeline/host/handler.rs) — Routable contributions; Unhandled retains the unread body capability.
@@ -238,6 +250,7 @@ Disabled file steps allocate no prepared file owner.
 
 ### `pipeline/layers/`
 
+- [`body.rs`](src/pipeline/layers/body.rs) — Cold size/idle selection and one lazy body guard after CORS admission.
 - [`cors.rs`](src/pipeline/layers/cors.rs) — Boot-compiled origin selection, early response context and post-quota admission.
 - [`cors/rules.rs`](src/pipeline/layers/cors/rules.rs) — Preflight detection, response headers and Vary token selection without String/Vec assembly.
 - [`log.rs`](src/pipeline/layers/log.rs) — Access-record hooks borrow accepted facts without IdentityState; inactive channels install no layer.
@@ -296,7 +309,7 @@ Disabled file steps allocate no prepared file owner.
 - [`tls.rs`](src/quic/tls.rs) — Deferred SNI authentication and coherent host/TLS selector views.
 - [`listener.rs`](src/quic/listener.rs) — Endpoint groups, connection capacity, concurrent request/session stream driving.
 - [`listener/drain.rs`](src/quic/listener/drain.rs) — Join connection-owned children on completion, explicit force or panic.
-- [`request.rs`](src/quic/request.rs) — H3 framing validation, buffered/streaming body adaptation and response IO.
+- [`request.rs`](src/quic/request.rs) — H3-only framing validation, lazy frame/trailer adaptation and response IO.
 - [`error.rs`](src/quic/error.rs) — Normal closure and interrupted-stream classification.
 - [`wt.rs`](src/quic/wt.rs) — Authorize and hand native WebTransport sessions to applications.
 - [`wt/streams.rs`](src/quic/wt/streams.rs) — Bounded per-session input; a saturated session never blocks the shared driver.
@@ -350,10 +363,11 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`dispatch.rs`](tests/pipeline/host/dispatch.rs) — Compact pending state, synchronous unread-body transfer, existing erasure and cancellation.
 - [`handler.rs`](tests/pipeline/host/handler.rs) — Rust fallthrough, terminal status, cancellation and optional Axum adapter.
 - [`compile.rs`](tests/pipeline/host/compile.rs) — Scope conditions and Static/TryFiles/backend precedence.
-- [`compile/defense.rs`](tests/pipeline/host/compile/defense.rs) — Proxy trust, defense order, CORS scope inheritance and quota replies, body ownership and absent-rule direct calls.
+- [`compile/defense.rs`](tests/pipeline/host/compile/defense.rs) — Defense order, CORS/quota replies, body-policy narrowing and absent-rule direct calls.
 
 ### `pipeline/layers/`
 
+- [`body.rs`](tests/pipeline/layers/body.rs) — Early declared-size refusal, lazy byte accounting and unchanged frame/trailer ownership.
 - [`cors.rs`](tests/pipeline/layers/cors.rs) — Origin matching, preflight/OPTIONS ownership, early refusals, Vary and cancellation.
 - [`identity.rs`](tests/pipeline/layers/identity.rs) — Accepted identity reuse and unchanged body ownership.
 - [`identity/extensions.rs`](tests/pipeline/layers/identity/extensions.rs) — Typed values, existing box reuse and independent extension maps.
@@ -384,7 +398,6 @@ ownership and isolated state transitions without provider boot or live listeners
 ### `quic/`
 
 - [`error.rs`](tests/quic/error.rs) — Normal closure does not hide nonzero failures.
-- [`listener.rs`](tests/quic/listener.rs) — Request-body mode selection from the request head.
 - [`listener/drain.rs`](tests/quic/listener/drain.rs) — Force/panic cleanup joins owned children without cancelling siblings.
-- [`request.rs`](tests/quic/request.rs) — Framing/body rejection and transport interruptions.
+- [`request.rs`](tests/quic/request.rs) — Protocol framing rejection and transport interruptions, independent of body policy.
 - [`wt/streams.rs`](tests/quic/wt/streams.rs) — Bounded input, session completion and dropped receivers.

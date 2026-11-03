@@ -51,22 +51,28 @@ impl HostIdentityCache {
         &mut self,
         authority: &RequestAuthority,
         table: &VhostTable,
+        listener: Option<&claviron_http::ListenerId>,
     ) -> Option<VhostCtx> {
-        resolve_request_authority_with(authority, table, |canonical| {
-            let name = self.hostname.get_or_insert_with(|| {
-                HostName(Arc::new(authority.host().clone()))
-            });
-            if name.0.as_ref() != authority.host() {
-                *name = HostName(Arc::new(authority.host().clone()));
-            }
-            let key = self
-                .vhost_key
-                .get_or_insert_with(|| HostKey(Arc::new(canonical.clone())));
-            if key.0.as_ref() != canonical {
-                *key = HostKey(Arc::new(canonical.clone()));
-            }
-            (name.clone(), key.clone())
-        })
+        resolve_request_authority_with(
+            authority,
+            table,
+            listener,
+            |canonical| {
+                let name = self.hostname.get_or_insert_with(|| {
+                    HostName(Arc::new(authority.host().clone()))
+                });
+                if name.0.as_ref() != authority.host() {
+                    *name = HostName(Arc::new(authority.host().clone()));
+                }
+                let key = self.vhost_key.get_or_insert_with(|| {
+                    HostKey(Arc::new(canonical.clone()))
+                });
+                if key.0.as_ref() != canonical {
+                    *key = HostKey(Arc::new(canonical.clone()));
+                }
+                (name.clone(), key.clone())
+            },
+        )
     }
 }
 
@@ -76,7 +82,7 @@ pub fn resolve_request_authority(
     authority: &RequestAuthority,
     table: &VhostTable,
 ) -> Option<VhostCtx> {
-    resolve_request_authority_with(authority, table, |canonical| {
+    resolve_request_authority_with(authority, table, None, |canonical| {
         (
             HostName(Arc::new(authority.host().clone())),
             HostKey(Arc::new(canonical.clone())),
@@ -87,10 +93,11 @@ pub fn resolve_request_authority(
 fn resolve_request_authority_with(
     authority: &RequestAuthority,
     table: &VhostTable,
+    listener: Option<&claviron_http::ListenerId>,
     identity: impl FnOnce(&Host) -> (HostName, HostKey),
 ) -> Option<VhostCtx> {
     let (record, application) =
-        table.resolve_with_application(authority.host())?;
+        table.resolve_application_on(authority.host(), listener)?;
     let (hostname, vhost_key) = identity(&record.canonical);
     Some(VhostCtx {
         hostname,

@@ -134,7 +134,7 @@ fn inactive_provider_layers_keep_the_direct_axum_call_boundary() {
         None,
     )
     .unwrap();
-    assert!(owner.into_axum().is_ok());
+    assert!(owner.0.into_axum().is_ok());
 }
 
 struct Pass(Arc<AtomicUsize>);
@@ -238,8 +238,8 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
     )
     .unwrap();
     for (owner, status, body) in [
-        (native, StatusCode::OK, "native-file"),
-        (axum, StatusCode::NOT_FOUND, ""),
+        (native.0, StatusCode::OK, "native-file"),
+        (axum.0, StatusCode::NOT_FOUND, ""),
     ] {
         let response = owner
             .handle(
@@ -367,6 +367,140 @@ async fn explicit_rust_routers_observe_scoped_layers_and_unread_body_ownership()
             assert_eq!(response.status(), status);
             assert_eq!(calls.load(Ordering::Relaxed), index);
             assert_eq!(drops.load(Ordering::Relaxed), index + 1);
+        }
+    }
+}
+
+#[test]
+fn listener_body_plans_are_selected_from_the_same_host_publication_for_all_protocols()
+ {
+    use crate::service::{
+        HostService, RequestArrival, resolve_sni_for_listener,
+    };
+    use claviron_http::config::HttpYaml;
+    use claviron_http::ext::ConnCtx;
+    use claviron_http::listener::HttpProtocol;
+    use claviron_http::{OtherHandler, OtherService, RouteBody, RouteFuture};
+    use futures_util::FutureExt;
+    use http_body_util::BodyExt;
+
+    struct Echo;
+    impl OtherHandler for Echo {
+        fn call(
+            &self,
+            request: http::Request<RouteBody>,
+        ) -> RouteFuture {
+            Box::pin(std::future::ready(Ok(http::Response::new(
+                request.into_body(),
+            ))))
+        }
+    }
+    let state = AppState::standalone("body-plans", ".");
+    let http = serde_yaml::from_str::<HttpYaml>(
+        r#"
+defaults:
+  listener:
+    requests: {max_body_size: off, body_read_timeout: off}
+listeners:
+  open:
+    transport: tcp
+    listen: 127.0.0.1:8080
+    protocols: h1
+  limited:
+    transport: tcp
+    listen: 127.0.0.1:8081
+    protocols: h1
+    requests: {max_body_size: 4, body_read_timeout: off}
+  timed:
+    transport: tcp
+    listen: 127.0.0.1:8082
+    protocols: h1
+    requests: {max_body_size: off, body_read_timeout: 2s}
+"#,
+    )
+    .unwrap()
+    .resolve()
+    .unwrap();
+    let host = "example.test".parse().unwrap();
+    let config = Arc::new(HostConfig::new("public"));
+    let (shared, plans) = build_host(
+        &crate::pipeline::host::compile::HostCompiler {
+            state: &state,
+            http: Some(&http),
+        },
+        &host,
+        config,
+        Some(RustRouter::Other(OtherService::new(Echo))),
+        HostContributions::default(),
+        #[cfg(feature = "rate-limit")]
+        None,
+    )
+    .unwrap();
+    assert_eq!(shared.kind(), "other");
+    let plans = plans.unwrap();
+    assert_eq!(plans.len(), 2);
+    let mut snapshot = HostAppSnapshot::default();
+    snapshot.insert(host.clone(), shared).unwrap();
+    snapshot.listener_plans.insert(host, plans);
+    let mut table: crate::loader::table::VhostTable =
+        serde_yaml::from_str("example.test: {aliases: [alias.test]}").unwrap();
+    table.set_prepared(
+        std::any::TypeId::of::<HostAppSnapshot>(),
+        Arc::new(snapshot),
+    );
+    for protocol in [HttpProtocol::H1, HttpProtocol::H2, HttpProtocol::H3] {
+        for (listener, status) in [
+            ("open", StatusCode::OK),
+            ("limited", StatusCode::PAYLOAD_TOO_LARGE),
+            ("timed", StatusCode::OK),
+        ] {
+            let id = listener.parse().unwrap();
+            let mut selected =
+                resolve_sni_for_listener(&table, Some("alias.test"), &id)
+                    .unwrap();
+            let app = selected.application.take().unwrap();
+            if listener == "open" {
+                assert_eq!(app.kind(), "other");
+            }
+            let connection = Arc::new(ConnCtx {
+                state: Default::default(),
+                listener: id.clone(),
+                proto: Some(protocol),
+                remote: "192.0.2.1:1234".parse().unwrap(),
+                local_ip: "192.0.2.2".parse().unwrap(),
+                local_port: 8080,
+                real_ip: None,
+                country_code: None,
+                tls: None,
+            });
+            let service = HostService::new(
+                app,
+                connection,
+                selected,
+                http.listeners[&id].policy(),
+            );
+            let request = http::Request::builder()
+                .header("content-length", "5")
+                .body(claviron_http::boxed_body(http_body_util::Full::new(
+                    bytes::Bytes::from_static(b"12345"),
+                )))
+                .unwrap();
+            let reply = service
+                .request(request, RequestArrival::Established)
+                .dispatch()
+                .now_or_never()
+                .unwrap();
+            assert_eq!(reply.status(), status, "{listener}: {protocol:?}");
+            let bytes = reply
+                .into_body()
+                .collect()
+                .now_or_never()
+                .unwrap()
+                .unwrap()
+                .to_bytes();
+            if status == StatusCode::OK {
+                assert_eq!(bytes, "12345");
+            }
         }
     }
 }

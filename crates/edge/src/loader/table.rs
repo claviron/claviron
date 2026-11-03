@@ -20,6 +20,7 @@ pub struct VhostRecord {
 struct VhostEntry {
     record: Arc<VhostRecord>,
     application: Option<crate::pipeline::HostExecution>,
+    listener_plans: Option<crate::pipeline::apps::ListenerPlans>,
 }
 
 impl Deref for VhostEntry {
@@ -67,6 +68,8 @@ impl VhostTable {
             // selection then needs neither TypeId nor a second Host lookup.
             for entry in Arc::make_mut(&mut self.inner).values_mut() {
                 entry.application = apps.resolve(&entry.canonical);
+                entry.listener_plans =
+                    apps.listener_plans(&entry.canonical).cloned();
             }
         }
         self.prepared.insert(id, value);
@@ -85,6 +88,7 @@ impl VhostTable {
                                 VhostEntry {
                                     record: entry.record.clone(),
                                     application: None,
+                                    listener_plans: None,
                                 },
                             )
                         })
@@ -170,12 +174,23 @@ impl VhostTable {
 
     /// Select config and application from the same published name binding.
     /// Default fallback is identical to declaration-only resolution.
-    pub(crate) fn resolve_with_application(
+    pub(crate) fn resolve_application_on(
         &self,
         host: &Host,
+        listener: Option<&claviron_http::ListenerId>,
     ) -> Option<(&VhostRecord, Option<&crate::pipeline::HostExecution>)> {
-        self.resolve_entry(host)
-            .map(|entry| (entry.record.as_ref(), entry.application.as_ref()))
+        let entry = self.resolve_entry(host)?;
+        let application = listener
+            .and_then(|listener| {
+                entry
+                    .listener_plans
+                    .as_ref()?
+                    .iter()
+                    .find(|(id, _)| id == listener)
+            })
+            .map(|(_, app)| app)
+            .or(entry.application.as_ref());
+        Some((entry.record.as_ref(), application))
     }
 
     fn resolve_entry(
@@ -340,6 +355,7 @@ impl VhostTable {
                 v.insert(VhostEntry {
                     record: Arc::new(VhostRecord { canonical, config }),
                     application: None,
+                    listener_plans: None,
                 });
                 true
             }

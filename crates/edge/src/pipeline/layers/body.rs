@@ -1,25 +1,34 @@
-//! Request body bounds are an explicit layer, not transport adapter defaults.
+//! Request-body bounds selected at boot/reload before application work.
 
 use super::*;
 use claviron_http::ServiceResult;
-use claviron_http::body::{GuardedBody, declared_length_within};
+use claviron_http::body::{
+    declared_length_within, guard_idle, guard_size, guard_size_and_idle,
+};
 use claviron_http::policy::RequestPolicy;
+use http::HeaderMap;
 use http_body::Body;
-use http_body_util::BodyExt;
 use std::time::Duration;
 
 pub struct RequestBodyLayer {
-    max_size: Option<usize>,
-    read_timeout: Option<Duration>,
+    bounds: Bounds,
+}
+
+enum Bounds {
+    Size(usize),
+    Idle(Duration),
+    Both(usize, Duration),
 }
 
 impl RequestBodyLayer {
     pub fn new(policy: RequestPolicy) -> Option<Self> {
-        (policy.max_body_size.is_some() || policy.body_read_timeout.is_some())
-            .then_some(Self {
-                max_size: policy.max_body_size,
-                read_timeout: policy.body_read_timeout,
-            })
+        let bounds = match (policy.max_body_size, policy.body_read_timeout) {
+            (None, None) => return None,
+            (Some(size), None) => Bounds::Size(size),
+            (None, Some(timeout)) => Bounds::Idle(timeout),
+            (Some(size), Some(timeout)) => Bounds::Both(size, timeout),
+        };
+        Some(Self { bounds })
     }
 }
 
@@ -28,24 +37,47 @@ impl<S> HostLayer<S> for RequestBodyLayer {
         self,
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.request(move |request| {
-            if declared_length_within(request.headers(), self.max_size).is_err()
-            {
-                return DispatchCall::ready(ServiceResult::Handled(
-                    claviron_http::err_status(
-                        http::StatusCode::PAYLOAD_TOO_LARGE,
-                    ),
-                ));
+        match self.bounds {
+            Bounds::Size(size) => register(
+                layer,
+                move |headers| {
+                    declared_length_within(headers, Some(size)).is_ok()
+                },
+                move |body| guard_size(body, size),
+            ),
+            Bounds::Idle(timeout) => {
+                register(layer, |_| true, move |body| guard_idle(body, timeout))
             }
-            if request.body().is_end_stream() {
-                return DispatchCall::ready(ServiceResult::Unhandled(request));
-            }
-            let request = request.map(|body| {
-                GuardedBody::new(body, self.max_size, self.read_timeout)
-                    .boxed_unsync()
-            });
-            DispatchCall::ready(ServiceResult::Unhandled(request))
-        });
+            Bounds::Both(size, timeout) => register(
+                layer,
+                move |headers| {
+                    declared_length_within(headers, Some(size)).is_ok()
+                },
+                move |body| guard_size_and_idle(body, size, timeout),
+            ),
+        }
         Ok(())
     }
 }
+
+fn register<S>(
+    layer: &mut HostLayerBuilder<S>,
+    accepts: impl Fn(&HeaderMap) -> bool + Send + Sync + 'static,
+    guard: impl Fn(RouteBody) -> RouteBody + Send + Sync + 'static,
+) {
+    layer.request(move |request| {
+        if !accepts(request.headers()) {
+            return DispatchCall::ready(ServiceResult::Handled(
+                claviron_http::err_status(http::StatusCode::PAYLOAD_TOO_LARGE),
+            ));
+        }
+        if request.body().is_end_stream() {
+            return DispatchCall::ready(ServiceResult::Unhandled(request));
+        }
+        DispatchCall::ready(ServiceResult::Unhandled(request.map(&guard)))
+    });
+}
+
+#[cfg(test)]
+#[path = "../../../tests/pipeline/layers/body.rs"]
+mod tests;

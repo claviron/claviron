@@ -241,6 +241,22 @@ impl HostConfig {
             .or_else(|| setting(&self.fields.routing))
     }
 
+    /// Narrow one listener's declared request bounds through root and ancestors
+    /// at boot/reload. Limits never widen in a more specific scope.
+    pub(crate) fn requests_at(
+        &self,
+        prefix: &PathPrefix,
+        listener: claviron_http::policy::RequestPolicy,
+    ) -> claviron_http::policy::RequestPolicy {
+        let mut policy = listener.narrow(&self.requests);
+        for (ancestor, scope) in self.routes.iter().rev() {
+            if ancestor.has_path_segment(prefix.as_str()) {
+                policy = policy.narrow(&scope.requests);
+            }
+        }
+        policy
+    }
+
     #[cfg(all(
         feature = "lua",
         any(feature = "websocket", feature = "webtransport")

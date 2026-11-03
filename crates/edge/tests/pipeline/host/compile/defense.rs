@@ -490,3 +490,22 @@ fn cors_preflight_spends_quota_and_quota_refusal_keeps_cors_headers() {
     assert_eq!(calls.load(Ordering::Relaxed), 0);
     assert_eq!(drops.load(Ordering::Relaxed), 2);
 }
+
+#[test]
+fn body_policy_is_narrowed_through_scope_ancestors_at_boot() {
+    use claviron_http::policy::RequestPolicy;
+    let config: HostConfig = serde_yaml::from_str("requests: {max_body_size: 10, body_read_timeout: 5s}\nroutes:\n  /tight:\n    requests: {max_body_size: 2}\n  /tight/child:\n    requests: {body_read_timeout: 1s}\n  /wide:\n    requests: {max_body_size: 100}\n").unwrap();
+    let mut listener = RequestPolicy::unlimited();
+    listener.max_body_size = Some(8);
+    for (path, size, seconds) in
+        [("/", 8, 5), ("/tight/child", 2, 1), ("/wide", 8, 5)]
+    {
+        let prefix = serde_yaml::from_str(path).unwrap();
+        let policy = config.requests_at(&prefix, listener);
+        assert_eq!(policy.max_body_size, Some(size));
+        assert_eq!(
+            policy.body_read_timeout,
+            Some(std::time::Duration::from_secs(seconds))
+        );
+    }
+}

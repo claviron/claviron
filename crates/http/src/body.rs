@@ -8,12 +8,8 @@
 //! still sending — so `RequestPolicy` carries both and this module enforces
 //! them. Either may be unset, and then it is not enforced.
 //!
-//! The policy is the one HTTP/3 already applies: a declared `Content-Length`
-//! over the limit is refused before a byte is read, and everything else is
-//! counted as it arrives. Only the mechanism differs, because the transports
-//! hand over bodies differently — H3 unfolds its own receive stream, while
-//! HTTP/1.1 and HTTP/2 arrive as an `http_body::Body` that can simply be
-//! wrapped. Sharing the policy and not the plumbing is the honest split.
+//! Edge adapts H1/H2/H3 bodies before the host pipeline applies these bounds.
+//! Protocol framing stays with each transport; body policy uses one guard.
 
 use std::error::Error as StdError;
 use std::fmt;
@@ -88,23 +84,11 @@ pub fn declared_length_within(
 }
 
 pin_project! {
-    /// A body that refuses to grow past `limit` or to stall; either unset is
-    /// not enforced. A request's on the way in, a reply's on the way out —
-    /// and on both it passes the body's own length and end through, so a
-    /// guarded body keeps its `Content-Length`.
-    ///
-    /// The stall timer is restarted by every frame rather than run once for the
-    /// whole body: a large upload on a slow link is legitimate and a total
-    /// budget would punish it, while a peer that has stopped sending is caught
-    /// within one timeout either way.
+    /// A body guard for callers that retain their own concrete body type.
+    /// Optional policies share accounting and timers with `guard_body`.
     pub struct GuardedBody<B> {
         #[pin]
-        inner: B,
-        #[pin]
-        idle: Option<Sleep>,
-        limit: Option<usize>,
-        read: usize,
-        timeout: Option<Duration>
+        inner: CheckedBody<B, Option<SizeBound>, Option<IdleBound>>,
     }
 }
 
@@ -114,7 +98,13 @@ impl<B> GuardedBody<B> {
         limit: Option<usize>,
         timeout: Option<Duration>,
     ) -> Self {
-        Self { inner, idle: None, limit, read: 0, timeout }
+        Self {
+            inner: CheckedBody {
+                inner,
+                size: limit.map(SizeBound::new),
+                idle: timeout.map(IdleBound::new),
+            },
+        }
     }
 }
 
@@ -128,49 +118,196 @@ where
 
     fn poll_frame(
         self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        let mut this = self.project();
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
+        self.project().inner.poll_frame(cx)
+    }
 
-        // Armed lazily and re-armed per frame, so a body that is flowing never
-        // pays for a timer it does not need.
-        if this.idle.is_none()
-            && let Some(timeout) = *this.timeout
-        {
-            this.idle.set(Some(sleep(timeout)));
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+    fn size_hint(&self) -> SizeHint {
+        self.inner.size_hint()
+    }
+}
+
+struct SizeBound {
+    limit: usize,
+    remaining: usize,
+}
+
+impl SizeBound {
+    fn new(limit: usize) -> Self {
+        Self { limit, remaining: limit }
+    }
+}
+
+trait CountBody {
+    fn check(
+        &mut self,
+        frame: &Frame<Bytes>,
+    ) -> Result<(), BodyLimit>;
+}
+
+impl CountBody for () {
+    fn check(
+        &mut self,
+        _: &Frame<Bytes>,
+    ) -> Result<(), BodyLimit> {
+        Ok(())
+    }
+}
+
+impl CountBody for SizeBound {
+    fn check(
+        &mut self,
+        frame: &Frame<Bytes>,
+    ) -> Result<(), BodyLimit> {
+        if let Some(data) = frame.data_ref() {
+            let size = data.remaining();
+            if size > self.remaining {
+                self.remaining = 0;
+                return Err(BodyLimit::TooLarge { limit: self.limit });
+            }
+            self.remaining -= size;
         }
+        Ok(())
+    }
+}
 
-        match this.inner.poll_frame(context) {
+impl CountBody for Option<SizeBound> {
+    fn check(
+        &mut self,
+        frame: &Frame<Bytes>,
+    ) -> Result<(), BodyLimit> {
+        match self {
+            Some(bound) => bound.check(frame),
+            None => Ok(()),
+        }
+    }
+}
+
+pin_project! {
+    struct IdleBound {
+        timeout: Duration,
+        #[pin]
+        sleep: Option<Sleep>,
+    }
+}
+
+impl IdleBound {
+    fn new(timeout: Duration) -> Self {
+        Self { timeout, sleep: None }
+    }
+}
+
+trait WaitBody {
+    fn progress(self: Pin<&mut Self>);
+    fn poll_timeout(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Duration>;
+}
+
+impl WaitBody for () {
+    fn progress(self: Pin<&mut Self>) {}
+    fn poll_timeout(
+        self: Pin<&mut Self>,
+        _: &mut Context<'_>,
+    ) -> Poll<Duration> {
+        Poll::Pending
+    }
+}
+
+impl WaitBody for IdleBound {
+    fn progress(self: Pin<&mut Self>) {
+        self.project().sleep.set(None);
+    }
+
+    fn poll_timeout(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Duration> {
+        let mut this = self.project();
+        if this.sleep.is_none() {
+            this.sleep.set(Some(sleep(*this.timeout)));
+        }
+        ready!(
+            this.sleep
+                .as_mut()
+                .as_pin_mut()
+                .expect("idle timer is armed")
+                .poll(cx)
+        );
+        Poll::Ready(*this.timeout)
+    }
+}
+
+impl WaitBody for Option<IdleBound> {
+    fn progress(self: Pin<&mut Self>) {
+        if let Some(bound) = self.as_pin_mut() {
+            bound.progress();
+        }
+    }
+
+    fn poll_timeout(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Duration> {
+        match self.as_pin_mut() {
+            Some(bound) => bound.poll_timeout(cx),
+            None => Poll::Pending,
+        }
+    }
+}
+
+pin_project! {
+    struct CheckedBody<B, S, T> {
+        #[pin]
+        inner: B,
+        size: S,
+        #[pin]
+        idle: T,
+    }
+}
+
+impl<B, S, T> Body for CheckedBody<B, S, T>
+where
+    B: Body<Data = Bytes>,
+    B::Error: Into<Box<dyn StdError + Send + Sync>>,
+    S: CountBody,
+    T: WaitBody,
+{
+    type Data = Bytes;
+    type Error = Box<dyn StdError + Send + Sync>;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
+        let mut this = self.project();
+        match this.inner.poll_frame(cx) {
             Poll::Ready(Some(Ok(frame))) => {
-                if let Some(data) = frame.data_ref() {
-                    *this.read = this.read.saturating_add(data.remaining());
-                    if let Some(limit) = *this.limit
-                        && *this.read > limit
-                    {
-                        return Poll::Ready(Some(Err(Box::new(
-                            BodyLimit::TooLarge { limit },
-                        ))));
-                    }
+                if let Err(error) = this.size.check(&frame) {
+                    this.idle.progress();
+                    return Poll::Ready(Some(Err(Box::new(error))));
                 }
-
-                this.idle.set(None);
-
+                this.idle.progress();
                 Poll::Ready(Some(Ok(frame)))
             }
             Poll::Ready(Some(Err(error))) => {
+                this.idle.progress();
                 Poll::Ready(Some(Err(error.into())))
             }
-            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Ready(None) => {
+                this.idle.progress();
+                Poll::Ready(None)
+            }
             Poll::Pending => {
-                let Some(idle) = this.idle.as_mut().as_pin_mut() else {
-                    return Poll::Pending;
-                };
-
-                ready!(idle.poll(context));
-
-                Poll::Ready(Some(Err(Box::new(BodyLimit::Stalled {
-                    after: this.timeout.unwrap_or_default(),
-                }))))
+                // Only a pending read arms a timer. Immediately available
+                // frames and policies without a timeout need no timer work.
+                let after = ready!(this.idle.as_mut().poll_timeout(cx));
+                Poll::Ready(Some(Err(Box::new(BodyLimit::Stalled { after }))))
             }
         }
     }
@@ -178,21 +315,76 @@ where
     fn is_end_stream(&self) -> bool {
         self.inner.is_end_stream()
     }
-
     fn size_hint(&self) -> SizeHint {
         self.inner.size_hint()
     }
 }
 
-/// A reply body under its guard: its ceiling and the longest gap between two
-/// of its pieces, either unset not enforced. Its length and end pass through.
+/// Guard only the incoming byte count, with no timer state or timer calls.
+pub fn guard_size(
+    body: crate::RouteBody,
+    limit: usize,
+) -> crate::RouteBody {
+    wrap_guard(body, SizeBound::new(limit), ())
+}
+
+/// Guard only idle reads, with no byte counter or size comparisons.
+pub fn guard_idle(
+    body: crate::RouteBody,
+    timeout: Duration,
+) -> crate::RouteBody {
+    wrap_guard(body, (), IdleBound::new(timeout))
+}
+
+/// Apply both declared bounds with one erased wrapper.
+pub fn guard_size_and_idle(
+    body: crate::RouteBody,
+    limit: usize,
+    timeout: Duration,
+) -> crate::RouteBody {
+    wrap_guard(body, SizeBound::new(limit), IdleBound::new(timeout))
+}
+
+fn wrap_guard<S, T>(
+    body: crate::RouteBody,
+    size: S,
+    idle: T,
+) -> crate::RouteBody
+where
+    S: CountBody + Send + 'static,
+    T: WaitBody + Send + 'static,
+{
+    use http_body_util::BodyExt;
+    if body.is_end_stream() {
+        return body;
+    }
+    CheckedBody { inner: body, size, idle }.boxed_unsync()
+}
+
+/// Select the specialized guard for a caller holding optional declarations.
+/// Frames and trailers pass through without collection or byte copies.
+pub fn guard_body(
+    body: crate::RouteBody,
+    limit: Option<usize>,
+    timeout: Option<Duration>,
+) -> crate::RouteBody {
+    match (limit, timeout) {
+        (None, None) => body,
+        (Some(limit), None) => guard_size(body, limit),
+        (None, Some(timeout)) => guard_idle(body, timeout),
+        (Some(limit), Some(timeout)) => {
+            guard_size_and_idle(body, limit, timeout)
+        }
+    }
+}
+
+/// Apply declared response-body bounds through the same specialized guard.
 pub fn guard_reply(
     body: crate::RouteBody,
     limit: Option<usize>,
     gap: Option<Duration>,
 ) -> crate::RouteBody {
-    use http_body_util::BodyExt;
-    GuardedBody::new(body, limit, gap).boxed_unsync()
+    guard_body(body, limit, gap)
 }
 
 /// A reply that ends when the process begins to shut down.

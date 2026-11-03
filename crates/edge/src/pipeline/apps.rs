@@ -47,6 +47,7 @@ pub(crate) struct ResolvedRouteExtensions {
 #[derive(Clone, Default)]
 pub struct HostAppSnapshot {
     map: HashMap<Host, HostExecution>,
+    listener_plans: HashMap<Host, ListenerPlans>,
     configs: HashMap<Host, Arc<HostConfig>>,
     http: Option<Arc<claviron_http::config::HttpSnapshot>>,
     #[cfg(feature = "rate-limit")]
@@ -54,7 +55,16 @@ pub struct HostAppSnapshot {
         Arc<HashMap<Host, Option<Arc<crate::pipeline::layers::HostQuotas>>>>,
 }
 
+pub(crate) type ListenerPlans =
+    Arc<[(claviron_http::ListenerId, HostExecution)]>;
+
 impl HostAppSnapshot {
+    pub(crate) fn listener_plans(
+        &self,
+        host: &Host,
+    ) -> Option<&ListenerPlans> {
+        self.listener_plans.get(host)
+    }
     /// Look up the prepared execution for an exact canonical name or alias.
     pub fn resolve(
         &self,
@@ -680,6 +690,7 @@ impl HostAppRegistry {
         };
         let mut snapshot = HostAppSnapshot {
             map: HashMap::new(),
+            listener_plans: HashMap::new(),
             configs: HashMap::new(),
             http: http.clone(),
             #[cfg(feature = "rate-limit")]
@@ -714,6 +725,11 @@ impl HostAppRegistry {
                 && let Some(app) = previous.map.get(canonical)
             {
                 for host in table.host_keys_for_canonical(canonical) {
+                    if let Some(plans) = previous.listener_plans(canonical) {
+                        snapshot
+                            .listener_plans
+                            .insert(host.clone(), plans.clone());
+                    }
                     snapshot.insert(host, app.clone())?;
                 }
                 snapshot
@@ -778,7 +794,7 @@ impl HostAppRegistry {
                     )
                 })
                 .transpose()?;
-            let app = build_host(
+            let (app, listener_plans) = build_host(
                 &compiler,
                 canonical,
                 record.config.clone(),
@@ -790,6 +806,9 @@ impl HostAppRegistry {
 
             snapshot.configs.insert(canonical.clone(), record.config.clone());
             for host in table.host_keys_for_canonical(canonical) {
+                if let Some(plans) = &listener_plans {
+                    snapshot.listener_plans.insert(host.clone(), plans.clone());
+                }
                 snapshot.insert(host, app.clone())?;
             }
         }
@@ -807,7 +826,7 @@ fn build_host(
     #[cfg(feature = "rate-limit")] quotas: Option<
         &crate::pipeline::layers::HostQuotas,
     >,
-) -> Result<HostExecution> {
+) -> Result<(HostExecution, Option<ListenerPlans>)> {
     #[cfg(feature = "websocket")]
     let mut contributions = contributions;
     #[cfg(feature = "websocket")]
@@ -815,16 +834,54 @@ fn build_host(
         canonical,
         std::mem::take(&mut contributions.h1_upgrades),
     )?;
-    compiler.prepare(
+    let shared = compiler.prepare(
         canonical,
-        host_cfg,
-        router,
+        host_cfg.clone(),
+        router.clone(),
         &contributions,
         #[cfg(feature = "rate-limit")]
         quotas,
         #[cfg(feature = "websocket")]
-        websocket,
-    )
+        websocket.clone(),
+    )?;
+    let mut plans = Vec::new();
+    let mut prepared = HashMap::new();
+    for (id, listener) in
+        compiler.http.into_iter().flat_map(|http| &http.listeners)
+    {
+        if !host_cfg.allows_listener(id) {
+            continue;
+        }
+        let bounds = (
+            listener.requests.max_body_size,
+            listener.requests.body_read_timeout,
+        );
+        if bounds == (None, None) {
+            continue;
+        }
+        let app = match prepared.get(&bounds) {
+            Some(app) => HostExecution::clone(app),
+            None => {
+                let app = compiler.prepare_target(
+                    super::host::compile::HostCompileTarget {
+                        host: canonical,
+                        requests: listener.requests,
+                    },
+                    host_cfg.clone(),
+                    router.clone(),
+                    &contributions,
+                    #[cfg(feature = "rate-limit")]
+                    quotas,
+                    #[cfg(feature = "websocket")]
+                    websocket.clone(),
+                )?;
+                prepared.insert(bounds, app.clone());
+                app
+            }
+        };
+        plans.push((id.clone(), app));
+    }
+    Ok((shared, (!plans.is_empty()).then(|| plans.into())))
 }
 
 #[cfg(feature = "websocket")]

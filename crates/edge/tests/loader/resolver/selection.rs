@@ -56,7 +56,9 @@ fn applications(
     assert!(table.prepared::<HostAppSnapshot>().is_none());
     let mut apps = HostAppSnapshot::default();
     for (canonical, record) in table.canonical_entries() {
-        assert!(table.resolve_with_application(canonical).unwrap().1.is_none());
+        assert!(
+            table.resolve_application_on(canonical, None).unwrap().1.is_none()
+        );
         let root = record.config.root();
         let name = marker
             .unwrap_or_else(|| root.file_name().unwrap().to_str().unwrap());
@@ -300,7 +302,7 @@ fn install_owned(
             for (canonical, _) in table.canonical_entries() {
                 assert!(
                     table
-                        .resolve_with_application(canonical)
+                        .resolve_application_on(canonical, None)
                         .unwrap()
                         .1
                         .is_none()

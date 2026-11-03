@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use crate::transport::tls::TlsHost;
 use crate::transport::{
-    VhostCtx, VhostResolver, VhostTable, resolve_sni_from_table,
+    VhostCtx, VhostResolver, VhostTable, resolve_sni_for_listener,
 };
 use claviron_http::ListenerId;
 use claviron_http::config::{ListenerConfig, TcpListenerConfig};
@@ -155,14 +155,14 @@ impl TlsAccept {
             }),
             "TLS ClientHello ALPN offered",
         );
-        let host = resolve_sni_from_table(&hosts, sni.as_deref()).map_err(
-            |error| {
-                io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    error.to_string(),
-                )
-            },
-        )?;
+        let host =
+            resolve_sni_for_listener(&hosts, sni.as_deref(), &self.listener)
+                .map_err(|error| {
+                    io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        error.to_string(),
+                    )
+                })?;
         // Named, so a refusal says which host was asked for: the name is the
         // only thing that tells a misrouted client from a missing binding.
         let config = policy

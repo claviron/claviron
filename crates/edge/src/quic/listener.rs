@@ -29,7 +29,7 @@ use futures_util::FutureExt;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use h3_quinn::Connection as H3QuinnConnection;
 use h3_webtransport::server::{AcceptedBi, IncomingStream};
-use http::{Method, StatusCode};
+use http::StatusCode;
 use quinn::crypto::rustls::HandshakeData;
 use quinn::{Connection as QuinnConnection, Endpoint, VarInt};
 use rustls::ProtocolVersion;
@@ -37,9 +37,7 @@ use rustls::pki_types::CertificateDer;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
-use crate::quic::request::{
-    H3RequestHandler, RequestBodyMode, send_status_response,
-};
+use crate::quic::request::{H3RequestHandler, send_status_response};
 use crate::quic::server::{H3Server, ServerSnapshot};
 
 enum StreamCompletion {
@@ -320,9 +318,10 @@ impl H3Server {
             .as_ref()
             .and_then(|hd| hd.server_name.as_deref().map(Arc::<str>::from));
 
-        let vctx = match crate::transport::resolve_sni_from_table(
+        let vctx = match crate::transport::resolve_sni_for_listener(
             &accepted.hosts,
             server_name.as_deref(),
+            &snapshot.listener.id,
         ) {
             Ok(ext) => {
                 if !ext.vhost_config.allows_transport(&snapshot.listener.id, H3)
@@ -563,13 +562,8 @@ impl H3Server {
                     }
 
                     let handler = request_handler.clone();
-                    let mode = if requires_streamed_request_body(&h3_head) {
-                        RequestBodyMode::Streaming
-                    } else {
-                        RequestBodyMode::Buffered
-                    };
                     streams.spawn(async move {
-                        handler.serve::<H3QuinnConnection>(h3_head, stream, mode).await;
+                        handler.serve::<H3QuinnConnection>(h3_head, stream).await;
                         StreamCompletion::Request
                     });
                 }
@@ -652,22 +646,6 @@ fn h3_tls_info(
     }
 }
 
-fn requires_streamed_request_body(head: &http::Request<()>) -> bool {
-    match *head.method() {
-        Method::POST | Method::PUT | Method::PATCH => {
-            content_length(head).is_none_or(|len| len > 0)
-        }
-        _ => content_length(head).is_some_and(|len| len > 0),
-    }
-}
-
-fn content_length(head: &http::Request<()>) -> Option<u64> {
-    head.headers()
-        .get(http::header::CONTENT_LENGTH)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-}
-
 #[cfg(feature = "geoip")]
 fn country_code_for(remote: SocketAddr) -> Option<String> {
     Some(claviron_geoip::geoip_lookup(remote.ip()))
@@ -677,7 +655,3 @@ fn country_code_for(remote: SocketAddr) -> Option<String> {
 fn country_code_for(_remote: SocketAddr) -> Option<String> {
     None
 }
-
-#[cfg(test)]
-#[path = "../../tests/quic/listener.rs"]
-mod tests;
