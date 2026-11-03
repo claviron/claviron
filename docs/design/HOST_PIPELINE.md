@@ -42,7 +42,6 @@ flowchart LR
 | RouteSelection | One prefix/condition selection; omitted for a single scope. |
 | RustRouter / HostHandler | Axum or Other, or a fallthrough Rust contribution. |
 | Static / TryFiles / Embed / Upstream / Link | Prepared native request owners. |
-| HttpsRedirect | Explicit HTTPS redirects. |
 
 Listener/host eligibility is compiled before publication. Plain H1 selects its
 host per request; TLS H1/H2 and H3 compare request authority with the accepted

@@ -50,7 +50,7 @@ pub use proxy::ProxyLayer;
 pub(crate) use quota::QuotaRegistrations;
 #[cfg(feature = "rate-limit")]
 pub use quota::{HostQuotas, QuotaPolicy, QuotaState};
-pub use redirect::{HttpsRedirectLayer, RedirectLayer};
+pub use redirect::RedirectLayer;
 pub use reply::ReplyPolicy;
 pub use selection::RouteSelectionLayer;
 #[cfg(feature = "websocket")]

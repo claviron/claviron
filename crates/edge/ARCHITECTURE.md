@@ -379,7 +379,6 @@ and their preparation paths:
 | `LinkBackend`, `LuaBackend`, `PhpBackend`, `UpstreamStage` | Configured owners through `Backend`; typed HostLayer adapters support explicit builder use. |
 | `Arc<WebSocketStage>` | Registered H1 endpoints through `Backend`, gated by host and listener capabilities. |
 | `RedirectLayer` | First effective custom redirect, after contributions and before the terminal router. |
-| `HttpsRedirectLayer` | Explicit builder API; plain non-serving policy uses `NonServingPipeline`. |
 
 - [`deny.rs`](src/pipeline/layers/deny.rs) — Explicit nonempty URI matcher; no transport snapshot or proof wrapper.
 - [`proxy.rs`](src/pipeline/layers/proxy.rs) — Trusted-peer forwarding layer; only request RealIpExt changes.

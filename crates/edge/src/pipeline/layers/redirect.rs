@@ -110,56 +110,6 @@ impl<S, R: From<HostResponse>> HostLayer<S, R> for RedirectLayer {
     }
 }
 
-/// HTTPS authority is prepared once for the selected host/listener binding.
-pub struct HttpsRedirectLayer {
-    prefix: Box<str>,
-}
-
-impl HttpsRedirectLayer {
-    pub fn new(
-        authority: &http::uri::Authority,
-        port: std::num::NonZeroU16,
-    ) -> Self {
-        let host = authority.host();
-        let prefix = if port.get() == 443 {
-            format!("https://{host}")
-        } else {
-            format!("https://{host}:{port}")
-        };
-        Self { prefix: prefix.into_boxed_str() }
-    }
-}
-
-impl<S, R: From<HostResponse>> HostLayer<S, R> for HttpsRedirectLayer {
-    fn prepare(
-        self,
-        layer: &mut HostLayerBuilder<S, R>,
-    ) -> crate::Result<()> {
-        layer.before(move |head, _| {
-            let path = head
-                .uri
-                .path_and_query()
-                .map(|path| path.as_str())
-                .unwrap_or("/");
-            let mut location =
-                String::with_capacity(self.prefix.len() + path.len());
-            location.push_str(&self.prefix);
-            location.push_str(path);
-            let reply = match HeaderValue::from_maybe_shared(
-                bytes::Bytes::from(location),
-            ) {
-                Ok(location) => HostResponse::Redirect {
-                    status: StatusCode::PERMANENT_REDIRECT,
-                    location,
-                },
-                Err(_) => RequestRejection::InvalidRedirect.into(),
-            };
-            ControlFlow::Break(reply.into())
-        });
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 #[path = "../../../tests/pipeline/layers/redirect.rs"]
 mod tests;

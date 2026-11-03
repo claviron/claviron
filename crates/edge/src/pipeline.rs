@@ -38,9 +38,9 @@ pub use layers::WebSocketStage;
 pub use layers::{AccessLogLayer, AccessLogState};
 pub use layers::{
     AclLayer, CorsLayer, CorsState, DenyLayer, HeaderClearLayer,
-    HeaderSetLayer, HostLayer, HttpsRedirectLayer, IdentityPolicy, ProxyLayer,
-    RedirectLayer, ReplyPolicy, RequestBodyLayer, RouteSelectionLayer,
-    StaticStage, TryFilesStage, prepare_headers,
+    HeaderSetLayer, HostLayer, IdentityPolicy, ProxyLayer, RedirectLayer,
+    ReplyPolicy, RequestBodyLayer, RouteSelectionLayer, StaticStage,
+    TryFilesStage, prepare_headers,
 };
 #[cfg(feature = "rate-limit")]
 pub use layers::{QuotaPolicy, QuotaState};
