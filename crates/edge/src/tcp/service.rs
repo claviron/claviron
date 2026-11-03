@@ -7,6 +7,7 @@ use crate::transport::PreparedRequest;
 #[cfg(feature = "tls")]
 use crate::transport::{HostService, RequestArrival};
 use claviron_http::RouteResponse;
+#[cfg(feature = "tls")]
 use hyper::body::Incoming;
 
 mod body;
@@ -25,8 +26,12 @@ pub(crate) fn service(
     })
 }
 
-pub(crate) fn dispatch(
-    request: PreparedRequest<Incoming>
-) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send {
+pub(crate) fn dispatch<B>(
+    request: PreparedRequest<B>
+) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send
+where
+    B: http_body::Body<Data = bytes::Bytes> + Send + 'static,
+    B::Error: std::error::Error + Send + Sync + 'static,
+{
     request.map_body(body::adapt).into_tcp_future()
 }

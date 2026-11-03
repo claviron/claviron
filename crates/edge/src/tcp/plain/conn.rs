@@ -92,7 +92,35 @@ async fn serve(
         tls: None,
     });
     let service = H1Service::new(snapshot.clone(), vhosts, ctx);
+    #[cfg(feature = "acme")]
+    if let Some(layer) = snapshot.http01.clone() {
+        let service = super::http01::Http01Service::new(service, layer);
+        drive(
+            stream,
+            service_fn(move |req| service.call(req)),
+            &snapshot,
+            scope,
+        )
+        .await;
+        return;
+    }
     let service = service_fn(move |req| service.call(req));
+    drive(stream, service, &snapshot, scope).await;
+}
+
+async fn drive<S>(
+    stream: TcpStream,
+    service: S,
+    snapshot: &ServerSnapshot,
+    scope: ConnectionScope,
+) where
+    S: hyper::service::Service<
+            http::Request<hyper::body::Incoming>,
+            Response = claviron_http::RouteResponse,
+            Error = std::convert::Infallible,
+            Future: Send,
+        >,
+{
     let stream = crate::tcp::io::TcpIo::new(stream);
     let errors = stream.clone();
     let connection = crate::tcp::protocol::h1(&snapshot.h1)

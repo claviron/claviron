@@ -3,6 +3,8 @@
 mod conn;
 mod error;
 mod handler;
+#[cfg(feature = "acme")]
+mod http01;
 mod server;
 
 pub use conn::ConnectionHandler;

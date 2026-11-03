@@ -453,8 +453,12 @@ or disable proxy handling with `proxy: null`. Headers are validated
 `http::HeaderName` values, not runtime-parsed strings. Trust is checked
 against the accepted peer, never selected using the request's Host header.
 
-HTTP-01 is opt-in via `acme: {challenges_dir: ...}` on a cleartext group and
-requires the `acme` feature. Relative paths stay process-cwd-relative.
+HTTP-01 is opt-in via `acme: true` on a cleartext listener and requires the
+`acme` feature. `acme.rs` owns `Http01ChallengeDirectory`: the ACME provider
+publishes its directory; weak observers rebuild prepared listener readers on
+changes. Request handling uses its pinned directory without reading this source.
+HTTP-01 runs before host lookup and requires no host declaration. Relative paths
+stay process-cwd-relative.
 Response-header mutation and Alt-Svc remain per host, not per listener.
 H3 advertisement does not depend on enabling 0-RTT.
 

@@ -10,7 +10,6 @@ use crate::transport::VhostResolver;
 use claviron_http::ext::ConnCtx;
 use claviron_http::{RouteResponse, err_status};
 use futures_util::future::Either;
-use hyper::body::Incoming;
 use hyper::{Request, StatusCode};
 use tracing::warn;
 
@@ -32,10 +31,13 @@ impl H1Service {
         Self { vhosts, host_cache: RefCell::new(host_cache) }
     }
 
-    pub(super) fn call(
+    pub(super) fn call<B>(
         &self,
-        request: Request<Incoming>,
-    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
+        request: Request<B>,
+    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<B>
+    where
+        B: http_body::Body<Data = bytes::Bytes> + Send + 'static,
+        B::Error: std::error::Error + Send + Sync + 'static,
     {
         match self.prepare(request) {
             Err(status) => Either::Left(ready(Ok(err_status(status)))),
@@ -43,13 +45,17 @@ impl H1Service {
         }
     }
 
-    fn prepare(
+    fn prepare<B>(
         &self,
-        request: Request<Incoming>,
+        request: Request<B>,
     ) -> Result<
-        impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>,
+        impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<B>,
         StatusCode,
-    > {
+    >
+    where
+        B: http_body::Body<Data = bytes::Bytes> + Send + 'static,
+        B::Error: std::error::Error + Send + Sync + 'static,
+    {
         let request = CleartextRequest::new(request)
             .map_err(|_| StatusCode::BAD_REQUEST)?;
         let table = self.vhosts.snapshot();

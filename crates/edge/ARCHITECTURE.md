@@ -42,6 +42,13 @@ Host selection precedes the pipeline. Multiple prefix scopes or entry conditions
 add `RouteSelectionLayer`; a single unconditional root scope uses its plan
 directly. Prefix and condition matching still happen per request.
 
+Plain listeners with `acme: true` and a published challenge directory install
+HTTP-01 before host selection. A valid challenge authority needs no configured
+host. Other requests continue to host selection. Inactive listeners use the
+ordinary H1 service directly; TLS and QUIC install no HTTP-01 entry.
+Directory publication rebuilds plain-listener snapshots on the control path.
+New connections use the new directory; accepted connections retain their snapshot.
+
 Within the selected scope, entries follow this order. Undeclared entries are
 absent from the compiled plan:
 
@@ -234,7 +241,6 @@ Disabled file steps allocate no prepared file owner.
 - [`redirect.rs`](src/pipeline/host/redirect.rs) — Scoped redirects and prepared Location values; URL selection belongs to the common route table.
 - [`quota.rs`](src/pipeline/host/quota.rs) — Rate-admission layer for typed or native replies and its committed snapshot.
 - [`quota/prepare.rs`](src/pipeline/host/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
-- [`http01.rs`](src/pipeline/host/http01.rs) — Optional ACME file layer with validated single-component tokens.
 - [`headers.rs`](src/pipeline/host/headers.rs) — Separate Set/Clear layers and cold header inheritance.
 - [`reply.rs`](src/pipeline/host/reply.rs) — Explicit response size/idle guards; absent limits install no guard.
 - [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
@@ -250,6 +256,7 @@ Disabled file steps allocate no prepared file owner.
 
 ### `pipeline/layers/`
 
+- [`http01.rs`](src/pipeline/layers/http01.rs) — HTTP-01 token validation and GET/HEAD file replies shared with the plain-listener entry.
 - [`body.rs`](src/pipeline/layers/body.rs) — Cold size/idle selection and one lazy body guard after CORS admission.
 - [`cors.rs`](src/pipeline/layers/cors.rs) — Boot-compiled origin selection, early response context and post-quota admission.
 - [`cors/rules.rs`](src/pipeline/layers/cors/rules.rs) — Preflight detection, response headers and Vary token selection without String/Vec assembly.
@@ -291,6 +298,7 @@ Disabled file steps allocate no prepared file owner.
 - [`server.rs`](src/tcp/plain/server.rs) — HttpServer configuration, snapshots and named listener registration; `connection_handler` prepares a typed listener without binding or provider boot.
 - [`conn.rs`](src/tcp/plain/conn.rs) — Socket/context setup, H1 driving and connection drain; public `ConnectionHandler` serves caller-accepted streams through the same native path.
 - [`handler.rs`](src/tcp/plain/handler.rs) — Cleartext authority selection and native host handoff.
+- [`http01.rs`](src/tcp/plain/http01.rs) — Opted-in listener entry; validates authority and answers challenges before vhost lookup.
 - [`error.rs`](src/tcp/plain/error.rs) — Cleartext driver errors.
 
 ### `tcp/secure/`
@@ -391,6 +399,7 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`fixtures/listeners.yaml`](tests/tcp/fixtures/listeners.yaml) — Reserved loopback listener configuration.
 - [`unit/accept.rs`](tests/tcp/unit/accept.rs) — Retry growth, saturation and warning-state transitions.
 - [`unit/body.rs`](tests/tcp/unit/body.rs) — Ended/lazy bodies, trailers and configured guards.
+- [`unit/http01.rs`](tests/tcp/unit/http01.rs) — Host-independent challenges, listener opt-in, directory generations and unread-body ownership.
 - [`unit/config.rs`](tests/tcp/unit/config.rs) — Sibling transport changes do not invalidate unrelated inputs.
 - [`unit/timeout.rs`](tests/tcp/unit/timeout.rs) — Driver-default, disabled and explicit header deadlines.
 - [`unit/tls.rs`](tests/tcp/unit/tls.rs) — Configured host ALPN selection without opening connections.
