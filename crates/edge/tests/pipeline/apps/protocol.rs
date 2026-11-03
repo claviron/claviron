@@ -112,7 +112,7 @@ fn protocol_selection_is_cold_and_http_layers_are_absent_from_tls_and_quic() {
     let mut table: crate::loader::table::VhostTable =
         serde_yaml::from_str("example.test: {}\n").unwrap();
     let snapshot = registry.build_table(&state, &table, None).unwrap();
-    assert_eq!(prepares.load(Ordering::Relaxed), 1);
+    assert_eq!(prepares.load(Ordering::Relaxed), 2);
     // An unbound lookup must not accidentally expose a protocol-specific layer.
     assert!(
         snapshot
@@ -150,7 +150,7 @@ fn protocol_selection_is_cold_and_http_layers_are_absent_from_tls_and_quic() {
         "listeners:\n  tls:\n    transport: tcp\n    tls: true\n    listen: 127.0.0.1:8443\n    protocols: [h1, h2]\n    requests: {max_body_size: off, body_read_timeout: off}\n",
     ).unwrap();
     let secure_only = registry.build_table(&state, &table, None).unwrap();
-    assert_eq!(prepares.load(Ordering::Relaxed), 1);
+    assert_eq!(prepares.load(Ordering::Relaxed), 2);
     assert!(secure_only.resolve(&host).unwrap().into_axum().is_ok());
 }
 

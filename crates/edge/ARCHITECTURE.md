@@ -48,8 +48,8 @@ the prepared actions without checking whether each capability is enabled.
 `RouteProtocol::{Http, Https, Quic}` during preparation; their default accepts
 all. Existing host selectors and factories are unchanged. Restricted providers
 contribute only to matching listener plans, including their directive effects.
-Unbound lookups contain only protocol-independent contributions. Equivalent
-listener plans share an execution; a rejected candidate keeps the old publication.
+Unbound lookups contain only protocol-independent contributions. Each eligible listener gets its own plan from its complete effective input;
+a rejected candidate keeps the old publication.
 
 Host selection precedes the pipeline. Multiple prefix scopes or entry conditions
 add `RouteSelectionLayer`; a single unconditional root scope uses its plan
@@ -65,7 +65,7 @@ registration. No layer is installed unconditionally.
 | Order | Entry | Selected by |
 | --- | --- | --- |
 | 1 | Response-header hooks | Effective HTTP defaults → host → prefix edits; empty declarations install nothing. |
-| 2 | Trusted proxy / real IP | Nonempty forwarding headers and trusted networks on listeners exposing this host. |
+| 2 | Trusted proxy / real IP | Nonempty forwarding headers and trusted networks on this listener. |
 | 3 | Access-log start | Effective host/prefix channel or logging default; `off` and absent channels install no layer or log state. |
 | 4 | Response-body guard (register hook) | Effective listener → host → prefix size/idle bounds; both off installs nothing. |
 | 5 | Deny → IP ACL | Nonempty HTTP deny defaults; restrictive host/prefix ACL rules. |
@@ -121,8 +121,7 @@ response path it wraps the original body before the access-log wrapper, preservi
 frames, trailers and cancellation ownership. Size-only, idle-only and combined
 guards are selected at boot; empty bodies retain their owner. Limits only
 narrow; when both effective bounds are off, no action is installed. Transport
-write limits and reply-head deadlines retain their own owners. Listener plan reuse
-includes both request and reply body bounds.
+write limits and reply-head deadlines retain their own owners. Listener plans include the complete effective request and reply policy.
 
 `Handled` ends dispatch, including error responses. `Unhandled` transfers the
 same unread request to the next entry. If nothing handles it, the plan returns
@@ -145,9 +144,7 @@ Nonempty bodies receive one wrapper; frame bytes and trailers retain their owner
 Immediate frames need no idle timer. Empty bodies retain their original owner.
 Listener defaults are narrowed through the host root and prefix ancestors;
 `off` cannot widen an inherited ceiling. Listener-specific plans publish with
-host declarations and are selected during native host binding. Equivalent
-protocol/body policies share a prepared plan; unrestricted listeners use the
-shared plan.
+host declarations and are selected during native host binding. Native listener selection never falls back to the transport-free plan.
 
 H1/H2/H3 enter this same pipeline with lazy `RouteBody` values. H3 validates
 its protocol framing and adapts receive frames; it neither buffers requests

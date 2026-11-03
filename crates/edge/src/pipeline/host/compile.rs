@@ -99,7 +99,7 @@ pub(crate) struct HostCompiler<'a> {
 
 pub(crate) struct HostCompileTarget<'a> {
     pub(crate) host: &'a Host,
-    pub(crate) policy: HttpPolicy,
+    pub(crate) listener: Option<&'a claviron_http::config::ListenerConfig>,
 }
 
 struct Compiler<'a> {
@@ -368,7 +368,7 @@ impl HostCompiler<'_> {
         >,
     ) -> Result<HostExecution> {
         self.prepare_target(
-            HostCompileTarget { host, policy: HttpPolicy::unlimited() },
+            HostCompileTarget { host, listener: None },
             config,
             router,
             contributions,
@@ -392,7 +392,10 @@ impl HostCompiler<'_> {
             Arc<crate::pipeline::H1UpgradeRegistry>,
         >,
     ) -> Result<HostExecution> {
-        let HostCompileTarget { host, policy } = target;
+        let HostCompileTarget { host, listener } = target;
+        let policy = listener
+            .map_or_else(HttpPolicy::unlimited, |listener| listener.policy());
+        let protocol = listener.map(RouteProtocol::from).or(self.protocol);
         let state = self.state;
         let compiler = Compiler {
             #[cfg(feature = "access-log")]
@@ -408,9 +411,7 @@ impl HostCompiler<'_> {
             applications: &contributions.applications,
             layers: &contributions.layers,
             registry: state.registry_ref().resolve::<HostAppRegistry>(),
-            proxy: self
-                .http
-                .and_then(|http| ProxyLayer::for_host(http, &config)),
+            proxy: listener.and_then(ProxyLayer::for_listener),
             deny: self
                 .http
                 .and_then(|http| DenyLayer::from_matcher(&http.deny)),
@@ -439,7 +440,7 @@ impl HostCompiler<'_> {
                     route: fallback.as_ref(),
                     prefix: &root,
                 },
-                self.protocol,
+                protocol,
             )?,
             None if !config.extensions.is_empty() => {
                 return Err(Error::msg(
@@ -473,7 +474,7 @@ impl HostCompiler<'_> {
                                 prefix,
                             },
                             false,
-                            self.protocol,
+                            protocol,
                         )?,
                         None if route.extensions.is_empty() => {
                             ResolvedRouteExtensions::default()

@@ -180,16 +180,17 @@ impl VhostTable {
         listener: Option<&claviron_http::ListenerId>,
     ) -> Option<(&VhostRecord, Option<&crate::pipeline::HostExecution>)> {
         let entry = self.resolve_entry(host)?;
-        let application = listener
-            .and_then(|listener| {
-                entry
+        let application = match listener {
+            Some(listener) => Some(
+                &entry
                     .listener_plans
                     .as_ref()?
                     .iter()
-                    .find(|(id, _)| id == listener)
-            })
-            .map(|(_, app)| app)
-            .or(entry.application.as_ref());
+                    .find(|(id, _)| id == listener)?
+                    .1,
+            ),
+            None => entry.application.as_ref(),
+        };
         Some((entry.record.as_ref(), application))
     }
 

@@ -122,8 +122,13 @@ fn absent_or_ineffective_defenses_keep_the_direct_router_path() {
         .unwrap();
         let owner =
             HostCompiler { state: &state, http: Some(&http), protocol: None }
-                .prepare(
-                    &"example.test".parse().unwrap(),
+                .prepare_target(
+                    HostCompileTarget {
+                        host: &"example.test".parse().unwrap(),
+                        listener: Some(
+                            &http.listeners[&listener.parse().unwrap()],
+                        ),
+                    },
                     Arc::new(config),
                     Some(RustRouter::Other(OtherService::new(Reply(
                         calls.clone(),
@@ -200,11 +205,15 @@ routes:
     let mut contributions = HostContributions::default();
     contributions.layers.push(Arc::new(Observe(registered_calls.clone())));
     let http = http();
-    let owner =
+    let config = Arc::new(config);
+    let build = |listener: &str| {
         HostCompiler { state: &state, http: Some(&http), protocol: None }
-            .prepare(
-                &host,
-                Arc::new(config),
+            .prepare_target(
+                HostCompileTarget {
+                    host: &host,
+                    listener: Some(&http.listeners[&listener.parse().unwrap()]),
+                },
+                config.clone(),
                 Some(RustRouter::Other(OtherService::new(Reply(
                     handler_calls.clone(),
                 )))),
@@ -213,7 +222,9 @@ routes:
                 #[cfg(feature = "websocket")]
                 None,
             )
-            .unwrap();
+            .unwrap()
+    };
+    let owner = build("public");
     let accepted = connection();
     let drops = Arc::new(AtomicUsize::new(0));
     for (listener, peer) in
@@ -222,7 +233,7 @@ routes:
         let mut untrusted = accepted.clone();
         Arc::make_mut(&mut untrusted).listener = listener.parse().unwrap();
         Arc::make_mut(&mut untrusted).remote = peer.parse().unwrap();
-        let response = owner
+        let response = build(listener)
             .handle_in(
                 Request::builder()
                     .uri("/selected")

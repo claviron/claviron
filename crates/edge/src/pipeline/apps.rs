@@ -981,51 +981,43 @@ fn build_host(
         common.websocket.clone(),
     )?;
     let mut plans = Vec::new();
-    let mut prepared = HashMap::new();
     for (id, listener) in
         compiler.http.into_iter().flat_map(|http| &http.listeners)
     {
-        if !host_cfg.allows_listener(id) {
+        if !host_cfg.allows_listener(id)
+            || !match &listener.settings {
+                claviron_http::config::ListenerSettings::Tcp(tcp) => {
+                    tcp.protocols.iter().any(|protocol| {
+                        host_cfg.transport.allows_protocol(*protocol)
+                    })
+                }
+                claviron_http::config::ListenerSettings::Quic(_) => host_cfg
+                    .transport
+                    .allows_protocol(claviron_http::listener::HttpProtocol::H3),
+            }
+        {
             continue;
         }
         let protocol = RouteProtocol::from(listener.as_ref());
-        let input = protocols.get(&protocol);
-        let bounds = (
-            input.map(|_| protocol),
-            listener.requests.max_body_size,
-            listener.requests.body_read_timeout,
-            listener.responses.max_body_size,
-            listener.responses.body_idle_timeout,
-        );
-        if bounds == (None, None, None, None, None) {
-            continue;
-        }
-        let app = match prepared.get(&bounds) {
-            Some(app) => HostExecution::clone(app),
-            None => {
-                let input = input.unwrap_or(&common);
-                let selected = super::host::compile::HostCompiler {
-                    state: compiler.state,
-                    http: compiler.http,
-                    protocol: Some(protocol),
-                };
-                let app = selected.prepare_target(
-                    super::host::compile::HostCompileTarget {
-                        host: canonical,
-                        policy: listener.policy(),
-                    },
-                    host_cfg.clone(),
-                    input.router.clone(),
-                    &input.contributions,
-                    #[cfg(feature = "rate-limit")]
-                    quotas,
-                    #[cfg(feature = "websocket")]
-                    input.websocket.clone(),
-                )?;
-                prepared.insert(bounds, app.clone());
-                app
-            }
+        let input = protocols.get(&protocol).unwrap_or(&common);
+        let selected = super::host::compile::HostCompiler {
+            state: compiler.state,
+            http: compiler.http,
+            protocol: Some(protocol),
         };
+        let app = selected.prepare_target(
+            super::host::compile::HostCompileTarget {
+                host: canonical,
+                listener: Some(listener),
+            },
+            host_cfg.clone(),
+            input.router.clone(),
+            &input.contributions,
+            #[cfg(feature = "rate-limit")]
+            quotas,
+            #[cfg(feature = "websocket")]
+            input.websocket.clone(),
+        )?;
         plans.push((id.clone(), app));
     }
     Ok((shared, (!plans.is_empty()).then(|| plans.into())))

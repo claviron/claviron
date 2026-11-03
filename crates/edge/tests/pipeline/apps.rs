@@ -384,8 +384,7 @@ async fn explicit_rust_routers_observe_scoped_layers_and_unread_body_ownership()
 }
 
 #[test]
-fn listener_body_plans_are_selected_from_the_same_host_publication_for_all_protocols()
- {
+fn listener_plans_keep_full_policy_and_never_fall_back_to_unbound_execution() {
     use crate::service::{
         HostService, RequestArrival, resolve_sni_for_listener,
     };
@@ -402,9 +401,21 @@ fn listener_body_plans_are_selected_from_the_same_host_publication_for_all_proto
             &self,
             request: http::Request<RouteBody>,
         ) -> RouteFuture {
-            Box::pin(std::future::ready(Ok(http::Response::new(
-                request.into_body(),
-            ))))
+            let buffered = request
+                .extensions()
+                .get::<claviron_http::policy::HttpPolicy>()
+                .unwrap()
+                .requests
+                .buffering
+                == claviron_http::policy::Buffering::BufferDefault;
+            let mut response = http::Response::new(request.into_body());
+            if buffered {
+                response.headers_mut().insert(
+                    "x-buffered",
+                    http::HeaderValue::from_static("yes"),
+                );
+            }
+            Box::pin(std::future::ready(Ok(response)))
         }
     }
     let state = AppState::standalone("body-plans", ".");
@@ -428,13 +439,28 @@ listeners:
     listen: 127.0.0.1:8082
     protocols: h1
     requests: {max_body_size: off, body_read_timeout: 2s}
+  buffered:
+    transport: tcp
+    listen: 127.0.0.1:8083
+    protocols: h1
+    requests: {buffering: buffer_default, buffer_size: 8}
+  excluded:
+    transport: tcp
+    listen: 127.0.0.1:8084
+    protocols: h1
 "#,
     )
     .unwrap()
     .resolve()
     .unwrap();
     let host = "example.test".parse().unwrap();
-    let config = Arc::new(HostConfig::new("public"));
+    let mut config = HostConfig::new("public");
+    config.listeners = Some(
+        ["open", "limited", "timed", "buffered"]
+            .map(|id| id.parse().unwrap())
+            .into(),
+    );
+    let config = Arc::new(config);
     let (shared, plans) = build_host(
         &crate::pipeline::host::compile::HostCompiler {
             state: &state,
@@ -452,7 +478,7 @@ listeners:
     .unwrap();
     assert_eq!(shared.kind(), "other");
     let plans = plans.unwrap();
-    assert_eq!(plans.len(), 2);
+    assert_eq!(plans.len(), 4);
     let mut snapshot = HostAppSnapshot::default();
     snapshot.insert(host.clone(), shared).unwrap();
     snapshot.listener_plans.insert(host, plans);
@@ -462,11 +488,23 @@ listeners:
         std::any::TypeId::of::<HostAppSnapshot>(),
         Arc::new(snapshot),
     );
-    for protocol in [HttpProtocol::H1, HttpProtocol::H2, HttpProtocol::H3] {
+    for listener in ["excluded", "unknown"] {
+        assert!(
+            resolve_sni_for_listener(
+                &table,
+                Some("alias.test"),
+                &listener.parse().unwrap()
+            )
+            .is_err()
+        );
+    }
+    {
+        let protocol = HttpProtocol::H1;
         for (listener, status) in [
             ("open", StatusCode::OK),
             ("limited", StatusCode::PAYLOAD_TOO_LARGE),
             ("timed", StatusCode::OK),
+            ("buffered", StatusCode::OK),
         ] {
             let id = listener.parse().unwrap();
             let mut selected =
@@ -505,6 +543,12 @@ listeners:
                 .now_or_never()
                 .unwrap();
             assert_eq!(reply.status(), status, "{listener}: {protocol:?}");
+            if status == StatusCode::OK {
+                assert_eq!(
+                    reply.headers().contains_key("x-buffered"),
+                    listener == "buffered"
+                );
+            }
             let bytes = reply
                 .into_body()
                 .collect()
