@@ -67,14 +67,14 @@ registration. No layer is installed unconditionally.
 | 7 | CORS admission / preflight | Effective host/prefix CORS declaration. |
 | 8 | Request-body bounds | Effective listener → host → prefix size/idle policy; both off installs no layer. |
 | 9 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
-| At first Backend | **Identity (*)** | Required by a prepared Backend; absent from native file-only plans. |
-| 10 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
-| 11 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
-| 12 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
-| 13 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
-| 14 | Index/SPA file fallback | An index or SPA declaration. |
+| 10 | Identity | Required by a prepared Backend; absent from native file-only plans. |
+| 11 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
+| 12 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
+| 13 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
+| 14 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
+| 15 | Index/SPA file fallback | An index or SPA declaration. |
 
-(*) `Backend<B>` is the request handoff contract for Rust routers/handlers,
+`Backend<B>` is the request handoff contract for Rust routers/handlers,
 embedded runtimes, Upstream and Link. WebSocket and broadcast application calls
 use the same boundary. Protocol/provider filters run at boot/reload; host/scope
 selection and earlier policies run before handoff. The builder inserts Identity
