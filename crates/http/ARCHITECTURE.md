@@ -285,6 +285,7 @@ defaults:
     h1: {header_read_timeout: 10s}
 listeners:
   local:
+    explicit: true
     transport: tcp
     listen: '127.0.0.1:8080'
     tls: false
@@ -302,6 +303,12 @@ listeners:
     quic: {idle_timeout: 60s}
     requests: {max_body_size: 67108864, body_read_timeout: 30s}
 ```
+
+`listeners.<id>.explicit` defaults to false and does not inherit. Edge admits
+hosts without a listener selection only on non-explicit listeners. A host's
+explicit `listeners` list always restricts its eligible listeners; naming an
+explicit listener opts into it. This setting changes host admission, not socket
+binding geometry or protocol capabilities.
 
 `TcpConfig.backlog` is a positive `NonZeroU32` count, defaulting to 1024 through
 the named configuration default. `defaults.listener.tcp.backlog` inherits by

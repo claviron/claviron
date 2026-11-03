@@ -6,6 +6,7 @@ pub mod host;
 pub mod layers;
 #[cfg(feature = "orbit")]
 pub mod link;
+mod non_serving;
 mod routable;
 pub mod routing;
 #[cfg(feature = "upstream")]
@@ -44,6 +45,9 @@ pub use layers::{
 };
 #[cfg(feature = "rate-limit")]
 pub use layers::{QuotaPolicy, QuotaState};
+#[cfg(feature = "tcp")]
+pub(crate) use non_serving::NonServingPipeline;
+pub use non_serving::{InterceptsNonServing, NonServingContext};
 pub use routable::{
     HostBindingProvider, Routable, RouteBinding, RouteProtocol,
 };

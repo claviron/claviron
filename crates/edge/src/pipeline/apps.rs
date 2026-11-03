@@ -22,6 +22,7 @@ use tracing::error;
 
 use crate::VhostResolver;
 use crate::config::HostConfig;
+use crate::pipeline::InterceptsNonServing;
 use crate::pipeline::host::{HostExecution, HostHandler};
 use crate::pipeline::routable::Routable;
 use crate::pipeline::routable::{
@@ -52,15 +53,39 @@ pub struct HostAppSnapshot {
     listener_plans: HashMap<Host, ListenerPlans>,
     configs: HashMap<Host, Arc<HostConfig>>,
     http: Option<Arc<claviron_http::config::HttpSnapshot>>,
+    #[cfg(feature = "tcp")]
+    non_serving_interception: Option<Arc<dyn InterceptsNonServing>>,
     #[cfg(feature = "rate-limit")]
     quotas:
         Arc<HashMap<Host, Option<Arc<crate::pipeline::layers::HostQuotas>>>>,
 }
 
 pub(crate) type ListenerPlans =
-    Arc<[(claviron_http::ListenerId, HostExecution)]>;
+    Arc<[(claviron_http::ListenerId, ListenerHostPlan)]>;
+
+#[derive(Clone)]
+pub(crate) enum ListenerHostPlan {
+    Application(HostExecution),
+    NonServing,
+}
+
+impl ListenerHostPlan {
+    pub(crate) fn application(&self) -> Option<&HostExecution> {
+        match self {
+            Self::Application(app) => Some(app),
+            Self::NonServing => None,
+        }
+    }
+}
 
 impl HostAppSnapshot {
+    #[cfg(feature = "tcp")]
+    pub(crate) fn non_serving_interception(
+        &self
+    ) -> Option<Arc<dyn InterceptsNonServing>> {
+        self.non_serving_interception.clone()
+    }
+
     pub(crate) fn listener_plans(
         &self,
         host: &Host,
@@ -351,6 +376,7 @@ pub(crate) struct HostContributions {
 pub struct HostAppRegistry {
     inner: RwLock<HashMap<String, Binding>>,
     routables: RwLock<Vec<Arc<dyn Routable>>>,
+    non_serving_interception: RwLock<Option<Arc<dyn InterceptsNonServing>>>,
     route_extensions: RwLock<Vec<Arc<dyn RouteExtension>>>,
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
     #[cfg(feature = "rate-limit")]
@@ -358,6 +384,25 @@ pub struct HostAppRegistry {
 }
 
 impl HostAppRegistry {
+    /// Bind the single request interceptor for non-serving plain HTTP hosts.
+    /// Register before preparation. This hook does not change host/listener admission.
+    pub fn bind_non_serving_interception(
+        &self,
+        interception: Arc<dyn InterceptsNonServing>,
+    ) -> Result<()> {
+        let mut slot = self
+            .non_serving_interception
+            .write()
+            .expect("non-serving interception lock poisoned");
+        if slot.is_some() {
+            return Err(Error::msg(
+                "non-serving interception is already bound",
+            ));
+        }
+        *slot = Some(interception);
+        Ok(())
+    }
+
     /// Bind a prepared limiter to this canonical host/prefix. It runs at the
     /// same head-admission point as config, after proxy/Deny/ACL and before
     /// application extension layers, the selected Rust router or backend.
@@ -780,7 +825,10 @@ impl HostAppRegistry {
                     http.as_ref()
                         .and_then(|input| input.listeners.values().next())
                         .is_none_or(|listener| {
-                            listener_exposes(&record.config, listener)
+                            matches!(
+                                listener_plan(&record.config, listener),
+                                Some(HostSelection::Application)
+                            )
                         })
                 })
                 .map(|(canonical, record)| {
@@ -802,6 +850,12 @@ impl HostAppRegistry {
             listener_plans: HashMap::new(),
             configs: HashMap::new(),
             http: http.clone(),
+            #[cfg(feature = "tcp")]
+            non_serving_interception: self
+                .non_serving_interception
+                .read()
+                .expect("non-serving interception lock poisoned")
+                .clone(),
             #[cfg(feature = "rate-limit")]
             quotas: Arc::new(quotas),
         };
@@ -829,7 +883,7 @@ impl HostAppRegistry {
                 .as_ref()
                 .and_then(|input| input.listeners.values().next())
                 .is_some_and(|listener| {
-                    !listener_exposes(&record.config, listener)
+                    listener_plan(&record.config, listener).is_none()
                 })
             {
                 continue;
@@ -853,6 +907,24 @@ impl HostAppRegistry {
                 snapshot
                     .configs
                     .insert(canonical.clone(), record.config.clone());
+                continue;
+            }
+            if let Some(listener) =
+                http.as_ref().and_then(|input| input.listeners.values().next())
+                && matches!(
+                    listener_plan(&record.config, listener),
+                    Some(HostSelection::NonServing)
+                )
+            {
+                let plans: ListenerPlans =
+                    [(listener.id.clone(), ListenerHostPlan::NonServing)]
+                        .into();
+                snapshot
+                    .configs
+                    .insert(canonical.clone(), record.config.clone());
+                for host in table.host_keys_for_canonical(canonical) {
+                    snapshot.listener_plans.insert(host, plans.clone());
+                }
                 continue;
             }
             let routable = self.routable_binding(
@@ -919,8 +991,10 @@ impl HostAppRegistry {
             for listener in http.iter().flat_map(|http| http.listeners.values())
             {
                 let protocol = RouteProtocol::from(listener.as_ref());
-                if !record.config.allows_listener(&listener.id)
-                    || protocol_inputs.contains_key(&protocol)
+                if !matches!(
+                    listener_plan(&record.config, listener),
+                    Some(HostSelection::Application)
+                ) || protocol_inputs.contains_key(&protocol)
                     || !self.specializes_on(canonical, &record.config, protocol)
                 {
                     continue;
@@ -1015,20 +1089,38 @@ impl HostInput {
     }
 }
 
-fn listener_exposes(
+enum HostSelection {
+    Application,
+    NonServing,
+}
+
+fn listener_plan(
     host: &HostConfig,
     listener: &claviron_http::config::ListenerConfig,
-) -> bool {
-    host.allows_listener(&listener.id)
-        && match &listener.settings {
-            claviron_http::config::ListenerSettings::Tcp(tcp) => tcp
-                .protocols
+) -> Option<HostSelection> {
+    use crate::config::NonSslPolicy;
+    use claviron_http::config::{ListenerSettings, TcpSecurity};
+    if !host.allows_listener(&listener.id)
+        || (listener.explicit && host.listeners.is_none())
+    {
+        return None;
+    }
+    let compatible = match &listener.settings {
+        ListenerSettings::Tcp(tcp) => {
+            if matches!(tcp.security, TcpSecurity::Cleartext { .. })
+                && host.transport.non_ssl != NonSslPolicy::Serve
+            {
+                return Some(HostSelection::NonServing);
+            }
+            tcp.protocols
                 .iter()
-                .any(|protocol| host.transport.allows_protocol(*protocol)),
-            claviron_http::config::ListenerSettings::Quic(_) => host
-                .transport
-                .allows_protocol(claviron_http::listener::HttpProtocol::H3),
+                .any(|protocol| host.transport.allows_protocol(*protocol))
         }
+        ListenerSettings::Quic(_) => host
+            .transport
+            .allows_protocol(claviron_http::listener::HttpProtocol::H3),
+    };
+    compatible.then_some(HostSelection::Application)
 }
 
 fn build_host(
@@ -1063,8 +1155,13 @@ fn build_host(
     for (id, listener) in
         compiler.http.into_iter().flat_map(|http| &http.listeners)
     {
-        if !listener_exposes(&host_cfg, listener) {
-            continue;
+        match listener_plan(&host_cfg, listener) {
+            None => continue,
+            Some(HostSelection::NonServing) => {
+                plans.push((id.clone(), ListenerHostPlan::NonServing));
+                continue;
+            }
+            Some(HostSelection::Application) => {}
         }
         let protocol = RouteProtocol::from(listener.as_ref());
         let input = protocols.get(&protocol).unwrap_or(&common);
@@ -1086,10 +1183,12 @@ fn build_host(
             #[cfg(feature = "websocket")]
             input.websocket.clone(),
         )?;
-        plans.push((id.clone(), app));
+        plans.push((id.clone(), ListenerHostPlan::Application(app)));
     }
     let shared = shared
-        .or_else(|| plans.first().map(|(_, owner)| owner.clone()))
+        .or_else(|| {
+            plans.iter().find_map(|(_, plan)| plan.application().cloned())
+        })
         .ok_or_else(|| Error::msg("host has no eligible listener execution"))?;
     Ok((shared, (!plans.is_empty()).then(|| plans.into())))
 }

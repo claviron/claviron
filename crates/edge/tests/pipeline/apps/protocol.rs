@@ -2,7 +2,7 @@ use super::*;
 
 use futures_util::FutureExt;
 
-const LISTENERS: &str = r#"
+pub(super) const LISTENERS: &str = r#"
 defaults:
   listener:
     requests: {max_body_size: off, body_read_timeout: off}
@@ -35,7 +35,7 @@ fn listener_host_selection_keeps_names_aliases_and_prepared_plans_together() {
             .unwrap();
     let registry = HostAppRegistry::default();
     let table: crate::loader::table::VhostTable = serde_yaml::from_str(
-        "default: {listeners: tls}\nselected.test: {listeners: [plain, tls, quic], aliases: [alias.test]}\nexcluded.test: {listeners: plain-alt, aliases: [excluded-alias.test]}\nh3.test: {transport: {protocols: h3}}\n",
+        "default: {listeners: tls}\nselected.test: {listeners: [plain, tls, quic], aliases: [alias.test], transport: {non_ssl: serve}}\nexcluded.test: {listeners: plain-alt, aliases: [excluded-alias.test]}\nh3.test: {transport: {non_ssl: serve, protocols: h3}}\n",
     )
     .unwrap();
     for name in ["plain", "tls", "quic"] {
@@ -182,7 +182,8 @@ fn protocol_selection_is_cold_and_http_layers_are_absent_from_tls_and_quic() {
         prepares: prepares.clone(),
     }));
     let mut table: crate::loader::table::VhostTable =
-        serde_yaml::from_str("example.test: {}\n").unwrap();
+        serde_yaml::from_str("example.test: {transport: {non_ssl: serve}}\n")
+            .unwrap();
     let snapshot = registry.build_table(&state, &table, None).unwrap();
     assert_eq!(prepares.load(Ordering::Relaxed), 0);
     // An unbound lookup must not accidentally expose a protocol-specific layer.
@@ -266,7 +267,7 @@ fn protocol_selection_omits_inactive_directives_without_losing_their_owner() {
         prepares: Arc::new(AtomicUsize::new(0)),
     }));
     let mut table: crate::loader::table::VhostTable = serde_yaml::from_str(
-        "example.test:\n  routes:\n    /private: {plain_only: true}\n",
+        "example.test:\n  transport: {non_ssl: serve}\n  routes:\n    /private: {plain_only: true}\n",
     )
     .unwrap();
     let snapshot = registry.build_table(&state, &table, None).unwrap();

@@ -83,7 +83,8 @@ pub struct HostFields {
     /// Request/file declarations shared by the root and every route scope.
     #[serde(flatten)]
     pub routing: RouteConfig,
-    /// Missing = all listeners; an explicit empty list exposes this host nowhere.
+    /// Missing = compatible non-explicit listeners. A list restricts all
+    /// listener membership; an empty list exposes this host nowhere.
     #[serde(default, deserialize_with = "opt_one_or_many")]
     pub listeners: Option<Vec<claviron_http::ListenerId>>,
     #[serde(default, alias = "names", alias = "name", alias = "alias")]

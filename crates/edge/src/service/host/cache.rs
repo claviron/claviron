@@ -12,6 +12,9 @@ pub(crate) struct CleartextHostCache {
 }
 
 impl CleartextHostCache {
+    pub(crate) fn connection(&self) -> &Arc<ConnCtx> {
+        &self.connection
+    }
     pub(crate) fn new(
         connection: Arc<ConnCtx>,
         listener: HttpPolicy,

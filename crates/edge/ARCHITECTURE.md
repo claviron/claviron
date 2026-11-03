@@ -55,6 +55,27 @@ Host selection precedes the pipeline. Multiple prefix scopes or entry conditions
 add `RouteSelectionLayer`; a single unconditional root scope uses its plan
 directly. Prefix and condition matching still happen per request.
 
+Listener `explicit` defaults to false. Hosts with no `listeners` selection join
+compatible non-explicit listeners. An explicit listener requires its ID in that
+selection. A supplied host list restricts every listener, including non-explicit
+ones; `[]` exposes the host nowhere. Selection is resolved before publication.
+
+For plain HTTP, `transport.non_ssl: serve` prepares the normal host pipeline.
+Redirect (the default) and reject retain host admission without preparing an
+application router, route layers or backends. They use the listener's concrete
+`NonServingPipeline`: one fixed flow takes the selected host as input. It
+preserves the requested hostname, path and query when redirecting, using the
+listener's `redirect_port`; reject returns 403. An unhosted name returns 404.
+Non-serving policies remain available when the host's application protocols
+exclude H1. TLS TCP and QUIC still require a compatible application protocol.
+
+`InterceptsNonServing` is an optional single `dyn` binding on `HostAppRegistry`.
+Its request-time call precedes both redirect and reject. It receives `HostRequest`
+and borrowed `NonServingContext` (host config, canonical key, connection and
+effective HTTP policy). Handled is terminal; Unhandled retains the same unread
+body. Without a binding, no interception context, body erasure or extension map
+is created. Routable providers and normal host layers do not run on this path.
+
 Within the selected scope, entries follow this order. Every entry is conditional
 on effective configuration (including inherited defaults) or explicit Rust
 registration. No layer is installed unconditionally.
@@ -277,6 +298,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`pipeline.rs`](src/pipeline.rs) — Public native composition contracts and optional adapter exports.
 - [`apps.rs`](src/pipeline/apps.rs) — Retained factories, directives and per-host application snapshot preparation/reuse.
 - [`routable.rs`](src/pipeline/routable.rs) — Provider-owned contributions, native layers and exclusive host bindings.
+- [`non_serving.rs`](src/pipeline/non_serving.rs) — Fixed plain redirect/reject flow and the optional single request interceptor.
 - [`extension.rs`](src/pipeline/extension.rs) — Typed directives and boot-time RouteContext; borrow inherited settings and prepare effective policy.
 - [`routing.rs`](src/pipeline/routing.rs) — Shared prefix dispatch and route-extension re-exports.
 - [`apps/axum.rs`](src/pipeline/apps/axum.rs) — Axum host registration and ApplicationHandler/HostHandler adaptation.
@@ -423,6 +445,7 @@ ownership and isolated state transitions without provider boot or live listeners
 
 - [`apps.rs`](tests/pipeline/apps.rs) — Rust binding/layer composition, duplicate-owner retention and HTTP-policy cache invalidation.
 - [`apps/protocol.rs`](tests/pipeline/apps/protocol.rs) — Cold protocol selection, listener name/alias/default admission, inactive directives and plan isolation.
+- [`apps/listeners.rs`](tests/pipeline/apps/listeners.rs) — Explicit listener selection, static non-serving policy, interception and unread-body ownership.
 - [`apps/reply.rs`](tests/pipeline/apps/reply.rs) — Listener/prefix reply bounds, early responses, lazy frames and cancellation.
 - [`broadcast.rs`](tests/pipeline/broadcast.rs) — Selected broadcast route ownership.
 - [`broadcast/rest.rs`](tests/pipeline/broadcast/rest.rs) — REST endpoint claims and terminal responses.

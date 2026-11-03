@@ -15,6 +15,10 @@ use crate::pipeline::host::{HostHandlerFuture, HostLayerBuilder, HostRequest};
 mod protocol;
 
 #[cfg(any(feature = "tcp", feature = "quic"))]
+#[path = "apps/listeners.rs"]
+mod listeners;
+
+#[cfg(any(feature = "tcp", feature = "quic"))]
 #[path = "apps/reply.rs"]
 mod reply;
 
@@ -457,6 +461,7 @@ listeners:
     .unwrap();
     let host = "example.test".parse().unwrap();
     let mut config = HostConfig::new("public");
+    config.transport.non_ssl = crate::config::NonSslPolicy::Serve;
     config.listeners = Some(
         ["open", "limited", "timed", "buffered"]
             .map(|id| id.parse().unwrap())

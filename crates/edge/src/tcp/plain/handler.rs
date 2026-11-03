@@ -6,17 +6,15 @@ use std::future::{Future, ready};
 use std::sync::Arc;
 
 use crate::service::{CleartextHostCache, CleartextRequest};
-use crate::transport::VhostTable;
 use claviron_http::ext::ConnCtx;
 use claviron_http::{RouteResponse, err_status};
 use futures_util::future::Either;
 use hyper::{Request, StatusCode};
-use tracing::warn;
 
 use super::server::ServerSnapshot;
 
 pub(super) struct H1Service {
-    hosts: Arc<VhostTable>,
+    snapshot: Arc<ServerSnapshot>,
     host_cache: RefCell<CleartextHostCache>,
 }
 
@@ -27,10 +25,7 @@ impl H1Service {
     ) -> Self {
         let host_cache =
             CleartextHostCache::new(ctx, snapshot.listener.policy());
-        Self {
-            hosts: snapshot.hosts.clone(),
-            host_cache: RefCell::new(host_cache),
-        }
+        Self { snapshot, host_cache: RefCell::new(host_cache) }
     }
 
     pub(super) fn call<B>(
@@ -60,17 +55,27 @@ impl H1Service {
     {
         let request = CleartextRequest::new(request)
             .map_err(|_| StatusCode::BAD_REQUEST)?;
-        let table = &self.hosts;
+        let table = &self.snapshot.hosts;
         let mut cache = self.host_cache.borrow_mut();
         let Some(mut host) = cache.resolve(request.authority(), table) else {
             return Err(StatusCode::NOT_FOUND);
         };
         let Some(app) = host.application.take() else {
-            warn!(host = %request.authority().authority(), "H1 host application unavailable");
-            return Err(StatusCode::SERVICE_UNAVAILABLE);
+            let connection = cache.connection().clone();
+            drop(cache);
+            let snapshot = self.snapshot.clone();
+            let (request, _) = request.into_parts();
+            return Ok(Either::Right(async move {
+                Ok(snapshot
+                    .non_serving
+                    .call(request, host, connection, snapshot.listener.policy())
+                    .await)
+            }));
         };
         let host = cache.bind(app, host);
         drop(cache);
-        Ok(crate::tcp::service::dispatch(host.request_cleartext(request)))
+        Ok(Either::Left(crate::tcp::service::dispatch(
+            host.request_cleartext(request),
+        )))
     }
 }

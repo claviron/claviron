@@ -27,7 +27,7 @@ impl VhostEntry {
     fn listener_plan(
         &self,
         listener: &claviron_http::ListenerId,
-    ) -> Option<&crate::pipeline::HostExecution> {
+    ) -> Option<&crate::pipeline::apps::ListenerHostPlan> {
         self.listener_plans
             .as_ref()?
             .iter()
@@ -84,26 +84,27 @@ impl VhostTable {
 
     /// Dependencies may retain this host view without retaining themselves.
     pub fn declarations_only(&self) -> Self {
-        let inner =
-            if self.inner.values().any(|entry| entry.application.is_some()) {
-                Arc::new(
-                    self.inner
-                        .iter()
-                        .map(|(host, entry)| {
-                            (
-                                host.clone(),
-                                VhostEntry {
-                                    record: entry.record.clone(),
-                                    application: None,
-                                    listener_plans: None,
-                                },
-                            )
-                        })
-                        .collect(),
-                )
-            } else {
-                self.inner.clone()
-            };
+        let inner = if self.inner.values().any(|entry| {
+            entry.application.is_some() || entry.listener_plans.is_some()
+        }) {
+            Arc::new(
+                self.inner
+                    .iter()
+                    .map(|(host, entry)| {
+                        (
+                            host.clone(),
+                            VhostEntry {
+                                record: entry.record.clone(),
+                                application: None,
+                                listener_plans: None,
+                            },
+                        )
+                    })
+                    .collect(),
+            )
+        } else {
+            self.inner.clone()
+        };
         Self { inner, prepared: HashMap::new() }
     }
 
@@ -188,7 +189,7 @@ impl VhostTable {
     ) -> Option<(&VhostRecord, Option<&crate::pipeline::HostExecution>)> {
         let entry = self.resolve_entry(host)?;
         let application = match listener {
-            Some(listener) => Some(entry.listener_plan(listener)?),
+            Some(listener) => entry.listener_plan(listener)?.application(),
             None => entry.application.as_ref(),
         };
         Some((entry.record.as_ref(), application))
@@ -291,8 +292,11 @@ impl VhostTable {
         listener: &'a claviron_http::ListenerId,
     ) -> impl Iterator<Item = (&'a Host, &'a Arc<VhostRecord>)> {
         self.inner.iter().filter_map(move |(key, entry)| {
-            (*key == entry.canonical && entry.listener_plan(listener).is_some())
-                .then_some((key, &entry.record))
+            (*key == entry.canonical
+                && entry
+                    .listener_plan(listener)
+                    .is_some_and(|plan| plan.application().is_some()))
+            .then_some((key, &entry.record))
         })
     }
 

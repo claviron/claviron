@@ -116,7 +116,7 @@ listeners:
         }))
     });
     let mut table: crate::loader::table::VhostTable = serde_yaml::from_str(
-        "example.test:\n  responses: {max_body_size: 12}\n  routes:\n    /narrow: {responses: {max_body_size: 2}}\n    /narrow/child: {}\n    /off: {responses: {max_body_size: off}}\n",
+        "example.test:\n  transport: {non_ssl: serve}\n  responses: {max_body_size: 12}\n  routes:\n    /narrow: {responses: {max_body_size: 2}}\n    /narrow/child: {}\n    /off: {responses: {max_body_size: off}}\n",
     ).unwrap();
     let snapshot = registry.build_table(&state, &table, None).unwrap();
     table.set_prepared(

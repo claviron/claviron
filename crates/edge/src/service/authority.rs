@@ -30,7 +30,7 @@ impl<B> CleartextRequest<B> {
         &self.authority
     }
 
-    pub(super) fn into_parts(self) -> (Request<B>, RequestAuthority) {
+    pub(crate) fn into_parts(self) -> (Request<B>, RequestAuthority) {
         (self.request, self.authority)
     }
 }

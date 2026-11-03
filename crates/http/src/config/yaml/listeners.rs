@@ -56,6 +56,9 @@ pub struct ListenerOverrides {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ListenerDefinition {
+    /// Require hosts to name this listener in their `listeners` selection.
+    #[serde(default = "default_explicit")]
+    pub explicit: bool,
     #[serde(default)]
     pub execution: Override<ListenerExecution>,
     pub transport: ListenerTransport,
@@ -116,6 +119,7 @@ impl Default for ConnectionLimits {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListenerConfig {
     pub id: ListenerId,
+    pub explicit: bool,
     /// Placement for the next generation; independent of transport and binds.
     pub execution: ListenerExecution,
     pub listen: Vec<SocketAddr>,
@@ -426,6 +430,7 @@ impl ListenerDefinition {
         );
         Ok(ListenerConfig {
             id,
+            explicit: self.explicit,
             execution,
             listen: self.listen,
             limits,
@@ -435,6 +440,10 @@ impl ListenerDefinition {
             settings,
         })
     }
+}
+
+fn default_explicit() -> bool {
+    false
 }
 
 pub(super) fn deserialize_definitions<'de, D: Deserializer<'de>>(

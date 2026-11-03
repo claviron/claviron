@@ -39,6 +39,7 @@ pub(super) struct ServerSnapshot {
     pub(super) tcp: TcpConfig,
     pub(super) h1: H1Config,
     pub(super) hosts: Arc<VhostTable>,
+    pub(super) non_serving: crate::pipeline::NonServingPipeline,
 }
 impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
     fn listener(&self) -> &ListenerConfig {
@@ -175,7 +176,7 @@ pub(super) fn build_snapshots(
         let ListenerSettings::Tcp(config) = &listener.settings else {
             continue;
         };
-        let TcpSecurity::Cleartext { .. } = &config.security else {
+        let TcpSecurity::Cleartext { redirect_port } = &config.security else {
             if !cfg!(feature = "tls") {
                 return Err(claviron_runtime::registry::Error::msg(format!(
                     "listener '{id}' requires the Hyper tls feature"
@@ -190,6 +191,12 @@ pub(super) fn build_snapshots(
                 tcp: config.tcp.clone(),
                 h1: config.h1.clone(),
                 hosts: hosts.clone(),
+                non_serving: crate::pipeline::NonServingPipeline::new(
+                    *redirect_port,
+                    hosts
+                        .prepared::<crate::pipeline::HostAppSnapshot>()
+                        .and_then(|apps| apps.non_serving_interception()),
+                ),
             }),
         );
     }
