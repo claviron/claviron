@@ -63,7 +63,7 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
     registry
         .register_other("example.test", |_, _, _| Ok(OtherService::new(Reply)));
     let snapshot = registry.build_table(&state, &table, None).unwrap();
-    let connection = claviron_http::ext::ConnCtx {
+    let connection = Arc::new(claviron_http::ext::ConnCtx {
         state: Default::default(),
         listener: "public".parse().unwrap(),
         proto: Some(claviron_http::listener::HttpProtocol::H1),
@@ -73,8 +73,9 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
         real_ip: None,
         country_code: None,
         tls: None,
-    };
+    });
     let context = Some(crate::pipeline::host::HostContext {
+        host: None,
         connection: &connection,
         arrival: crate::service::RequestArrival::Established,
     });

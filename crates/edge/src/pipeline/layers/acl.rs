@@ -59,7 +59,7 @@ impl<S, R: From<RequestRejection>> HostLayer<S, R> for AclLayer {
             let ip = head.extensions.get::<RealIpExt>().map(|ip| ip.0).or_else(
                 || {
                     context
-                        .map(|context| context.connection)
+                        .map(|context| context.connection.as_ref())
                         .or_else(|| {
                             head.extensions
                                 .get::<Arc<ConnCtx>>()

@@ -248,11 +248,10 @@ impl RequestCtx {
                 "ConnCtx required for php-fcgi".to_string(),
             ));
         };
-        let Some(real_ip) = exts.get::<RealIpExt>().cloned() else {
-            return Err(GatewayError::Internal(
-                "RealIp required for php-fcgi".to_string(),
-            ));
-        };
+        let real_ip =
+            exts.get::<RealIpExt>().map(|ip| ip.0).unwrap_or_else(|| {
+                conn.real_ip.unwrap_or_else(|| conn.remote.ip())
+            });
         let Some(hostname) = exts.get::<HostName>().cloned() else {
             return Err(GatewayError::Internal(
                 "Hostname required for php-fcgi".to_string(),
@@ -310,7 +309,7 @@ impl RequestCtx {
         };
 
         let request_host = hostname.0.to_string();
-        let remote_addr = real_ip.0.to_string();
+        let remote_addr = real_ip.to_string();
 
         Ok(Self {
             method: parts.method.clone(),

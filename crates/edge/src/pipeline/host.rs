@@ -31,6 +31,7 @@ mod request;
 mod response;
 
 pub use application::ApplicationHandler;
+pub use backend::{Backend, BackendHandler};
 pub(crate) use binding::HostPolicy;
 pub use context::{ContextFuture, ContextHandler, HostContext};
 pub use dispatch::{
@@ -92,6 +93,7 @@ pub struct HostLayerBuilder<S = (), R = RouteResponse> {
     before: Vec<Action<S, R>>,
     after: Vec<ResponseAction<S>>,
     body: Vec<BodyAction<S>>,
+    pub(in crate::pipeline) identity: Option<claviron_http::policy::HttpPolicy>,
 }
 
 /// Collects prepared layers in declaration order. No runtime is constructed.

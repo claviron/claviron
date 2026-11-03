@@ -1,76 +1,40 @@
-//! Request metadata derived from the accepted connection.
+//! Metadata exported when a prepared backend takes ownership of a request.
 
-use std::sync::Arc;
-
-use claviron_http::ext::ConnCtx;
+use claviron_http::policy::HttpPolicy;
+use http::Extensions;
 
 use super::*;
-use crate::service::VhostCtx;
+use crate::pipeline::host::HostContext;
 
 pub(crate) mod extensions;
-use extensions::ContextExtensions;
 
-/// The identity produced for one request. It is also installed in its typed
-/// extensions; native authentication must retain this exact same context.
-#[derive(Default)]
-pub struct IdentityState {
-    pub(super) connection: Option<Arc<ConnCtx>>,
-}
-
-impl IdentityState {
-    pub fn connection(&self) -> Option<&Arc<ConnCtx>> {
-        self.connection.as_ref()
-    }
-}
-
-impl AsMut<IdentityState> for IdentityState {
-    fn as_mut(&mut self) -> &mut IdentityState {
-        self
-    }
-}
-
-impl AsRef<IdentityState> for IdentityState {
-    fn as_ref(&self) -> &IdentityState {
-        self
-    }
-}
-
-/// Prepare shared metadata for the accepted connection and selected host.
-/// Forwarding headers do not alter this identity.
+/// Export accepted connection/host facts and the scope's effective policy.
+/// Forwarded client identity stays request-local; connection facts are shared.
+#[derive(Clone, Copy)]
 pub struct IdentityPolicy {
-    connection: Arc<ConnCtx>,
-    extensions: ContextExtensions,
+    pub(in crate::pipeline) policy: HttpPolicy,
 }
 
 impl IdentityPolicy {
-    pub fn new(
-        connection: Arc<ConnCtx>,
-        host: &VhostCtx,
-    ) -> Self {
-        let extensions = ContextExtensions::new(&connection, host);
-        Self { connection, extensions }
+    pub fn new(policy: HttpPolicy) -> Self {
+        Self { policy }
     }
 
-    pub(super) fn register<S: AsMut<IdentityState>, R>(
-        self,
-        layer: &mut HostLayerBuilder<S, R>,
+    pub(in crate::pipeline) fn inject(
+        &self,
+        values: &mut Extensions,
+        context: Option<HostContext<'_>>,
     ) {
-        let Self { connection, extensions } = self;
-        let ip = connection.real_ip.unwrap_or_else(|| connection.remote.ip());
-        layer.before(move |head, state| {
-            extensions.inject_fixed(head, &connection, ip);
-            state.as_mut().connection = Some(connection.clone());
-            ControlFlow::Continue(())
-        });
+        extensions::inject(values, self.policy, context);
     }
 }
 
-impl<S: AsMut<IdentityState>, R> HostLayer<S, R> for IdentityPolicy {
+impl<S, R> HostLayer<S, R> for IdentityPolicy {
     fn prepare(
         self,
         layer: &mut HostLayerBuilder<S, R>,
     ) -> crate::Result<()> {
-        self.register(layer);
+        layer.identity = Some(self.policy);
         Ok(())
     }
 }

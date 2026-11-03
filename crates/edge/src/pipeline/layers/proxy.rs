@@ -75,7 +75,7 @@ impl<S, R: From<RequestRejection>> HostLayer<S, R> for ProxyLayer {
             Source::Listeners(listeners) => {
                 layer.before_context(move |head, _, context| {
                     let connection = context
-                        .map(|context| context.connection)
+                        .map(|context| context.connection.as_ref())
                         .or_else(|| {
                             head.extensions
                                 .get::<Arc<ConnCtx>>()

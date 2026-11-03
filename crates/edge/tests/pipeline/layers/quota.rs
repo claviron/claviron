@@ -48,8 +48,8 @@ impl Drop for BodyOwner {
     }
 }
 
-fn connection() -> ConnCtx {
-    ConnCtx {
+fn connection() -> Arc<ConnCtx> {
+    Arc::new(ConnCtx {
         state: Default::default(),
         listener: "public".parse().unwrap(),
         proto: Some(claviron_http::listener::HttpProtocol::H1),
@@ -59,7 +59,7 @@ fn connection() -> ConnCtx {
         real_ip: None,
         country_code: None,
         tls: None,
-    }
+    })
 }
 
 #[test]
@@ -75,6 +75,7 @@ fn quota_layer_borrows_accepted_identity_and_cancellation_does_not_refund_admiss
     drop(quotas);
     let connection = connection();
     let context = Some(HostContext {
+        host: None,
         connection: &connection,
         arrival: RequestArrival::Established,
     });
@@ -116,6 +117,7 @@ fn quota_snapshot_headers_come_from_the_admission_that_produced_the_reply() {
         .build();
     let connection = connection();
     let context = Some(HostContext {
+        host: None,
         connection: &connection,
         arrival: RequestArrival::Established,
     });

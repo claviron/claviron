@@ -115,6 +115,8 @@ impl PhpBackend {
     }
 }
 
+impl crate::pipeline::host::BackendHandler for PhpBackend {}
+
 impl DispatchStep for PhpBackend {
     fn call(
         &self,

@@ -86,6 +86,8 @@ impl LuaBackend {
     }
 }
 
+impl crate::pipeline::host::BackendHandler for LuaBackend {}
+
 impl DispatchStep for LuaBackend {
     fn call(
         &self,

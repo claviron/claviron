@@ -108,6 +108,8 @@ impl LinkBackend {
     }
 }
 
+impl crate::pipeline::host::BackendHandler for LinkBackend {}
+
 impl DispatchStep for LinkBackend {
     fn call(
         &self,

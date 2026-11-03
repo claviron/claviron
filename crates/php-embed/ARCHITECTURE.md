@@ -1072,6 +1072,10 @@ therefore translates `ConnCtx::tls` into standard CGI/mod_ssl-style
 `SSL_CLIENT_VERIFY`, `SSL_CLIENT_S_DN`, `SSL_CLIENT_I_DN`) instead of
 expecting libphp to discover TLS state itself.
 
+Both HTTP execution modes project the client IP from request-local `RealIpExt`
+when present, otherwise from `ConnCtx`. Peer GeoIP and TLS facts remain
+connection-owned; trusted forwarding does not replace them.
+
 Script CGI projection derives `REQUEST_SCHEME`, `HTTPS=on|off` and
 `HTTP_X_FORWARDED_PROTO` from accepted transport context. Missing context
 does not invent HTTPS; shared PHP filtering excludes client forwarding

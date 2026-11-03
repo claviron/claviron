@@ -26,8 +26,8 @@ pub use connect::{
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
 };
 pub use host::{
-    ApplicationHandler, AsyncHeadAction, DispatchCall, DispatchFuture,
-    DispatchResult, DispatchStep, HostExecution, HostHandler,
+    ApplicationHandler, AsyncHeadAction, Backend, BackendHandler, DispatchCall,
+    DispatchFuture, DispatchResult, DispatchStep, HostExecution, HostHandler,
     HostHandlerFuture, HostHandlerResult, HostLayerBuilder, HostPipeline,
     HostPipelineBuilder, HostRequest,
 };
@@ -38,9 +38,9 @@ pub use layers::{AccessLogLayer, AccessLogState};
 pub use layers::{
     AclLayer, AuthorityLayer, CorsLayer, CorsState, DenyLayer,
     HeaderClearLayer, HeaderSetLayer, HostLayer, HttpsRedirectLayer,
-    IdentityPolicy, IdentityState, ProxyLayer, RedirectLayer, ReplyPolicy,
-    RequestBodyLayer, RouteSelectionLayer, StaticStage, TryFilesStage,
-    UpgradeLayer, prepare_headers,
+    IdentityPolicy, ProxyLayer, RedirectLayer, ReplyPolicy, RequestBodyLayer,
+    RouteSelectionLayer, StaticStage, TryFilesStage, UpgradeLayer,
+    prepare_headers,
 };
 #[cfg(feature = "rate-limit")]
 pub use layers::{QuotaPolicy, QuotaState};

@@ -1,23 +1,10 @@
 use super::*;
 use crate::config::HostConfig;
-use crate::service::resolve_sni_from_table;
+use crate::service::{RequestArrival, VhostCtx, resolve_sni_from_table};
+use claviron_http::ext::{ConnCtx, HostKey, HostName, RealIpExt};
+use claviron_http::policy::HttpPolicy;
 use http::{Extensions, Request};
-
-fn inject(
-    template: &ContextExtensions,
-    connection: &Arc<ConnCtx>,
-    request: &mut Request<()>,
-) {
-    let (mut head, body) = std::mem::take(request).into_parts();
-    template.inject_fixed(
-        &mut head,
-        connection,
-        connection.real_ip.unwrap_or_else(|| connection.remote.ip()),
-    );
-    *request = Request::from_parts(head, body);
-}
-use claviron_http::config::HttpPolicy;
-use claviron_http::ext::ReceivedAt;
+use std::sync::Arc;
 
 fn direct() -> (Arc<ConnCtx>, VhostCtx) {
     let table =
@@ -31,11 +18,28 @@ fn direct() -> (Arc<ConnCtx>, VhostCtx) {
         remote: "192.0.2.1:1234".parse().unwrap(),
         local_ip: "127.0.0.1".parse().unwrap(),
         local_port: 8080,
-        real_ip: Some("192.0.2.1".parse().unwrap()),
-        country_code: None,
+        real_ip: None,
+        country_code: Some("GB".into()),
         tls: None,
     });
     (connection, host)
+}
+
+fn export(
+    request: &mut Request<()>,
+    connection: &Arc<ConnCtx>,
+    host: &VhostCtx,
+) {
+    let (mut head, body) = std::mem::take(request).into_parts();
+    inject(
+        &mut head.extensions,
+        HttpPolicy::unlimited(),
+        Some(
+            HostContext::new(connection, RequestArrival::Established)
+                .with_host(&host.hostname, &host.vhost_key),
+        ),
+    );
+    *request = Request::from_parts(head, body);
 }
 
 fn assert_context(
@@ -44,11 +48,6 @@ fn assert_context(
     host: &VhostCtx,
 ) {
     assert!(Arc::ptr_eq(extensions.get::<Arc<ConnCtx>>().unwrap(), connection));
-    assert!(extensions.get::<claviron_http::ListenerId>().is_none());
-    assert_eq!(
-        extensions.get::<RealIpExt>().unwrap().0,
-        connection.real_ip.unwrap()
-    );
     assert!(Arc::ptr_eq(
         &extensions.get::<HostName>().unwrap().0,
         &host.hostname.0
@@ -57,38 +56,31 @@ fn assert_context(
         &extensions.get::<HostKey>().unwrap().0,
         &host.vhost_key.0
     ));
+    assert_eq!(extensions.get::<HttpPolicy>(), Some(&HttpPolicy::unlimited()));
     assert!(extensions.get::<Arc<HostConfig>>().is_none());
+    assert!(extensions.get::<claviron_http::ListenerId>().is_none());
+    assert!(extensions.get::<claviron_tls::Proto>().is_none());
+    assert!(extensions.get::<http::uri::Scheme>().is_none());
 }
 
 #[test]
-fn prepared_extension_maps_keep_runtime_metadata_and_independent_ownership() {
+fn identity_exports_shared_runtime_owners_without_retaining_host_configuration()
+{
     let (connection, host) = direct();
-    let template = ContextExtensions::new(&connection, &host);
     let mut first = Request::new(());
     let mut second = Request::new(());
-    inject(&template, &connection, &mut first);
-    inject(&template, &connection, &mut second);
+    export(&mut first, &connection, &host);
+    export(&mut second, &connection, &host);
     assert_eq!(first.extensions().len(), 4);
-    assert_eq!(second.extensions().len(), 4);
-    assert!(first.extensions().get::<claviron_tls::Proto>().is_none());
-    assert!(first.extensions().get::<http::uri::Scheme>().is_none());
-    let accepted = first.extensions().get::<Arc<ConnCtx>>().unwrap();
-    assert_eq!(accepted.proto, Some(claviron_tls::Proto::H1));
-    assert_eq!(accepted.scheme(), http::uri::Scheme::HTTP);
     assert_context(first.extensions(), &connection, &host);
     assert_context(second.extensions(), &connection, &host);
-    assert!(!std::ptr::eq(
-        first.extensions().get::<HostName>().unwrap(),
-        second.extensions().get::<HostName>().unwrap()
-    ));
-    first.extensions_mut().remove::<HostName>();
+    assert!(first.extensions().get::<RealIpExt>().is_none());
+    assert_eq!(
+        claviron_http::ext::request_real_ip(first.extensions()),
+        Some(connection.remote.ip())
+    );
     first.extensions_mut().clear();
     assert_context(second.extensions(), &connection, &host);
-    let mut third = Request::new(());
-    inject(&template, &connection, &mut third);
-    assert_context(third.extensions(), &connection, &host);
-    assert!(third.extensions().get::<HttpPolicy>().is_none());
-    assert!(third.extensions().get::<ReceivedAt>().is_none());
     let config = Arc::downgrade(&host.vhost_config);
     drop(host);
     assert!(config.upgrade().is_none());
@@ -98,36 +90,25 @@ fn prepared_extension_maps_keep_runtime_metadata_and_independent_ownership() {
 struct NativeValue(Arc<()>);
 
 #[test]
-fn existing_extensions_keep_their_boxes_and_unrelated_values() {
+fn identity_preserves_forwarded_ip_and_reuses_existing_connection_extension_box()
+ {
     let (connection, host) = direct();
-    let template = ContextExtensions::new(&connection, &host);
     let native = Arc::new(());
-    let policy = HttpPolicy::unlimited();
-    let received = ReceivedAt(std::time::SystemTime::UNIX_EPOCH);
-    let previous_connection = Arc::new(connection.as_ref().clone());
-    let previous_connection_weak = Arc::downgrade(&previous_connection);
+    let previous = Arc::new(connection.as_ref().clone());
+    let previous_weak = Arc::downgrade(&previous);
+    let forwarded = "203.0.113.1".parse().unwrap();
     let mut request = Request::builder()
         .extension(NativeValue(native.clone()))
-        .extension(policy)
-        .extension(received)
-        .extension(previous_connection)
-        .extension(RealIpExt("203.0.113.1".parse().unwrap()))
-        .extension(http::uri::Scheme::HTTPS)
+        .extension(previous)
+        .extension(RealIpExt(forwarded))
         .body(())
         .unwrap();
-    let address = request.extensions().get::<NativeValue>().unwrap()
-        as *const NativeValue;
     let connection_address = request.extensions().get::<Arc<ConnCtx>>().unwrap()
         as *const Arc<ConnCtx>;
     let ip_address =
         request.extensions().get::<RealIpExt>().unwrap() as *const RealIpExt;
-    let scheme_address =
-        request.extensions().get::<http::uri::Scheme>().unwrap()
-            as *const http::uri::Scheme;
-    inject(&template, &connection, &mut request);
+    export(&mut request, &connection, &host);
     assert_context(request.extensions(), &connection, &host);
-    let value = request.extensions().get::<NativeValue>().unwrap();
-    assert_eq!(value as *const NativeValue, address);
     assert_eq!(
         request.extensions().get::<Arc<ConnCtx>>().unwrap()
             as *const Arc<ConnCtx>,
@@ -138,34 +119,30 @@ fn existing_extensions_keep_their_boxes_and_unrelated_values() {
         ip_address
     );
     assert_eq!(
-        request.extensions().get::<http::uri::Scheme>().unwrap()
-            as *const http::uri::Scheme,
-        scheme_address
+        claviron_http::ext::request_real_ip(request.extensions()),
+        Some(forwarded)
     );
-    assert_eq!(
-        request.extensions().get::<http::uri::Scheme>(),
-        Some(&http::uri::Scheme::HTTPS)
-    );
-    assert_eq!(
-        claviron_http::ext::request_scheme(request.extensions()),
-        Some(http::uri::Scheme::HTTP)
-    );
-    assert!(previous_connection_weak.upgrade().is_none());
-    assert!(Arc::ptr_eq(&value.0, &native));
-    assert_eq!(request.extensions().get::<HttpPolicy>(), Some(&policy));
-    assert_eq!(request.extensions().get::<ReceivedAt>(), Some(&received));
+    assert!(previous_weak.upgrade().is_none());
+    assert!(Arc::ptr_eq(
+        &request.extensions().get::<NativeValue>().unwrap().0,
+        &native
+    ));
+    assert_eq!(connection.country_code.as_deref(), Some("GB"));
+    assert!(connection.real_ip.is_none());
 }
 
 #[test]
-fn empty_allocated_extensions_receive_the_complete_context() {
-    let (connection, host) = direct();
-    let template = ContextExtensions::new(&connection, &host);
+fn identity_without_transport_context_keeps_explicit_caller_metadata() {
     let mut request = Request::builder()
-        .extension(NativeValue(Arc::new(())))
+        .extension(RealIpExt("203.0.113.1".parse().unwrap()))
         .body(())
         .unwrap();
-    request.extensions_mut().clear();
-    inject(&template, &connection, &mut request);
-    assert_eq!(request.extensions().len(), 4);
-    assert_context(request.extensions(), &connection, &host);
+    let (mut head, _) = std::mem::take(&mut request).into_parts();
+    inject(&mut head.extensions, HttpPolicy::unlimited(), None);
+    assert_eq!(head.extensions.len(), 2);
+    assert!(head.extensions.get::<Arc<ConnCtx>>().is_none());
+    assert_eq!(
+        claviron_http::ext::request_real_ip(&head.extensions),
+        Some("203.0.113.1".parse().unwrap())
+    );
 }

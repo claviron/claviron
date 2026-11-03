@@ -726,7 +726,9 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
         if let Some(conn) = request.conn_ctx.as_ref() {
             register_variable(SERVER_ADDR, conn.local_ip.to_string(), vars);
             register_variable(SERVER_PORT, conn.local_port.to_string(), vars);
-            let remote_ip = conn.real_ip.unwrap_or_else(|| conn.remote.ip());
+            let remote_ip =
+                claviron_http::ext::request_real_ip(&request.parts.extensions)
+                    .unwrap_or_else(|| conn.remote.ip());
             register_variable(REMOTE_ADDR, remote_ip.to_string(), vars);
             register_variable(
                 REMOTE_PORT,

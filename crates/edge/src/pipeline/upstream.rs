@@ -49,6 +49,8 @@ impl UpstreamStage {
     }
 }
 
+impl crate::pipeline::host::BackendHandler for UpstreamStage {}
+
 impl DispatchStep for UpstreamStage {
     fn call(
         &self,

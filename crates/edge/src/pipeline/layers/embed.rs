@@ -1,4 +1,4 @@
-use super::{DispatchStep, HostLayer, HostLayerBuilder};
+use super::{HostLayer, HostLayerBuilder};
 #[cfg(feature = "lua")]
 use crate::pipeline::embed::lua::LuaBackend;
 #[cfg(any(feature = "php_embed", feature = "php_fcgi"))]
@@ -10,8 +10,11 @@ impl<S> HostLayer<S> for LuaBackend {
         self,
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.request(move |request| DispatchStep::call(&self, request));
-        Ok(())
+        crate::pipeline::host::Backend::new(
+            self,
+            claviron_http::policy::HttpPolicy::unlimited(),
+        )
+        .prepare(layer)
     }
 }
 
@@ -21,7 +24,10 @@ impl<S> HostLayer<S> for PhpBackend {
         self,
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.request(move |request| DispatchStep::call(&self, request));
-        Ok(())
+        crate::pipeline::host::Backend::new(
+            self,
+            claviron_http::policy::HttpPolicy::unlimited(),
+        )
+        .prepare(layer)
     }
 }

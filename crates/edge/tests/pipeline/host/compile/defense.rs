@@ -77,8 +77,8 @@ listeners:
     .unwrap()
 }
 
-fn connection() -> ConnCtx {
-    ConnCtx {
+fn connection() -> Arc<ConnCtx> {
+    Arc::new(ConnCtx {
         state: Default::default(),
         listener: "public".parse().unwrap(),
         proto: Some(claviron_http::listener::HttpProtocol::H1),
@@ -88,7 +88,7 @@ fn connection() -> ConnCtx {
         real_ip: None,
         country_code: None,
         tls: None,
-    }
+    })
 }
 
 #[test]
@@ -220,8 +220,8 @@ routes:
         [("direct", "192.0.2.1:1234"), ("public", "198.51.100.1:1234")]
     {
         let mut untrusted = accepted.clone();
-        untrusted.listener = listener.parse().unwrap();
-        untrusted.remote = peer.parse().unwrap();
+        Arc::make_mut(&mut untrusted).listener = listener.parse().unwrap();
+        Arc::make_mut(&mut untrusted).remote = peer.parse().unwrap();
         let response = owner
             .handle_in(
                 Request::builder()
@@ -230,6 +230,7 @@ routes:
                     .body(claviron_http::empty_body())
                     .unwrap(),
                 Some(HostContext {
+                    host: None,
                     connection: &untrusted,
                     arrival: RequestArrival::Established,
                 }),
@@ -253,6 +254,7 @@ routes:
                     .body(claviron_http::boxed_body(Unread(drops.clone())))
                     .unwrap(),
                 Some(HostContext {
+                    host: None,
                     connection: &accepted,
                     arrival: RequestArrival::Established,
                 }),
@@ -304,6 +306,7 @@ fn an_allow_all_child_still_overrides_a_deny_all_parent() {
                     .body(claviron_http::empty_body())
                     .unwrap(),
                 Some(HostContext {
+                    host: None,
                     connection: &accepted,
                     arrival: RequestArrival::Established,
                 }),
@@ -470,6 +473,7 @@ fn cors_preflight_spends_quota_and_quota_refusal_keeps_cors_headers() {
                     .body(claviron_http::boxed_body(Unread(drops.clone())))
                     .unwrap(),
                 Some(HostContext {
+                    host: None,
                     connection: &accepted,
                     arrival: RequestArrival::Established,
                 }),

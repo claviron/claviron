@@ -367,7 +367,7 @@ impl H3Server {
             local_ip,
             remote,
             local_port: local_addr.port(),
-            real_ip: Some(remote.ip()),
+            real_ip: None,
             country_code: country_code_for(remote),
             tls: Some(h3_tls_info(&conn, handshake_data.as_deref())),
         });

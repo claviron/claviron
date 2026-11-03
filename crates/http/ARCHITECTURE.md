@@ -661,9 +661,9 @@ pub struct ConnCtx {
 }
 ```
 
-Captured as `Arc<ConnCtx>` at connection establishment. Request adapters
-clone it to attach that request's resolved client IP, without mutating the
-connection baseline. The fields cover:
+Captured as `Arc<ConnCtx>` at connection establishment. Backend handoff shares
+that owner; trusted forwarding uses a separate request-local `RealIpExt` without
+cloning or mutating the connection facts. The fields cover:
 
 - The mandatory typed listener-group identity (`listener`), independent of
   which address in that group accepted the connection. Request consumers read
@@ -684,8 +684,9 @@ connection baseline. The fields cover:
   through standard CGI/mod_ssl-style variables such as
   `SSL_PROTOCOL`, `SSL_CIPHER`, and `SSL_CLIENT_S_DN`.
 
-The structure is `Clone`; connection facts remain stable while request-local
-client identity is carried by a separate Arc.
+The structure is `Clone`; request forwarding does not require a structure clone.
+`request_real_ip` reads `RealIpExt` first, then accepted connection facts. GeoIP
+describes the directly connected peer and is not recomputed from forwarding.
 
 `ConnectionState` retains typed consumer-owned state for that accepted connection.
 Its clones share one store, including request copies made for forwarded IP

@@ -7,7 +7,7 @@ use axum::response::{IntoResponse, Response};
 
 use http::StatusCode;
 
-use super::RealIpExt;
+use super::request_real_ip;
 use http::request::Parts;
 use serde::Serialize;
 
@@ -29,10 +29,8 @@ impl<S: Send + Sync> FromRequestParts<S> for RealIp {
         parts: &mut Parts,
         _state: &S,
     ) -> Result<Self, Self::Rejection> {
-        let ip =
-            parts.extensions.get::<RealIpExt>().map(|k| k.0).ok_or(
-                IpRejection(StatusCode::BAD_REQUEST, "Missing Real Ip"),
-            )?;
+        let ip = request_real_ip(&parts.extensions)
+            .ok_or(IpRejection(StatusCode::BAD_REQUEST, "Missing Real Ip"))?;
         Ok(RealIp(ip))
     }
 }

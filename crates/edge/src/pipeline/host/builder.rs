@@ -2,7 +2,12 @@ use super::*;
 
 impl<S, R> Default for HostLayerBuilder<S, R> {
     fn default() -> Self {
-        Self { before: Vec::new(), after: Vec::new(), body: Vec::new() }
+        Self {
+            before: Vec::new(),
+            after: Vec::new(),
+            body: Vec::new(),
+            identity: None,
+        }
     }
 }
 
@@ -146,6 +151,7 @@ impl<S: 'static, R: 'static> HostPipelineBuilder<S, R> {
             .layers
             .into_iter()
             .map(|layer| HostLayerBuilder {
+                identity: layer.identity,
                 before: layer
                     .before
                     .into_iter()
@@ -237,6 +243,7 @@ impl<S, R> HostPipelineBuilder<S, R> {
             layer.before.is_empty()
                 && layer.after.is_empty()
                 && layer.body.is_empty()
+                && layer.identity.is_none()
         })
     }
 
@@ -245,10 +252,26 @@ impl<S, R> HostPipelineBuilder<S, R> {
         let mut before = Vec::new();
         let mut after = Vec::new();
         let mut body = Vec::new();
+        let mut identity = false;
         for layer in self.layers {
             after.extend(layer.after);
             body.extend(layer.body);
             let scope = ReplyScope { after: after.len(), body: body.len() };
+            if let Some(policy) = layer.identity
+                && !identity
+            {
+                let policy = super::super::layers::IdentityPolicy::new(policy);
+                before.push(PreparedAction {
+                    action: Action::ContextHead(Box::new(
+                        move |head, _, context| {
+                            policy.inject(&mut head.extensions, context);
+                            ControlFlow::Continue(())
+                        },
+                    )),
+                    scope,
+                });
+                identity = true;
+            }
             before.extend(
                 layer
                     .before

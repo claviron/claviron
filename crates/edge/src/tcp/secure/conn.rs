@@ -61,7 +61,7 @@ impl TlsHostConnection {
             remote: socket_addr,
             local_ip: local_addr.ip(),
             local_port,
-            real_ip: Some(socket_addr.ip()),
+            real_ip: None,
             tls: tls_info(tls_stream),
             country_code: crate::tcp::geo::country_code(socket_addr.ip()),
         });

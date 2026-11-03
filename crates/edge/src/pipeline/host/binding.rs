@@ -12,6 +12,14 @@ pub(crate) struct HostPolicy {
 }
 
 impl HostPolicy {
+    pub(crate) fn context(
+        &self,
+        arrival: crate::service::RequestArrival,
+    ) -> super::HostContext<'_> {
+        super::HostContext::new(&self.connection, arrival)
+            .with_host(&self.host.hostname, &self.host.vhost_key)
+    }
+
     pub(crate) fn new(
         connection: Arc<ConnCtx>,
         host: VhostCtx,

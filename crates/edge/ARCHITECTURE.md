@@ -54,8 +54,7 @@ on effective configuration (including inherited defaults) or explicit Rust
 registration. No layer is installed unconditionally.
 
 `ConnCtx` belongs to the accepted connection. Native actions borrow it through
-`HostContext` without populating request extensions. `IdentityPolicy` is an
-explicit metadata layer; the host compiler does not insert it automatically.
+`HostContext` without populating request extensions.
 
 | Order | Entry | Selected by |
 | --- | --- | --- |
@@ -68,11 +67,28 @@ explicit metadata layer; the host compiler does not insert it automatically.
 | 7 | CORS admission / preflight | Effective host/prefix CORS declaration. |
 | 8 | Request-body bounds | Effective listener → host → prefix size/idle policy; both off installs no layer. |
 | 9 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
+| At first Backend | **Identity (*)** | Required by a prepared Backend; absent from native file-only plans. |
 | 10 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
 | 11 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
 | 12 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
 | 13 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
 | 14 | Index/SPA file fallback | An index or SPA declaration. |
+
+(*) `Backend<B>` is the request handoff contract for Rust routers/handlers,
+embedded runtimes, Upstream and Link. WebSocket and broadcast application calls
+use the same boundary. Protocol/provider filters run at boot/reload; host/scope
+selection and earlier policies run before handoff. The builder inserts Identity
+once, immediately before the first Backend. Static, TryFiles and file fallback
+remain native steps; requests answered there before any Backend create no
+identity extension map.
+
+Identity exports the existing `Arc<ConnCtx>`, selected `HostName`/`HostKey` and
+effective scope `HttpPolicy`. Scheme, protocol, TLS and peer GeoIP stay in
+`ConnCtx`; only configured trusted forwarding adds request-local `RealIpExt`.
+Body ownership is transferred unchanged. Later Backend fallthrough does not
+repeat metadata insertion; the direct Rust-router path uses the same prepared
+contract. Transport-free callers retain their explicit metadata without
+fabricated connection facts.
 
 Header hooks are registered before request policies, so they also cover early
 refusals. Edits fold from outer to inner at preparation; within one declaration,
@@ -268,7 +284,7 @@ Disabled file steps allocate no prepared file owner.
 - [`selection.rs`](src/pipeline/host/selection.rs) — Prefix/condition selection as a HostLayer; single-scope hosts omit it.
 - [`execution.rs`](src/pipeline/host/execution.rs) — Published host execution; separate from the Axum/Other router choice.
 - [`compile.rs`](src/pipeline/host/compile.rs) — Compile prefix scopes, conditions, Rust contributions and backend owners.
-- [`backend.rs`](src/pipeline/host/backend.rs) — Prepare configured backend steps and residual index/SPA fallback.
+- [`backend.rs`](src/pipeline/host/backend.rs) — Backend/BackendHandler handoff contract and cold backend preparation.
 - [`files.rs`](src/pipeline/host/files.rs) — Separate Static and TryFiles steps using the shared files API.
 - [`extension.rs`](src/pipeline/host/extension.rs) — Route-layer preparation adapter.
 - [`websocket.rs`](src/pipeline/host/websocket.rs) — Prepared exact H1 endpoints before Rust/file/backend dispatch.
@@ -276,13 +292,13 @@ Disabled file steps allocate no prepared file owner.
 ### `pipeline/layers/`
 
 - [`identity.rs`](src/pipeline/layers/identity.rs) — Explicit accepted-connection and selected-host metadata; scheme, protocol and TLS remain in ConnCtx.
-- [`identity/extensions.rs`](src/pipeline/layers/identity/extensions.rs) — Request-owned extension boxes; host configuration stays in boot/reload preparation.
+- [`identity/extensions.rs`](src/pipeline/layers/identity/extensions.rs) — One metadata export at Backend entry; preserve existing boxes and request-local forwarding.
 - [`headers.rs`](src/pipeline/layers/headers.rs) — Effective response edits folded before publication; no implicit Server header.
 - [`reply.rs`](src/pipeline/layers/reply.rs) — Boot-selected response size/idle guards; absent bounds install no action.
 - [`body.rs`](src/pipeline/layers/body.rs) — Cold size/idle selection and one lazy body guard after CORS admission.
 - [`cors.rs`](src/pipeline/layers/cors.rs) — Boot-compiled origin selection, early response context and post-quota admission.
 - [`cors/rules.rs`](src/pipeline/layers/cors/rules.rs) — Preflight detection, response headers and Vary token selection without String/Vec assembly.
-- [`log.rs`](src/pipeline/layers/log.rs) — Access-record hooks borrow accepted facts without IdentityState; inactive channels install no layer.
+- [`log.rs`](src/pipeline/layers/log.rs) — Access-record hooks borrow accepted facts; inactive channels install no layer.
 
 ### `pipeline/embed/`
 
@@ -391,6 +407,7 @@ ownership and isolated state transitions without provider boot or live listeners
 ### `pipeline/host/`
 
 - [`application.rs`](tests/pipeline/host/application.rs) — Deferred calls, cancellation and payload/response scope.
+- [`backend.rs`](tests/pipeline/host/backend.rs) — Native-step exclusion, one-time metadata handoff, fallthrough and cancellation.
 - [`dispatch.rs`](tests/pipeline/host/dispatch.rs) — Compact pending state, synchronous unread-body transfer, existing erasure and cancellation.
 - [`handler.rs`](tests/pipeline/host/handler.rs) — Rust fallthrough, terminal status, cancellation and optional Axum adapter.
 - [`compile.rs`](tests/pipeline/host/compile.rs) — Scope conditions and Static/TryFiles/backend precedence.
@@ -417,6 +434,7 @@ ownership and isolated state transitions without provider boot or live listeners
 
 - [`authority.rs`](tests/service/authority.rs) — Authority proofs and connection-local identity allocation reuse.
 - [`host.rs`](tests/service/host.rs) — Narrowed request limits, accepted facts, body mapping and deferred native dispatch.
+- [`host/identity.rs`](tests/service/host/identity.rs) — Shared H1/H2/H3 metadata delivery to direct Rust routers and registered application handlers.
 
 ### `tcp/`
 

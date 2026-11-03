@@ -365,7 +365,9 @@ fn request_value(request: &Request<Bytes>) -> Result<Zval, String> {
         {
             server.insert(
                 "REMOTE_ADDR",
-                conn.real_ip.unwrap_or(conn.remote.ip()).to_string(),
+                claviron_http::ext::request_real_ip(request.extensions())
+                    .unwrap_or_else(|| conn.remote.ip())
+                    .to_string(),
             )?;
             server.insert("REMOTE_PORT", conn.remote.port().to_string())?;
             server.insert("SERVER_ADDR", conn.local_ip.to_string())?;

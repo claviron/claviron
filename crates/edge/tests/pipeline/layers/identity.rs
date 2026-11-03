@@ -1,4 +1,9 @@
+use crate::pipeline::host::HostContext;
+use crate::service::VhostCtx;
+use claviron_http::ext::ConnCtx;
+use claviron_http::policy::HttpPolicy;
 use std::net::IpAddr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::pipeline::host::{HostPipeline, HostPipelineBuilder};
@@ -22,13 +27,10 @@ fn host() -> VhostCtx {
     }
 }
 
-fn native_pipeline(
-    connection: &Arc<ConnCtx>,
-    host: &VhostCtx,
-) -> HostPipeline<IdentityState, RequestRejection> {
+fn native_pipeline(host: &VhostCtx) -> HostPipeline<(), RequestRejection> {
     let mut builder = HostPipelineBuilder::new();
     builder.layer(AuthorityLayer(host.hostname.clone())).unwrap();
-    builder.layer(IdentityPolicy::new(connection.clone(), host)).unwrap();
+    builder.layer(IdentityPolicy::new(HttpPolicy::unlimited())).unwrap();
     builder.build()
 }
 
@@ -54,7 +56,15 @@ struct BodyOwner {
 #[test]
 fn direct_identity_without_a_transport_real_ip_is_shared_between_requests() {
     let accepted = connection(None);
-    let pipeline = native_pipeline(&accepted, &host());
+    let host = host();
+    let pipeline = native_pipeline(&host);
+    let context = Some(
+        HostContext::new(
+            &accepted,
+            crate::service::RequestArrival::Established,
+        )
+        .with_host(&host.hostname, &host.vhost_key),
+    );
     let mut identities = Vec::new();
     for client in ["203.0.113.1", "203.0.113.2"] {
         let request = Request::builder()
@@ -63,16 +73,17 @@ fn direct_identity_without_a_transport_real_ip_is_shared_between_requests() {
             .body(())
             .unwrap();
         let ServiceResult::Unhandled(admitted) =
-            pipeline.prepare_with_state(request, IdentityState::default())
+            pipeline.prepare_in(request, (), context)
         else {
             panic!("valid authority expected");
         };
         let identified =
             admitted.head().extensions.get::<Arc<ConnCtx>>().unwrap();
         assert!(Arc::ptr_eq(identified, &accepted));
+        assert!(admitted.head().extensions.get::<RealIpExt>().is_none());
         assert_eq!(
-            admitted.head().extensions.get::<RealIpExt>().unwrap().0,
-            accepted.remote.ip()
+            claviron_http::ext::request_real_ip(&admitted.head().extensions),
+            Some(accepted.remote.ip())
         );
         identities.push(identified.clone());
     }
@@ -89,7 +100,15 @@ impl Drop for BodyOwner {
 #[test]
 fn explicit_identity_follows_authority_and_keeps_single_body_ownership() {
     let accepted = connection(Some("192.0.2.1".parse().unwrap()));
-    let pipeline = native_pipeline(&accepted, &host());
+    let host = host();
+    let pipeline = native_pipeline(&host);
+    let context = Some(
+        HostContext::new(
+            &accepted,
+            crate::service::RequestArrival::Established,
+        )
+        .with_host(&host.hostname, &host.vhost_key),
+    );
     let dropped = Arc::new(AtomicUsize::new(0));
     let body =
         BodyOwner { bytes: Box::from(*b"untouched"), dropped: dropped.clone() };
@@ -101,7 +120,7 @@ fn explicit_identity_follows_authority_and_keeps_single_body_ownership() {
         .body(body)
         .unwrap();
     let ServiceResult::Unhandled(admitted) =
-        pipeline.prepare_with_state(request, IdentityState::default())
+        pipeline.prepare_in(request, (), context)
     else {
         panic!("valid authority expected");
     };
@@ -127,7 +146,7 @@ fn explicit_identity_follows_authority_and_keeps_single_body_ownership() {
         })
         .unwrap();
     let ServiceResult::Handled(reply) =
-        pipeline.prepare_with_state(request, IdentityState::default())
+        pipeline.prepare_in(request, (), context)
     else {
         panic!("invalid authority must reject before identity")
     };
@@ -135,6 +154,5 @@ fn explicit_identity_follows_authority_and_keeps_single_body_ownership() {
         assert_eq!(reason, RequestRejection::Misdirected);
         reason.into()
     });
-    assert_eq!(dropped.load(Ordering::Relaxed), 2);
     assert_eq!(dropped.load(Ordering::Relaxed), 2);
 }

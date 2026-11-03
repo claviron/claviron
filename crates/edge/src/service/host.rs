@@ -113,12 +113,7 @@ impl HostService {
         request: Request<B>,
         arrival: RequestArrival,
     ) -> PreparedRequest<B> {
-        PreparedRequest {
-            connection: self.policy.connection.clone(),
-            request,
-            service: self,
-            arrival,
-        }
+        PreparedRequest { request, service: self, arrival }
     }
 }
 
@@ -127,7 +122,6 @@ impl HostService {
 pub struct PreparedRequest<B> {
     request: Request<B>,
     service: HostService,
-    connection: Arc<ConnCtx>,
     arrival: RequestArrival,
 }
 
@@ -146,7 +140,7 @@ impl<B> PreparedRequest<B> {
     }
 
     pub fn connection(&self) -> &Arc<ConnCtx> {
-        &self.connection
+        &self.service.policy.connection
     }
 
     /// The listener's request policy after this host's own narrowing.
@@ -171,7 +165,7 @@ impl<B> PreparedRequest<B> {
             path: Arc::from(self.request.uri().path()),
             uri: self.request.uri().clone(),
             headers: self.request.headers().clone(),
-            conn: self.connection.clone(),
+            conn: self.service.policy.connection.clone(),
             admission: None,
             graceful: None,
         }
@@ -184,7 +178,6 @@ impl<B> PreparedRequest<B> {
         PreparedRequest {
             request: self.request.map(map),
             service: self.service,
-            connection: self.connection,
             arrival: self.arrival,
         }
     }

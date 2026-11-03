@@ -160,6 +160,10 @@ request context. TLS is terminated before PHP-FPM sees the request, so
 `HTTPS=on`, `SSL_PROTOCOL`, `SSL_CIPHER`, `SSL_CLIENT_VERIFY`,
 `SSL_CLIENT_S_DN`, and `SSL_CLIENT_I_DN`.
 
+The client IP comes from request-local `RealIpExt` when present, otherwise from
+`ConnCtx`. Direct connections need no duplicate IP extension; peer GeoIP and TLS
+facts remain connection-owned.
+
 `REQUEST_SCHEME`, `HTTPS=on|off` and `HTTP_X_FORWARDED_PROTO` come from the
 accepted connection, including cleartext H1. SSL-specific params exist only
 when TLS metadata exists. Shared PHP request-header filtering prevents

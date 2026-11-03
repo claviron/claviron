@@ -72,13 +72,27 @@ impl DispatchStep for WebSocketStage {
     }
 }
 
+impl DispatchStep for Arc<WebSocketStage> {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchCall {
+        self.as_ref().call(request)
+    }
+}
+
+impl crate::pipeline::host::BackendHandler for Arc<WebSocketStage> {}
+
 impl<S> HostLayer<S> for Arc<WebSocketStage> {
     fn prepare(
         self,
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.request(move |request| self.call(request));
-        Ok(())
+        crate::pipeline::host::Backend::new(
+            self,
+            claviron_http::policy::HttpPolicy::unlimited(),
+        )
+        .prepare(layer)
     }
 }
 

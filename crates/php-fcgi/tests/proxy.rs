@@ -34,7 +34,6 @@ fn cgi_scheme_follows_connection_and_rejects_client_overrides() {
             .unwrap()
             .into_parts()
             .0;
-        parts.extensions.insert(RealIpExt(conn.remote.ip()));
         parts
             .extensions
             .insert(HostName(Arc::new("app.test".parse().unwrap())));
@@ -53,6 +52,7 @@ fn cgi_scheme_follows_connection_and_rejects_client_overrides() {
         );
         assert_eq!(params["HTTP_X_FORWARDED_PROTO"], params["REQUEST_SCHEME"]);
         assert_eq!(params["HTTPS"], if tls { "on" } else { "off" });
+        assert_eq!(params["REMOTE_ADDR"], "127.0.0.1");
         assert!(!params.contains_key("HTTP_FORWARDED"));
         assert_eq!(params["REQUEST_URI"], "/index.php?q=%2F");
         assert_eq!(params.contains_key("SSL_CLIENT_VERIFY"), tls);

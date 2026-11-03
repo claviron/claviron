@@ -8,6 +8,9 @@ use std::pin::pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 
+#[path = "host/identity.rs"]
+mod identity;
+
 fn service(
     config: &str,
     listener: RequestPolicy,

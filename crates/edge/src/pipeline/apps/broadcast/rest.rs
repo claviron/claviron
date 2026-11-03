@@ -76,6 +76,8 @@ struct Rest {
     owner: RestOwner,
 }
 
+impl crate::pipeline::host::BackendHandler for Rest {}
+
 impl DispatchStep for Rest {
     fn call(
         &self,
@@ -91,7 +93,7 @@ impl DispatchStep for Rest {
 pub(crate) fn prepare(
     state: &AppState,
     host: &HostConfig,
-) -> Option<Arc<dyn DispatchStep>> {
+) -> Option<Arc<dyn crate::pipeline::host::BackendHandler>> {
     let config = host.broadcast_cfg()?;
     let (endpoints, owner) = match &config.target {
         PusherTarget::Fleet => {

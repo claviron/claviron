@@ -16,8 +16,9 @@ use std::future::Future;
 impl PreparedRequest<RouteBody> {
     fn into_dispatch(
         self
-    ) -> (HostExecution, Request<RouteBody>, Arc<ConnCtx>, RequestArrival) {
-        (self.service.app, self.request, self.connection, self.arrival)
+    ) -> (HostExecution, Request<RouteBody>, Arc<HostPolicy>, RequestArrival)
+    {
+        (self.service.app, self.request, self.service.policy, self.arrival)
     }
 
     /// Dispatch to the admitted application without allocating a host future.
@@ -31,7 +32,9 @@ impl PreparedRequest<RouteBody> {
         #[cfg(feature = "axum")]
         {
             match app.into_axum() {
-                Ok(router) => Either::Left(call(router, request)),
+                Ok(router) => {
+                    Either::Left(call(router, request, connection, arrival))
+                }
                 Err(execution) => Either::Right(call_execution(
                     execution, request, connection, arrival,
                 )),
@@ -53,8 +56,9 @@ impl PreparedRequest<RouteBody> {
         let (app, request, connection, arrival) = self.into_dispatch();
         match app.into_axum() {
             Ok(router) => {
-                let answering: RouteFuture =
-                    Box::pin(call(router, request).map(Ok));
+                let answering: RouteFuture = Box::pin(
+                    call(router, request, connection, arrival).map(Ok),
+                );
                 Either::Left(answering)
             }
             Err(execution) => Either::Right(
@@ -77,28 +81,26 @@ impl PreparedRequest<RouteBody> {
 async fn call_execution(
     owner: HostExecution,
     request: Request<RouteBody>,
-    connection: Arc<ConnCtx>,
+    connection: Arc<HostPolicy>,
     arrival: RequestArrival,
 ) -> RouteResponse {
-    match owner
-        .handle_in(
-            request,
-            Some(crate::pipeline::host::HostContext {
-                connection: &connection,
-                arrival,
-            }),
-        )
-        .await
-    {
+    match owner.handle_in(request, Some(connection.context(arrival))).await {
         Ok(response) => response,
         Err(never) => match never {},
     }
 }
 
 #[cfg(feature = "axum")]
-fn call<H: ApplicationHandler>(
-    owner: H,
+fn call<H: ApplicationHandler + Clone + Sync + 'static>(
+    backend: Arc<crate::pipeline::host::Backend<H>>,
     request: Request<RouteBody>,
+    connection: Arc<HostPolicy>,
+    arrival: RequestArrival,
 ) -> impl Future<Output = RouteResponse> + Send {
-    future::lazy(move |_| owner.call(request)).flatten()
+    future::lazy(move |_| {
+        let request =
+            backend.prepare_request(request, Some(connection.context(arrival)));
+        backend.owner.clone().call(request)
+    })
+    .flatten()
 }

@@ -158,7 +158,7 @@ fn request_head<'a>(
         uri: &head.uri,
         headers: &head.headers,
         extensions: &head.extensions,
-        connection: context.map(|context| context.connection),
+        connection: context.map(|context| context.connection.as_ref()),
     }
 }
 

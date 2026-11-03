@@ -1,4 +1,4 @@
-use super::{DispatchStep, HostLayer, HostLayerBuilder};
+use super::{HostLayer, HostLayerBuilder};
 use crate::pipeline::upstream::UpstreamStage;
 
 impl<S> HostLayer<S> for UpstreamStage {
@@ -6,7 +6,10 @@ impl<S> HostLayer<S> for UpstreamStage {
         self,
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.request(move |request| DispatchStep::call(&self, request));
-        Ok(())
+        crate::pipeline::host::Backend::new(
+            self,
+            claviron_http::policy::HttpPolicy::unlimited(),
+        )
+        .prepare(layer)
     }
 }

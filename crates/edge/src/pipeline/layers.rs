@@ -43,7 +43,7 @@ pub(super) use fallback::prepare_fallback;
 pub(super) use files::scope_steps;
 pub use files::{StaticStage, TryFilesStage};
 pub use headers::{HeaderClearLayer, HeaderSetLayer, prepare_headers};
-pub use identity::{IdentityPolicy, IdentityState};
+pub use identity::IdentityPolicy;
 #[cfg(feature = "access-log")]
 pub use log::{AccessLogLayer, AccessLogState};
 #[cfg(feature = "http3")]

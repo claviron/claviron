@@ -32,9 +32,15 @@ pub struct DispatchFuture {
 enum Work {
     Request(Pin<Box<dyn Future<Output = DispatchResult> + Send>>),
     Application(HostHandlerFuture),
+    Response(claviron_http::RouteFuture),
 }
 
 impl DispatchCall {
+    pub(in crate::pipeline) fn response(
+        work: claviron_http::RouteFuture
+    ) -> Self {
+        Self::Pending(DispatchFuture { inner: Work::Response(work) })
+    }
     pub fn ready(result: DispatchResult) -> Self {
         Self::Ready(result)
     }
@@ -69,6 +75,13 @@ impl Future for DispatchFuture {
                     }
                 })
             }
+            Work::Response(work) => work.as_mut().poll(context).map(|reply| {
+                let response = match reply {
+                    Ok(response) => response,
+                    Err(never) => match never {},
+                };
+                ServiceResult::Handled(response)
+            }),
         }
     }
 }

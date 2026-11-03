@@ -87,7 +87,7 @@ async fn serve(
         remote: peer,
         local_ip: local.ip(),
         local_port: local.port(),
-        real_ip: Some(peer.ip()),
+        real_ip: None,
         country_code: crate::tcp::geo::country_code(peer.ip()),
         tls: None,
     });

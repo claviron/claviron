@@ -11,7 +11,9 @@ use claviron_runtime::{
 use claviron_types::Host;
 
 use super::backend::BackendPlan;
-use super::{HostExecution, HostHandler, HostPipelineBuilder};
+use super::{
+    Backend, BackendHandler, HostExecution, HostHandler, HostPipelineBuilder,
+};
 use crate::HostConfig;
 use crate::pipeline::apps::{
     HostAppRegistry, HostContributions, ResolvedRouteExtensions,
@@ -40,6 +42,11 @@ impl<S> AsMut<CorsState> for CorsExchange<S> {
 struct ScopePlan<'a> {
     applications: &'a [Arc<dyn HostHandler>],
     steps: Vec<Arc<dyn super::DispatchStep>>,
+    #[cfg(feature = "broadcast")]
+    broadcast: Option<Arc<dyn BackendHandler>>,
+    backends: Vec<Arc<dyn BackendHandler>>,
+    fallback: Option<Arc<dyn super::DispatchStep>>,
+    policy: HttpPolicy,
     accept_applications: bool,
     cors: Option<CorsLayer>,
     body: Option<RequestBodyLayer>,
@@ -126,14 +133,11 @@ impl Compiler<'_> {
         layers: &[Arc<dyn RouteLayer>],
         prefix: &claviron_http::ext::PathPrefix,
     ) -> Result<HostExecution> {
-        let mut steps = scope_steps(&config);
+        let steps = scope_steps(&config);
         #[cfg(feature = "broadcast")]
-        if let Some(rest) =
-            crate::pipeline::apps::broadcast::rest::prepare(self.state, &config)
-        {
-            steps.insert(0, rest);
-        }
-        steps.extend(plan.steps);
+        let broadcast = crate::pipeline::apps::broadcast::rest::prepare(
+            self.state, &config,
+        );
         let registered =
             if accept_applications { self.applications } else { &[] };
         let selected = handler.filter(|_| accept_applications).map(|handler| {
@@ -146,6 +150,11 @@ impl Compiler<'_> {
         let scope = ScopePlan {
             applications,
             steps,
+            #[cfg(feature = "broadcast")]
+            broadcast,
+            backends: plan.steps,
+            fallback: plan.fallback,
+            policy,
             accept_applications,
             cors: self
                 .config
@@ -244,22 +253,14 @@ impl Compiler<'_> {
         mut builder: HostPipelineBuilder<S>,
         access: HostPipelineBuilder<S>,
         extensions: HostPipelineBuilder<S>,
-        scope: ScopePlan<'_>,
+        mut scope: ScopePlan<'_>,
     ) -> Result<HostExecution> {
-        let ScopePlan {
-            applications,
-            steps,
-            accept_applications,
-            cors,
-            body,
-            reply,
-        } = scope;
-        if let Some(reply) = reply {
+        if let Some(reply) = scope.reply.take() {
             builder
                 .layer(reply)
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
-        if let Some(cors) = cors {
+        if let Some(cors) = scope.cors.take() {
             let mut builder = builder
                 .map_state(|state: &mut CorsExchange<S>| &mut state.inner);
             let (capture, admission) = cors.split();
@@ -277,32 +278,31 @@ impl Compiler<'_> {
                 builder,
                 extensions
                     .map_state(|state: &mut CorsExchange<S>| &mut state.inner),
-                applications,
-                steps,
-                accept_applications,
-                body,
+                scope,
             );
         }
         builder.append(access);
-        self.finish_scope(
-            builder,
-            extensions,
-            applications,
-            steps,
-            accept_applications,
-            body,
-        )
+        self.finish_scope(builder, extensions, scope)
     }
 
     fn finish_scope<S: Default + Send + 'static>(
         &self,
         mut builder: HostPipelineBuilder<S>,
         extensions: HostPipelineBuilder<S>,
-        applications: &[Arc<dyn HostHandler>],
-        steps: Vec<Arc<dyn super::DispatchStep>>,
-        accept_applications: bool,
-        body: Option<RequestBodyLayer>,
+        scope: ScopePlan<'_>,
     ) -> Result<HostExecution> {
+        let ScopePlan {
+            applications,
+            steps,
+            backends,
+            fallback,
+            policy,
+            accept_applications,
+            body,
+            #[cfg(feature = "broadcast")]
+            broadcast,
+            ..
+        } = scope;
         if let Some(body) = body {
             builder
                 .layer(body)
@@ -312,25 +312,41 @@ impl Compiler<'_> {
         #[cfg(feature = "websocket")]
         if accept_applications && let Some(websocket) = &self.websocket {
             builder
-                .layer(websocket.clone())
+                .layer(Backend::new(websocket.clone(), policy))
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
         for application in applications {
             builder
-                .layer(application.clone())
+                .layer(Backend::new(application.clone(), policy))
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
         if accept_applications && let Some(router) = &self.router {
             if builder.is_empty() {
-                return Ok(HostExecution::router(router.clone()));
+                return Ok(HostExecution::router(router.clone(), policy));
             }
             builder
-                .layer(router.clone())
+                .layer(Backend::new(router.clone(), policy))
+                .map_err(|error| Error::msg(error.to_string()))?;
+        }
+        #[cfg(feature = "broadcast")]
+        if let Some(broadcast) = broadcast {
+            builder
+                .layer(Backend::new(broadcast, policy))
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
         for step in steps {
             builder
                 .layer(step)
+                .map_err(|error| Error::msg(error.to_string()))?;
+        }
+        for backend in backends {
+            builder
+                .layer(Backend::new(backend, policy))
+                .map_err(|error| Error::msg(error.to_string()))?;
+        }
+        if let Some(fallback) = fallback {
+            builder
+                .layer(fallback)
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
         Ok(builder.build().into_execution())
