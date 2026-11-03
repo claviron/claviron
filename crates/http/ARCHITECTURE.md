@@ -696,8 +696,8 @@ an empty state. HTTP owns no application actor or authentication policy.
 `ConnCtx::scheme()` returns the typed `http::uri::Scheme` from physical
 transport facts: TLS metadata present means HTTPS, absent means HTTP. Port
 numbers, absolute-form request URIs and forwarding headers do not override
-that fact. The common Hyper vhost service also injects the scheme directly
-as a request extension. Trusted forwarded scheme policy, if introduced, must
+that fact. Edge identity consumers read scheme and negotiated protocol through
+the shared connection context. Trusted forwarded scheme policy, if introduced, must
 remain distinct from whether this connection actually completed TLS.
 `ext::request_scheme` reads `Arc<ConnCtx>` first, then a typed HTTP(S) `Scheme`
 extension supplied by a standalone adapter caller. It never assumes HTTPS

@@ -268,7 +268,7 @@ Disabled file steps allocate no prepared file owner.
 
 ### `pipeline/layers/`
 
-- [`identity.rs`](src/pipeline/layers/identity.rs) — Explicit connection, scheme, protocol and host identity metadata; listener identity remains in ConnCtx.
+- [`identity.rs`](src/pipeline/layers/identity.rs) — Explicit accepted-connection and selected-host metadata; scheme, protocol and TLS remain in ConnCtx.
 - [`identity/extensions.rs`](src/pipeline/layers/identity/extensions.rs) — Request-owned extension boxes; host configuration stays in boot/reload preparation.
 - [`headers.rs`](src/pipeline/layers/headers.rs) — Effective response edits folded before publication; no implicit Server header.
 - [`reply.rs`](src/pipeline/layers/reply.rs) — Boot-selected response size/idle guards; absent bounds install no action.

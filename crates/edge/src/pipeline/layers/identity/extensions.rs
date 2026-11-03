@@ -4,8 +4,7 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use claviron_http::ext::{ConnCtx, HostKey, HostName, RealIpExt};
-use claviron_http::listener::HttpProtocol;
-use http::{Extensions, request::Parts, uri::Scheme};
+use http::{Extensions, request::Parts};
 
 use crate::service::VhostCtx;
 
@@ -34,8 +33,6 @@ pub(super) struct ContextExtensions {
 }
 
 struct FixedContext {
-    protocol: Option<HttpProtocol>,
-    scheme: Scheme,
     hostname: HostName,
     key: HostKey,
 }
@@ -45,10 +42,6 @@ impl FixedContext {
         &self,
         extensions: &mut Extensions,
     ) {
-        set_context(extensions, self.scheme.clone());
-        if let Some(protocol) = self.protocol {
-            set_context(extensions, protocol);
-        }
         set_context(extensions, self.hostname.clone());
         set_context(extensions, self.key.clone());
     }
@@ -60,8 +53,6 @@ impl ContextExtensions {
         host: &VhostCtx,
     ) -> Self {
         let fixed = FixedContext {
-            protocol: connection.proto,
-            scheme: connection.scheme(),
             hostname: host.hostname.clone(),
             key: host.vhost_key.clone(),
         };

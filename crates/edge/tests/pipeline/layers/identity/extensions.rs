@@ -46,14 +46,6 @@ fn assert_context(
     assert!(Arc::ptr_eq(extensions.get::<Arc<ConnCtx>>().unwrap(), connection));
     assert!(extensions.get::<claviron_http::ListenerId>().is_none());
     assert_eq!(
-        extensions.get::<claviron_tls::Proto>(),
-        connection.proto.as_ref()
-    );
-    assert_eq!(
-        extensions.get::<http::uri::Scheme>(),
-        Some(&connection.scheme())
-    );
-    assert_eq!(
         extensions.get::<RealIpExt>().unwrap().0,
         connection.real_ip.unwrap()
     );
@@ -76,8 +68,13 @@ fn prepared_extension_maps_keep_runtime_metadata_and_independent_ownership() {
     let mut second = Request::new(());
     inject(&template, &connection, &mut first);
     inject(&template, &connection, &mut second);
-    assert_eq!(first.extensions().len(), 6);
-    assert_eq!(second.extensions().len(), 6);
+    assert_eq!(first.extensions().len(), 4);
+    assert_eq!(second.extensions().len(), 4);
+    assert!(first.extensions().get::<claviron_tls::Proto>().is_none());
+    assert!(first.extensions().get::<http::uri::Scheme>().is_none());
+    let accepted = first.extensions().get::<Arc<ConnCtx>>().unwrap();
+    assert_eq!(accepted.proto, Some(claviron_tls::Proto::H1));
+    assert_eq!(accepted.scheme(), http::uri::Scheme::HTTP);
     assert_context(first.extensions(), &connection, &host);
     assert_context(second.extensions(), &connection, &host);
     assert!(!std::ptr::eq(
@@ -145,6 +142,14 @@ fn existing_extensions_keep_their_boxes_and_unrelated_values() {
             as *const http::uri::Scheme,
         scheme_address
     );
+    assert_eq!(
+        request.extensions().get::<http::uri::Scheme>(),
+        Some(&http::uri::Scheme::HTTPS)
+    );
+    assert_eq!(
+        claviron_http::ext::request_scheme(request.extensions()),
+        Some(http::uri::Scheme::HTTP)
+    );
     assert!(previous_connection_weak.upgrade().is_none());
     assert!(Arc::ptr_eq(&value.0, &native));
     assert_eq!(request.extensions().get::<HttpPolicy>(), Some(&policy));
@@ -161,6 +166,6 @@ fn empty_allocated_extensions_receive_the_complete_context() {
         .unwrap();
     request.extensions_mut().clear();
     inject(&template, &connection, &mut request);
-    assert_eq!(request.extensions().len(), 6);
+    assert_eq!(request.extensions().len(), 4);
     assert_context(request.extensions(), &connection, &host);
 }
