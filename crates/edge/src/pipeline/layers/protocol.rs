@@ -1,94 +1,10 @@
-//! Explicit request-part policies for a selected transport and authority.
+//! Replay policy for explicitly prepared H3 plans.
 
 use super::*;
 #[cfg(feature = "http3")]
-use crate::service::RequestArrival;
-use crate::service::{RequestRejection, VhostCtx};
-use claviron_http::authority::RequestAuthority;
-use claviron_http::ext::{ConnCtx, HostName};
+use crate::service::{RequestArrival, RequestRejection};
+#[cfg(feature = "http3")]
 use claviron_http::listener::HttpProtocol;
-
-/// A constant rejection selected during binding, never a repeated config test.
-pub struct RejectLayer(pub RequestRejection);
-
-impl RejectLayer {
-    pub fn for_binding(
-        connection: &ConnCtx,
-        host: &VhostCtx,
-    ) -> Option<Self> {
-        match connection.proto {
-            None => Some(Self(RequestRejection::MissingProtocol)),
-            Some(protocol)
-                if !host
-                    .vhost_config
-                    .allows_transport(&connection.listener, protocol) =>
-            {
-                Some(Self(RequestRejection::Misdirected))
-            }
-            _ => None,
-        }
-    }
-}
-
-impl<S, R: From<RequestRejection>> HostLayer<S, R> for RejectLayer {
-    fn prepare(
-        self,
-        layer: &mut HostLayerBuilder<S, R>,
-    ) -> crate::Result<()> {
-        layer.before(move |_, _| ControlFlow::Break(self.0.into()));
-        Ok(())
-    }
-}
-
-/// Compare request authority with an accepted TLS/SNI binding. Cleartext host
-/// selection already validates its authority and does not need this layer.
-pub struct AuthorityLayer(pub HostName);
-
-impl<S, R: From<RequestRejection>> HostLayer<S, R> for AuthorityLayer {
-    fn prepare(
-        self,
-        layer: &mut HostLayerBuilder<S, R>,
-    ) -> crate::Result<()> {
-        layer.before(move |head, _| match RequestAuthority::from_parts(head) {
-            Err(error) => ControlFlow::Break(
-                RequestRejection::InvalidAuthority(error).into(),
-            ),
-            Ok(Some(authority)) if authority.host() != self.0.0.as_ref() => {
-                ControlFlow::Break(RequestRejection::Misdirected.into())
-            }
-            _ => ControlFlow::Continue(()),
-        });
-        Ok(())
-    }
-}
-
-/// Only an H1 binding that forbids upgrades contributes this check.
-pub struct UpgradeLayer;
-
-impl UpgradeLayer {
-    pub fn new(
-        protocol: HttpProtocol,
-        allowed: bool,
-    ) -> Option<Self> {
-        (protocol == HttpProtocol::H1 && !allowed).then_some(Self)
-    }
-}
-
-impl<S, R: From<RequestRejection>> HostLayer<S, R> for UpgradeLayer {
-    fn prepare(
-        self,
-        layer: &mut HostLayerBuilder<S, R>,
-    ) -> crate::Result<()> {
-        layer.before(|head, _| {
-            if head.headers.contains_key(http::header::UPGRADE) {
-                ControlFlow::Break(RequestRejection::UpgradeForbidden.into())
-            } else {
-                ControlFlow::Continue(())
-            }
-        });
-        Ok(())
-    }
-}
 
 /// Replay policy exists only on H3 bindings. AllowAll contributes no layer.
 #[cfg(feature = "http3")]

@@ -418,7 +418,7 @@ impl HostCompiler<'_> {
             acl: AclLayer::for_host(&config),
             #[cfg(feature = "websocket")]
             websocket: crate::pipeline::layers::WebSocketStage::prepare(
-                state, host, &config, websocket,
+                state, host, &config, listener, websocket,
             ),
         };
         let fallback =

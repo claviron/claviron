@@ -22,7 +22,13 @@ pub(crate) fn service(
     Future: Send,
 > {
     hyper::service::service_fn(move |request| {
-        dispatch(host.request(request, RequestArrival::Established))
+        use futures_util::future::{Either, ready};
+        if let Err(reason) = host.validate_authority(&request) {
+            return Either::Left(ready(Ok(reason.into())));
+        }
+        Either::Right(dispatch(
+            host.request(request, RequestArrival::Established),
+        ))
     })
 }
 

@@ -8,6 +8,10 @@ use std::pin::pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::task::{Context, Poll, Waker};
 
+#[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+#[path = "host/authority.rs"]
+mod authority;
+
 #[path = "host/identity.rs"]
 mod identity;
 

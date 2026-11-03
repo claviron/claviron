@@ -78,8 +78,9 @@ async fn serve(
     let stream = crate::tcp::io::TcpIo::new(stream);
     let errors = stream.clone();
     let connection = crate::tcp::protocol::h1(&snapshot.h1)
-        .serve_connection(TokioIo::new(stream), service)
-        .with_upgrades();
+        .serve_connection(TokioIo::new(stream), service);
+    #[cfg(feature = "websocket")]
+    let connection = connection.with_upgrades();
     tokio::pin!(connection);
     let serving = async {
         tokio::select! {

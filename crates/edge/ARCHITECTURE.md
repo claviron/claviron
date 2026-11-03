@@ -76,6 +76,17 @@ effective HTTP policy). Handled is terminal; Unhandled retains the same unread
 body. Without a binding, no interception context, body erasure or extension map
 is created. Routable providers and normal host layers do not run on this path.
 
+TLS H1/H2 and H3 validate each request authority against the hostname pinned by
+SNI before pipeline or native session dispatch: malformed authority returns 400,
+a different hostname returns 421. Plain H1 validates and resolves authority on
+each request; keep-alive does not pin it to the first host or require trusted
+forwarding. Listener eligibility is compiled before connection acceptance; it
+adds no RejectLayer to the host plan.
+
+Native Hyper H1 upgrade support is compiled with `websocket`. A WebSocket stage
+still requires registered endpoints, host `transport.h1.upgrade: true` and H1
+support in both the host and the listener. H2-only and QUIC plans omit it.
+
 Within the selected scope, entries follow this order. Every entry is conditional
 on effective configuration (including inherited defaults) or explicit Rust
 registration. No layer is installed unconditionally.
@@ -325,7 +336,6 @@ Disabled file steps allocate no prepared file owner.
 - [`request.rs`](src/pipeline/host/request.rs) — Flat head/async/request execution, unread body transfer and reached response scopes.
 - [`response.rs`](src/pipeline/host/response.rs) — Run only reached response/body actions, in reverse registration order.
 - [`binding.rs`](src/pipeline/host/binding.rs) — Accepted connection facts and narrowed declaration data; no implicit actions.
-- [`protocol.rs`](src/pipeline/host/protocol.rs) — Independent authority, rejection, early-data and H1-upgrade layers.
 - [`deny.rs`](src/pipeline/host/deny.rs) — Explicit nonempty URI matcher; no transport snapshot or proof wrapper.
 - [`proxy.rs`](src/pipeline/host/proxy.rs) — Trusted-peer forwarding layer; only request RealIpExt changes.
 - [`acl.rs`](src/pipeline/host/acl.rs) — Explicit ACL layer; borrow accepted identity or a selected forwarding result.
@@ -424,7 +434,6 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`log.rs`](tests/log.rs) — Active body accounting, original frames, gRPC trailers, cancellation and empty/error responses without logger boot.
 - [`transport/instances.rs`](tests/transport/instances.rs) — Retain unchanged/draining listener identities and release retired allocations.
 
-- [`authority.rs`](tests/authority.rs) — Explicit authority-layer rejection, aliases and unchanged request metadata.
 - [`sni.rs`](tests/sni.rs) — SNI/catchall lookup and bounded name churn.
 - [`provider.rs`](tests/provider.rs) — Prepared HTTP values, capability rejection and invalid-candidate retention.
 - [`config/routing.rs`](tests/config/routing.rs) — Route normalization, inheritance, mappings and unavailable capability rejection.
@@ -489,6 +498,7 @@ ownership and isolated state transitions without provider boot or live listeners
 
 ### `service/`
 
+- [`host/authority.rs`](tests/service/host/authority.rs) — Per-request SNI comparison, malformed/conflicting authority and unread body ownership.
 - [`authority.rs`](tests/service/authority.rs) — Authority proofs and connection-local identity allocation reuse.
 - [`host.rs`](tests/service/host.rs) — Narrowed request limits, accepted facts, body mapping and deferred native dispatch.
 - [`host/identity.rs`](tests/service/host/identity.rs) — Shared H1/H2/H3 metadata delivery to direct Rust routers and registered application handlers.

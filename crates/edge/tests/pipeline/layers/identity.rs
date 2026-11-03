@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::pipeline::host::{HostPipeline, HostPipelineBuilder};
-use crate::pipeline::layers::AuthorityLayer;
 use crate::service::RequestRejection;
 use claviron_http::ServiceResult;
 use claviron_http::ext::{HostKey, HostName, RealIpExt};
@@ -27,9 +26,8 @@ fn host() -> VhostCtx {
     }
 }
 
-fn native_pipeline(host: &VhostCtx) -> HostPipeline<(), RequestRejection> {
+fn native_pipeline() -> HostPipeline<(), RequestRejection> {
     let mut builder = HostPipelineBuilder::new();
-    builder.layer(AuthorityLayer(host.hostname.clone())).unwrap();
     builder.layer(IdentityPolicy::new(HttpPolicy::unlimited())).unwrap();
     builder.build()
 }
@@ -57,7 +55,7 @@ struct BodyOwner {
 fn direct_identity_without_a_transport_real_ip_is_shared_between_requests() {
     let accepted = connection(None);
     let host = host();
-    let pipeline = native_pipeline(&host);
+    let pipeline = native_pipeline();
     let context = Some(
         HostContext::new(
             &accepted,
@@ -75,7 +73,7 @@ fn direct_identity_without_a_transport_real_ip_is_shared_between_requests() {
         let ServiceResult::Unhandled(admitted) =
             pipeline.prepare_in(request, (), context)
         else {
-            panic!("valid authority expected");
+            panic!("identity must preserve the request");
         };
         let identified =
             admitted.head().extensions.get::<Arc<ConnCtx>>().unwrap();
@@ -98,10 +96,10 @@ impl Drop for BodyOwner {
 }
 
 #[test]
-fn explicit_identity_follows_authority_and_keeps_single_body_ownership() {
+fn explicit_identity_keeps_single_body_ownership() {
     let accepted = connection(Some("192.0.2.1".parse().unwrap()));
     let host = host();
-    let pipeline = native_pipeline(&host);
+    let pipeline = native_pipeline();
     let context = Some(
         HostContext::new(
             &accepted,
@@ -122,7 +120,7 @@ fn explicit_identity_follows_authority_and_keeps_single_body_ownership() {
     let ServiceResult::Unhandled(admitted) =
         pipeline.prepare_in(request, (), context)
     else {
-        panic!("valid authority expected");
+        panic!("identity must preserve the request");
     };
     assert!(Arc::ptr_eq(
         admitted.head().extensions.get::<Arc<ConnCtx>>().unwrap(),
@@ -136,23 +134,4 @@ fn explicit_identity_follows_authority_and_keeps_single_body_ownership() {
     assert_eq!(dropped.load(Ordering::Relaxed), 0);
     drop(admitted);
     assert_eq!(dropped.load(Ordering::Relaxed), 1);
-
-    let request = Request::builder()
-        .uri("/ok")
-        .header("host", "other.test")
-        .body(BodyOwner {
-            bytes: Box::from(*b"untouched"),
-            dropped: dropped.clone(),
-        })
-        .unwrap();
-    let ServiceResult::Handled(reply) =
-        pipeline.prepare_in(request, (), context)
-    else {
-        panic!("invalid authority must reject before identity")
-    };
-    reply.finish_with(|reason| {
-        assert_eq!(reason, RequestRejection::Misdirected);
-        reason.into()
-    });
-    assert_eq!(dropped.load(Ordering::Relaxed), 2);
 }

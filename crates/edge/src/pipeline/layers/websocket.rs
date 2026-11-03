@@ -39,12 +39,18 @@ impl WebSocketStage {
         state: &AppState,
         host: &Host,
         config: &HostConfig,
+        listener: Option<&claviron_http::config::ListenerConfig>,
         local: Option<Arc<H1UpgradeRegistry>>,
     ) -> Option<Arc<Self>> {
         if !config
             .transport
             .allows_protocol(claviron_http::listener::HttpProtocol::H1)
             || !config.transport.h1.upgrade
+            || listener.is_some_and(|listener| {
+                !matches!(&listener.settings,
+                    claviron_http::config::ListenerSettings::Tcp(tcp)
+                    if tcp.protocols.contains(&claviron_http::listener::HttpProtocol::H1))
+            })
         {
             return None;
         }

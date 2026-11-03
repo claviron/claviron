@@ -466,6 +466,15 @@ impl H3Listener {
                         }
                     };
 
+                    if let Err(reason) = host_service.validate_authority(&h3_head) {
+                        streams.spawn(async move {
+                            send_status_response(&mut stream, reason.status()).await;
+                            stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+                            StreamCompletion::Request
+                        });
+                        continue;
+                    }
+
                     if is_web_transport_connect(&h3_head) {
                         if stream.is_0rtt() {
                             streams.spawn(async move {

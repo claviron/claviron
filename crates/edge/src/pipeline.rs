@@ -37,11 +37,10 @@ pub use layers::WebSocketStage;
 #[cfg(feature = "access-log")]
 pub use layers::{AccessLogLayer, AccessLogState};
 pub use layers::{
-    AclLayer, AuthorityLayer, CorsLayer, CorsState, DenyLayer,
-    HeaderClearLayer, HeaderSetLayer, HostLayer, HttpsRedirectLayer,
-    IdentityPolicy, ProxyLayer, RedirectLayer, ReplyPolicy, RequestBodyLayer,
-    RouteSelectionLayer, StaticStage, TryFilesStage, UpgradeLayer,
-    prepare_headers,
+    AclLayer, CorsLayer, CorsState, DenyLayer, HeaderClearLayer,
+    HeaderSetLayer, HostLayer, HttpsRedirectLayer, IdentityPolicy, ProxyLayer,
+    RedirectLayer, ReplyPolicy, RequestBodyLayer, RouteSelectionLayer,
+    StaticStage, TryFilesStage, prepare_headers,
 };
 #[cfg(feature = "rate-limit")]
 pub use layers::{QuotaPolicy, QuotaState};

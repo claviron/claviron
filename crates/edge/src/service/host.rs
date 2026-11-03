@@ -37,7 +37,6 @@ pub enum RequestRejection {
     MissingIdentity,
     InvalidAuthority(AuthorityError),
     Misdirected,
-    UpgradeForbidden,
     AccessDenied,
     AmbiguousPath,
     InvalidRedirect,
@@ -57,9 +56,7 @@ impl RequestRejection {
             | Self::MissingIdentity
             | Self::InvalidRedirect => StatusCode::INTERNAL_SERVER_ERROR,
             Self::Misdirected => StatusCode::MISDIRECTED_REQUEST,
-            Self::UpgradeForbidden | Self::AccessDenied => {
-                StatusCode::FORBIDDEN
-            }
+            Self::AccessDenied => StatusCode::FORBIDDEN,
             Self::AmbiguousPath | Self::InvalidAuthority(_) => {
                 StatusCode::BAD_REQUEST
             }
@@ -87,6 +84,23 @@ impl HostService {
             app,
             policy: Arc::new(HostPolicy::new(connection, host, listener)),
         }
+    }
+
+    /// Compare each TLS request with the host pinned by SNI. This borrows the
+    /// native request before body adaptation or any host-pipeline action.
+    #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+    pub(crate) fn validate_authority<B>(
+        &self,
+        request: &Request<B>,
+    ) -> Result<(), RequestRejection> {
+        let authority = super::RequestAuthority::from_request(request)
+            .map_err(RequestRejection::InvalidAuthority)?;
+        if authority.is_some_and(|authority| {
+            authority.host() != self.policy.host.hostname.0.as_ref()
+        }) {
+            return Err(RequestRejection::Misdirected);
+        }
+        Ok(())
     }
 
     /// Retain the original native body and accepted facts without executing

@@ -48,7 +48,6 @@ pub use identity::IdentityPolicy;
 pub use log::{AccessLogLayer, AccessLogState};
 #[cfg(feature = "http3")]
 pub use protocol::EarlyDataLayer;
-pub use protocol::{AuthorityLayer, RejectLayer, UpgradeLayer};
 pub use proxy::ProxyLayer;
 #[cfg(feature = "rate-limit")]
 pub(crate) use quota::QuotaRegistrations;

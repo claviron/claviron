@@ -153,10 +153,6 @@ warp.workspace = true
 tempfile = "3"
 
 [[test]]
-name = "authority"
-path = "tests/authority.rs"
-
-[[test]]
 name = "provider"
 path = "tests/provider.rs"
 

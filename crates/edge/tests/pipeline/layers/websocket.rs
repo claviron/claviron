@@ -78,24 +78,65 @@ fn only_declared_hosts_and_protocols_prepare_a_websocket_step() {
     let mut config = HostConfig::new("public");
     config.transport.h1.upgrade = false;
     assert!(
-        WebSocketStage::prepare(&state, &host, &config, Some(registry.clone()))
-            .is_none()
+        WebSocketStage::prepare(
+            &state,
+            &host,
+            &config,
+            None,
+            Some(registry.clone())
+        )
+        .is_none()
     );
     config.transport.h1.upgrade = true;
     assert!(
-        WebSocketStage::prepare(&state, &host, &config, Some(registry.clone()))
-            .is_some()
+        WebSocketStage::prepare(
+            &state,
+            &host,
+            &config,
+            None,
+            Some(registry.clone())
+        )
+        .is_some()
     );
+    let listeners: claviron_http::config::HttpSnapshot = serde_yaml::from_str(
+        "defaults:\n  listener:\n    requests: {max_body_size: off, body_read_timeout: off}\nlisteners:\n  h1: {transport: tcp, listen: '127.0.0.1:8080', protocols: h1}\n  h2: {transport: tcp, tls: true, listen: '127.0.0.1:8443', protocols: h2}\n  h3: {transport: quic, listen: '127.0.0.1:8443', protocols: h3}\n"
+    ).unwrap();
+    for (name, enabled) in [("h1", true), ("h2", false), ("h3", false)] {
+        let listener = &listeners.listeners[&name.parse().unwrap()];
+        assert_eq!(
+            WebSocketStage::prepare(
+                &state,
+                &host,
+                &config,
+                Some(listener),
+                Some(registry.clone())
+            )
+            .is_some(),
+            enabled
+        );
+    }
     config.transport.protocols =
         Some(vec![claviron_http::listener::HttpProtocol::H2]);
     assert!(
-        WebSocketStage::prepare(&state, &host, &config, Some(registry.clone()))
-            .is_none()
+        WebSocketStage::prepare(
+            &state,
+            &host,
+            &config,
+            None,
+            Some(registry.clone())
+        )
+        .is_none()
     );
     config.transport.protocols = Some(Vec::new());
     assert!(
-        WebSocketStage::prepare(&state, &host, &config, Some(registry.clone()))
-            .is_none()
+        WebSocketStage::prepare(
+            &state,
+            &host,
+            &config,
+            None,
+            Some(registry.clone())
+        )
+        .is_none()
     );
     assert!(
         WebSocketStage::new(state, "other.test".parse().unwrap(), &registry)

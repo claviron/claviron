@@ -18,7 +18,7 @@ flowchart LR
 
 | Layer | Work |
 | --- | --- |
-| Authority / Reject / Upgrade / EarlyData | Request-part and selected transport policy. |
+| EarlyData | H3 replay policy. |
 | Identity / Proxy | Explicit typed metadata or trusted forwarding identity. |
 | Deny / ACL / Redirect | Configured request decisions. |
 | CORS / HeaderSet / HeaderClear | Origin admission and response headers. |
@@ -30,11 +30,11 @@ flowchart LR
 | Static / TryFiles / Embed / Upstream / Link | Prepared native request owners. |
 | HttpsRedirect | Explicit HTTPS redirects. |
 
-The native compiler currently selects Rust contributions, route extensions,
-WebSocket endpoints, files and configured backends through this contract.
-Automatic listener/host policy selection and native session handoff are still
-being connected. Prepared policy APIs do not enforce themselves at transport
-handoff. Head-deadline integration is separate from capacity acquisition.
+Listener/host eligibility is compiled before publication. Plain H1 selects its
+host per request; TLS H1/H2 and H3 compare request authority with the accepted
+SNI hostname before pipeline or native session dispatch. Hyper H1 upgrades are
+compiled with `websocket`; registered host endpoints still require H1 and the
+host's upgrade permission.
 
 ## Execution and ownership
 

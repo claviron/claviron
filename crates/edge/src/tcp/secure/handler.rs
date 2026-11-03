@@ -153,76 +153,23 @@ impl HttpsListener {
                     }
                 }
                 H1 => {
-                    if !policy.h1.upgrade {
-                        // No upgrades: plain http1::Connection
-                        let conn_fut = make_h1_builder(&cfg.h1)
-                            .serve_connection(stream, vhost_service);
-                        tokio::pin!(conn_fut);
+                    let conn_fut = make_h1_builder(&cfg.h1)
+                        .serve_connection(stream, vhost_service);
+                    #[cfg(feature = "websocket")]
+                    let conn_fut = conn_fut.with_upgrades();
+                    tokio::pin!(conn_fut);
 
-                        tokio::select! {
-                            biased;
-                            () = scope.wait_graceful_shutdown() => {
-                                #[cfg(debug_assertions)]
-                                debug!("♻️ {} graceful shutdown", proto.version());
-                                conn_fut.as_mut().graceful_shutdown();
-                                tokio::select! {
-                                    biased;
-                                    result = conn_fut.as_mut() => {
-                                        #[cfg(debug_assertions)]
-                                        debug!(
-                                            "♻️  {} graceful shutdown: connection future finished",
-                                            proto.version()
-                                        );
-                                        result.map(|_| ConnEnd::Finished).map_err(Into::into)
-                                    },
-                                    _ = scope.permit().wait_forced_shutdown() => {
-                                        #[cfg(debug_assertions)]
-                                        debug!(
-                                            "❗ {} forced shutdown before graceful connection finished",
-                                            proto.version()
-                                        );
-                                        Ok(ConnEnd::DroppedForceShutdown)
-                                    }
-                                }
+                    tokio::select! {
+                        biased;
+                        () = scope.wait_graceful_shutdown() => {
+                            conn_fut.as_mut().graceful_shutdown();
+                            tokio::select! {
+                                biased;
+                                result = conn_fut.as_mut() => result.map(|_| ConnEnd::Finished).map_err(Into::into),
+                                _ = scope.permit().wait_forced_shutdown() => Ok(ConnEnd::DroppedForceShutdown)
                             }
-                            result = conn_fut.as_mut() => result.map(|_| ConnEnd::Finished).map_err(Into::into)
                         }
-                    } else {
-                        // Upgrades enabled: http1::UpgradeableConnection
-                        let conn_fut = make_h1_builder(&cfg.h1)
-                            .serve_connection(stream, vhost_service)
-                            .with_upgrades();
-
-                        tokio::pin!(conn_fut);
-
-                        tokio::select! {
-                            biased;
-                            () = scope.wait_graceful_shutdown() => {
-                                #[cfg(debug_assertions)]
-                                debug!("♻️ {} graceful shutdown", proto.version());
-                                conn_fut.as_mut().graceful_shutdown();
-                                tokio::select! {
-                                    biased;
-                                    result = conn_fut.as_mut() => {
-                                        #[cfg(debug_assertions)]
-                                        debug!(
-                                            "♻️  {} graceful shutdown: connection future finished",
-                                            proto.version()
-                                        );
-                                        result.map(|_| ConnEnd::Finished).map_err(Into::into)
-                                    },
-                                    _ = scope.permit().wait_forced_shutdown() => {
-                                        #[cfg(debug_assertions)]
-                                        debug!(
-                                            "❗ {} forced shutdown before graceful connection finished",
-                                            proto.version()
-                                        );
-                                        Ok(ConnEnd::DroppedForceShutdown)
-                                    }
-                                }
-                            }
-                            result = conn_fut.as_mut() => result.map(|_| ConnEnd::Finished).map_err(Into::into)
-                        }
+                        result = conn_fut.as_mut() => result.map(|_| ConnEnd::Finished).map_err(Into::into)
                     }
                 }
                 Proto::H3 => {
