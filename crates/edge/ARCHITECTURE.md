@@ -57,16 +57,17 @@ absent from the compiled plan:
 | 1 | Response-header hooks | Effective HTTP defaults → host → prefix edits; empty declarations install nothing. |
 | 2 | Trusted proxy / real IP | Nonempty forwarding headers and trusted networks on listeners exposing this host. |
 | 3 | Access-log start | Effective host/prefix channel or logging default; `off` and absent channels install no layer or log state. |
-| 4 | Deny → IP ACL | Nonempty HTTP deny defaults; restrictive host/prefix ACL rules. |
-| 5 | Quota admission | Prepared host quota rules. |
-| 6 | CORS admission / preflight | Effective host/prefix CORS declaration. |
-| 7 | Request-body bounds | Effective listener → host → prefix size/idle policy; both off installs no layer. |
-| 8 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
-| 9 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
-| 10 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
-| 11 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
-| 12 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
-| 13 | Index/SPA file fallback | An index or SPA declaration. |
+| 4 | Response-body guard (register hook) | Effective listener → host → prefix size/idle bounds; both off installs nothing. |
+| 5 | Deny → IP ACL | Nonempty HTTP deny defaults; restrictive host/prefix ACL rules. |
+| 6 | Quota admission | Prepared host quota rules. |
+| 7 | CORS admission / preflight | Effective host/prefix CORS declaration. |
+| 8 | Request-body bounds | Effective listener → host → prefix size/idle policy; both off installs no layer. |
+| 9 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
+| 10 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
+| 11 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
+| 12 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
+| 13 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
+| 14 | Index/SPA file fallback | An index or SPA declaration. |
 
 Header hooks are registered before request policies, so they also cover early
 refusals. Edits fold from outer to inner at preparation; within one declaration,
@@ -85,6 +86,14 @@ head hook records the response status; its guard moves into a nonempty response
 body until end/drop. Empty responses finish the record without a body wrapper.
 `access_log: off` overrides inherited channels. Only logging-enabled plans own
 log state; quota state is added independently when admission is configured.
+
+Reply guarding registers after access-log start and before access checks. On the
+response path it wraps the original body before the access-log wrapper, preserving
+frames, trailers and cancellation ownership. Size-only, idle-only and combined
+guards are selected at boot; empty bodies retain their owner. Limits only
+narrow; when both effective bounds are off, no action is installed. Transport
+write limits and reply-head deadlines retain their own owners. Listener plan reuse
+includes both request and reply body bounds.
 
 `Handled` ends dispatch, including error responses. `Unhandled` transfers the
 same unread request to the next entry. If nothing handles it, the plan returns
@@ -108,7 +117,8 @@ Immediate frames need no idle timer. Empty bodies retain their original owner.
 Listener defaults are narrowed through the host root and prefix ancestors;
 `off` cannot widen an inherited ceiling. Listener-specific plans publish with
 host declarations and are selected during native host binding. Equivalent
-listener bounds share a prepared plan; unlimited listeners use the shared plan.
+protocol/body policies share a prepared plan; unrestricted listeners use the
+shared plan.
 
 H1/H2/H3 enter this same pipeline with lazy `RouteBody` values. H3 validates
 its protocol framing and adapts receive frames; it neither buffers requests
@@ -247,8 +257,6 @@ Disabled file steps allocate no prepared file owner.
 - [`redirect.rs`](src/pipeline/host/redirect.rs) — Scoped redirects and prepared Location values; URL selection belongs to the common route table.
 - [`quota.rs`](src/pipeline/host/quota.rs) — Rate-admission layer for typed or native replies and its committed snapshot.
 - [`quota/prepare.rs`](src/pipeline/host/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
-- [`headers.rs`](src/pipeline/host/headers.rs) — Separate Set/Clear layers and cold header inheritance.
-- [`reply.rs`](src/pipeline/host/reply.rs) — Explicit response size/idle guards; absent limits install no guard.
 - [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
 - [`handler.rs`](src/pipeline/host/handler.rs) — Routable contributions; Unhandled retains the unread body capability.
 - [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Consume synchronous DispatchCall decisions before await; only compact pending futures enter suspended state, reusing existing application erasure.
@@ -262,6 +270,8 @@ Disabled file steps allocate no prepared file owner.
 
 ### `pipeline/layers/`
 
+- [`headers.rs`](src/pipeline/layers/headers.rs) — Effective response edits folded before publication; no implicit Server header.
+- [`reply.rs`](src/pipeline/layers/reply.rs) — Boot-selected response size/idle guards; absent bounds install no action.
 - [`body.rs`](src/pipeline/layers/body.rs) — Cold size/idle selection and one lazy body guard after CORS admission.
 - [`cors.rs`](src/pipeline/layers/cors.rs) — Boot-compiled origin selection, early response context and post-quota admission.
 - [`cors/rules.rs`](src/pipeline/layers/cors/rules.rs) — Preflight detection, response headers and Vary token selection without String/Vec assembly.
@@ -355,6 +365,8 @@ ownership and isolated state transitions without provider boot or live listeners
 ### `pipeline/`
 
 - [`apps.rs`](tests/pipeline/apps.rs) — Rust binding/layer composition, duplicate-owner retention and HTTP-policy cache invalidation.
+- [`apps/protocol.rs`](tests/pipeline/apps/protocol.rs) — Cold protocol selection, inactive directives and listener plan isolation.
+- [`apps/reply.rs`](tests/pipeline/apps/reply.rs) — Listener/prefix reply bounds, early responses, lazy frames and cancellation.
 - [`broadcast.rs`](tests/pipeline/broadcast.rs) — Selected broadcast route ownership.
 - [`broadcast/rest.rs`](tests/pipeline/broadcast/rest.rs) — REST endpoint claims and terminal responses.
 - [`host.rs`](tests/pipeline/host.rs) — Layer preparation, response scope, body ownership, wakeup and cancellation.
@@ -376,6 +388,7 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`handler.rs`](tests/pipeline/host/handler.rs) — Rust fallthrough, terminal status, cancellation and optional Axum adapter.
 - [`compile.rs`](tests/pipeline/host/compile.rs) — Scope conditions and Static/TryFiles/backend precedence.
 - [`compile/defense.rs`](tests/pipeline/host/compile/defense.rs) — Defense order, CORS/quota replies, body-policy narrowing and absent-rule direct calls.
+- [`compile/headers.rs`](tests/pipeline/host/compile/headers.rs) — Header inheritance, early refusals and absent-policy direct calls.
 
 ### `pipeline/layers/`
 

@@ -241,20 +241,15 @@ impl HostConfig {
             .or_else(|| setting(&self.fields.routing))
     }
 
-    /// Narrow one listener's declared request bounds through root and ancestors
+    /// Narrow one listener's request/reply policy through root and ancestors
     /// at boot/reload. Limits never widen in a more specific scope.
-    pub(crate) fn requests_at(
+    pub(crate) fn policy_at(
         &self,
         prefix: &PathPrefix,
-        listener: claviron_http::policy::RequestPolicy,
-    ) -> claviron_http::policy::RequestPolicy {
-        let mut policy = listener.narrow(&self.requests);
-        for (ancestor, scope) in self.routes.iter().rev() {
-            if ancestor.has_path_segment(prefix.as_str()) {
-                policy = policy.narrow(&scope.requests);
-            }
-        }
-        policy
+        listener: claviron_http::policy::HttpPolicy,
+    ) -> claviron_http::policy::HttpPolicy {
+        self.scopes_at(prefix)
+            .fold(listener, |policy, scope| policy.narrow(&scope.policy()))
     }
 
     /// Borrow root and matching prefix declarations from outermost to nearest.

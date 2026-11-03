@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use claviron_http::config::{HttpSnapshot, RequestPolicy, routes::RouteTable};
+use claviron_http::config::{HttpPolicy, HttpSnapshot, routes::RouteTable};
 use claviron_http::dispatch::{ConfiguredRoute, RouteDispatch};
 use claviron_runtime::{
     AppState,
@@ -20,8 +20,8 @@ use crate::pipeline::extension::{RouteContext, RouteLayer};
 #[cfg(feature = "access-log")]
 use crate::pipeline::layers::{AccessLogLayer, AccessLogState};
 use crate::pipeline::layers::{
-    AclLayer, CorsLayer, CorsState, DenyLayer, ProxyLayer, RequestBodyLayer,
-    RouteSelectionLayer, prepare_headers, scope_steps,
+    AclLayer, CorsLayer, CorsState, DenyLayer, ProxyLayer, ReplyPolicy,
+    RequestBodyLayer, RouteSelectionLayer, prepare_headers, scope_steps,
 };
 use crate::pipeline::{RouteProtocol, RustRouter};
 
@@ -43,6 +43,7 @@ struct ScopePlan<'a> {
     accept_applications: bool,
     cors: Option<CorsLayer>,
     body: Option<RequestBodyLayer>,
+    reply: Option<ReplyPolicy>,
 }
 
 #[cfg(feature = "access-log")]
@@ -91,14 +92,14 @@ pub(crate) struct HostCompiler<'a> {
 
 pub(crate) struct HostCompileTarget<'a> {
     pub(crate) host: &'a Host,
-    pub(crate) requests: RequestPolicy,
+    pub(crate) policy: HttpPolicy,
 }
 
 struct Compiler<'a> {
     #[cfg(feature = "access-log")]
     host: &'a Host,
     config: &'a HostConfig,
-    requests: RequestPolicy,
+    policy: HttpPolicy,
     headers: Option<&'a claviron_http::config::host::HostHeadersConfig>,
     #[cfg(feature = "rate-limit")]
     quotas: Option<&'a crate::pipeline::layers::HostQuotas>,
@@ -141,6 +142,7 @@ impl Compiler<'_> {
             applications
         });
         let applications = selected.as_deref().unwrap_or(registered);
+        let policy = self.config.policy_at(prefix, self.policy);
         let scope = ScopePlan {
             applications,
             steps,
@@ -152,9 +154,8 @@ impl Compiler<'_> {
                 .map(CorsLayer::new)
                 .transpose()
                 .map_err(|error| Error::msg(error.to_string()))?,
-            body: RequestBodyLayer::new(
-                self.config.requests_at(prefix, self.requests),
-            ),
+            body: RequestBodyLayer::new(policy.requests),
+            reply: ReplyPolicy::new(policy.responses),
         };
         let mut extensions = HostPipelineBuilder::new();
         for layer in self.layers.iter().chain(layers) {
@@ -245,8 +246,19 @@ impl Compiler<'_> {
         extensions: HostPipelineBuilder<S>,
         scope: ScopePlan<'_>,
     ) -> Result<HostExecution> {
-        let ScopePlan { applications, steps, accept_applications, cors, body } =
-            scope;
+        let ScopePlan {
+            applications,
+            steps,
+            accept_applications,
+            cors,
+            body,
+            reply,
+        } = scope;
+        if let Some(reply) = reply {
+            builder
+                .layer(reply)
+                .map_err(|error| Error::msg(error.to_string()))?;
+        }
         if let Some(cors) = cors {
             let mut builder = builder
                 .map_state(|state: &mut CorsExchange<S>| &mut state.inner);
@@ -340,7 +352,7 @@ impl HostCompiler<'_> {
         >,
     ) -> Result<HostExecution> {
         self.prepare_target(
-            HostCompileTarget { host, requests: RequestPolicy::unlimited() },
+            HostCompileTarget { host, policy: HttpPolicy::unlimited() },
             config,
             router,
             contributions,
@@ -364,13 +376,13 @@ impl HostCompiler<'_> {
             Arc<crate::pipeline::H1UpgradeRegistry>,
         >,
     ) -> Result<HostExecution> {
-        let HostCompileTarget { host, requests } = target;
+        let HostCompileTarget { host, policy } = target;
         let state = self.state;
         let compiler = Compiler {
             #[cfg(feature = "access-log")]
             host,
             config: &config,
-            requests,
+            policy,
             headers: self.http.map(|http| http.headers.as_ref()),
             router,
             #[cfg(feature = "rate-limit")]

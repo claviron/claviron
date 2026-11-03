@@ -994,8 +994,10 @@ fn build_host(
             input.map(|_| protocol),
             listener.requests.max_body_size,
             listener.requests.body_read_timeout,
+            listener.responses.max_body_size,
+            listener.responses.body_idle_timeout,
         );
-        if bounds == (None, None, None) {
+        if bounds == (None, None, None, None, None) {
             continue;
         }
         let app = match prepared.get(&bounds) {
@@ -1010,7 +1012,7 @@ fn build_host(
                 let app = selected.prepare_target(
                     super::host::compile::HostCompileTarget {
                         host: canonical,
-                        requests: listener.requests,
+                        policy: listener.policy(),
                     },
                     host_cfg.clone(),
                     input.router.clone(),

@@ -12,22 +12,26 @@ use super::*;
 /// buffering and the reply-head deadline keep their existing owners.
 #[derive(Clone, Copy, Debug)]
 pub struct ReplyPolicy {
-    max_body_size: Option<usize>,
-    body_idle_timeout: Option<Duration>,
+    bounds: Bounds,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Bounds {
+    Size(usize),
+    Idle(Duration),
+    Both(usize, Duration),
 }
 
 impl ReplyPolicy {
     /// Select active body guarding once, after listener/host narrowing.
     pub fn new(policy: ResponsePolicy) -> Option<Self> {
-        if policy.max_body_size.is_none() && policy.body_idle_timeout.is_none()
-        {
-            None
-        } else {
-            Some(Self {
-                max_body_size: policy.max_body_size,
-                body_idle_timeout: policy.body_idle_timeout,
-            })
-        }
+        let bounds = match (policy.max_body_size, policy.body_idle_timeout) {
+            (None, None) => return None,
+            (Some(size), None) => Bounds::Size(size),
+            (None, Some(timeout)) => Bounds::Idle(timeout),
+            (Some(size), Some(timeout)) => Bounds::Both(size, timeout),
+        };
+        Some(Self { bounds })
     }
 
     /// Retain the response head and transfer its body into HTTP's guard.
@@ -43,11 +47,16 @@ impl ReplyPolicy {
         &self,
         body: RouteBody,
     ) -> RouteBody {
-        claviron_http::body::guard_reply(
-            body,
-            self.max_body_size,
-            self.body_idle_timeout,
-        )
+        use claviron_http::body::{
+            guard_idle, guard_size, guard_size_and_idle,
+        };
+        match self.bounds {
+            Bounds::Size(size) => guard_size(body, size),
+            Bounds::Idle(timeout) => guard_idle(body, timeout),
+            Bounds::Both(size, timeout) => {
+                guard_size_and_idle(body, size, timeout)
+            }
+        }
     }
 }
 
@@ -56,7 +65,22 @@ impl<S> HostLayer<S> for ReplyPolicy {
         self,
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.body(move |body, _| self.guard(body));
+        use claviron_http::body::{
+            guard_idle, guard_size, guard_size_and_idle,
+        };
+        match self.bounds {
+            Bounds::Size(size) => {
+                layer.body(move |body, _| guard_size(body, size));
+            }
+            Bounds::Idle(timeout) => {
+                layer.body(move |body, _| guard_idle(body, timeout));
+            }
+            Bounds::Both(size, timeout) => {
+                layer.body(move |body, _| {
+                    guard_size_and_idle(body, size, timeout)
+                });
+            }
+        }
         Ok(())
     }
 }

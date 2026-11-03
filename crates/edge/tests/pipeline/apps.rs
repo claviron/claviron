@@ -13,6 +13,9 @@ use crate::pipeline::host::{HostHandlerFuture, HostLayerBuilder, HostRequest};
 #[path = "apps/protocol.rs"]
 mod protocol;
 
+#[path = "apps/reply.rs"]
+mod reply;
+
 #[test]
 fn duplicate_snapshot_binding_keeps_the_original_execution() {
     use futures_util::FutureExt;
