@@ -49,8 +49,13 @@ Host selection precedes the pipeline. Multiple prefix scopes or entry conditions
 add `RouteSelectionLayer`; a single unconditional root scope uses its plan
 directly. Prefix and condition matching still happen per request.
 
-Within the selected scope, entries follow this order. Undeclared entries are
-absent from the compiled plan:
+Within the selected scope, entries follow this order. Every entry is conditional
+on effective configuration (including inherited defaults) or explicit Rust
+registration. No layer is installed unconditionally.
+
+`ConnCtx` belongs to the accepted connection. Native actions borrow it through
+`HostContext` without populating request extensions. `IdentityPolicy` is an
+explicit metadata layer; the host compiler does not insert it automatically.
 
 | Order | Entry | Selected by |
 | --- | --- | --- |
@@ -84,6 +89,8 @@ exception when a parent is restrictive. A deny-all rule remains active.
 Access logging starts after forwarding and before access/quota refusals. Its
 head hook records the response status; its guard moves into a nonempty response
 body until end/drop. Empty responses finish the record without a body wrapper.
+Connection facts are borrowed through `HostContext`; logging requires no
+`IdentityPolicy` or connection-extension insertion.
 `access_log: off` overrides inherited channels. Only logging-enabled plans own
 log state; quota state is added independently when admission is configured.
 
