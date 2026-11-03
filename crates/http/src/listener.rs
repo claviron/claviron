@@ -61,6 +61,12 @@ impl TryFrom<String> for ListenerId {
     }
 }
 
+impl From<ListenerId> for Arc<str> {
+    fn from(value: ListenerId) -> Self {
+        value.0
+    }
+}
+
 impl From<ListenerId> for String {
     fn from(value: ListenerId) -> Self {
         value.as_str().to_owned()

@@ -40,7 +40,7 @@ impl Running {
         let listener = "benchmark".parse()?;
         let prepared = driver
             .prepare(
-                claviron::http::config::PlainExecution::CurrentThread
+                claviron::http::config::ListenerExecution::CurrentThread
                     .for_listener(&listener),
             )
             .map_err(claviron::registry::Error::into_std)?;

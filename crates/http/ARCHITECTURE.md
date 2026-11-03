@@ -18,11 +18,13 @@ response-header policy belong to `edge-config` and `edge`, not here.
 Application-specific middleware and its response policy live in the consuming
 framework, not in this primitive crate.
 
-`config::PlainExecution` is the `http.yaml` field `plain_execution`: `shared`
-(default) or `current_thread`. It converts to the generic runtime execution
-specification; `for_listener` selects a named domain for each cleartext listener.
-Edge owns applying it to the listener generation. Domains are retained until
-all process providers finalize; TLS/QUIC execution is unaffected.
+`config::ListenerExecution` selects `shared` (default) or `current_thread`
+for each listener. `defaults.listener.execution` supplies an inherited default;
+`listeners.<id>.execution` overrides it for plain TCP, TLS TCP or QUIC.
+`ListenerConfig::execution_spec()` converts the resolved choice into Runnable
+placement. Current-thread domains use the listener identity within each process
+and retain their I/O driver through provider finalization. Changes apply on the
+next listener start/restart.
 
 The role is *hub*: every transport listener in the workspace and
 every middleware-bearing crate downstream pulls types from here.
@@ -275,6 +277,8 @@ request defaults from connection/transport policy:
 defaults:
   deny: ['^/private']
   listener:
+    execution: shared
+    requests: {max_body_size: off, body_read_timeout: off}
     max_connections: 500
     graceful_timeout: 30s
     tcp: {nodelay: true, keepalive: 60s}
@@ -286,6 +290,7 @@ listeners:
     tls: false
     protocols: h1
   public:
+    execution: current_thread
     transport: tcp
     listen: ['0.0.0.0:443', '[::]:443']
     tls: true

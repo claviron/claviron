@@ -1,31 +1,74 @@
 use super::*;
 
 #[test]
-fn plain_execution_defaults_to_shared_and_converts_to_generic_execution() {
+fn listener_execution_inherits_and_overrides_for_plain_tls_and_quic() {
     use claviron_runtime::{ExecutionDomain, ExecutionSpec, ExecutorSpec};
-    for (yaml, expected) in [
-        ("{}", PlainExecution::Shared),
-        ("plain_execution: shared", PlainExecution::Shared),
-        ("plain_execution: current_thread", PlainExecution::CurrentThread),
+    for driver in [
+        "    transport: tcp\n    protocols: h1\n",
+        "    transport: tcp\n    tls: true\n    protocols: [h1, h2]\n",
+        "    transport: quic\n    protocols: h3\n",
     ] {
-        let config: HttpSnapshot = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.plain_execution, expected);
-        let spec: ExecutionSpec = expected.into();
-        let executor = match expected {
-            PlainExecution::Shared => ExecutorSpec::Inherit,
-            PlainExecution::CurrentThread => {
-                ExecutorSpec::Shared(ExecutionDomain::of::<PlainExecution>())
-            }
-        };
-        assert_eq!(spec.executor, executor);
+        for (inherited, local, expected) in [
+            ("", "", ListenerExecution::Shared),
+            (
+                "    execution: current_thread\n",
+                "",
+                ListenerExecution::CurrentThread,
+            ),
+            (
+                "    execution: current_thread\n",
+                "    execution: shared\n",
+                ListenerExecution::Shared,
+            ),
+            (
+                "    execution: shared\n",
+                "    execution: current_thread\n",
+                ListenerExecution::CurrentThread,
+            ),
+        ] {
+            let source = format!(
+                "defaults:\n  listener:\n{inherited}    requests: {{max_body_size: off, body_read_timeout: off}}\nlisteners:\n  selected:\n{driver}{local}    listen: 127.0.0.1:0\n"
+            );
+            let config: HttpSnapshot = serde_yaml::from_str(&source).unwrap();
+            let listener = config.listeners.values().next().unwrap();
+            assert_eq!(listener.execution, expected);
+            let spec = match expected {
+                ListenerExecution::Shared => ExecutionSpec::default(),
+                ListenerExecution::CurrentThread => ExecutionSpec::default()
+                    .with_executor(ExecutorSpec::Shared(
+                        ExecutionDomain::named::<ListenerExecution>("selected"),
+                    )),
+            };
+            assert_eq!(listener.execution_spec(), spec);
+            let mut changed = listener.as_ref().clone();
+            changed.execution = if expected == ListenerExecution::Shared {
+                ListenerExecution::CurrentThread
+            } else {
+                ListenerExecution::Shared
+            };
+            assert!(listener.same_binding(&changed));
+        }
     }
 }
 
 #[test]
-fn plain_execution_rejects_unknown_and_mistyped_modes() {
+fn listener_execution_rejects_unknown_and_mistyped_modes() {
+    let source = |inherited: &str, local: &str| {
+        format!(
+            "defaults:\n  listener:\n    execution: {inherited}\n    requests: {{max_body_size: off, body_read_timeout: off}}\nlisteners:\n  selected:\n    execution: {local}\n    transport: tcp\n    listen: 127.0.0.1:0\n    protocols: h1\n"
+        )
+    };
+    assert!(
+        serde_yaml::from_str::<HttpSnapshot>(&source("shared", "shared"))
+            .is_ok()
+    );
     for value in ["null", "false", "4", "multi_thread", "{}", "[]"] {
-        let source = format!("plain_execution: {value}");
-        assert!(serde_yaml::from_str::<HttpSnapshot>(&source).is_err());
+        for (inherited, local) in [(value, "shared"), ("shared", value)] {
+            assert!(
+                serde_yaml::from_str::<HttpSnapshot>(&source(inherited, local))
+                    .is_err()
+            );
+        }
     }
 }
 
@@ -149,10 +192,10 @@ fn connection_limits_are_only_applied_when_declared() {
 }
 
 #[test]
-fn plain_execution_domains_are_scoped_to_listener_identity() {
+fn listener_execution_domains_are_scoped_to_listener_identity() {
     let first = "first".parse().unwrap();
     let second = "second".parse().unwrap();
-    let configured = PlainExecution::CurrentThread;
+    let configured = ListenerExecution::CurrentThread;
     assert_eq!(
         configured.for_listener(&first),
         configured.for_listener(&first)
@@ -162,7 +205,7 @@ fn plain_execution_domains_are_scoped_to_listener_identity() {
         configured.for_listener(&second)
     );
     assert_eq!(
-        PlainExecution::Shared.for_listener(&first),
+        ListenerExecution::Shared.for_listener(&first),
         claviron_runtime::ExecutionSpec::default()
     );
 }

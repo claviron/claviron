@@ -53,12 +53,26 @@ fn sibling_transport_changes_do_not_invalidate_tls() {
 
 #[cfg(feature = "tls")]
 #[test]
-fn plain_execution_does_not_invalidate_tls() {
+fn listener_execution_changes_invalidate_only_their_transport_projection() {
     let source = include_str!("../fixtures/listeners.yaml");
-    let original = serde_yaml::from_str::<HttpsServerConfig>(source).unwrap();
-    let changed = serde_yaml::from_str::<HttpsServerConfig>(&format!(
-        "plain_execution: current_thread\n{source}"
-    ))
-    .unwrap();
-    assert!(original == changed);
+    let plain = serde_yaml::from_str::<HttpServerConfig>(source).unwrap();
+    let secure = serde_yaml::from_str::<HttpsServerConfig>(source).unwrap();
+    for (name, changes_plain, changes_secure) in
+        [("plain", true, false), ("secure", false, true)]
+    {
+        let changed = source.replace(
+            &format!("  {name}:\n"),
+            &format!("  {name}:\n    execution: current_thread\n"),
+        );
+        assert_eq!(
+            plain
+                != serde_yaml::from_str::<HttpServerConfig>(&changed).unwrap(),
+            changes_plain
+        );
+        assert_eq!(
+            secure
+                != serde_yaml::from_str::<HttpsServerConfig>(&changed).unwrap(),
+            changes_secure
+        );
+    }
 }

@@ -231,7 +231,6 @@ impl TryFrom<HttpSnapshot> for HttpsServerConfig {
                 if matches!(tcp.security, TcpSecurity::Tls { .. }))
         });
         config.watchdog = None;
-        config.plain_execution = Default::default();
         #[cfg(feature = "metrics")]
         {
             config.metrics = Arc::default();
@@ -417,6 +416,12 @@ impl Reloadable<AppState> for HttpsListener {
 impl Runnable<AppState, ServerDeps> for HttpsListener {
     fn as_reloadable(&self) -> Option<&dyn Reloadable<AppState>> {
         Some(self)
+    }
+    fn execution_spec(
+        &self,
+        _: &AppState,
+    ) -> claviron_runtime::ExecutionSpec {
+        self.input.load().listeners[&self.id].execution_spec()
     }
     async fn run(
         self: Arc<Self>,

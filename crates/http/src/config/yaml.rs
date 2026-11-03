@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use claviron_helpers::de::deserialize_regex_set;
 pub use claviron_helpers::overrides as helpers;
-pub use execution::PlainExecution;
+pub use execution::ListenerExecution;
 pub use helpers::Override;
 pub use listeners::{
     ConnectionLimits, ListenerConfig, ListenerDefinition, ListenerOverrides,
@@ -42,8 +42,6 @@ use crate::watchdog::WatchdogConfig;
 /// read: its fields change with the features compiled in.
 #[derive(Default, Deserialize)]
 pub struct HttpYaml {
-    #[serde(default = "execution::default_plain_execution")]
-    pub plain_execution: PlainExecution,
     #[serde(default)]
     pub defaults: HttpDefaults,
     #[serde(default, deserialize_with = "listeners::deserialize_definitions")]
@@ -74,7 +72,6 @@ pub struct HttpDefaults {
 /// building their own generation. No YAML inheritance markers remain here.
 #[derive(Clone, Default)]
 pub struct HttpSnapshot {
-    pub plain_execution: PlainExecution,
     pub headers: Arc<HostHeadersConfig>,
     pub deny: RegexSet,
     pub listeners: BTreeMap<ListenerId, Arc<ListenerConfig>>,
@@ -92,8 +89,7 @@ impl PartialEq for HttpSnapshot {
         if self.metrics != other.metrics {
             return false;
         }
-        self.plain_execution == other.plain_execution
-            && self.headers == other.headers
+        self.headers == other.headers
             && self.deny.patterns() == other.deny.patterns()
             && self.listeners == other.listeners
             && self.watchdog == other.watchdog
@@ -182,7 +178,6 @@ impl HttpYaml {
             listeners.insert(id, Arc::new(listener));
         }
         Ok(HttpSnapshot {
-            plain_execution: self.plain_execution,
             headers: Arc::new(self.defaults.headers),
             deny: self.defaults.deny,
             listeners,

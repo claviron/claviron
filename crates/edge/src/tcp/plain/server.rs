@@ -405,7 +405,7 @@ impl Runnable<AppState, (Arc<VhostResolver>,)> for HttpListener {
         &self,
         _: &AppState,
     ) -> ExecutionSpec {
-        self.input.load().plain_execution.for_listener(&self.id)
+        self.input.load().listeners[&self.id].execution_spec()
     }
     async fn run(
         self: Arc<Self>,

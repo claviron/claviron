@@ -212,7 +212,6 @@ impl TryFrom<HttpSnapshot> for H3ServerConfig {
             matches!(listener.settings, ListenerSettings::Quic(_))
         });
         config.watchdog = None;
-        config.plain_execution = Default::default();
         #[cfg(feature = "metrics")]
         {
             config.metrics = Arc::default();
@@ -442,6 +441,12 @@ impl Reloadable<AppState> for H3Listener {
 impl Runnable<AppState, ServerDeps> for H3Listener {
     fn as_reloadable(&self) -> Option<&dyn Reloadable<AppState>> {
         Some(self)
+    }
+    fn execution_spec(
+        &self,
+        _: &AppState,
+    ) -> claviron_runtime::ExecutionSpec {
+        self.input.load().listeners[&self.id].execution_spec()
     }
     async fn run(
         self: Arc<Self>,

@@ -11,8 +11,8 @@ use serde::{Deserialize, Deserializer};
 use super::proxy::ProxyOverrideExt;
 use super::{
     ConfigError, H1Config, H1Override, H2Config, H2Override, HttpPolicy,
-    Override, ProxyConfig, ProxyOverride, QuicConfig, QuicOverride,
-    RequestPolicy, RequestPolicyOverride, ResponsePolicy,
+    ListenerExecution, Override, ProxyConfig, ProxyOverride, QuicConfig,
+    QuicOverride, RequestPolicy, RequestPolicyOverride, ResponsePolicy,
     ResponsePolicyOverride, TcpConfig, TcpOverride,
 };
 use crate::ListenerId;
@@ -23,6 +23,8 @@ use crate::listener::{HttpProtocol, ListenerTransport};
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ListenerOverrides {
+    #[serde(default)]
+    pub execution: Override<ListenerExecution>,
     #[serde(default)]
     pub max_connections: Override<Option<NonZeroUsize>>,
     #[serde(default, deserialize_with = "super::helpers::optional_duration")]
@@ -54,6 +56,8 @@ pub struct ListenerOverrides {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ListenerDefinition {
+    #[serde(default)]
+    pub execution: Override<ListenerExecution>,
     pub transport: ListenerTransport,
     #[serde(deserialize_with = "one_or_many")]
     pub listen: Vec<SocketAddr>,
@@ -112,6 +116,8 @@ impl Default for ConnectionLimits {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListenerConfig {
     pub id: ListenerId,
+    /// Placement for the next generation; independent of transport and binds.
+    pub execution: ListenerExecution,
     pub listen: Vec<SocketAddr>,
     pub limits: ConnectionLimits,
     pub proxy: Option<ProxyConfig>,
@@ -125,6 +131,11 @@ pub struct ListenerConfig {
 }
 
 impl ListenerConfig {
+    /// Common Runnable placement for plain TCP, TLS TCP and QUIC.
+    pub fn execution_spec(&self) -> claviron_runtime::ExecutionSpec {
+        self.execution.for_listener(&self.id)
+    }
+
     /// Both sides of this listener's policy: the guarantee every host and
     /// application on it narrows.
     pub fn policy(&self) -> HttpPolicy {
@@ -245,6 +256,7 @@ impl ListenerOverrides {
 impl ListenerDefinition {
     fn overrides(&self) -> ListenerOverrides {
         ListenerOverrides {
+            execution: self.execution,
             max_connections: self.max_connections,
             graceful_timeout: self.graceful_timeout,
             acquire_timeout: self.acquire_timeout,
@@ -285,6 +297,11 @@ impl ListenerDefinition {
             }
         }
         let options = self.overrides();
+        let execution = options.execution.resolve(
+            &defaults
+                .execution
+                .resolve(&super::execution::default_listener_execution()),
+        );
         let limits =
             options.limits(&defaults.limits(&ConnectionLimits::default()));
         let proxy =
@@ -409,6 +426,7 @@ impl ListenerDefinition {
         );
         Ok(ListenerConfig {
             id,
+            execution,
             listen: self.listen,
             limits,
             proxy,
