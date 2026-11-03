@@ -179,6 +179,14 @@ impl<R: 'static> HostPipelineBuilder<(), R> {
 }
 
 impl<S, R> HostPipelineBuilder<S, R> {
+    /// Append already prepared actions without rebuilding their owners.
+    pub(crate) fn append(
+        &mut self,
+        mut prepared: Self,
+    ) {
+        self.layers.append(&mut prepared.layers);
+    }
+
     #[cfg(feature = "rate-limit")]
     pub(crate) fn prepend_layer(
         &mut self,

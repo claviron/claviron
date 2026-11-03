@@ -49,6 +49,46 @@ fn duplicate_snapshot_binding_keeps_the_original_execution() {
 
 struct Tag;
 
+#[test]
+fn changed_http_defaults_recompile_unchanged_host_declarations() {
+    use futures_util::FutureExt;
+    let state = AppState::standalone("defense-reload", ".");
+    let http = Arc::new(crate::HttpConfigProvider::empty("http.yaml".into()));
+    state.registry_ref().insert(http.clone()).unwrap();
+    let registry = HostAppRegistry::default();
+    let builds = Arc::new(AtomicUsize::new(0));
+    let observed = builds.clone();
+    registry.register_router("example.test", move |_| {
+        observed.fetch_add(1, Ordering::Relaxed);
+        Router::new().fallback(|| async { StatusCode::OK })
+    });
+    let table = serde_yaml::from_str("example.test: {}\n").unwrap();
+    let first = registry.build_table(&state, &table, None).unwrap();
+    let unchanged = registry.build_table(&state, &table, Some(&first)).unwrap();
+    assert_eq!(builds.load(Ordering::Relaxed), 1);
+    http.replace_from_yaml("defaults:\n  deny: ['^/blocked$']\n").unwrap();
+    let changed =
+        registry.build_table(&state, &table, Some(&unchanged)).unwrap();
+    assert_eq!(builds.load(Ordering::Relaxed), 2);
+    for (snapshot, status) in
+        [(&first, StatusCode::OK), (&changed, StatusCode::FORBIDDEN)]
+    {
+        let response = snapshot
+            .resolve(&"example.test".parse().unwrap())
+            .unwrap()
+            .handle(
+                Request::builder()
+                    .uri("/blocked")
+                    .body(claviron_http::empty_body())
+                    .unwrap(),
+            )
+            .now_or_never()
+            .expect("head-only fixture is ready")
+            .unwrap();
+        assert_eq!(response.status(), status);
+    }
+}
+
 impl RouteLayer for Tag {
     fn prepare(
         &self,
@@ -79,7 +119,10 @@ impl RouteLayer for Inactive {
 fn inactive_provider_layers_keep_the_direct_axum_call_boundary() {
     let state = AppState::standalone("inactive-layers", ".");
     let owner = build_host(
-        &state,
+        &crate::pipeline::host::compile::HostCompiler {
+            state: &state,
+            http: None,
+        },
         &"example.test".parse().unwrap(),
         Arc::new(HostConfig::new("public")),
         Some(RustRouter::Axum(Router::new())),
@@ -167,7 +210,10 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
     let prepared =
         registry.routable_binding(&state, &host, config.clone()).unwrap();
     let native = build_host(
-        &state,
+        &crate::pipeline::host::compile::HostCompiler {
+            state: &state,
+            http: None,
+        },
         &host,
         config.clone(),
         None,
@@ -177,7 +223,10 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
     )
     .unwrap();
     let axum = build_host(
-        &state,
+        &crate::pipeline::host::compile::HostCompiler {
+            state: &state,
+            http: None,
+        },
         &host,
         config,
         Some(RustRouter::Axum(

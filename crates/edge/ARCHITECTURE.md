@@ -30,15 +30,57 @@ waits, consuming calls and response hooks share one flat plan. `Unhandled`
 transfers the same unread body; a handled status never signals fallthrough.
 Only reached layers shape a reply. Axum is an application adapter.
 
-The native compiler selects extensions, Rust contributions, WebSocket endpoints,
-Static, TryFiles and configured backends. Independent policy layers are prepared;
-automatic listener/host policy selection and native session handoff are not yet
-connected. Response-head deadline ownership remains separate from transport limits.
+## HostPipeline order
+
+[`host/compile.rs`](src/pipeline/host/compile.rs) builds each host's scope plans at
+boot/reload, before publication. Each host retains its own compiled plan.
+Only declared or registered actions enter it. `HostLayer::prepare` may add
+nothing; the builder retains no runtime node for an empty layer. Requests execute
+the prepared actions without checking whether each capability is enabled.
+
+Host selection precedes the pipeline. Multiple prefix scopes or entry conditions
+add `RouteSelectionLayer`; a single unconditional root scope uses its plan
+directly. Prefix and condition matching still happen per request.
+
+Within the selected scope, entries follow this order. Undeclared entries are
+absent from the compiled plan:
+
+| Order | Entry | Selected by |
+| --- | --- | --- |
+| 1 | Trusted proxy / real IP | Nonempty forwarding headers and trusted networks on listeners exposing this host. |
+| 2 | Deny → IP ACL | Nonempty HTTP deny defaults; restrictive host/prefix ACL rules. |
+| 3 | Quota admission | Prepared host quota rules. |
+| 4 | Registered route layers, then resolved directive layers | Matching Routable providers in registration order; directives in name order. |
+| 5 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
+| 6 | Rust contributions, scope handler, then `RustRouter` | Matching Routables, a handler directive, or an explicit Axum/Warp/Other binding. |
+| 7 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
+| 8 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
+| 9 | Index/SPA file fallback | An index or SPA declaration. |
+
+Proxy and ACL borrow accepted connection facts. Forwarding changes only the
+request's `RealIpExt`; an untrusted peer cannot choose its ACL or quota identity.
+ACL refusals do not charge quota. Quota refusals do not enter application
+extensions. Authentication, sessions and CSRF remain application/framework work.
+An allow-all ACL alone installs no action; an allow-all child remains an explicit
+exception when a parent is restrictive. A deny-all rule remains active.
+
+`Handled` ends dispatch, including error responses. `Unhandled` transfers the
+same unread request to the next entry. If nothing handles it, the plan returns
+404. A terminal `RustRouter` with no preceding actions uses the direct-call path.
+
+Response-head and body hooks run in reverse order, only for reached scopes.
+Registered route layers determine custom policy order after quota. The compiler
+connects proxy, deny, ACL and quota declarations to their prepared layers;
+`RouteConfig.cors` is not yet connected to `CorsLayer` in this composition.
+Broadcast's own CORS policy is separate. Response-head deadline ownership remains
+separate from transport limits.
 
 ## Reload and ownership
 
 Host preparation runs before table publication. A rejected host candidate keeps
 the old table. Unchanged declarations retain identity and prepared applications.
+Compilation captures one HTTP snapshot per batch; changed HTTP defaults or
+listener policies invalidate cached host executions.
 TLS/H3 retain the accepted binding; cleartext selects the current host/application
 per request. HostBinding observes publications to retire changed connections.
 Accepted bodies, sessions and capacity remain with their native owners through
@@ -270,7 +312,7 @@ ownership and isolated state transitions without provider boot or live listeners
 
 ### `pipeline/`
 
-- [`apps.rs`](tests/pipeline/apps.rs) — Rust binding/layer composition and duplicate-owner retention.
+- [`apps.rs`](tests/pipeline/apps.rs) — Rust binding/layer composition, duplicate-owner retention and HTTP-policy cache invalidation.
 - [`broadcast.rs`](tests/pipeline/broadcast.rs) — Selected broadcast route ownership.
 - [`broadcast/rest.rs`](tests/pipeline/broadcast/rest.rs) — REST endpoint claims and terminal responses.
 - [`host.rs`](tests/pipeline/host.rs) — Layer preparation, response scope, body ownership, wakeup and cancellation.
@@ -291,6 +333,7 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`dispatch.rs`](tests/pipeline/host/dispatch.rs) — Compact pending state, synchronous unread-body transfer, existing erasure and cancellation.
 - [`handler.rs`](tests/pipeline/host/handler.rs) — Rust fallthrough, terminal status, cancellation and optional Axum adapter.
 - [`compile.rs`](tests/pipeline/host/compile.rs) — Scope conditions and Static/TryFiles/backend precedence.
+- [`compile/defense.rs`](tests/pipeline/host/compile/defense.rs) — Proxy trust, Deny/ACL/Quota order, extension admission, body ownership and absent-rule direct calls.
 
 ### `pipeline/layers/`
 

@@ -48,6 +48,7 @@ pub(crate) struct ResolvedRouteExtensions {
 pub struct HostAppSnapshot {
     map: HashMap<Host, HostExecution>,
     configs: HashMap<Host, Arc<HostConfig>>,
+    http: Option<Arc<claviron_http::config::HttpSnapshot>>,
     #[cfg(feature = "rate-limit")]
     quotas:
         Arc<HashMap<Host, Option<Arc<crate::pipeline::layers::HostQuotas>>>>,
@@ -344,8 +345,11 @@ pub struct HostAppRegistry {
 
 impl HostAppRegistry {
     /// Bind a prepared limiter to this canonical host/prefix. It runs at the
-    /// same head-admission point as config, before the selected Rust router
-    /// or backend. Native H2 CONNECT and H3 session admission is separate.
+    /// same head-admission point as config, after proxy/Deny/ACL and before
+    /// application extension layers, the selected Rust router or backend.
+    /// Keys must be available from the accepted connection or incoming head;
+    /// later application extensions have not run. Native H2 CONNECT and H3
+    /// session admission is separate.
     /// Register before the first host preparation; duplicate config/Rust
     /// definitions are errors. The limiter retains its own KeyProvider.
     #[cfg(feature = "rate-limit")]
@@ -626,6 +630,14 @@ impl HostAppRegistry {
         table: &crate::loader::table::VhostTable,
         previous: Option<&HostAppSnapshot>,
     ) -> Result<HostAppSnapshot> {
+        let http = state
+            .registry_ref()
+            .resolve::<crate::HttpConfigProvider>()
+            .map(|provider| provider.snapshot());
+        let http_unchanged =
+            previous.is_some_and(|previous| previous.http == http);
+        let compiler =
+            super::host::compile::HostCompiler { state, http: http.as_deref() };
         #[cfg(feature = "rate-limit")]
         let quotas = {
             let previous = previous
@@ -669,6 +681,7 @@ impl HostAppRegistry {
         let mut snapshot = HostAppSnapshot {
             map: HashMap::new(),
             configs: HashMap::new(),
+            http: http.clone(),
             #[cfg(feature = "rate-limit")]
             quotas: Arc::new(quotas),
         };
@@ -693,6 +706,7 @@ impl HostAppRegistry {
 
         for (canonical, record) in table.canonical_entries() {
             if let Some(previous) = previous
+                && http_unchanged
                 && previous
                     .configs
                     .get(canonical)
@@ -765,7 +779,7 @@ impl HostAppRegistry {
                 })
                 .transpose()?;
             let app = build_host(
-                state,
+                &compiler,
                 canonical,
                 record.config.clone(),
                 router,
@@ -785,7 +799,7 @@ impl HostAppRegistry {
 }
 
 fn build_host(
-    state: &AppState,
+    compiler: &super::host::compile::HostCompiler<'_>,
     canonical: &Host,
     host_cfg: Arc<HostConfig>,
     router: Option<RustRouter>,
@@ -801,8 +815,7 @@ fn build_host(
         canonical,
         std::mem::take(&mut contributions.h1_upgrades),
     )?;
-    super::host::compile::prepare(
-        state,
+    compiler.prepare(
         canonical,
         host_cfg,
         router,
