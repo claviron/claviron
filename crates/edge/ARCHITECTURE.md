@@ -164,6 +164,12 @@ The transport-free resolver does not compile listener plans.
 
 The listener's atomic snapshot contains its wire settings, ready host plans and,
 for TLS/QUIC, the matching TLS policy. Acceptance loads this snapshot once.
+`VhostTable::resolve_application_on` is the shared name/alias/default selection
+for plain TCP, TLS TCP and QUIC. A listener match requires its prepared plan;
+an excluded exact name never falls through to the default host. TLS config
+preparation enumerates those same prepared canonical entries. TLS TCP and QUIC
+retain canonical config maps, not a separate host/alias membership registry;
+QUIC's ClientHello selector borrows the captured table before admitting TLS.
 Cleartext authority selection still runs per request, against the captured view;
 TLS/H3 retain the host selected during handshake. No request reloads a resolver.
 HostBinding observes source publications to retire changed TLS/H3 bindings.
@@ -251,7 +257,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`loader.rs`](src/loader.rs) — Module boundary for declaration loading and host publication.
 - [`config.rs`](src/loader/config.rs) — VhostDocument, recursive includes, partial reads and unchanged declaration reuse.
 - [`error.rs`](src/loader/error.rs) — Declaration and load errors.
-- [`table.rs`](src/loader/table.rs) — Canonical names, validated aliases, listener/log selectors and prepared dependencies.
+- [`table.rs`](src/loader/table.rs) — Canonical names, validated aliases, shared listener-plan selection and prepared dependencies.
 - [`snapshot.rs`](src/loader/snapshot.rs) — Candidate host/alias edits and optional database alias hydration.
 - [`resolver.rs`](src/loader/resolver.rs) — Retained sources, dependent preparation, atomic table publication and binding retirement.
 
@@ -416,7 +422,7 @@ ownership and isolated state transitions without provider boot or live listeners
 ### `pipeline/`
 
 - [`apps.rs`](tests/pipeline/apps.rs) — Rust binding/layer composition, duplicate-owner retention and HTTP-policy cache invalidation.
-- [`apps/protocol.rs`](tests/pipeline/apps/protocol.rs) — Cold protocol selection, inactive directives and listener plan isolation.
+- [`apps/protocol.rs`](tests/pipeline/apps/protocol.rs) — Cold protocol selection, listener name/alias/default admission, inactive directives and plan isolation.
 - [`apps/reply.rs`](tests/pipeline/apps/reply.rs) — Listener/prefix reply bounds, early responses, lazy frames and cancellation.
 - [`broadcast.rs`](tests/pipeline/broadcast.rs) — Selected broadcast route ownership.
 - [`broadcast/rest.rs`](tests/pipeline/broadcast/rest.rs) — REST endpoint claims and terminal responses.

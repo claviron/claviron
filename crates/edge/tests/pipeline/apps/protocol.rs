@@ -26,6 +26,78 @@ listeners:
     protocols: h3
 "#;
 
+#[test]
+#[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+fn listener_host_selection_keeps_names_aliases_and_prepared_plans_together() {
+    let state = AppState::standalone("listener-host-selection", ".");
+    let http =
+        serde_yaml::from_str::<claviron_http::config::HttpSnapshot>(LISTENERS)
+            .unwrap();
+    let registry = HostAppRegistry::default();
+    let table: crate::loader::table::VhostTable = serde_yaml::from_str(
+        "default: {listeners: tls}\nselected.test: {listeners: [plain, tls, quic], aliases: [alias.test]}\nexcluded.test: {listeners: plain-alt, aliases: [excluded-alias.test]}\nh3.test: {transport: {protocols: h3}}\n",
+    )
+    .unwrap();
+    for name in ["plain", "tls", "quic"] {
+        let id = name.parse().unwrap();
+        let input =
+            crate::transport::publication::select_listener(&http, &id).unwrap();
+        let prepared =
+            registry.prepare_listener(&state, &table, &input, None).unwrap();
+        let mut names = prepared
+            .listener_entries(&id)
+            .map(|(host, _)| host.to_string())
+            .collect::<Vec<_>>();
+        names.sort();
+        let expected = match name {
+            "tls" => vec!["default", "selected.test"],
+            "quic" => vec!["h3.test", "selected.test"],
+            _ => vec!["selected.test"],
+        };
+        assert_eq!(names, expected);
+        let (canonical, plan) = prepared
+            .resolve_application_on(
+                &"selected.test".parse().unwrap(),
+                Some(&id),
+            )
+            .unwrap();
+        let (alias, alias_plan) = prepared
+            .resolve_application_on(&"alias.test".parse().unwrap(), Some(&id))
+            .unwrap();
+        assert!(Arc::ptr_eq(&canonical.config, &alias.config));
+        assert!(std::ptr::eq(plan.unwrap(), alias_plan.unwrap()));
+        for excluded in ["excluded.test", "excluded-alias.test"] {
+            assert!(
+                prepared
+                    .resolve_application_on(
+                        &excluded.parse().unwrap(),
+                        Some(&id)
+                    )
+                    .is_none(),
+                "an excluded exact name cannot enter the default host"
+            );
+        }
+        assert_eq!(
+            prepared
+                .resolve_application_on(
+                    &"unknown.test".parse().unwrap(),
+                    Some(&id)
+                )
+                .is_some(),
+            name == "tls"
+        );
+        assert!(
+            table
+                .resolve_application_on(
+                    &"selected.test".parse().unwrap(),
+                    Some(&id)
+                )
+                .is_none(),
+            "a declaration alone cannot admit a connection without its prepared plan"
+        );
+    }
+}
+
 struct HttpOnly {
     matches: Arc<AtomicUsize>,
     prepares: Arc<AtomicUsize>,

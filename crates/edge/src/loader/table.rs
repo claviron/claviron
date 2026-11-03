@@ -23,6 +23,19 @@ struct VhostEntry {
     listener_plans: Option<crate::pipeline::apps::ListenerPlans>,
 }
 
+impl VhostEntry {
+    fn listener_plan(
+        &self,
+        listener: &claviron_http::ListenerId,
+    ) -> Option<&crate::pipeline::HostExecution> {
+        self.listener_plans
+            .as_ref()?
+            .iter()
+            .find(|(id, _)| id == listener)
+            .map(|(_, plan)| plan)
+    }
+}
+
 impl Deref for VhostEntry {
     type Target = VhostRecord;
 
@@ -175,14 +188,7 @@ impl VhostTable {
     ) -> Option<(&VhostRecord, Option<&crate::pipeline::HostExecution>)> {
         let entry = self.resolve_entry(host)?;
         let application = match listener {
-            Some(listener) => Some(
-                &entry
-                    .listener_plans
-                    .as_ref()?
-                    .iter()
-                    .find(|(id, _)| id == listener)?
-                    .1,
-            ),
+            Some(listener) => Some(entry.listener_plan(listener)?),
             None => entry.application.as_ref(),
         };
         Some((entry.record.as_ref(), application))
@@ -275,6 +281,19 @@ impl VhostTable {
             .iter()
             .filter(|(key, record)| *key == &record.canonical)
             .map(|(key, entry)| (key, &entry.record))
+    }
+
+    /// Cold TLS preparation uses the same admitted hosts as request dispatch.
+    /// Aliases resolve through this table rather than a second name registry.
+    #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+    pub(crate) fn listener_entries<'a>(
+        &'a self,
+        listener: &'a claviron_http::ListenerId,
+    ) -> impl Iterator<Item = (&'a Host, &'a Arc<VhostRecord>)> {
+        self.inner.iter().filter_map(move |(key, entry)| {
+            (*key == entry.canonical && entry.listener_plan(listener).is_some())
+                .then_some((key, &entry.record))
+        })
     }
 
     pub fn canonical_config(

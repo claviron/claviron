@@ -71,11 +71,8 @@ impl TlsAccept {
             .map_err(|error| {
                 Error::msg(format!("TLS listener '{}': {error}", listener.id))
             })?;
-        for (canonical, record) in table.canonical_entries() {
+        for (canonical, record) in table.listener_entries(&listener.id) {
             let host = &record.config;
-            if !host.allows_listener(&listener.id) {
-                continue;
-            }
             let protocols = allowed_protocols(tcp, host);
             if protocols.is_empty() {
                 continue;

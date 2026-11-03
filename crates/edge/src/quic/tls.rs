@@ -39,7 +39,7 @@ pub(crate) struct H3TlsTemplate {
 }
 
 pub(crate) struct H3TlsPolicy {
-    hosts: Arc<HashMap<Host, Option<TlsHost>>>,
+    by_host: Arc<HashMap<Host, TlsHost>>,
     config: Arc<ServerConfig>,
 }
 
@@ -138,60 +138,52 @@ impl H3TlsAccept {
 
     pub(crate) fn prepare_policy(
         template: &H3TlsTemplate,
-        table: &VhostTable,
+        table: &Arc<VhostTable>,
         previous: Option<&H3TlsPolicy>,
         certificates: Arc<CertResolver>,
         listener: &ListenerId,
     ) -> Result<H3TlsPolicy> {
-        let mut hosts = HashMap::new();
-        for (canonical, record) in table.canonical_entries() {
+        let mut by_host = HashMap::new();
+        for (canonical, record) in table.listener_entries(listener) {
             let host = &record.config;
             let retained = previous
-                .and_then(|previous| previous.hosts.get(canonical))
-                .and_then(Option::as_ref)
+                .and_then(|previous| previous.by_host.get(canonical))
                 .filter(|old| old.declaration.same_tls_policy(host));
             let auth = &host.tls.client_auth;
-            let policy = if !host.allows_transport(listener, H3) {
-                None
+            let config = if let Some(old) = retained {
+                old.config.clone()
+            } else if auth.is_required() {
+                build_auth_config_for_host(
+                    &canonical.to_string(),
+                    auth.ca_bundle.as_deref(),
+                    auth.organization.as_deref(),
+                    auth.unit.as_deref(),
+                    certificates.clone(),
+                    &template.config,
+                    template.revocations.clone(),
+                )?
             } else {
-                let config = if let Some(old) = retained {
-                    old.config.clone()
-                } else if auth.is_required() {
-                    build_auth_config_for_host(
-                        &canonical.to_string(),
-                        auth.ca_bundle.as_deref(),
-                        auth.organization.as_deref(),
-                        auth.unit.as_deref(),
-                        certificates.clone(),
-                        &template.config,
-                        template.revocations.clone(),
-                    )?
-                } else {
-                    template.base.clone()
-                };
-                Some(TlsHost { declaration: host.clone(), config })
+                template.base.clone()
             };
-            // Preserve disabled exact names: they must not fall back to another host.
-            for name in table.host_keys_for_canonical(canonical) {
-                hosts.insert(name, policy.clone());
-            }
+            by_host.insert(
+                canonical.clone(),
+                TlsHost { declaration: host.clone(), config },
+            );
         }
-        let fallback = hosts
-            .iter()
-            .find(|(name, _)| name.as_single() == Some("default"))
-            .and_then(|(_, host)| host.as_ref())
-            .map(|host| host.config.clone());
-        let hosts = Arc::new(hosts);
-        let lookup = hosts.clone();
+        let by_host = Arc::new(by_host);
+        let lookup = by_host.clone();
+        let names = table.clone();
+        let listener = listener.clone();
         let rejected = template.rejected.clone();
         let selector: quinn_deferred_config::Selector =
             Arc::new(move |hello: &ClientHelloView<'_>| {
                 let selected = hello
                     .server_name
                     .and_then(|name| name.parse::<Host>().ok())
-                    .and_then(|name| match lookup.get(&name) {
-                        Some(host) => host.as_ref().map(|host| &host.config),
-                        None => fallback.as_ref(),
+                    .and_then(|name| {
+                        let (record, _) = names
+                            .resolve_application_on(&name, Some(&listener))?;
+                        lookup.get(&record.canonical).map(|host| &host.config)
                     });
                 selected.cloned().unwrap_or_else(|| rejected.clone())
             });
@@ -200,7 +192,7 @@ impl H3TlsAccept {
             selector,
             &template.config,
         )?;
-        Ok(H3TlsPolicy { hosts, config: Arc::new(config) })
+        Ok(H3TlsPolicy { by_host, config: Arc::new(config) })
     }
     pub(crate) fn base_config(&self) -> ServerConfig {
         self.template.endpoint.clone()
