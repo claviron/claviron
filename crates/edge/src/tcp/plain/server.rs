@@ -3,18 +3,20 @@
 //! Connection driving is `conn.rs` and request handling is `handler.rs`, the
 //! same split the TLS driver uses, so one side is learned by reading the other.
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::transport::VhostResolver;
 use crate::transport::instances::ListenerInstances;
+use crate::transport::publication::{
+    self, ListenerPublication, PreparedListener,
+};
+use crate::transport::{VhostResolver, VhostTable};
+use arc_swap::{ArcSwap, ArcSwapOption};
 use async_trait::async_trait;
 use claviron_http::ListenerId;
 use claviron_http::config::{
     H1Config, HttpSnapshot, ListenerCapabilities, ListenerConfig,
-    ListenerSettings, PlainExecution, TcpConfig, TcpSecurity,
+    ListenerSettings, TcpConfig, TcpSecurity,
 };
-use claviron_http::listener::{ListenerSnapshot, ListenerSnapshots};
 use claviron_runtime::congif::{
     self, ConfigFile, ConfigObserver, Configurable, Format,
 };
@@ -36,25 +38,7 @@ pub(super) struct ServerSnapshot {
     pub(super) listener: Arc<ListenerConfig>,
     pub(super) tcp: TcpConfig,
     pub(super) h1: H1Config,
-}
-impl ListenerSnapshot for ServerSnapshot {
-    fn listener_id(&self) -> &ListenerId {
-        &self.listener.id
-    }
-
-    fn same_binding(
-        &self,
-        other: &Self,
-    ) -> bool {
-        self.listener.same_binding(&other.listener)
-    }
-
-    fn binding_conflicts(
-        &self,
-        other: &Self,
-    ) -> bool {
-        self.listener.binding_conflicts(&other.listener)
-    }
+    pub(super) hosts: Arc<VhostTable>,
 }
 impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
     fn listener(&self) -> &ListenerConfig {
@@ -64,16 +48,11 @@ impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
 
 pub struct HttpServer {
     state: AppState,
-    current: ListenerSnapshots<ServerSnapshot>,
     instances: Mutex<ListenerInstances<HttpListener>>,
 }
 impl HttpServer {
     pub fn empty(state: AppState) -> Self {
-        Self {
-            current: ListenerSnapshots::default(),
-            state,
-            instances: Mutex::default(),
-        }
+        Self { state, instances: Mutex::default() }
     }
 
     fn configure_instances(
@@ -85,45 +64,46 @@ impl HttpServer {
         instances.reconcile(config.listeners.keys(), |id| HttpListener {
             id: id.clone(),
             name: format!("Listener:{id}").into(),
-            current_thread: AtomicBool::new(false),
+            state: self.state.clone(),
+            current: Arc::default(),
+            input: ArcSwap::from_pointee(
+                publication::select_listener(config, id)
+                    .expect("declared HTTP listener"),
+            ),
         });
-        for instance in instances.iter() {
-            instance
-                .current_thread
-                .store(config.current_thread(), Ordering::Relaxed);
-        }
     }
 
-    async fn serve_listener(
-        self: Arc<Self>,
-        id: &ListenerId,
-        vhosts: Arc<VhostResolver>,
-        context: RunContext,
+    fn refresh(
+        &self,
+        config: &HttpServerConfig,
     ) -> claviron_runtime::registry::Result<()> {
-        let config = self.state.config_reader().snapshot::<Self>()?;
-        let snapshot =
-            build_snapshots(&config)?.remove(id).ok_or_else(|| {
-                claviron_runtime::registry::Error::msg(format!(
-                    "cleartext listener '{id}' is not configured"
-                ))
-            })?;
-        let generation = self.current.start_listener(snapshot)?;
-        crate::tcp::listener::serve(
-            &self.current,
-            generation.groups(),
-            &context,
-            self.state.run_mode(),
-            move |snapshot, stream, peer, permit| {
-                Self::handle_connection(
-                    stream,
-                    peer,
-                    snapshot,
-                    vhosts.clone(),
-                    permit,
-                )
-            },
-        )
-        .await
+        let vhosts = publication::resolver(&self.state)?;
+        vhosts.update_listener(|hosts| {
+            let instances = self
+                .instances
+                .lock()
+                .expect("HTTP listener declarations poisoned");
+            let mut prepared = Vec::new();
+            for instance in instances.iter() {
+                if config.listeners.contains_key(&instance.id) {
+                    let input =
+                        publication::select_listener(config, &instance.id)
+                            .map_err(crate::Error::other)?;
+                    prepared.push((
+                        instance.clone(),
+                        input.clone(),
+                        instance.prepare_input(hosts, &input, true)?,
+                    ));
+                }
+            }
+            for (instance, input, publish) in prepared {
+                publish();
+                instance.input.store(Arc::new(input));
+            }
+            Ok(())
+        })?;
+        self.configure_instances(config);
+        Ok(())
     }
 
     /// Prepare the native cleartext handler without binding or booting a server.
@@ -134,13 +114,21 @@ impl HttpServer {
         listener: &claviron_http::ListenerId,
         vhosts: Arc<VhostResolver>,
     ) -> claviron_runtime::registry::Result<super::ConnectionHandler> {
-        let snapshot =
-            build_snapshots(config)?.remove(listener).ok_or_else(|| {
+        let input = publication::select_listener(config, listener)?;
+        let hosts = Arc::new(publication::prepare_hosts(
+            &self.state,
+            &vhosts.snapshot(),
+            &input,
+            None,
+        )?);
+        let snapshot = build_snapshots(&input, hosts)?
+            .remove(listener)
+            .ok_or_else(|| {
                 claviron_runtime::registry::Error::msg(format!(
                     "cleartext listener '{listener}' is not configured"
                 ))
             })?;
-        Ok(super::ConnectionHandler::new(snapshot, vhosts))
+        Ok(super::ConnectionHandler::new(snapshot))
     }
 
     pub async fn serve(
@@ -148,30 +136,38 @@ impl HttpServer {
         vhosts: Arc<VhostResolver>,
         context: RunContext,
     ) -> claviron_runtime::registry::Result<()> {
-        let generation = self.current.start(build_snapshots(
-            self.state.config_reader().snapshot::<Self>()?.as_ref(),
-        )?)?;
-        crate::tcp::listener::serve(
-            &self.current,
-            generation.groups(),
-            &context,
-            self.state.run_mode(),
-            move |snapshot, stream, peer, permit| {
-                Self::handle_connection(
-                    stream,
-                    peer,
-                    snapshot,
-                    vhosts.clone(),
-                    permit,
-                )
-            },
-        )
-        .await
+        use futures_util::stream::{FuturesUnordered, StreamExt};
+        let instances: Vec<_> = self
+            .instances
+            .lock()
+            .expect("HTTP listener declarations poisoned")
+            .iter()
+            .cloned()
+            .collect();
+        let mut running = FuturesUnordered::new();
+        for instance in instances {
+            running.push(instance.run(
+                (vhosts.clone(),),
+                self.state.clone(),
+                context.child(),
+            ));
+        }
+        if running.is_empty() {
+            context.cancelled().await;
+        }
+        let mut failure = None;
+        while let Some(result) = running.next().await {
+            if let Err(error) = result {
+                failure.get_or_insert(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
     }
 }
 
 pub(super) fn build_snapshots(
-    http: &HttpSnapshot
+    http: &HttpSnapshot,
+    hosts: Arc<VhostTable>,
 ) -> claviron_runtime::registry::Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>>
 {
     let mut groups = BTreeMap::new();
@@ -193,6 +189,7 @@ pub(super) fn build_snapshots(
                 listener: listener.clone(),
                 tcp: config.tcp.clone(),
                 h1: config.h1.clone(),
+                hosts: hosts.clone(),
             }),
         );
     }
@@ -203,13 +200,6 @@ pub(super) fn build_snapshots(
 #[derive(PartialEq, Eq, serde::Deserialize)]
 #[serde(try_from = "HttpSnapshot")]
 pub struct HttpServerConfig(HttpSnapshot);
-
-impl HttpServerConfig {
-    fn current_thread(&self) -> bool {
-        self.plain_execution == PlainExecution::CurrentThread
-            && !self.listeners.is_empty()
-    }
-}
 
 impl std::ops::Deref for HttpServerConfig {
     type Target = HttpSnapshot;
@@ -273,10 +263,7 @@ impl ConfigObserver for HttpServer {
         &self,
         config: &Self::Config,
     ) -> congif::Result<()> {
-        self.current
-            .publish(build_snapshots(config).map_err(congif::Error::msg)?)
-            .map_err(congif::Error::msg)?;
-        self.configure_instances(config);
+        self.refresh(config).map_err(congif::Error::msg)?;
         info!("🔁 HttpServer listener policies reloaded");
         Ok(())
     }
@@ -331,8 +318,7 @@ impl Reloadable<AppState> for HttpServer {
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
         let config = state.config_reader().snapshot::<Self>()?;
-        self.current.publish(build_snapshots(config.as_ref())?)?;
-        self.configure_instances(&config);
+        self.refresh(&config)?;
         info!("🔁 HttpServer listener policies reloaded");
         Ok(())
     }
@@ -341,35 +327,110 @@ impl Reloadable<AppState> for HttpServer {
 struct HttpListener {
     id: ListenerId,
     name: Arc<str>,
-    current_thread: AtomicBool,
+    state: AppState,
+    current: Arc<ArcSwapOption<ServerSnapshot>>,
+    input: ArcSwap<HttpSnapshot>,
+}
+
+impl HttpListener {
+    fn prepare_input(
+        &self,
+        hosts: &VhostTable,
+        input: &HttpSnapshot,
+        refresh_factories: bool,
+    ) -> crate::Result<PreparedListener> {
+        let previous =
+            if refresh_factories { None } else { self.current.load_full() };
+        let hosts = Arc::new(
+            publication::prepare_hosts(
+                &self.state,
+                hosts,
+                input,
+                previous.as_ref().map(|old| old.hosts.as_ref()),
+            )
+            .map_err(crate::Error::other)?,
+        );
+        let snapshot = build_snapshots(input, hosts)
+            .map_err(crate::Error::other)?
+            .remove(&self.id)
+            .ok_or_else(|| {
+                crate::Error::other(format!(
+                    "listener '{}' is not cleartext TCP",
+                    self.id
+                ))
+            })?;
+        publication::resolver(&self.state)
+            .map_err(crate::Error::other)?
+            .validate_listener_binding(snapshot.listener.clone())?;
+        let current = self.current.clone();
+        Ok(Box::new(move || current.store(Some(snapshot))))
+    }
+}
+
+impl ListenerPublication for HttpListener {
+    fn listener_id(&self) -> &ListenerId {
+        &self.id
+    }
+    fn prepare(
+        &self,
+        hosts: &VhostTable,
+        refresh_factories: bool,
+    ) -> crate::Result<PreparedListener> {
+        self.prepare_input(hosts, &self.input.load(), refresh_factories)
+    }
 }
 
 #[async_trait]
-impl Runnable<AppState, (Arc<HttpServer>, Arc<VhostResolver>)>
-    for HttpListener
-{
-    fn execution_spec(
+impl Reloadable<AppState> for HttpListener {
+    async fn reload(
         &self,
-        _state: &AppState,
-    ) -> ExecutionSpec {
-        let selected = if self.current_thread.load(Ordering::Relaxed) {
-            PlainExecution::CurrentThread
-        } else {
-            PlainExecution::Shared
-        };
-        selected.for_listener(&self.id)
-    }
-
-    async fn run(
-        self: Arc<Self>,
-        (server, vhosts): (Arc<HttpServer>, Arc<VhostResolver>),
-        _state: AppState,
-        context: RunContext,
+        state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
-        server.serve_listener(&self.id, vhosts, context).await
+        let input = publication::read_listener(state, &self.id).await?;
+        publication::resolver(state)?.update_listener(|hosts| {
+            self.prepare_input(hosts, &input, true)?();
+            self.input.store(Arc::new(input));
+            Ok(())
+        })?;
+        Ok(())
     }
 }
 
-#[cfg(test)]
-#[path = "../../../tests/tcp/unit/execution.rs"]
-mod execution_tests;
+#[async_trait]
+impl Runnable<AppState, (Arc<VhostResolver>,)> for HttpListener {
+    fn as_reloadable(&self) -> Option<&dyn Reloadable<AppState>> {
+        Some(self)
+    }
+    fn execution_spec(
+        &self,
+        _: &AppState,
+    ) -> ExecutionSpec {
+        self.input.load().plain_execution.for_listener(&self.id)
+    }
+    async fn run(
+        self: Arc<Self>,
+        (vhosts,): (Arc<VhostResolver>,),
+        _: AppState,
+        context: RunContext,
+    ) -> claviron_runtime::registry::Result<()> {
+        let _generation = vhosts.register_listener(self.clone(), || {
+            let input = self.input.load();
+            let listener =
+                input.listeners.get(&self.id).cloned().ok_or_else(|| {
+                    crate::Error::other("HTTP listener not configured")
+                })?;
+            vhosts.start_listener_binding(listener)
+        })?;
+        crate::tcp::listener::serve(
+            &self.current,
+            self.current.load_full().expect("HTTP listener prepared"),
+            &context,
+            self.state.run_mode(),
+            move |snapshot, stream, peer, permit| {
+                super::ConnectionHandler::new(snapshot)
+                    .serve(stream, peer, permit)
+            },
+        )
+        .await
+    }
+}

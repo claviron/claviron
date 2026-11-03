@@ -39,7 +39,7 @@ Upstream and Link.
 ## HostPipeline order
 
 [`host/compile.rs`](src/pipeline/host/compile.rs) builds each host's scope plans at
-boot/reload, before publication. Each host retains its own compiled plan.
+boot/reload, before publication. Each eligible listener/host pair retains its own compiled plan.
 Only declared or registered actions enter it. `HostLayer::prepare` may add
 nothing; the builder retains no runtime node for an empty layer. Requests execute
 the prepared actions without checking whether each capability is enabled.
@@ -144,7 +144,7 @@ Nonempty bodies receive one wrapper; frame bytes and trailers retain their owner
 Immediate frames need no idle timer. Empty bodies retain their original owner.
 Listener defaults are narrowed through the host root and prefix ancestors;
 `off` cannot widen an inherited ceiling. Listener-specific plans publish with
-host declarations and are selected during native host binding. Native listener selection never falls back to the transport-free plan.
+host declarations in the listener snapshot. Native listener selection never falls back to the transport-free plan.
 
 H1/H2/H3 enter this same pipeline with lazy `RouteBody` values. H3 validates
 its protocol framing and adapts receive frames; it neither buffers requests
@@ -157,21 +157,39 @@ request-size checks. Runner provides the same ingress contract outside Edge.
 
 Host preparation runs before table publication. A rejected host candidate keeps
 the old table. Unchanged declarations retain identity and prepared applications.
-Compilation captures one HTTP snapshot per batch; changed HTTP defaults or
-listener policies invalidate cached host executions.
-TLS/H3 retain the accepted binding; cleartext selects the current host/application
-per request. HostBinding observes publications to retire changed connections.
+Each listener compiles from its retained effective HTTP input and the candidate
+host declarations. Unchanged host declarations and inputs reuse prepared owners during source
+publications. Explicit reload and start re-evaluate application factories.
+The transport-free resolver does not compile listener plans.
+
+The listener's atomic snapshot contains its wire settings, ready host plans and,
+for TLS/QUIC, the matching TLS policy. Acceptance loads this snapshot once.
+Cleartext authority selection still runs per request, against the captured view;
+TLS/H3 retain the host selected during handshake. No request reloads a resolver.
+HostBinding observes source publications to retire changed TLS/H3 bindings.
 Accepted bodies, sessions and capacity remain with their native owners through
 drain; the [graceful ownership contract](../../docs/design/GRACEFUL_OWNERSHIP.md)
 defines termination authority. Configured quota changes currently require restart.
 
-`HttpServer`, `HttpsServer` and `H3Server` remain configuration/DI owners.
-Each declares one `Listener:<id>` runnable per configured listener. Unchanged
-allocations retain their management identity; removals cancel and drain only
-that listener. Re-adding a draining declaration retains its handle. Changing
-transport ownership requires stopping the old instance and reconciling before
-starting the replacement. All addresses of one listener share its gate and
-run generation; sibling listeners have independent lifetimes.
+`HttpServer`, `HttpsServer` and `H3Server` are declaration factories. Each
+produces named `Listener:<id>` instances. An instance owns its effective config,
+prepared snapshot, serving loop and targeted `Runnable::as_reloadable` hook;
+its run dependencies contain no parent server. Manager start/stop/reload addresses
+that instance. A targeted reload prepares the current config source through
+Congif and applies only that listener and its inherited defaults. Execution
+changes take effect on the next start.
+
+VhostResolver retains weak listener preparation registrations. Its existing
+source publication stages every listener's affected host view before committing
+any snapshot; there is no per-listener watcher task. Certificate rotation uses
+the existing live CertResolver. Host, alias, client-auth or listener ALPN changes
+prepare a new matching host/TLS view; accepted work retains its previous owner.
+
+A shared cold binding catalog prevents conflicts across cleartext, TLS and QUIC
+factories and retains retiring socket ownership through drain. Active bind/gate
+changes require stop/restart. All addresses of one listener share its admission
+gate and generation. Unchanged instances retain management identity; removals
+cancel and drain that instance, and re-addition retains a still-draining handle.
 
 `http.yaml` may select `plain_execution: current_thread`: each cleartext
 listener gets a named, process-local executor domain reused across its
@@ -217,6 +235,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`listener.rs`](src/listener.rs) — Hosting alias notifications and atomic candidate updates; PostgreSQL NOTIFY or hosting events.
 - [`transport.rs`](src/transport.rs) — Public transport-facing re-exports; loader and service remain internal.
 - [`transport/instances.rs`](src/transport/instances.rs) — Cold listener declarations, retained handles and weak references to draining instances.
+- [`transport/publication.rs`](src/transport/publication.rs) — Listener input selection, host compilation, weak publication contract and shared bind geometry.
 
 ### `config/`
 
@@ -388,6 +407,7 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`snapshot.rs`](tests/loader/snapshot.rs) — Database alias input validation.
 - [`resolver.rs`](tests/loader/resolver.rs) — Boot dependency declaration.
 - [`resolver/selection.rs`](tests/loader/resolver/selection.rs) — Coherent application selection, publication failure and generation ownership.
+- [`resolver/listeners.rs`](tests/loader/resolver/listeners.rs) — Staged listener publication, targeted isolation, retained views and cross-driver bind ownership.
 - [`binding.rs`](tests/loader/binding.rs) — Event-driven retirement and atomic alias changes.
 
 ### `pipeline/`

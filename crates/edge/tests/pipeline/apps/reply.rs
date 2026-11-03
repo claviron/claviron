@@ -103,7 +103,7 @@ listeners:
 "#,
     )
     .unwrap();
-    state.registry_ref().insert(http).unwrap();
+    state.registry_ref().insert(http.clone()).unwrap();
     let registry = HostAppRegistry::default();
     let polls = Arc::new(AtomicUsize::new(0));
     let drops = Arc::new(AtomicUsize::new(0));
@@ -133,8 +133,15 @@ listeners:
         ("small", "/off", 1, true),
     ] {
         let id = listener.parse().unwrap();
+        let input = crate::transport::publication::select_listener(
+            &http.snapshot(),
+            &id,
+        )
+        .unwrap();
+        let prepared =
+            registry.prepare_listener(&state, &table, &input, None).unwrap();
         let (_, owner) =
-            table.resolve_application_on(&host, Some(&id)).unwrap();
+            prepared.resolve_application_on(&host, Some(&id)).unwrap();
         let before = polls.load(Ordering::Relaxed);
         let dropped = drops.load(Ordering::Relaxed);
         let response = owner

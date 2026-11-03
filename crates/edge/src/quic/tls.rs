@@ -1,10 +1,9 @@
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::transport::VhostTable;
 use crate::transport::tls::TlsHost;
-use crate::transport::{VhostResolver, VhostTable};
 use claviron_http::ListenerId;
 use claviron_http::config::QuicConfig;
 use claviron_runtime::registry::{Error, Result};
@@ -27,11 +26,9 @@ fn h3_alpns() -> Vec<Vec<u8>> {
 #[derive(Clone)]
 pub(crate) struct H3TlsAccept {
     template: Arc<H3TlsTemplate>,
-    live: Arc<VhostResolver>,
-    listener: ListenerId,
+    hosts: Arc<VhostTable>,
+    policy: Arc<H3TlsPolicy>,
 }
-
-pub(crate) struct VhostTlsPolicies(pub BTreeMap<ListenerId, H3TlsPolicy>);
 
 pub(crate) struct H3TlsTemplate {
     base: Arc<RustlsServerConfig>,
@@ -62,13 +59,46 @@ const QUIC_INITIAL_SUITE_MISSING: &str = concat!(
 
 impl H3TlsAccept {
     pub(crate) fn build(
+        deps: &crate::quic::server::Deps,
+        cfg: &QuicConfig,
+        listener: &ListenerId,
+        hosts: Arc<VhostTable>,
+        previous: Option<&Self>,
+    ) -> Result<Self> {
+        let template = match previous.filter(|old| old.template.config == *cfg)
+        {
+            Some(old) => old.template.clone(),
+            None => Self::build_template(
+                deps.cert_resolver.clone(),
+                deps.revocations.clone(),
+                cfg,
+                &deps.tls_sessions,
+                listener,
+            )?,
+        };
+        let previous =
+            previous.filter(|old| Arc::ptr_eq(&old.template, &template));
+        let policy = Self::prepare_policy(
+            &template,
+            &hosts,
+            previous.map(|old| old.policy.as_ref()),
+            deps.cert_resolver.clone(),
+            listener,
+        )?;
+        Ok(Self { template, hosts, policy: Arc::new(policy) })
+    }
+
+    pub(super) fn hosts(&self) -> &VhostTable {
+        &self.hosts
+    }
+
+    fn build_template(
         cert_resolver: Arc<CertResolver>,
         revocations: Arc<Revocations>,
-        vhost_resolver: Arc<VhostResolver>,
         cfg: &QuicConfig,
         sessions: &FleetServerSessions,
         listener: &ListenerId,
-    ) -> Result<Self> {
+    ) -> Result<Arc<H3TlsTemplate>> {
         let mut base_tls = create_tls_config(&[H3], cert_resolver.clone())
             .map_err(|error| Error::msg(format!("H3 TLS config: {error}")))?;
         let domain = SessionDomain::new(format!("quic-public:{listener}"))
@@ -103,10 +133,7 @@ impl H3TlsAccept {
             config: cfg.clone(),
             revocations,
         });
-        Ok(Self { template, live: vhost_resolver, listener: listener.clone() })
-    }
-    pub(crate) fn template(&self) -> Arc<H3TlsTemplate> {
-        self.template.clone()
+        Ok(template)
     }
 
     pub(crate) fn prepare_policy(
@@ -183,16 +210,8 @@ impl H3TlsAccept {
         incoming: Incoming,
     ) -> Result<AcceptedQuic> {
         // Move this owner through the handshake; routing cannot load a newer view.
-        let hosts = self.live.snapshot();
-        let policy = hosts
-            .prepared_ref::<VhostTlsPolicies>()
-            .and_then(|policies| policies.0.get(&self.listener))
-            .ok_or_else(|| {
-                Error::msg(format!(
-                    "H3 listener '{}' has no published host policy",
-                    self.listener
-                ))
-            })?;
+        let hosts = self.hosts.clone();
+        let policy = &self.policy;
         let connection = incoming
             .accept_with(policy.config.clone())
             .map_err(|error| Error::msg(format!("H3 accept: {error}")))?

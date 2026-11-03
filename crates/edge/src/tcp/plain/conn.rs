@@ -8,7 +8,6 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::transport::VhostResolver;
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;
 use claviron_http::session::ConnectionScope;
@@ -18,7 +17,7 @@ use tokio::net::TcpStream;
 use tracing::{debug, warn};
 
 use super::handler::H1Service;
-use super::server::{HttpServer, ServerSnapshot};
+use super::server::ServerSnapshot;
 
 /// A prepared cleartext listener's native handler for accepted TCP streams.
 /// The caller owns acceptance, connection capacity and session drain. Each
@@ -26,15 +25,11 @@ use super::server::{HttpServer, ServerSnapshot};
 #[derive(Clone)]
 pub struct ConnectionHandler {
     snapshot: Arc<ServerSnapshot>,
-    vhosts: Arc<VhostResolver>,
 }
 
 impl ConnectionHandler {
-    pub(super) fn new(
-        snapshot: Arc<ServerSnapshot>,
-        vhosts: Arc<VhostResolver>,
-    ) -> Self {
-        Self { snapshot, vhosts }
+    pub(super) fn new(snapshot: Arc<ServerSnapshot>) -> Self {
+        Self { snapshot }
     }
 
     /// Serve one accepted stream until peer completion or its owned drain.
@@ -45,20 +40,8 @@ impl ConnectionHandler {
         peer: SocketAddr,
         scope: ConnectionScope,
     ) -> impl Future<Output = ()> + Send {
-        let Self { snapshot, vhosts } = self;
-        serve(stream, peer, snapshot, vhosts, scope)
-    }
-}
-
-impl HttpServer {
-    pub(super) fn handle_connection(
-        stream: TcpStream,
-        peer: SocketAddr,
-        snapshot: Arc<ServerSnapshot>,
-        vhosts: Arc<VhostResolver>,
-        scope: ConnectionScope,
-    ) -> impl Future<Output = ()> + Send {
-        ConnectionHandler::new(snapshot, vhosts).serve(stream, peer, scope)
+        let Self { snapshot } = self;
+        serve(stream, peer, snapshot, scope)
     }
 }
 
@@ -66,7 +49,6 @@ async fn serve(
     stream: TcpStream,
     peer: SocketAddr,
     snapshot: Arc<ServerSnapshot>,
-    vhosts: Arc<VhostResolver>,
     scope: ConnectionScope,
 ) {
     if let Err(error) = crate::tcp::protocol::socket(&stream, &snapshot.tcp) {
@@ -91,7 +73,7 @@ async fn serve(
         country_code: crate::tcp::geo::country_code(peer.ip()),
         tls: None,
     });
-    let service = H1Service::new(snapshot.clone(), vhosts, ctx);
+    let service = H1Service::new(snapshot.clone(), ctx);
     let service = service_fn(move |req| service.call(req));
     let stream = crate::tcp::io::TcpIo::new(stream);
     let errors = stream.clone();

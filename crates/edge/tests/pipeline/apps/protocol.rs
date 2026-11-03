@@ -112,7 +112,7 @@ fn protocol_selection_is_cold_and_http_layers_are_absent_from_tls_and_quic() {
     let mut table: crate::loader::table::VhostTable =
         serde_yaml::from_str("example.test: {}\n").unwrap();
     let snapshot = registry.build_table(&state, &table, None).unwrap();
-    assert_eq!(prepares.load(Ordering::Relaxed), 2);
+    assert_eq!(prepares.load(Ordering::Relaxed), 0);
     // An unbound lookup must not accidentally expose a protocol-specific layer.
     assert!(
         snapshot
@@ -126,13 +126,20 @@ fn protocol_selection_is_cold_and_http_layers_are_absent_from_tls_and_quic() {
         Arc::new(snapshot),
     );
     let host = "example.test".parse().unwrap();
-    let selections = matches.load(Ordering::Relaxed);
     for (listener, selected) in
         [("plain", true), ("plain-alt", true), ("tls", false), ("quic", false)]
     {
         let id = listener.parse().unwrap();
+        let input = crate::transport::publication::select_listener(
+            &http.snapshot(),
+            &id,
+        )
+        .unwrap();
+        let prepared =
+            registry.prepare_listener(&state, &table, &input, None).unwrap();
+        let selections = matches.load(Ordering::Relaxed);
         let (_, owner) =
-            table.resolve_application_on(&host, Some(&id)).unwrap();
+            prepared.resolve_application_on(&host, Some(&id)).unwrap();
         let owner = owner.unwrap();
         assert_eq!(owner.clone().into_axum().is_err(), selected);
         let reply = owner
@@ -142,8 +149,9 @@ fn protocol_selection_is_cold_and_http_layers_are_absent_from_tls_and_quic() {
             .unwrap();
         assert_eq!(reply.status(), StatusCode::OK);
         assert_eq!(reply.headers().contains_key("x-http-only"), selected);
+        assert_eq!(matches.load(Ordering::Relaxed), selections);
     }
-    assert_eq!(matches.load(Ordering::Relaxed), selections);
+    assert_eq!(prepares.load(Ordering::Relaxed), 2);
 
     // Removing HTTP listeners does not prepare a layer or resolve its resources.
     http.replace_from_yaml(
@@ -175,7 +183,7 @@ fn protocol_selection_omits_inactive_directives_without_losing_their_owner() {
     let state = AppState::standalone("protocol-directive", ".");
     let http = Arc::new(crate::HttpConfigProvider::empty("http.yaml".into()));
     http.replace_from_yaml(LISTENERS).unwrap();
-    state.registry_ref().insert(http).unwrap();
+    state.registry_ref().insert(http.clone()).unwrap();
     let registry = Arc::new(HostAppRegistry::default());
     state.registry_ref().insert(registry.clone()).unwrap();
     registry.register_router("example.test", |_| {
@@ -201,8 +209,15 @@ fn protocol_selection_omits_inactive_directives_without_losing_their_owner() {
         ("quic", StatusCode::OK),
     ] {
         let id = listener.parse().unwrap();
+        let input = crate::transport::publication::select_listener(
+            &http.snapshot(),
+            &id,
+        )
+        .unwrap();
+        let prepared =
+            registry.prepare_listener(&state, &table, &input, None).unwrap();
         let (_, owner) =
-            table.resolve_application_on(&host, Some(&id)).unwrap();
+            prepared.resolve_application_on(&host, Some(&id)).unwrap();
         let response = owner
             .unwrap()
             .handle(

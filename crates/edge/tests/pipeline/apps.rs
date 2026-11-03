@@ -10,9 +10,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::pipeline::host::{HostHandlerFuture, HostLayerBuilder, HostRequest};
 
+#[cfg(any(feature = "tcp", feature = "quic"))]
 #[path = "apps/protocol.rs"]
 mod protocol;
 
+#[cfg(any(feature = "tcp", feature = "quic"))]
 #[path = "apps/reply.rs"]
 mod reply;
 

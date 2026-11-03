@@ -2,15 +2,18 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use crate::transport::VhostResolver;
 use crate::transport::instances::ListenerInstances;
+use crate::transport::publication::{
+    self, ListenerPublication, PreparedListener,
+};
+use crate::transport::{VhostResolver, VhostTable};
+use arc_swap::{ArcSwap, ArcSwapOption};
 use async_trait::async_trait;
 use claviron_http::ListenerId;
 use claviron_http::config::{
     HttpSnapshot, ListenerCapabilities, ListenerConfig, ListenerSettings,
     TcpListenerConfig, TcpSecurity,
 };
-use claviron_http::listener::{ListenerSnapshot, ListenerSnapshots};
 use claviron_runtime::congif::{
     self, ConfigFile, ConfigObserver, Configurable, Format,
 };
@@ -23,31 +26,12 @@ use claviron_tls::resolver::CertResolver;
 use claviron_tls::revocation::Revocations;
 use tracing::info;
 
-use super::tls::{TlsAccept, VhostTlsPolicies};
+use super::tls::TlsAccept;
 
 pub(crate) struct ServerSnapshot {
     pub(crate) listener: Arc<ListenerConfig>,
     pub(crate) config: TcpListenerConfig,
     pub(crate) tls_accept: TlsAccept,
-}
-impl ListenerSnapshot for ServerSnapshot {
-    fn listener_id(&self) -> &ListenerId {
-        &self.listener.id
-    }
-
-    fn same_binding(
-        &self,
-        other: &Self,
-    ) -> bool {
-        self.listener.same_binding(&other.listener)
-    }
-
-    fn binding_conflicts(
-        &self,
-        other: &Self,
-    ) -> bool {
-        self.listener.binding_conflicts(&other.listener)
-    }
 }
 impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
     fn listener(&self) -> &ListenerConfig {
@@ -57,7 +41,6 @@ impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
 
 pub struct HttpsServer {
     pub(crate) state: AppState,
-    pub(crate) current: ListenerSnapshots<ServerSnapshot>,
     instances: Mutex<ListenerInstances<HttpsListener>>,
 }
 /// What the listeners serve with, each a hard requirement.
@@ -93,11 +76,7 @@ impl Deps {
 }
 impl HttpsServer {
     pub fn empty(state: AppState) -> Self {
-        Self {
-            state,
-            current: ListenerSnapshots::default(),
-            instances: Mutex::default(),
-        }
+        Self { state, instances: Mutex::default() }
     }
     fn configure_instances(
         &self,
@@ -109,35 +88,13 @@ impl HttpsServer {
             .reconcile(config.listeners.keys(), |id| HttpsListener {
                 id: id.clone(),
                 name: format!("Listener:{id}").into(),
+                state: self.state.clone(),
+                current: Arc::default(),
+                input: ArcSwap::from_pointee(
+                    publication::select_listener(config, id)
+                        .expect("declared TLS listener"),
+                ),
             });
-    }
-
-    async fn serve_listener(
-        self: Arc<Self>,
-        id: &ListenerId,
-        deps: ServerDeps,
-        context: RunContext,
-    ) -> Result<(), Error> {
-        let deps = Deps::bind(deps)?;
-        let http = self.state.config_reader().snapshot::<Self>()?;
-        let groups = build_snapshots(&http, &deps);
-        let snapshot = groups.get(id).cloned().ok_or_else(|| {
-            Error::msg(format!("TLS listener '{id}' is not configured"))
-        })?;
-        let generation = prepare_vhosts(&http, &deps, || {
-            self.current.start_listener(snapshot)
-        })?;
-        let server = self.clone();
-        crate::tcp::listener::serve(
-            &self.current,
-            generation.groups(),
-            &context,
-            self.state.run_mode(),
-            move |snapshot, stream, peer, permit| {
-                server.clone().handle_connection(snapshot, stream, peer, permit)
-            },
-        )
-        .await
     }
 
     /// A reload or a source change receives no component dependencies; it
@@ -151,35 +108,79 @@ impl HttpsServer {
         )?)
     }
 
+    fn refresh(
+        &self,
+        config: &HttpsServerConfig,
+    ) -> Result<(), Error> {
+        let deps = self.resolve_deps(&self.state)?;
+        deps.vhost_resolver.update_listener(|hosts| {
+            let instances = self
+                .instances
+                .lock()
+                .expect("TLS listener declarations poisoned");
+            let mut prepared = Vec::new();
+            for instance in instances.iter() {
+                if config.listeners.contains_key(&instance.id) {
+                    let input =
+                        publication::select_listener(config, &instance.id)
+                            .map_err(crate::Error::other)?;
+                    prepared.push((
+                        instance.clone(),
+                        input.clone(),
+                        instance.prepare_input(hosts, &input, &deps, true)?,
+                    ));
+                }
+            }
+            for (instance, input, publish) in prepared {
+                publish();
+                instance.input.store(Arc::new(input));
+            }
+            Ok(())
+        })?;
+        self.configure_instances(config);
+        Ok(())
+    }
+
     pub async fn serve(
         self: Arc<Self>,
         deps: ServerDeps,
         context: RunContext,
     ) -> Result<(), Error> {
-        // Runtime resources become available after their owners' preparation;
-        // this driver needs no boot hook to receive them or bind its sockets.
-        let deps = Deps::bind(deps)?;
-        let http = self.state.config_reader().snapshot::<Self>()?;
-        let groups = build_snapshots(&http, &deps);
-        let generation =
-            prepare_vhosts(&http, &deps, || self.current.start(groups))?;
-        let server = self.clone();
-        crate::tcp::listener::serve(
-            &self.current,
-            generation.groups(),
-            &context,
-            self.state.run_mode(),
-            move |snapshot, stream, peer, permit| {
-                server.clone().handle_connection(snapshot, stream, peer, permit)
-            },
-        )
-        .await
+        use futures_util::stream::{FuturesUnordered, StreamExt};
+        let instances: Vec<_> = self
+            .instances
+            .lock()
+            .expect("TLS listener declarations poisoned")
+            .iter()
+            .cloned()
+            .collect();
+        let mut running = FuturesUnordered::new();
+        for instance in instances {
+            running.push(instance.run(
+                deps.clone(),
+                self.state.clone(),
+                context.child(),
+            ));
+        }
+        if running.is_empty() {
+            context.cancelled().await;
+        }
+        let mut failure = None;
+        while let Some(result) = running.next().await {
+            if let Err(error) = result {
+                failure.get_or_insert(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
     }
 }
+
 pub(crate) fn build_snapshots(
     http: &HttpSnapshot,
     deps: &Deps,
-) -> BTreeMap<ListenerId, Arc<ServerSnapshot>> {
+    hosts: Arc<VhostTable>,
+    previous: Option<&ServerSnapshot>,
+) -> Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>, Error> {
     let mut groups = BTreeMap::new();
     for (id, listener) in &http.listeners {
         let ListenerSettings::Tcp(config) = &listener.settings else {
@@ -188,8 +189,13 @@ pub(crate) fn build_snapshots(
         if !matches!(config.security, TcpSecurity::Tls { .. }) {
             continue;
         }
-        let tls_accept =
-            TlsAccept::new(deps.vhost_resolver.clone(), id.clone());
+        let tls_accept = TlsAccept::new(
+            deps,
+            listener,
+            config,
+            hosts.clone(),
+            previous.map(|old| &old.tls_accept),
+        )?;
         groups.insert(
             id.clone(),
             Arc::new(ServerSnapshot {
@@ -199,42 +205,7 @@ pub(crate) fn build_snapshots(
             }),
         );
     }
-    groups
-}
-
-fn prepare_vhosts<R>(
-    http: &HttpSnapshot,
-    deps: &Deps,
-    commit: impl FnOnce() -> Result<R, Error>,
-) -> Result<R, Error> {
-    let listeners = http.listeners.clone();
-    let serving = deps.clone();
-    deps.vhost_resolver
-        .prepare_publications_with(
-            move |table, previous: Option<&VhostTlsPolicies>| {
-                let mut policies = BTreeMap::new();
-                for (id, listener) in &listeners {
-                    let ListenerSettings::Tcp(config) = &listener.settings
-                    else {
-                        continue;
-                    };
-                    if !matches!(config.security, TcpSecurity::Tls { .. }) {
-                        continue;
-                    }
-                    let old = previous.and_then(|previous| previous.0.get(id));
-                    policies.insert(
-                        id.clone(),
-                        TlsAccept::prepare_policy(
-                            &serving, listener, config, table, old,
-                        )
-                        .map_err(crate::Error::other)?,
-                    );
-                }
-                Ok(VhostTlsPolicies(policies))
-            },
-            || commit().map_err(crate::Error::other),
-        )
-        .map_err(|error| Error::msg(error.to_string()))
+    Ok(groups)
 }
 
 /// Resolved inputs owned by this transport, excluding sibling listeners.
@@ -304,12 +275,7 @@ impl ConfigObserver for HttpsServer {
         &self,
         config: &Self::Config,
     ) -> congif::Result<()> {
-        let deps =
-            self.resolve_deps(&self.state).map_err(congif::Error::msg)?;
-        let groups = build_snapshots(config, &deps);
-        prepare_vhosts(config, &deps, || self.current.publish(groups))
-            .map_err(congif::Error::msg)?;
-        self.configure_instances(config);
+        self.refresh(config).map_err(congif::Error::msg)?;
         info!("🔁 HttpsServer listener policies reloaded");
         Ok(())
     }
@@ -362,28 +328,124 @@ impl Reloadable<AppState> for HttpsServer {
         &self,
         state: &AppState,
     ) -> Result<(), Error> {
-        let deps = self.resolve_deps(state)?;
         let http = state.config_reader().snapshot::<Self>()?;
-        let groups = build_snapshots(&http, &deps);
-        prepare_vhosts(&http, &deps, || self.current.publish(groups))?;
-        self.configure_instances(&http);
+        self.refresh(&http)?;
         info!("🔁 HttpsServer listener policies reloaded");
         Ok(())
     }
 }
-struct HttpsListener {
+pub(super) struct HttpsListener {
     id: ListenerId,
     name: Arc<str>,
+    pub(super) state: AppState,
+    current: Arc<ArcSwapOption<ServerSnapshot>>,
+    input: ArcSwap<HttpSnapshot>,
+}
+
+impl HttpsListener {
+    fn prepare_input(
+        &self,
+        hosts: &VhostTable,
+        input: &HttpSnapshot,
+        deps: &Deps,
+        refresh_factories: bool,
+    ) -> crate::Result<PreparedListener> {
+        let previous =
+            if refresh_factories { None } else { self.current.load_full() };
+        let hosts = Arc::new(
+            publication::prepare_hosts(
+                &self.state,
+                hosts,
+                input,
+                previous.as_ref().map(|old| old.tls_accept.hosts()),
+            )
+            .map_err(crate::Error::other)?,
+        );
+        let snapshot = build_snapshots(input, deps, hosts, previous.as_deref())
+            .map_err(crate::Error::other)?
+            .remove(&self.id)
+            .ok_or_else(|| {
+                crate::Error::other(format!(
+                    "listener '{}' is not TLS TCP",
+                    self.id
+                ))
+            })?;
+        publication::resolver(&self.state)
+            .map_err(crate::Error::other)?
+            .validate_listener_binding(snapshot.listener.clone())?;
+        let current = self.current.clone();
+        Ok(Box::new(move || current.store(Some(snapshot))))
+    }
+}
+
+impl ListenerPublication for HttpsListener {
+    fn listener_id(&self) -> &ListenerId {
+        &self.id
+    }
+    fn prepare(
+        &self,
+        hosts: &VhostTable,
+        refresh_factories: bool,
+    ) -> crate::Result<PreparedListener> {
+        let deps = Deps::bind(
+            ServerDeps::resolve(self.state.registry_ref())
+                .map_err(crate::Error::other)?,
+        )
+        .map_err(crate::Error::other)?;
+        self.prepare_input(hosts, &self.input.load(), &deps, refresh_factories)
+    }
 }
 
 #[async_trait]
-impl Runnable<AppState, (Arc<HttpsServer>, ServerDeps)> for HttpsListener {
+impl Reloadable<AppState> for HttpsListener {
+    async fn reload(
+        &self,
+        state: &AppState,
+    ) -> Result<(), Error> {
+        let input = publication::read_listener(state, &self.id).await?;
+        let deps = Deps::bind(ServerDeps::resolve(state.registry_ref())?)?;
+        deps.vhost_resolver.update_listener(|hosts| {
+            self.prepare_input(hosts, &input, &deps, true)?();
+            self.input.store(Arc::new(input));
+            Ok(())
+        })?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Runnable<AppState, ServerDeps> for HttpsListener {
+    fn as_reloadable(&self) -> Option<&dyn Reloadable<AppState>> {
+        Some(self)
+    }
     async fn run(
         self: Arc<Self>,
-        (server, deps): (Arc<HttpsServer>, ServerDeps),
-        _state: AppState,
+        deps: ServerDeps,
+        _: AppState,
         context: RunContext,
     ) -> Result<(), Error> {
-        server.serve_listener(&self.id, deps, context).await
+        let deps = Deps::bind(deps)?;
+        let _generation =
+            deps.vhost_resolver.register_listener(self.clone(), || {
+                let input = self.input.load();
+                let listener =
+                    input.listeners.get(&self.id).cloned().ok_or_else(
+                        || crate::Error::other("TLS listener not configured"),
+                    )?;
+                deps.vhost_resolver.start_listener_binding(listener)
+            })?;
+        let instance = self.clone();
+        crate::tcp::listener::serve(
+            &self.current,
+            self.current.load_full().expect("TLS listener prepared"),
+            &context,
+            self.state.run_mode(),
+            move |snapshot, stream, peer, permit| {
+                instance
+                    .clone()
+                    .handle_connection(snapshot, stream, peer, permit)
+            },
+        )
+        .await
     }
 }

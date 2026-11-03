@@ -701,13 +701,54 @@ impl HostAppRegistry {
         let http = state
             .registry_ref()
             .resolve::<crate::HttpConfigProvider>()
-            .map(|provider| provider.snapshot());
+            .map(|provider| {
+                let mut input = provider.snapshot().as_ref().clone();
+                input.listeners.clear();
+                Arc::new(input)
+            });
+        self.build_table_with_http(state, table, previous, http)
+    }
+
+    #[cfg(any(feature = "tcp", feature = "quic"))]
+    pub(crate) fn prepare_listener(
+        &self,
+        state: &AppState,
+        table: &crate::loader::table::VhostTable,
+        input: &claviron_http::config::HttpSnapshot,
+        previous: Option<&crate::loader::table::VhostTable>,
+    ) -> Result<crate::loader::table::VhostTable> {
+        let mut hosts = table.declarations_only();
+        let previous =
+            previous.and_then(|table| table.prepared::<HostAppSnapshot>());
+        let apps = self.build_table_with_http(
+            state,
+            &hosts,
+            previous.as_deref(),
+            Some(Arc::new(input.clone())),
+        )?;
+        hosts.set_prepared(
+            std::any::TypeId::of::<HostAppSnapshot>(),
+            Arc::new(apps),
+        );
+        Ok(hosts)
+    }
+
+    fn build_table_with_http(
+        &self,
+        state: &AppState,
+        table: &crate::loader::table::VhostTable,
+        previous: Option<&HostAppSnapshot>,
+        http: Option<Arc<claviron_http::config::HttpSnapshot>>,
+    ) -> Result<HostAppSnapshot> {
         let http_unchanged =
             previous.is_some_and(|previous| previous.http == http);
         let compiler = super::host::compile::HostCompiler {
             state,
             http: http.as_deref(),
-            protocol: None,
+            protocol: http
+                .as_ref()
+                .and_then(|http| http.listeners.values().next())
+                .map(|listener| RouteProtocol::from(listener.as_ref())),
         };
         #[cfg(feature = "rate-limit")]
         let quotas = {
@@ -735,6 +776,13 @@ impl HostAppRegistry {
                 .is_some();
             table
                 .canonical_entries()
+                .filter(|(_, record)| {
+                    http.as_ref()
+                        .and_then(|input| input.listeners.values().next())
+                        .is_none_or(|listener| {
+                            listener_exposes(&record.config, listener)
+                        })
+                })
                 .map(|(canonical, record)| {
                     registered
                         .prepare(
@@ -777,6 +825,15 @@ impl HostAppRegistry {
         }
 
         for (canonical, record) in table.canonical_entries() {
+            if http
+                .as_ref()
+                .and_then(|input| input.listeners.values().next())
+                .is_some_and(|listener| {
+                    !listener_exposes(&record.config, listener)
+                })
+            {
+                continue;
+            }
             if let Some(previous) = previous
                 && http_unchanged
                 && previous
@@ -958,6 +1015,22 @@ impl HostInput {
     }
 }
 
+fn listener_exposes(
+    host: &HostConfig,
+    listener: &claviron_http::config::ListenerConfig,
+) -> bool {
+    host.allows_listener(&listener.id)
+        && match &listener.settings {
+            claviron_http::config::ListenerSettings::Tcp(tcp) => tcp
+                .protocols
+                .iter()
+                .any(|protocol| host.transport.allows_protocol(*protocol)),
+            claviron_http::config::ListenerSettings::Quic(_) => host
+                .transport
+                .allows_protocol(claviron_http::listener::HttpProtocol::H3),
+        }
+}
+
 fn build_host(
     compiler: &super::host::compile::HostCompiler<'_>,
     canonical: &Host,
@@ -970,32 +1043,27 @@ fn build_host(
     >,
 ) -> Result<(HostExecution, Option<ListenerPlans>)> {
     let common = HostInput::new(canonical, router, contributions)?;
-    let shared = compiler.prepare(
-        canonical,
-        host_cfg.clone(),
-        common.router.clone(),
-        &common.contributions,
-        #[cfg(feature = "rate-limit")]
-        quotas,
-        #[cfg(feature = "websocket")]
-        common.websocket.clone(),
-    )?;
+    let shared = if compiler.protocol.is_none() {
+        compiler
+            .prepare(
+                canonical,
+                host_cfg.clone(),
+                common.router.clone(),
+                &common.contributions,
+                #[cfg(feature = "rate-limit")]
+                quotas,
+                #[cfg(feature = "websocket")]
+                common.websocket.clone(),
+            )
+            .map(Some)?
+    } else {
+        None
+    };
     let mut plans = Vec::new();
     for (id, listener) in
         compiler.http.into_iter().flat_map(|http| &http.listeners)
     {
-        if !host_cfg.allows_listener(id)
-            || !match &listener.settings {
-                claviron_http::config::ListenerSettings::Tcp(tcp) => {
-                    tcp.protocols.iter().any(|protocol| {
-                        host_cfg.transport.allows_protocol(*protocol)
-                    })
-                }
-                claviron_http::config::ListenerSettings::Quic(_) => host_cfg
-                    .transport
-                    .allows_protocol(claviron_http::listener::HttpProtocol::H3),
-            }
-        {
+        if !listener_exposes(&host_cfg, listener) {
             continue;
         }
         let protocol = RouteProtocol::from(listener.as_ref());
@@ -1020,6 +1088,9 @@ fn build_host(
         )?;
         plans.push((id.clone(), app));
     }
+    let shared = shared
+        .or_else(|| plans.first().map(|(_, owner)| owner.clone()))
+        .ok_or_else(|| Error::msg("host has no eligible listener execution"))?;
     Ok((shared, (!plans.is_empty()).then(|| plans.into())))
 }
 

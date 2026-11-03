@@ -5,15 +5,19 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use crate::transport::VhostTable;
 use crate::transport::instances::ListenerInstances;
+use crate::transport::publication::{
+    self, ListenerPublication, PreparedListener,
+};
 use crate::transport::{HostAppResolver, VhostResolver, WebTransportRegistry};
+use arc_swap::{ArcSwap, ArcSwapOption};
 use async_trait::async_trait;
 use claviron_http::ListenerId;
 use claviron_http::config::{
     HttpSnapshot, ListenerCapabilities, ListenerConfig, ListenerSettings,
     QuicListenerConfig,
 };
-use claviron_http::listener::{ListenerSnapshot, ListenerSnapshots};
 use claviron_runtime::congif::{
     self, ConfigFile, ConfigObserver, Configurable,
 };
@@ -26,7 +30,7 @@ use claviron_tls::resolver::CertResolver;
 use claviron_tls::revocation::Revocations;
 use tracing::info;
 
-use crate::quic::tls::{H3TlsAccept, VhostTlsPolicies};
+use crate::quic::tls::H3TlsAccept;
 
 /// Per-snapshot view: every request handler reads the same Arc, so reloads
 /// stay coherent across in-flight QUIC streams.
@@ -34,26 +38,6 @@ pub(crate) struct ServerSnapshot {
     pub(crate) listener: Arc<ListenerConfig>,
     pub(crate) config: QuicListenerConfig,
     pub(crate) tls_accept: H3TlsAccept,
-}
-
-impl ListenerSnapshot for ServerSnapshot {
-    fn listener_id(&self) -> &ListenerId {
-        &self.listener.id
-    }
-
-    fn same_binding(
-        &self,
-        other: &Self,
-    ) -> bool {
-        self.listener.same_binding(&other.listener)
-    }
-
-    fn binding_conflicts(
-        &self,
-        other: &Self,
-    ) -> bool {
-        self.listener.binding_conflicts(&other.listener)
-    }
 }
 
 /// What the listeners serve with, each a hard requirement.
@@ -77,7 +61,7 @@ pub(crate) struct Deps {
 }
 
 impl Deps {
-    fn bind(
+    pub(super) fn bind(
         (
             cert_resolver,
             _,
@@ -102,18 +86,13 @@ impl Deps {
 
 pub struct H3Server {
     pub(crate) state: AppState,
-    pub(crate) current: ListenerSnapshots<ServerSnapshot>,
     instances: Mutex<ListenerInstances<H3Listener>>,
 }
 
 impl H3Server {
     /// Lightweight constructor (no I/O, no registry lookups).
     pub fn empty(state: AppState) -> Self {
-        Self {
-            state,
-            current: ListenerSnapshots::default(),
-            instances: Mutex::default(),
-        }
+        Self { state, instances: Mutex::default() }
     }
 
     fn configure_instances(
@@ -126,7 +105,46 @@ impl H3Server {
             .reconcile(config.listeners.keys(), |id| H3Listener {
                 id: id.clone(),
                 name: format!("Listener:{id}").into(),
+                state: self.state.clone(),
+                current: Arc::default(),
+                input: ArcSwap::from_pointee(
+                    publication::select_listener(config, id)
+                        .expect("declared QUIC listener"),
+                ),
             });
+    }
+
+    fn refresh(
+        &self,
+        config: &H3ServerConfig,
+    ) -> Result<(), Error> {
+        let deps = self.resolve_deps(&self.state)?;
+        deps.vhost_resolver.update_listener(|hosts| {
+            let instances = self
+                .instances
+                .lock()
+                .expect("QUIC listener declarations poisoned");
+            let mut prepared = Vec::new();
+            for instance in instances.iter() {
+                if config.listeners.contains_key(&instance.id) {
+                    let input =
+                        publication::select_listener(config, &instance.id)
+                            .map_err(crate::Error::other)?;
+                    prepared.push((
+                        instance.clone(),
+                        input.clone(),
+                        instance.prepare_input(hosts, &input, &deps, true)?,
+                    ));
+                }
+            }
+            for (instance, input, publish) in prepared {
+                publish();
+                instance.input.store(Arc::new(input));
+            }
+            Ok(())
+        })?;
+        self.configure_instances(config);
+        Ok(())
     }
 
     /// A reload or a source change receives no component dependencies; it
@@ -144,6 +162,8 @@ impl H3Server {
 pub(crate) fn build_snapshots(
     http: &HttpSnapshot,
     deps: &Deps,
+    hosts: Arc<VhostTable>,
+    previous: Option<&ServerSnapshot>,
 ) -> Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>, Error> {
     let mut groups = BTreeMap::new();
     for (id, listener) in &http.listeners {
@@ -151,12 +171,11 @@ pub(crate) fn build_snapshots(
             continue;
         };
         let tls_accept = H3TlsAccept::build(
-            deps.cert_resolver.clone(),
-            deps.revocations.clone(),
-            deps.vhost_resolver.clone(),
+            deps,
             &config.quic,
-            deps.tls_sessions.as_ref(),
-            &listener.id,
+            id,
+            hosts.clone(),
+            previous.map(|old| &old.tls_accept),
         )?;
         groups.insert(
             id.clone(),
@@ -168,39 +187,6 @@ pub(crate) fn build_snapshots(
         );
     }
     Ok(groups)
-}
-
-pub(crate) fn prepare_vhosts<R>(
-    deps: &Deps,
-    groups: &BTreeMap<ListenerId, Arc<ServerSnapshot>>,
-    commit: impl FnOnce() -> Result<R, Error>,
-) -> Result<R, Error> {
-    let initial: BTreeMap<_, _> = groups
-        .iter()
-        .map(|(id, group)| (id.clone(), group.tls_accept.template()))
-        .collect();
-    let certificates = deps.cert_resolver.clone();
-    deps.vhost_resolver
-        .prepare_publications_with(
-            move |table, previous: Option<&VhostTlsPolicies>| {
-                let mut policies = BTreeMap::new();
-                for (id, template) in &initial {
-                    let old = previous.and_then(|previous| previous.0.get(id));
-                    let policy = H3TlsAccept::prepare_policy(
-                        template,
-                        table,
-                        old,
-                        certificates.clone(),
-                        id,
-                    )
-                    .map_err(crate::Error::other)?;
-                    policies.insert(id.clone(), policy);
-                }
-                Ok(VhostTlsPolicies(policies))
-            },
-            || commit().map_err(crate::Error::other),
-        )
-        .map_err(|error| Error::msg(error.to_string()))
 }
 
 /// The QUIC listeners of `http.yaml`: the shared document, validated whole,
@@ -271,15 +257,7 @@ impl ConfigObserver for H3Server {
         &self,
         config: &H3ServerConfig,
     ) -> congif::Result<()> {
-        let deps =
-            self.resolve_deps(&self.state).map_err(congif::Error::msg)?;
-        let snapshot = build_snapshots(config, deps.as_ref())
-            .map_err(congif::Error::msg)?;
-        prepare_vhosts(&deps, &snapshot, || {
-            self.current.publish(snapshot.clone())
-        })
-        .map_err(congif::Error::msg)?;
-        self.configure_instances(config);
+        self.refresh(config).map_err(congif::Error::msg)?;
         info!("🔁 H3Server reconfigured");
         Ok(())
     }
@@ -339,42 +317,153 @@ impl Reloadable<AppState> for H3Server {
         &self,
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
-        let deps = self.resolve_deps(state)?;
         let config = state.config_reader().snapshot::<Self>()?;
-        let snapshot = build_snapshots(&config, deps.as_ref())?;
-        prepare_vhosts(&deps, &snapshot, || {
-            self.current.publish(snapshot.clone())
-        })?;
-        self.configure_instances(&config);
+        self.refresh(&config)?;
         info!("🔁 H3Server reloaded");
         Ok(())
     }
 }
 
 impl H3Server {
-    /// Runnable adapter for the group lifecycle in `crate::quic::listener`.
     pub async fn serve(
         self: Arc<Self>,
         deps: ServerDeps,
         context: RunContext,
-    ) -> claviron_runtime::registry::Result<()> {
-        self.run_listeners(Deps::bind(deps)?, context).await
+    ) -> Result<(), Error> {
+        use futures_util::stream::{FuturesUnordered, StreamExt};
+        let instances: Vec<_> = self
+            .instances
+            .lock()
+            .expect("QUIC listener declarations poisoned")
+            .iter()
+            .cloned()
+            .collect();
+        let mut running = FuturesUnordered::new();
+        for instance in instances {
+            running.push(instance.run(
+                deps.clone(),
+                self.state.clone(),
+                context.child(),
+            ));
+        }
+        if running.is_empty() {
+            context.cancelled().await;
+        }
+        let mut failure = None;
+        while let Some(result) = running.next().await {
+            if let Err(error) = result {
+                failure.get_or_insert(error);
+            }
+        }
+        failure.map_or(Ok(()), Err)
     }
 }
 
-struct H3Listener {
+pub(super) struct H3Listener {
     id: ListenerId,
     name: Arc<str>,
+    pub(super) state: AppState,
+    pub(super) current: Arc<ArcSwapOption<ServerSnapshot>>,
+    input: ArcSwap<HttpSnapshot>,
+}
+
+impl H3Listener {
+    fn prepare_input(
+        &self,
+        hosts: &VhostTable,
+        input: &HttpSnapshot,
+        deps: &Deps,
+        refresh_factories: bool,
+    ) -> crate::Result<PreparedListener> {
+        let previous =
+            if refresh_factories { None } else { self.current.load_full() };
+        let hosts = Arc::new(
+            publication::prepare_hosts(
+                &self.state,
+                hosts,
+                input,
+                previous.as_ref().map(|old| old.tls_accept.hosts()),
+            )
+            .map_err(crate::Error::other)?,
+        );
+        let snapshot = build_snapshots(input, deps, hosts, previous.as_deref())
+            .map_err(crate::Error::other)?
+            .remove(&self.id)
+            .ok_or_else(|| {
+                crate::Error::other(format!(
+                    "listener '{}' is not QUIC",
+                    self.id
+                ))
+            })?;
+        publication::resolver(&self.state)
+            .map_err(crate::Error::other)?
+            .validate_listener_binding(snapshot.listener.clone())?;
+        let current = self.current.clone();
+        Ok(Box::new(move || current.store(Some(snapshot))))
+    }
+}
+
+impl ListenerPublication for H3Listener {
+    fn listener_id(&self) -> &ListenerId {
+        &self.id
+    }
+    fn prepare(
+        &self,
+        hosts: &VhostTable,
+        refresh_factories: bool,
+    ) -> crate::Result<PreparedListener> {
+        let deps = Deps::bind(
+            ServerDeps::resolve(self.state.registry_ref())
+                .map_err(crate::Error::other)?,
+        )
+        .map_err(crate::Error::other)?;
+        self.prepare_input(hosts, &self.input.load(), &deps, refresh_factories)
+    }
 }
 
 #[async_trait]
-impl Runnable<AppState, (Arc<H3Server>, ServerDeps)> for H3Listener {
+impl Reloadable<AppState> for H3Listener {
+    async fn reload(
+        &self,
+        state: &AppState,
+    ) -> Result<(), Error> {
+        let input = publication::read_listener(state, &self.id).await?;
+        let deps = Deps::bind(ServerDeps::resolve(state.registry_ref())?)?;
+        deps.vhost_resolver.update_listener(|hosts| {
+            self.prepare_input(hosts, &input, &deps, true)?();
+            self.input.store(Arc::new(input));
+            Ok(())
+        })?;
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl Runnable<AppState, ServerDeps> for H3Listener {
+    fn as_reloadable(&self) -> Option<&dyn Reloadable<AppState>> {
+        Some(self)
+    }
     async fn run(
         self: Arc<Self>,
-        (server, deps): (Arc<H3Server>, ServerDeps),
-        _state: AppState,
+        deps: ServerDeps,
+        _: AppState,
         context: RunContext,
     ) -> Result<(), Error> {
-        server.run_listener(&self.id, Deps::bind(deps)?, context).await
+        let deps = Deps::bind(deps)?;
+        let _generation =
+            deps.vhost_resolver.register_listener(self.clone(), || {
+                let input = self.input.load();
+                let listener =
+                    input.listeners.get(&self.id).cloned().ok_or_else(
+                        || crate::Error::other("QUIC listener not configured"),
+                    )?;
+                deps.vhost_resolver.start_listener_binding(listener)
+            })?;
+        self.serve_groups(
+            self.current.load_full().expect("QUIC listener prepared"),
+            deps.clone(),
+            context,
+        )
+        .await
     }
 }

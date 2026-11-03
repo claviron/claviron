@@ -1,12 +1,9 @@
-use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
 use crate::transport::tls::TlsHost;
-use crate::transport::{
-    VhostCtx, VhostResolver, VhostTable, resolve_sni_for_listener,
-};
+use crate::transport::{VhostCtx, VhostTable, resolve_sni_for_listener};
 use claviron_http::ListenerId;
 use claviron_http::config::{ListenerConfig, TcpListenerConfig};
 use claviron_runtime::registry::Error;
@@ -26,14 +23,14 @@ use tokio_rustls::server::TlsStream;
 /// underneath an already accepted connection.
 #[derive(Clone)]
 pub(crate) struct TlsAccept {
-    live: Arc<VhostResolver>,
+    hosts: Arc<VhostTable>,
+    policy: Arc<TlsPolicy>,
     listener: ListenerId,
 }
 
-pub(super) struct VhostTlsPolicies(pub BTreeMap<ListenerId, TlsPolicy>);
-
 pub(super) struct TlsPolicy {
     by_host: HashMap<Host, TlsHost>,
+    protocols: Vec<claviron_tls::Proto>,
 }
 
 pub(crate) struct AcceptedTls {
@@ -43,10 +40,23 @@ pub(crate) struct AcceptedTls {
 
 impl TlsAccept {
     pub(crate) fn new(
-        live: Arc<VhostResolver>,
-        listener: ListenerId,
-    ) -> Self {
-        Self { live, listener }
+        deps: &super::server::Deps,
+        listener: &ListenerConfig,
+        tcp: &TcpListenerConfig,
+        hosts: Arc<VhostTable>,
+        previous: Option<&Self>,
+    ) -> Result<Self, Error> {
+        let previous = previous
+            .map(|old| old.policy.as_ref())
+            .filter(|old| old.protocols == tcp.protocols);
+        let policy = Arc::new(Self::prepare_policy(
+            deps, listener, tcp, &hosts, previous,
+        )?);
+        Ok(Self { hosts, policy, listener: listener.id.clone() })
+    }
+
+    pub(super) fn hosts(&self) -> &VhostTable {
+        &self.hosts
     }
 
     pub(super) fn prepare_policy(
@@ -120,7 +130,7 @@ impl TlsAccept {
                 TlsHost { declaration: host.clone(), config },
             );
         }
-        Ok(TlsPolicy { by_host })
+        Ok(TlsPolicy { by_host, protocols: tcp.protocols.clone() })
     }
 
     pub(crate) async fn accept(
@@ -128,19 +138,8 @@ impl TlsAccept {
         stream: TcpStream,
     ) -> io::Result<AcceptedTls> {
         // Both host routing and TLS policy belong to this captured publication.
-        let hosts = self.live.snapshot();
-        let policy = hosts
-            .prepared_ref::<VhostTlsPolicies>()
-            .and_then(|policies| policies.0.get(&self.listener))
-            .ok_or_else(|| {
-                io::Error::new(
-                    io::ErrorKind::PermissionDenied,
-                    format!(
-                        "TLS listener '{}' has no published host policy",
-                        self.listener
-                    ),
-                )
-            })?;
+        let hosts = &self.hosts;
+        let policy = &self.policy;
         let start = LazyConfigAcceptor::new(
             rustls::server::Acceptor::default(),
             crate::tcp::io::TcpIo::new(stream),
@@ -156,7 +155,7 @@ impl TlsAccept {
             "TLS ClientHello ALPN offered",
         );
         let host =
-            resolve_sni_for_listener(&hosts, sni.as_deref(), &self.listener)
+            resolve_sni_for_listener(hosts, sni.as_deref(), &self.listener)
                 .map_err(|error| {
                     io::Error::new(
                         io::ErrorKind::PermissionDenied,

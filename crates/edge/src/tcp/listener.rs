@@ -1,20 +1,18 @@
 //! TCP bind/admission/drain owner shared by the cleartext and TLS drivers.
 
-use std::collections::BTreeMap;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use claviron_http::ListenerId;
+use arc_swap::ArcSwapOption;
 use claviron_http::config::{ListenerConfig, ListenerSettings};
-use claviron_http::listener::{ListenerSnapshot, ListenerSnapshots};
 use claviron_http::session::{ConnectionScope, SessionOwner};
 use claviron_runtime::gate::{Gate, GateDrainOutcome};
 use claviron_runtime::registry::{Error, Result};
 use claviron_runtime::{RunContext, RunMode};
 use claviron_sys::net::{PortSharing, create_tcp_listener};
-use futures_util::stream::{FuturesUnordered, SelectAll, StreamExt};
+use futures_util::stream::{SelectAll, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
@@ -22,13 +20,13 @@ use tracing::{debug, error, info, warn};
 mod accept;
 use accept::{AcceptSource, SocketAccept};
 
-pub(crate) trait TcpListenerSnapshot: ListenerSnapshot {
+pub(crate) trait TcpListenerSnapshot {
     fn listener(&self) -> &ListenerConfig;
 }
 
 pub(crate) async fn serve<S, F, Fut>(
-    snapshots: &ListenerSnapshots<S>,
-    groups: &BTreeMap<ListenerId, Arc<S>>,
+    snapshots: &ArcSwapOption<S>,
+    initial: Arc<S>,
     context: &RunContext,
     run_mode: RunMode,
     handle: F,
@@ -40,76 +38,32 @@ where
 {
     // Bind everything before starting any accept task. A later bind failure
     // drops earlier sockets; it cannot leave detached partial listeners.
-    let mut bound = Vec::new();
-    for group in groups.values() {
-        let config = group.listener();
-        let ListenerSettings::Tcp(tcp) = &config.settings else {
-            return Err(Error::msg(format!(
-                "listener '{}': not a TCP listener",
-                config.id
-            )));
-        };
-        let mut sockets = Vec::new();
-        for addr in &config.listen {
-            let socket = bind_socket(*addr, run_mode, tcp.tcp.backlog)
-                .await
-                .map_err(|error| {
-                    Error::msg(format!(
-                        "listener '{}': bind {addr}: {error}",
-                        config.id
-                    ))
-                })?;
-            if matches!(run_mode, RunMode::Worker(_)) {
-                debug!(listener = %config.id, address = %socket.local_addr()?, "🌐 TCP listener bound");
-            } else {
-                info!(listener = %config.id, address = %socket.local_addr()?, "🌐 TCP listener bound");
-            }
-            sockets.push(socket);
+    let config = initial.listener();
+    let ListenerSettings::Tcp(tcp) = &config.settings else {
+        return Err(Error::msg(format!(
+            "listener '{}': not a TCP listener",
+            config.id
+        )));
+    };
+    let mut sockets = Vec::new();
+    for addr in &config.listen {
+        let socket = bind_socket(*addr, run_mode, tcp.tcp.backlog)
+            .await
+            .map_err(|error| {
+                Error::msg(format!(
+                    "listener '{}': bind {addr}: {error}",
+                    config.id
+                ))
+            })?;
+        if matches!(run_mode, RunMode::Worker(_)) {
+            debug!(listener = %config.id, address = %socket.local_addr()?, "🌐 TCP listener bound");
+        } else {
+            info!(listener = %config.id, address = %socket.local_addr()?, "🌐 TCP listener bound");
         }
-        bound.push((group.clone(), sockets));
+        sockets.push(socket);
     }
-    if bound.is_empty() {
-        context.cancelled().await;
-        return Ok(());
-    }
-    serve_bound(snapshots, bound, context, handle).await
-}
-
-async fn serve_bound<S, A, F, Fut>(
-    snapshots: &ListenerSnapshots<S>,
-    bound: Vec<(Arc<S>, Vec<A>)>,
-    parent: &RunContext,
-    handle: F,
-) -> Result<()>
-where
-    S: TcpListenerSnapshot + Send + Sync + 'static,
-    A: AcceptSource,
-    F: Fn(Arc<S>, TcpStream, SocketAddr, ConnectionScope) -> Fut + Clone,
-    Fut: Future<Output = ()> + Send + 'static,
-{
-    // Stop admission only within this generation before waiting for any drain.
-    // The runtime owns the process-level consequence of the returned failure.
-    let context = parent.child();
-    let mut running = FuturesUnordered::new();
-    for (group, sockets) in bound {
-        running.push(serve_group(
-            snapshots,
-            group,
-            sockets,
-            &context,
-            handle.clone(),
-        ));
-    }
-    let mut failure = None;
-    while let Some(result) = running.next().await {
-        if let Err(error) = result {
-            failure.get_or_insert(error);
-        }
-    }
-    match failure {
-        Some(error) => Err(error),
-        None => Ok(()),
-    }
+    let owned = context.child();
+    serve_group(snapshots, initial, sockets, &owned, handle).await
 }
 
 async fn bind_socket(
@@ -125,7 +79,7 @@ async fn bind_socket(
 }
 
 async fn serve_group<S, A, F, Fut>(
-    snapshots: &ListenerSnapshots<S>,
+    snapshots: &ArcSwapOption<S>,
     initial: Arc<S>,
     sockets: Vec<A>,
     context: &RunContext,
@@ -199,7 +153,7 @@ where
                         Err(error) => { debug!(listener = %config.id, ?error, "TCP admission rejected"); continue; }
                     }
                 };
-                let Some(snapshot) = snapshots.get(&config.id) else { continue; };
+                let Some(snapshot) = snapshots.load_full() else { continue; };
                 #[cfg(feature = "metrics")]
                 claviron_http::metrics::SERVER_METRICS.tcp_accept();
                 connections.spawn(handle(snapshot, stream, peer, sessions.bind(permit)));

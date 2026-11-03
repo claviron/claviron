@@ -136,7 +136,6 @@ pub struct Connection {
 /// Publish registered applications with their host table before accepting IO.
 /// Only cold preparation is supplied here; request handling is the native driver.
 pub fn connection(owner: Owner) -> Connection {
-    use claviron::edge::pipeline::HostAppSnapshot;
     use claviron::edge::tcp::plain::{HttpServer, HttpServerConfig};
 
     let hosts = Hosts::http1();
@@ -150,7 +149,11 @@ pub fn connection(owner: Owner) -> Connection {
         .registry_ref()
         .register(http)
         .expect("register prepared HTTP defaults without provider boot");
-    let registry = HostAppRegistry::default();
+    let registry = Arc::new(HostAppRegistry::default());
+    state
+        .registry_ref()
+        .insert(registry.clone())
+        .expect("register application factories without provider boot");
     match owner {
         Owner::Other => registry
             .register_other(json::HOST, |_, _, _| Ok(OtherService::new(Plain))),
@@ -161,15 +164,6 @@ pub fn connection(owner: Owner) -> Connection {
             registry.register_routable(Arc::new(Routes(Arc::new(Plain))))
         }
     }
-    let applications = registry
-        .build(&state, &hosts.vhosts)
-        .expect("compile registered HTTP/1 application");
-    hosts
-        .vhosts
-        .prepare_publications(move |_, _: Option<&HostAppSnapshot>| {
-            Ok(applications.clone())
-        })
-        .expect("publish benchmark hosts and their applications together");
     let id = "plain".parse().unwrap();
     let listener = hosts.http.listeners.get(&id).unwrap().clone();
     let config = HttpServerConfig::try_from(hosts.http)

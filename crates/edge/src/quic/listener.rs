@@ -4,13 +4,11 @@
 
 mod drain;
 
-use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::transport::{HostService, RequestArrival};
 use bytes::Bytes;
-use claviron_http::ListenerId;
 use claviron_http::config::ListenerSettings;
 use claviron_http::ext::{
     ClientAuthStatus, ConnCtx, TlsClientCertInfo, TlsInfo,
@@ -38,7 +36,7 @@ use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
 use crate::quic::request::{H3RequestHandler, send_status_response};
-use crate::quic::server::{H3Server, ServerSnapshot};
+use crate::quic::server::{H3Listener, ServerSnapshot};
 
 enum StreamCompletion {
     Request,
@@ -56,96 +54,43 @@ fn bind_socket(
     create_udp_socket(addr, sharing)
 }
 
-impl H3Server {
-    pub(crate) async fn run_listeners(
-        self: Arc<Self>,
-        deps: Arc<crate::quic::server::Deps>,
-        context: RunContext,
-    ) -> Result<()> {
-        let groups = crate::quic::server::build_snapshots(
-            self.state.config_reader().snapshot::<Self>()?.as_ref(),
-            &deps,
-        )?;
-        let generation =
-            crate::quic::server::prepare_vhosts(&deps, &groups, || {
-                self.current.start(groups.clone())
-            })?;
-        self.serve_groups(generation.groups(), deps, context).await
-    }
-
-    pub(crate) async fn run_listener(
-        self: Arc<Self>,
-        id: &ListenerId,
-        deps: Arc<crate::quic::server::Deps>,
-        context: RunContext,
-    ) -> Result<()> {
-        let groups = crate::quic::server::build_snapshots(
-            self.state.config_reader().snapshot::<Self>()?.as_ref(),
-            &deps,
-        )?;
-        let snapshot = groups.get(id).cloned().ok_or_else(|| {
-            Error::msg(format!("QUIC listener '{id}' is not configured"))
-        })?;
-        let generation =
-            crate::quic::server::prepare_vhosts(&deps, &groups, || {
-                self.current.start_listener(snapshot)
-            })?;
-        self.serve_groups(generation.groups(), deps, context).await
-    }
-
-    async fn serve_groups(
+impl H3Listener {
+    pub(super) async fn serve_groups(
         &self,
-        groups: &BTreeMap<ListenerId, Arc<ServerSnapshot>>,
+        initial: Arc<ServerSnapshot>,
         deps: Arc<crate::quic::server::Deps>,
         context: RunContext,
     ) -> Result<()> {
-        let mut bound = Vec::new();
-        // Complete all binds before any task can accept traffic.
-        for snapshot in groups.values() {
-            let mut endpoints = Vec::new();
-            for addr in &snapshot.listener.listen {
-                let socket = bind_socket(*addr, self.state.run_mode())
-                    .map_err(|error| {
-                        Error::msg(format!(
-                            "H3 listener '{}': bind {addr}: {error}",
-                            snapshot.listener.id
-                        ))
-                    })?;
-                let endpoint = Endpoint::new(
-                    Default::default(),
-                    Some(snapshot.tls_accept.base_config()),
-                    socket,
-                    Arc::new(quinn::TokioRuntime),
-                )
-                .map_err(|error| {
+        let mut endpoints = Vec::new();
+        // Complete all addresses before accepting traffic on this listener.
+        for addr in &initial.listener.listen {
+            let socket =
+                bind_socket(*addr, self.state.run_mode()).map_err(|error| {
                     Error::msg(format!(
-                        "H3 listener '{}': endpoint {addr}: {error}",
-                        snapshot.listener.id
+                        "H3 listener '{}': bind {addr}: {error}",
+                        initial.listener.id
                     ))
                 })?;
-                if self.state.is_worker() {
-                    debug!(listener = %snapshot.listener.id, address = %endpoint.local_addr()?, "🌐 QUIC listener bound");
-                } else {
-                    info!(listener = %snapshot.listener.id, address = %endpoint.local_addr()?, "🌐 QUIC listener bound");
-                }
-                endpoints.push(endpoint);
+            let endpoint = Endpoint::new(
+                Default::default(),
+                Some(initial.tls_accept.base_config()),
+                socket,
+                Arc::new(quinn::TokioRuntime),
+            )
+            .map_err(|error| {
+                Error::msg(format!(
+                    "H3 listener '{}': endpoint {addr}: {error}",
+                    initial.listener.id
+                ))
+            })?;
+            if self.state.is_worker() {
+                debug!(listener = %initial.listener.id, address = %endpoint.local_addr()?, "🌐 QUIC listener bound");
+            } else {
+                info!(listener = %initial.listener.id, address = %endpoint.local_addr()?, "🌐 QUIC listener bound");
             }
-            bound.push((snapshot.clone(), endpoints));
+            endpoints.push(endpoint);
         }
-        if bound.is_empty() {
-            context.cancelled().await;
-            return Ok(());
-        }
-        let mut running = FuturesUnordered::new();
-        for (snapshot, endpoints) in bound {
-            running.push(self.run_group(
-                snapshot,
-                endpoints,
-                &context,
-                deps.clone(),
-            ));
-        }
-        while running.next().await.is_some() {}
+        self.run_group(initial, endpoints, &context, deps).await;
         Ok(())
     }
 
@@ -184,7 +129,7 @@ impl H3Server {
                             Err(error) => { debug!(listener = %listener.id, ?error, "QUIC admission refused"); incoming.refuse(); continue; }
                         }
                     };
-                    let Some(snapshot) = self.current.get(&listener.id) else { incoming.refuse(); continue; };
+                    let Some(snapshot) = self.current.load_full() else { incoming.refuse(); continue; };
                     let local_addr = match endpoint.local_addr() {
                         Ok(addr) => addr,
                         Err(error) => { error!(%error, "QUIC local address unavailable"); incoming.refuse(); continue; }

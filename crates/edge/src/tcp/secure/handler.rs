@@ -13,9 +13,9 @@ use tokio::net::TcpStream;
 use tokio_rustls::server::TlsStream;
 use tracing::{debug, error, info, warn};
 
-use super::HttpsServer;
 use super::conn::TlsHostConnection;
 use super::error::ConnectionError;
+use super::server::HttpsListener;
 use super::server::ServerSnapshot;
 use crate::tcp::protocol::h1 as make_h1_builder;
 
@@ -64,7 +64,7 @@ async fn host_retired(
     }
 }
 
-impl HttpsServer {
+impl HttpsListener {
     /// Decide HTTP protocol (H1/H2) using negotiated ALPN and per-host RequestPolicy
     fn decide_protocol(
         &self,

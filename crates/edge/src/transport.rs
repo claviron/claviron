@@ -27,6 +27,8 @@
 
 #[cfg(any(feature = "tcp", feature = "quic"))]
 pub(crate) mod instances;
+#[cfg(any(feature = "tcp", feature = "quic"))]
+pub(crate) mod publication;
 
 /// A single host's configuration, read by the TLS layer for its certificate
 /// and protocol policy.

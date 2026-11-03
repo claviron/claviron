@@ -6,7 +6,7 @@ use std::future::{Future, ready};
 use std::sync::Arc;
 
 use crate::service::{CleartextHostCache, CleartextRequest};
-use crate::transport::VhostResolver;
+use crate::transport::VhostTable;
 use claviron_http::ext::ConnCtx;
 use claviron_http::{RouteResponse, err_status};
 use futures_util::future::Either;
@@ -16,19 +16,21 @@ use tracing::warn;
 use super::server::ServerSnapshot;
 
 pub(super) struct H1Service {
-    vhosts: Arc<VhostResolver>,
+    hosts: Arc<VhostTable>,
     host_cache: RefCell<CleartextHostCache>,
 }
 
 impl H1Service {
     pub(super) fn new(
         snapshot: Arc<ServerSnapshot>,
-        vhosts: Arc<VhostResolver>,
         ctx: Arc<ConnCtx>,
     ) -> Self {
         let host_cache =
             CleartextHostCache::new(ctx, snapshot.listener.policy());
-        Self { vhosts, host_cache: RefCell::new(host_cache) }
+        Self {
+            hosts: snapshot.hosts.clone(),
+            host_cache: RefCell::new(host_cache),
+        }
     }
 
     pub(super) fn call<B>(
@@ -58,9 +60,9 @@ impl H1Service {
     {
         let request = CleartextRequest::new(request)
             .map_err(|_| StatusCode::BAD_REQUEST)?;
-        let table = self.vhosts.snapshot();
+        let table = &self.hosts;
         let mut cache = self.host_cache.borrow_mut();
-        let Some(mut host) = cache.resolve(request.authority(), &table) else {
+        let Some(mut host) = cache.resolve(request.authority(), table) else {
             return Err(StatusCode::NOT_FOUND);
         };
         let Some(app) = host.application.take() else {

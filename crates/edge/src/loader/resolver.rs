@@ -65,6 +65,19 @@ pub struct VhostResolver {
     sources: RwLock<Vec<Arc<HostSource>>>,
     preparations: RwLock<Vec<(TypeId, Arc<Preparation>)>>,
     publication: Mutex<()>,
+    #[cfg(any(feature = "tcp", feature = "quic"))]
+    bindings: claviron_http::listener::ListenerSnapshots<
+        crate::transport::publication::ListenerBinding,
+    >,
+    #[cfg(any(feature = "tcp", feature = "quic"))]
+    listeners: Mutex<
+        std::collections::BTreeMap<
+            claviron_http::ListenerId,
+            std::sync::Weak<
+                dyn crate::transport::publication::ListenerPublication,
+            >,
+        >,
+    >,
     /// The process this resolver serves, once registered; a source change
     /// republishes through it. Unset in tests that publish tables by hand.
     state: OnceLock<AppState>,
@@ -85,6 +98,10 @@ impl Default for VhostResolver {
             sources: RwLock::new(Vec::new()),
             preparations: RwLock::new(Vec::new()),
             publication: Mutex::new(()),
+            #[cfg(any(feature = "tcp", feature = "quic"))]
+            bindings: Default::default(),
+            #[cfg(any(feature = "tcp", feature = "quic"))]
+            listeners: Mutex::default(),
             state: OnceLock::new(),
             table: ArcSwap::from_pointee(VhostTable::default()),
             publications: watch::channel(0).0,
@@ -141,6 +158,8 @@ impl VhostResolver {
         })?;
         let mut next = current.as_ref().clone();
         next.set_prepared(id, value);
+        #[cfg(any(feature = "tcp", feature = "quic"))]
+        let listeners = self.prepare_listeners(&next, true)?;
         let committed = commit()?;
         if let Some(entry) = preparations.iter_mut().find(|(key, _)| *key == id)
         {
@@ -148,9 +167,103 @@ impl VhostResolver {
         } else {
             preparations.push((id, preparation));
         }
-        self.publish_prepared(next);
+        self.publish_prepared(next, || {
+            #[cfg(any(feature = "tcp", feature = "quic"))]
+            for publish in listeners {
+                publish();
+            }
+        });
         Ok(committed)
     }
+    #[cfg(any(feature = "tcp", feature = "quic"))]
+    pub(crate) fn validate_listener_binding(
+        &self,
+        listener: Arc<claviron_http::config::ListenerConfig>,
+    ) -> crate::Result<()> {
+        self.bindings
+            .validate_listener(&crate::transport::publication::ListenerBinding(
+                listener,
+            ))
+            .map_err(crate::Error::other)
+    }
+
+    #[cfg(any(feature = "tcp", feature = "quic"))]
+    pub(crate) fn start_listener_binding(
+        &self,
+        listener: Arc<claviron_http::config::ListenerConfig>,
+    ) -> crate::Result<
+        claviron_http::listener::ActiveListeners<
+            '_,
+            crate::transport::publication::ListenerBinding,
+        >,
+    > {
+        self.bindings
+            .start_listener(Arc::new(
+                crate::transport::publication::ListenerBinding(listener),
+            ))
+            .map_err(crate::Error::other)
+    }
+
+    /// Serialize a listener's preparation and commit with host-source updates.
+    #[cfg(any(feature = "tcp", feature = "quic"))]
+    pub(crate) fn update_listener<R>(
+        &self,
+        update: impl FnOnce(&VhostTable) -> crate::Result<R>,
+    ) -> crate::Result<R> {
+        let _publication = self.publication.lock().map_err(|_| {
+            crate::Error::other("vhost publication lock poisoned")
+        })?;
+        update(&self.snapshot().declarations_only())
+    }
+
+    /// Retain only a weak registration: an instance owns its input and lifetime.
+    #[cfg(any(feature = "tcp", feature = "quic"))]
+    pub(crate) fn register_listener<R>(
+        &self,
+        listener: Arc<dyn crate::transport::publication::ListenerPublication>,
+        start: impl FnOnce() -> crate::Result<R>,
+    ) -> crate::Result<R> {
+        self.update_listener(|hosts| {
+            let mut listeners = self.listeners.lock().map_err(|_| {
+                crate::Error::other("listener publication lock poisoned")
+            })?;
+            let id = listener.listener_id().clone();
+            if let Some(old) =
+                listeners.get(&id).and_then(std::sync::Weak::upgrade)
+                && !Arc::ptr_eq(&old, &listener)
+            {
+                return Err(crate::Error::other(format!(
+                    "listener '{id}' already has a live publication owner"
+                )));
+            }
+            let publish = listener.prepare(hosts, true)?;
+            let started = start()?;
+            publish();
+            listeners.insert(id, Arc::downgrade(&listener));
+            Ok(started)
+        })
+    }
+
+    #[cfg(any(feature = "tcp", feature = "quic"))]
+    fn prepare_listeners(
+        &self,
+        hosts: &VhostTable,
+        refresh_factories: bool,
+    ) -> crate::Result<Vec<crate::transport::publication::PreparedListener>>
+    {
+        let mut listeners = self.listeners.lock().map_err(|_| {
+            crate::Error::other("listener publication lock poisoned")
+        })?;
+        listeners.retain(|_, listener| listener.strong_count() != 0);
+        let active: Vec<_> =
+            listeners.values().filter_map(std::sync::Weak::upgrade).collect();
+        drop(listeners);
+        active
+            .iter()
+            .map(|listener| listener.prepare(hosts, refresh_factories))
+            .collect()
+    }
+
     pub(crate) fn register_hosts(
         &self,
         source: impl Fn(&AppState) -> crate::Result<Vec<(Host, Arc<HostConfig>)>>
@@ -224,13 +337,21 @@ impl VhostResolver {
         for (id, prepare) in preparations {
             table.set_prepared(id, prepare(&declarations, &previous)?);
         }
-        self.publish_prepared(table);
+        #[cfg(any(feature = "tcp", feature = "quic"))]
+        let listeners = self.prepare_listeners(&table, false)?;
+        self.publish_prepared(table, || {
+            #[cfg(any(feature = "tcp", feature = "quic"))]
+            for publish in listeners {
+                publish();
+            }
+        });
         Ok(())
     }
 
     fn publish_prepared(
         &self,
         table: VhostTable,
+        publish_listeners: impl FnOnce(),
     ) {
         // The master does not build request routers, but owns worker exit
         // cleanup. Retain destinations of accepted work across route reloads.
@@ -248,6 +369,10 @@ impl VhostResolver {
             }
         }
         self.table.store(Arc::new(table));
+        // A new accepted view must not be checked for retirement against the
+        // previous source table. Publish the source before listener slots,
+        // then wake retained bindings after all infallible slot commits.
+        publish_listeners();
         // `send_modify` notifies even while no connection is subscribed.
         self.publications.send_modify(|generation| {
             *generation = generation.wrapping_add(1);
@@ -922,3 +1047,7 @@ mod binding_tests;
 #[cfg(test)]
 #[path = "../../tests/loader/resolver/selection.rs"]
 mod selection_tests;
+
+#[cfg(all(test, any(feature = "tcp", feature = "quic")))]
+#[path = "../../tests/loader/resolver/listeners.rs"]
+mod listener_tests;
