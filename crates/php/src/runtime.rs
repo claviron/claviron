@@ -3,24 +3,16 @@ use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 
 use claviron_http::ext::PathPrefix;
-use claviron_http::policy::{
-    HttpPolicy, HttpPolicyOverride, RequestPolicy, RequestPolicyOverride,
-    ResponsePolicy, ResponsePolicyOverride,
-};
 use claviron_runtime::{AppState, RunMode};
-use http::request::Parts;
 
 use crate::config::{PhpConfig, PhpRunner};
 
-/// Runtime-shaped PHP request configuration.
+/// PHP execution settings prepared for one route at boot/reload.
 ///
-/// `PhpConfig` is the YAML-shaped, mutable, "user-facing" type used at config
-/// load. `PhpRuntime` is the lean, immutable, `Arc`-wrapped type consumed
-/// directly by the hot path of each request. Composition (root/index
-/// resolution from the host, FPM pool list normalization, environment Arc
-/// wrapping) happens **once per host at boot** — the resulting
-/// `Arc<PhpRuntime>` is pinned to the per-host Axum router's `Extension` layer,
-/// so request handling only pays the cost of an `Extension::extract` (O(1) HashMap lookup).
+/// HTTP callers supply the final `HttpPolicy` request extension and a body
+/// that enforces its declared input bounds. This runtime stores no
+/// second HTTP policy; script, application and FastCGI readers consume the
+/// prepared body and propagate ingress errors.
 #[derive(Clone)]
 pub struct PhpRuntime {
     /// Prepared disk mapping; request URI and script names remain HTTP paths.
@@ -90,12 +82,6 @@ pub struct PhpRuntime {
     /// Named embedded application; no filesystem script dispatch in this model.
     pub application: Option<String>,
 
-    /// This application's `requests:` block, pinned at boot; narrows the
-    /// policy the edge hands over with each request ([`Self::requests`]).
-    pub requests: RequestPolicyOverride,
-    /// This application's `responses:` block, pinned at boot.
-    pub responses: ResponsePolicyOverride,
-
     /// Server run mode (master / worker / standalone), pinned at boot and accessible in request handlers.
     pub server_run_mode: RunMode,
 
@@ -133,45 +119,6 @@ impl PhpRuntime {
             self.relative_path(name)
         }
     }
-    /// The policy this request runs under, both sides: the edge's (its
-    /// listener's, narrowed by its host), carried in the request's
-    /// extensions, narrowed once more by this route's `php:` block —
-    /// transport, host, path. The policy follows the routing path only;
-    /// php.yaml describes the engine's instances, not how a request is run.
-    /// HTTP execution requires the caller to supply this extension, including
-    /// direct callers without an edge. Executors reject a missing policy before
-    /// using this composition helper.
-    pub fn policy(
-        &self,
-        parts: &Parts,
-    ) -> HttpPolicy {
-        parts
-            .extensions
-            .get::<HttpPolicy>()
-            .copied()
-            .unwrap_or(HttpPolicy::unlimited())
-            .narrow(&HttpPolicyOverride {
-                requests: self.requests,
-                responses: self.responses,
-            })
-    }
-
-    /// The request side of [`Self::policy`].
-    pub fn requests(
-        &self,
-        parts: &Parts,
-    ) -> RequestPolicy {
-        self.policy(parts).requests
-    }
-
-    /// The reply side of [`Self::policy`].
-    pub fn responses(
-        &self,
-        parts: &Parts,
-    ) -> ResponsePolicy {
-        self.policy(parts).responses
-    }
-
     /// Whether this runtime allows a non-`.php` request extension to be
     /// routed through the PHP `entry_script` after static `try_files` misses.
     pub fn allows_entry_extension(
@@ -255,8 +202,6 @@ impl PhpRuntime {
             execution_environment: Arc::new(OnceLock::new()),
             php_runner: template.runner,
             application: template.application.clone(),
-            requests: RequestPolicyOverride::default(),
-            responses: ResponsePolicyOverride::default(),
             server_run_mode: state.run_mode(),
             server_worker_count: state.worker_count(),
             server_software: state.name().to_string(),

@@ -24,7 +24,6 @@ mod script;
 fn prepare_runtimes(
     state: &AppState,
     config: &HostConfig,
-    policy: claviron_http::policy::HttpPolicyOverride,
 ) -> Vec<PhpRuntime> {
     config
         .php()
@@ -39,8 +38,6 @@ fn prepare_runtimes(
                 ),
                 config.indexes(),
             );
-            runtime.requests = policy.requests;
-            runtime.responses = policy.responses;
             runtime.path = config
                 .files
                 .mapping
@@ -74,9 +71,8 @@ impl PhpBackend {
     pub fn new(
         state: &AppState,
         config: &HostConfig,
-        policy: claviron_http::policy::HttpPolicyOverride,
     ) -> Option<Self> {
-        let mounts = prepare_runtimes(state, config, policy)
+        let mounts = prepare_runtimes(state, config)
             .into_iter()
             .filter_map(|runtime| {
                 let path = runtime.path.clone();

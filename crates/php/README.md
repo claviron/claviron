@@ -72,10 +72,10 @@ contract crate contains no router binding or Axum dependency.
 
 ## HTTP policy and trusted metadata
 
-HTTP execution requires an effective `HttpPolicy` supplied by its ingress.
-Each backend validates that boundary, then applies this route's overrides.
-`requests.max_body_size` is the common HTTP limit; there is no second PHP-route
-`post_max_size` setting. PHP/FPM's own INI limits remain independent.
+HTTP ingress supplies the final `HttpPolicy` and guards the request body once.
+PHP readers consume the prepared body and propagate guard failures; they do not
+repeat HTTP size checks. Direct HTTP callers must prepare the same input.
+PHP/FPM's own INI parsing and upload limits remain independent.
 
 Trusted scheme, peer, and TLS facts come from the accepted request context.
 Shared header filtering prevents peer-supplied forwarding fields from replacing

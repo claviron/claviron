@@ -689,7 +689,7 @@ entry behavior without an Axum response conversion.
 Application calls its prepared PhpApplicationHandle without script resolution
 or filesystem probing. A matched application owns all response statuses;
 missing service/name/capacity returns 503 and never selects a Script fallback.
-Existing environment preparation, declared policy narrowing, stream lifetime,
+Environment preparation, stream lifetime,
 head cancellation and service-owned generations remain unchanged.
 
 ### 4.2 Script resolution — `routing/proxy.rs`
@@ -730,15 +730,15 @@ which is handed to `PhpEmbedRuntime::execute`.
 there is no separate `run` forwarding method. Service lifecycle runnables remain
 independent from this request path.
 
-Script HTTP execution requires the request's existing `HttpPolicy` extension.
-`PhpRuntime::policy` applies the PHP route's overrides without reading listener
-or host configuration. The existing transport guard is not wrapped again.
-The effective `requests.max_body_size` is validated in the existing PHP body
-collection/streaming code, before buffer growth or forwarding input. A
-declared oversized body, or an oversized body collected before PHP starts,
-returns 413. Stream errors abort PHP's input bridge if the reply already began.
-There is no duplicate PHP body-size default; a supplied `off` remains valid.
-Missing policy is an internal execution error, not an unlimited fallback.
+Script HTTP execution requires the final `HttpPolicy` extension and a body
+already guarded by ingress. It does not narrow the policy, wrap the body again
+or repeat the ingress size counter. Collectors preserve ingress errors;
+`BodyLimit::TooLarge` returns 413 before PHP starts. Streaming errors abort
+PHP's input bridge. `off` adds no backend limit, and missing policy is an
+execution error. See `claviron-php`'s HTTP request-body contract.
+
+`tests/request_body.rs` checks script collection and guard-error propagation.
+`tests/application_body.rs` covers application input, byte ownership and cancellation.
 
 Buffered requests still behave like classic SAPI/FPM page renders:
 the whole request body is bounded by the effective HTTP policy, captured, and
@@ -1290,9 +1290,9 @@ replacements; the standard adapter binds it during route construction. HTTP
 never looks up an application name or takes the service catalog lock. The
 explicit name-based service API remains available for dynamic callers. The
 request body remains typed `Bytes`: end-of-stream GET/HEAD takes no body poll,
-a single frame needs no buffer copy, and multiple frames are joined with the
-route's body limit and cancellation still enforced. Content decoding remains
-application-owned; the Zend boundary performs the required ownership copy.
+a single frame needs no buffer copy, and multiple frames are joined while
+propagating ingress guard errors and observing cancellation. Content decoding
+remains application-owned; the Zend boundary performs the required ownership copy.
 The Tokio runtime handle and streaming cancellation context belong to the
 instance, rather than being cloned into every buffered request.
 
@@ -1452,12 +1452,11 @@ as an environment override that PHP `getenv()` does not observe. Configure
 environment sources on the named application's boot definition in `php.yaml`.
 Script routes retain their existing request-scoped SAPI environment handling.
 
-Application adapters and direct HTTP execution also require the supplied
-`HttpPolicy`; they do not invent an unlimited policy. The adapter applies its
-route overrides, and execution validates size while collecting input before PHP
-receives the message. Explicit `off` is accepted, and oversized input returns
-413 before application code runs. Background events, tasks and console programs
-do not require an HTTP policy.
+Application execution uses the supplied final `HttpPolicy` and ingress-guarded
+body. The adapter stores no route-policy copy and does not reinsert the
+extension per request. Body collection propagates guard failures before the
+message reaches PHP; oversized input returns 413. Background events, tasks and
+console programs do not require an HTTP policy.
 
 A different boot profile requires a different application definition. One named
 application retains one fixed instance set and one start/stop/restart management identity

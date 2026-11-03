@@ -147,6 +147,8 @@ H1/H2/H3 enter this same pipeline with lazy `RouteBody` values. H3 validates
 its protocol framing and adapts receive frames; it neither buffers requests
 before dispatch nor applies a second size limit. Backend owners decide whether
 they need to collect an already-guarded body.
+PHP backends consume this input without re-narrowing policy or repeating the
+request-size checks. Runner provides the same ingress contract outside Edge.
 
 ## Reload and ownership
 

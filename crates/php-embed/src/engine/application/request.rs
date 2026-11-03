@@ -90,13 +90,7 @@ impl ApplicationRequests {
         )
         .map_err(|e| SapiGatewayError::BadRequest(e.to_string()))?;
         let head = parts.method == Method::HEAD;
-        let bytes = match request_body::read(
-            &parts,
-            body,
-            &policy.requests,
-            &self.stopping,
-        )
-        .await
+        let bytes = match request_body::read(&parts, body, &self.stopping).await
         {
             Ok(bytes) => bytes,
             Err(request_body::Rejection::TooLarge) => {

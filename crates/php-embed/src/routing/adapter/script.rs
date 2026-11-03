@@ -9,6 +9,7 @@ use tokio::sync::mpsc::Sender;
 use crate::routing::proxy::upstream_sapi_gateway;
 use crate::{PhpScriptService, SapiGatewayError};
 
+/// Script dispatch for HTTP input prepared by ingress; see [`PhpRuntime`].
 #[derive(Clone)]
 pub struct PhpScriptAdapter {
     php: Arc<PhpScriptService>,

@@ -1,5 +1,4 @@
 use super::*;
-use claviron_http::policy::HttpPolicyOverride;
 use claviron_php_embed::{PhpApplicationAdapter, PhpApplicationService};
 
 struct Application(PhpApplicationAdapter);
@@ -17,9 +16,7 @@ pub(super) fn prepare(
                 return None;
             }
         };
-        Some(adapter.route_policy(HttpPolicyOverride {
-            requests: runtime.requests, responses: runtime.responses,
-        }))
+        Some(adapter)
     });
     match adapter {
         Some(adapter) => Arc::new(Application(adapter)),

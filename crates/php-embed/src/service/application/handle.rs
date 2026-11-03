@@ -26,6 +26,7 @@ impl PhpApplicationHandle {
     }
     /// Deliver typed HTTP to this application's existing instances. No name
     /// lookup, lifecycle lock, instance creation or body serialization occurs.
+    /// The caller supplies final `HttpPolicy` and an ingress-guarded body.
     pub async fn execute(
         &self,
         request: Request<RouteBody>,

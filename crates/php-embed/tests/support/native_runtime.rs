@@ -74,8 +74,6 @@ pub async fn run_fixture(
         execution_environment: Default::default(),
         php_runner: PhpRunner::Script,
         application: None,
-        requests: Default::default(),
-        responses: Default::default(),
         server_run_mode: RunMode::Standalone,
         server_worker_count: 1,
         server_hostname: "app.test".to_owned(),

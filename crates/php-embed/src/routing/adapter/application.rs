@@ -1,7 +1,6 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use claviron_http::policy::{HttpPolicy, HttpPolicyOverride};
 use claviron_http::{RouteBody, RouteResponse, empty_body};
 use claviron_php::PhpRuntime;
 use claviron_runtime::{AppState, registry};
@@ -12,13 +11,11 @@ use crate::{PhpApplicationHandle, PhpApplicationService};
 
 /// Explicit application selection for custom Rust routing, independent of Axum.
 /// No filesystem script resolution or fleet forwarding happens on this path.
+/// HTTP policy and body guards belong to the caller's ingress.
 #[derive(Clone)]
 pub struct PhpApplicationAdapter {
     application: PhpApplicationHandle,
     environment: Option<RequestEnvironment>,
-    /// The route's `requests:` / `responses:`, narrowing what the edge hands
-    /// over. Empty for a caller routing on its own.
-    route: HttpPolicyOverride,
 }
 
 impl PhpApplicationAdapter {
@@ -30,7 +27,6 @@ impl PhpApplicationAdapter {
             application: service
                 .application(Arc::<str>::from(application.into())),
             environment: None,
-            route: HttpPolicyOverride::default(),
         }
     }
 
@@ -64,27 +60,10 @@ impl PhpApplicationAdapter {
         Ok(self)
     }
 
-    /// The route's own policy blocks.
-    pub fn route_policy(
-        mut self,
-        route: HttpPolicyOverride,
-    ) -> Self {
-        self.route = route;
-        self
-    }
     pub async fn handle(
         &self,
         mut request: Request<RouteBody>,
     ) -> Result<RouteResponse, Infallible> {
-        let Some(policy) = request.extensions().get::<HttpPolicy>().copied()
-        else {
-            tracing::error!(application = %self.application.name(), "HttpPolicy is required for PHP application execution");
-            let mut response = Response::new(empty_body());
-            *response.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
-            return Ok(response);
-        };
-        let policy = policy.narrow(&self.route);
-        request.extensions_mut().insert(policy);
         if let Some(environment) = &self.environment {
             request.extensions_mut().insert(environment.clone());
         }

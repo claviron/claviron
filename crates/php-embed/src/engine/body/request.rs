@@ -36,11 +36,8 @@ impl RequestBodySource {
         Self::Buffered { body, pos: 0 }
     }
 
-    pub(in crate::engine) fn streaming(
-        body: RouteBody,
-        max_bytes: Option<usize>,
-    ) -> Self {
-        Self::Streaming(StreamingRequestBody::new(body, max_bytes))
+    pub(in crate::engine) fn streaming(body: RouteBody) -> Self {
+        Self::Streaming(StreamingRequestBody::new(body))
     }
 
     pub(crate) fn content_length(
@@ -106,10 +103,7 @@ pub(crate) struct StreamingRequestBody {
 }
 
 impl StreamingRequestBody {
-    fn new(
-        mut body: RouteBody,
-        max_bytes: Option<usize>,
-    ) -> Self {
+    fn new(mut body: RouteBody) -> Self {
         let (tx, rx) = mpsc::channel::<Result<Bytes, String>>(
             REQUEST_BODY_STREAM_CAPACITY,
         );
@@ -119,7 +113,6 @@ impl StreamingRequestBody {
         let shutdown = crate::engine::sapi_shutdown_signal();
 
         tokio::spawn(async move {
-            let mut total = 0_usize;
             loop {
                 let frame = tokio::select! {
                     biased;
@@ -144,17 +137,6 @@ impl StreamingRequestBody {
                 };
 
                 let Ok(data) = frame.into_data() else { continue };
-                if let Some(limit) = max_bytes {
-                    total = match total.checked_add(data.len()) {
-                        Some(total) if total <= limit => total,
-                        _ => {
-                            let _ = tx
-                                .send(Err("request body too large".into()))
-                                .await;
-                            break;
-                        }
-                    };
-                }
                 // Waits for room while PHP reads, which is the backpressure
                 // that keeps an upload out of memory.
                 let sent = tokio::select! {
@@ -246,19 +228,11 @@ impl StreamingRequestBody {
 }
 
 pub(in crate::engine) async fn collect_body(
-    mut body: RouteBody,
-    max_bytes: Option<usize>,
+    mut body: RouteBody
 ) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
     let mut buffered = bytes::BytesMut::new();
     while let Some(frame) = body.frame().await {
         if let Ok(data) = frame?.into_data() {
-            if let Some(limit) = max_bytes
-                && buffered.len().saturating_add(data.len()) > limit
-            {
-                return Err(Box::new(
-                    claviron_http::body::BodyLimit::TooLarge { limit },
-                ));
-            }
             buffered.extend_from_slice(&data);
         }
     }
@@ -296,3 +270,7 @@ fn trim_ascii(value: &[u8]) -> &[u8] {
 
     &value[start..end]
 }
+
+#[cfg(test)]
+#[path = "../../../tests/request_body.rs"]
+mod tests;

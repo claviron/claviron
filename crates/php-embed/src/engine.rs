@@ -291,6 +291,8 @@ impl PhpSapiEngine {
         self.pool.get().map(|pool| pool.snapshot())
     }
 
+    /// Execute HTTP input with its final `HttpPolicy` and ingress body guards.
+    /// The caller owns input admission; PHP consumes the prepared body.
     pub async fn execute(
         &self,
         runtime: Arc<PhpRuntime>,
@@ -304,23 +306,15 @@ impl PhpSapiEngine {
         // input file specified") if the script is genuinely missing. Do not
         // add a stat here; read the invariant first if you think one is owed.
         let (parts, body) = req.into_parts();
-        if parts.extensions.get::<claviron_http::policy::HttpPolicy>().is_none()
-        {
-            return Err(SapiGatewayError::Internal(
-                "HttpPolicy is required for PHP script execution".into(),
-            ));
-        }
-        let policy = runtime.policy(&parts);
-        if claviron_http::body::declared_length_within(
-            &parts.headers,
-            policy.requests.max_body_size,
-        )
-        .is_err()
-        {
-            let mut response = Response::new(claviron_http::empty_body());
-            *response.status_mut() = StatusCode::PAYLOAD_TOO_LARGE;
-            return Ok(response);
-        }
+        let policy = parts
+            .extensions
+            .get::<claviron_http::policy::HttpPolicy>()
+            .copied()
+            .ok_or_else(|| {
+                SapiGatewayError::Internal(
+                    "HttpPolicy is required for PHP script execution".into(),
+                )
+            })?;
         let conn_ctx = parts.extensions.get::<Arc<ConnCtx>>().cloned();
 
         let pool = self.pool.get().ok_or_else(|| {
@@ -354,13 +348,10 @@ impl PhpSapiEngine {
                 .delivery(BodyNeed::Stream, declared, false)
                 .takes_whole(declared);
             if whole {
-                let bytes =
-                    match collect_body(body, policy.requests.max_body_size)
-                        .await
-                    {
-                        Ok(bytes) => bytes,
-                        Err(error)
-                            if matches!(
+                let bytes = match collect_body(body).await {
+                    Ok(bytes) => bytes,
+                    Err(error)
+                        if matches!(
                             error
                                 .downcast_ref::<claviron_http::body::BodyLimit>(
                                 ),
@@ -368,25 +359,21 @@ impl PhpSapiEngine {
                                 claviron_http::body::BodyLimit::TooLarge { .. }
                             )
                         ) =>
-                        {
-                            let mut response =
-                                Response::new(claviron_http::empty_body());
-                            *response.status_mut() =
-                                StatusCode::PAYLOAD_TOO_LARGE;
-                            return Ok(response);
-                        }
-                        Err(error) => {
-                            return Err(SapiGatewayError::BadRequest(format!(
-                                "request body read error: {error}"
-                            )));
-                        }
-                    };
+                    {
+                        let mut response =
+                            Response::new(claviron_http::empty_body());
+                        *response.status_mut() = StatusCode::PAYLOAD_TOO_LARGE;
+                        return Ok(response);
+                    }
+                    Err(error) => {
+                        return Err(SapiGatewayError::BadRequest(format!(
+                            "request body read error: {error}"
+                        )));
+                    }
+                };
                 RequestBodySource::buffered(bytes)
             } else {
-                RequestBodySource::streaming(
-                    body,
-                    policy.requests.max_body_size,
-                )
+                RequestBodySource::streaming(body)
             }
         };
 

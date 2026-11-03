@@ -23,6 +23,7 @@ use tracing::{debug, error};
 use crate::error::GatewayError;
 use crate::service::{PhpFcgiService, Stdin};
 
+/// Resolve a PHP script from ingress-prepared HTTP input; see [`PhpRuntime`].
 pub async fn try_fcgi_proxy(
     svc: Arc<PhpFcgiService>,
     runtime: Arc<PhpRuntime>,
@@ -459,20 +460,15 @@ async fn exec_streaming(
     ctx: &RequestCtx,
     started_at: Instant,
 ) -> Result<RouteResponse, GatewayError> {
-    if parts.extensions.get::<claviron_http::policy::HttpPolicy>().is_none() {
-        return Err(GatewayError::Internal(
-            "HttpPolicy is required for PHP FastCGI execution".into(),
-        ));
-    }
-    let policy = php_cfg.policy(&parts);
-    if claviron_http::body::declared_length_within(
-        &parts.headers,
-        policy.requests.max_body_size,
-    )
-    .is_err()
-    {
-        return Ok(status_response(StatusCode::PAYLOAD_TOO_LARGE));
-    }
+    let policy = parts
+        .extensions
+        .get::<claviron_http::policy::HttpPolicy>()
+        .copied()
+        .ok_or_else(|| {
+            GatewayError::Internal(
+                "HttpPolicy is required for PHP FastCGI execution".into(),
+            )
+        })?;
     // FPM reads STDIN only up to `CONTENT_LENGTH`, so a body goes as it
     // arrives only when its length is declared; one of unknown length is
     // held and counted first. Held whole, it can also be sent again on a
@@ -487,33 +483,23 @@ async fn exec_streaming(
             .takes_whole(declared);
         match declared {
             Some(len) if !whole => {
-                let max_bytes = policy.requests.max_body_size;
-                let mut total = 0_usize;
                 let stream = http_body_util::BodyStream::new(Box::pin(body))
                     .map(move |frame| {
                         let data = frame
-                            .map_err(|error| std::io::Error::other(format!("{error:?}")))?
+                            .map_err(|error| {
+                                std::io::Error::other(format!("{error:?}"))
+                            })?
                             .into_data()
                             .unwrap_or_default();
-                        if let Some(limit) = max_bytes {
-                            total = total.checked_add(data.len()).filter(|total| *total <= limit)
-                                .ok_or_else(|| std::io::Error::new(
-                                    std::io::ErrorKind::InvalidData,
-                                    claviron_http::body::BodyLimit::TooLarge { limit },
-                                ))?;
-                        }
                         Ok::<_, std::io::Error>(data)
                     });
                 (Stdin::Live(Box::new(StreamReader::new(stream))), len as usize)
             }
             _ => {
-                let bytes =
-                    match collect_body(body, policy.requests.max_body_size)
-                        .await
-                    {
-                        Ok(bytes) => bytes,
-                        Err(error)
-                            if matches!(
+                let bytes = match collect_body(body).await {
+                    Ok(bytes) => bytes,
+                    Err(error)
+                        if matches!(
                             error
                                 .downcast_ref::<claviron_http::body::BodyLimit>(
                                 ),
@@ -521,17 +507,17 @@ async fn exec_streaming(
                                 claviron_http::body::BodyLimit::TooLarge { .. }
                             )
                         ) =>
-                        {
-                            return Ok(status_response(
-                                StatusCode::PAYLOAD_TOO_LARGE,
-                            ));
-                        }
-                        Err(error) => {
-                            return Err(GatewayError::Internal(format!(
-                                "request body read error: {error}"
-                            )));
-                        }
-                    };
+                    {
+                        return Ok(status_response(
+                            StatusCode::PAYLOAD_TOO_LARGE,
+                        ));
+                    }
+                    Err(error) => {
+                        return Err(GatewayError::Internal(format!(
+                            "request body read error: {error}"
+                        )));
+                    }
+                };
                 let len = bytes.len();
                 (Stdin::Whole(bytes), len)
             }
@@ -571,8 +557,7 @@ fn status_response(status: StatusCode) -> RouteResponse {
 }
 
 async fn collect_body(
-    body: RouteBody,
-    max_bytes: Option<usize>,
+    body: RouteBody
 ) -> Result<Bytes, Box<dyn std::error::Error + Send + Sync>> {
     let mut body = Box::pin(body);
     let mut buf = BytesMut::new();
@@ -586,13 +571,6 @@ async fn collect_body(
         let frame = frame_res?;
 
         if let Some(data) = frame.data_ref() {
-            if let Some(limit) = max_bytes
-                && buf.len().saturating_add(data.len()) > limit
-            {
-                return Err(Box::new(
-                    claviron_http::body::BodyLimit::TooLarge { limit },
-                ));
-            }
             buf.extend_from_slice(data);
         } else if frame.is_trailers() {
             let _ = frame.into_trailers().ok();

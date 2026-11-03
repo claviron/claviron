@@ -2,7 +2,6 @@
 
 use bytes::{Bytes, BytesMut};
 use claviron_http::RouteBody;
-use claviron_http::policy::RequestPolicy;
 use http::request::Parts;
 use http::{Method, header::CONTENT_LENGTH};
 use http_body::Body;
@@ -19,7 +18,6 @@ pub(super) enum Rejection {
 pub(super) async fn read(
     parts: &Parts,
     mut body: RouteBody,
-    policy: &RequestPolicy,
     stopping: &CancellationToken,
 ) -> Result<Bytes, Rejection> {
     // End-of-stream is the transport's fact, not an inference from headers.
@@ -27,14 +25,6 @@ pub(super) async fn read(
         && body.is_end_stream()
     {
         return Ok(Bytes::new());
-    }
-    if claviron_http::body::declared_length_within(
-        &parts.headers,
-        policy.max_body_size,
-    )
-    .is_err()
-    {
-        return Err(Rejection::TooLarge);
     }
     let mut bytes = Bytes::new();
     let mut buffered: Option<BytesMut> = None;
@@ -62,15 +52,6 @@ pub(super) async fn read(
             }
         };
         if let Ok(data) = frame.into_data() {
-            if policy.max_body_size.is_some_and(|limit| {
-                buffered
-                    .as_ref()
-                    .map_or(bytes.len(), BytesMut::len)
-                    .saturating_add(data.len())
-                    > limit
-            }) {
-                return Err(Rejection::TooLarge);
-            }
             if let Some(buffered) = &mut buffered {
                 buffered.extend_from_slice(&data);
             } else if bytes.is_empty() {

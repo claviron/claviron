@@ -33,8 +33,6 @@ pub(super) fn runtime(root: std::path::PathBuf) -> Arc<PhpRuntime> {
         execution_environment: Default::default(),
         php_runner: PhpRunner::Script,
         application: None,
-        requests: Default::default(),
-        responses: Default::default(),
         server_run_mode: RunMode::Standalone,
         server_worker_count: 1,
         server_hostname: "test-host".to_string(),

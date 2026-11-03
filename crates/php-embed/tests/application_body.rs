@@ -39,26 +39,23 @@ impl Body for ProbeBody {
     }
 }
 
-fn collect(
+fn collect<B>(
     method: Method,
     length: Option<usize>,
-    body: ProbeBody,
-    limit: Option<usize>,
+    body: B,
     stopping: CancellationToken,
-) -> Result<Bytes, Rejection> {
+) -> Result<Bytes, Rejection>
+where
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: Into<claviron_http::RouteBodyError>,
+{
     let mut request = Request::builder().method(method).uri("/example");
     if let Some(length) = length {
         request = request.header(CONTENT_LENGTH, length);
     }
     let (parts, ()) = request.body(()).unwrap().into_parts();
-    let mut policy = RequestPolicy::unlimited();
-    policy.max_body_size = limit;
-    let mut future = Box::pin(read(
-        &parts,
-        claviron_http::boxed_body(body),
-        &policy,
-        &stopping,
-    ));
+    let mut future =
+        Box::pin(read(&parts, claviron_http::boxed_body(body), &stopping));
     match future.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
         Poll::Ready(result) => result,
         Poll::Pending => {
@@ -89,7 +86,7 @@ fn application_body_ended_get_and_head_never_poll() {
         let (mut body, polls) = probe(true, vec![]);
         body.forbid_poll = true;
         assert!(
-            collect(method, Some(0), body, Some(0), CancellationToken::new())
+            collect(method, Some(0), body, CancellationToken::new())
                 .unwrap()
                 .is_empty()
         );
@@ -102,7 +99,7 @@ fn application_body_unknown_empty_get_and_head_still_read() {
     for method in [Method::GET, Method::HEAD] {
         let (body, polls) = probe(false, vec![]);
         assert!(
-            collect(method, None, body, Some(0), CancellationToken::new())
+            collect(method, None, body, CancellationToken::new())
                 .unwrap()
                 .is_empty()
         );
@@ -116,7 +113,7 @@ fn application_body_content_length_zero_does_not_prove_empty() {
         let (body, polls) =
             probe(false, vec![Ok(Frame::data(Bytes::from_static(b"x")))]);
         assert!(matches!(
-            collect(method, Some(0), body, None, CancellationToken::new()),
+            collect(method, Some(0), body, CancellationToken::new()),
             Err(Rejection::BadRequest(_))
         ));
         assert_eq!(polls.load(Ordering::Relaxed), 2);
@@ -141,8 +138,7 @@ fn application_body_payloads_preserve_bytes_for_all_methods() {
             ],
         );
         assert_eq!(
-            collect(method, Some(4), body, Some(4), CancellationToken::new())
-                .unwrap(),
+            collect(method, Some(4), body, CancellationToken::new()).unwrap(),
             Bytes::from_static(b"ab\0\xff")
         );
         assert_eq!(polls.load(Ordering::Relaxed), 3);
@@ -150,14 +146,7 @@ fn application_body_payloads_preserve_bytes_for_all_methods() {
 }
 
 #[test]
-fn application_body_limits_cover_declared_and_chunked_payloads() {
-    let (body, polls) =
-        probe(false, vec![Ok(Frame::data(Bytes::from_static(b"abcd")))]);
-    assert!(matches!(
-        collect(Method::POST, Some(4), body, Some(3), CancellationToken::new()),
-        Err(Rejection::TooLarge)
-    ));
-    assert_eq!(polls.load(Ordering::Relaxed), 0);
+fn application_body_propagates_ingress_guard_rejection() {
     let (body, polls) = probe(
         false,
         vec![
@@ -166,22 +155,22 @@ fn application_body_limits_cover_declared_and_chunked_payloads() {
         ],
     );
     assert!(matches!(
-        collect(Method::DELETE, None, body, Some(3), CancellationToken::new()),
+        collect(
+            Method::DELETE,
+            None,
+            claviron_http::body::guard_size(claviron_http::boxed_body(body), 3),
+            CancellationToken::new(),
+        ),
         Err(Rejection::TooLarge)
     ));
     assert_eq!(polls.load(Ordering::Relaxed), 2);
 }
 
 #[test]
-fn application_body_transport_limit_and_trailers_keep_rejections() {
-    let (body, _) = probe(false, vec![Err(BodyLimit::TooLarge { limit: 3 })]);
-    assert!(matches!(
-        collect(Method::POST, None, body, Some(3), CancellationToken::new()),
-        Err(Rejection::TooLarge)
-    ));
+fn application_body_rejects_unsupported_trailers() {
     let (body, _) = probe(false, vec![Ok(Frame::trailers(HeaderMap::new()))]);
     assert!(matches!(
-        collect(Method::POST, None, body, None, CancellationToken::new()),
+        collect(Method::POST, None, body, CancellationToken::new()),
         Err(Rejection::BadRequest(_))
     ));
 }
@@ -193,7 +182,7 @@ fn application_body_stop_keeps_nonempty_reads_cancellable() {
     let (mut body, polls) = probe(false, vec![]);
     body.forbid_poll = true;
     assert!(matches!(
-        collect(Method::POST, None, body, None, stopping),
+        collect(Method::POST, None, body, stopping),
         Err(Rejection::Stopped)
     ));
     assert_eq!(polls.load(Ordering::Relaxed), 0);
@@ -208,7 +197,6 @@ fn application_body_single_frame_keeps_binary_payload_allocation() {
         Method::POST,
         Some(payload.len()),
         body,
-        Some(payload.len()),
         CancellationToken::new(),
     )
     .unwrap();

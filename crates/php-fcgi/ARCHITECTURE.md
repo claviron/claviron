@@ -140,19 +140,17 @@ never reads `vhost.yaml` itself — it receives an
   (§3.7) picks the most-spacious pool when the list has > 1 entry.
 - `exec_mode: Buffered | Stream | Resolve` — request-time mode hint
   (Resolve = inspect headers per request, see §5).
-- `requests:` and `responses:` — route overrides of the supplied `HttpPolicy`.
 
 Same `PhpRuntime` type used by `php-embed`; the `runner`
 field is the only fork point.
 
-FastCGI HTTP execution requires the existing `HttpPolicy` request extension.
-`PhpRuntime::policy` applies the PHP route's overrides; it does not read listener
-or host configuration. Its effective `requests.max_body_size` is validated
-inside the existing buffered collection and live STDIN projection. The
-transport's HTTP body guard is not wrapped or boxed a second time. Missing policy is an
-internal execution error; an explicit `off` remains valid. Oversized declared
-or buffered input returns 413 before FPM receives the request. There is no
-separate `post_max_size` field/default; PHP-FPM's INI limits remain independent.
+FastCGI execution requires the final `HttpPolicy` extension and an
+ingress-guarded body. Buffered collection and live STDIN forwarding propagate
+its errors without narrowing policy or repeating its byte counter. Collection
+returns 413 on `BodyLimit::TooLarge` before FPM receives input. Missing policy
+is an execution error; `off` adds no backend limit. PHP-FPM's INI parsing and
+upload limits remain independent. See `claviron-php`'s HTTP request-body contract.
+`tests/proxy.rs` checks collection and guard-error propagation alongside CGI projection.
 
 The FCGI gateway also owns CGI parameter projection from Claviron's
 request context. TLS is terminated before PHP-FPM sees the request, so
@@ -562,8 +560,8 @@ Request<RouteBody>
     ▼
 mode = Buffered                          mode = Streaming
     │                                            │
-collect_body_with_limit                  no body collection
-   (effective HTTP policy cap)                  │
+collect guarded body                    no body collection
+    │                                   forward guarded body
     │                                            │
 exec_buffered:                           exec_streaming:
   pool.acquire()  (or one-shot dial)       pool.acquire()

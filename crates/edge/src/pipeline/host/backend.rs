@@ -98,12 +98,7 @@ impl BackendPlan {
         let state = context.state;
         let host = context.host;
         let config = context.route;
-        #[cfg(any(
-            feature = "orbit",
-            feature = "lua",
-            feature = "php_embed",
-            feature = "php_fcgi"
-        ))]
+        #[cfg(any(feature = "orbit", feature = "lua"))]
         let policy = context.policy();
         let steps = std::iter::empty::<Arc<dyn BackendHandler>>();
         #[cfg(feature = "orbit")]
@@ -130,7 +125,7 @@ impl BackendPlan {
         );
         #[cfg(any(feature = "php_embed", feature = "php_fcgi"))]
         let steps = steps.chain(
-            crate::pipeline::embed::php::PhpBackend::new(state, config, policy)
+            crate::pipeline::embed::php::PhpBackend::new(state, config)
                 .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>),
         );
         #[cfg(feature = "upstream")]

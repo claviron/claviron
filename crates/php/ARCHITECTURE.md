@@ -59,9 +59,9 @@ PATH_INFO handling. A pinned `entry_script` is already relative to the document
 directory and never has a URL prefix removed or an existence probe added.
 Document-directory overrides belong to the enclosing route `directory`, not PhpConfig.
 
-`PhpConfig` contains PHP execution settings. URL prefix, document mapping and
-request/reply policy are supplied to `PhpRuntime` by the scope compiler at
-boot/reload. Script, persistent application and FCGI execution share that input.
+`PhpConfig` contains PHP execution settings. Edge prepares the URL prefix and
+document mapping in `PhpRuntime` at boot/reload. Effective HTTP policy travels
+with the admitted request, not in another PHP runtime copy.
 
 Native mount preparation belongs to Edge's pipeline/embed/php.rs. This shared
 contract crate has no Axum feature, dependency or routing builder. The host
@@ -193,21 +193,21 @@ only one backend's execution machinery, keep it in that backend crate.
 
 ### HTTP request body limits
 
-`PhpConfig.requests` is a route override, not a second PHP body-size limit.
-`PhpRuntime` has no `post_max_size` field or numeric default. The fixed PHP
-route schema rejects unknown fields, including the former `post_max_size` and
-top-level `max_body_size` keys; use `requests.max_body_size` instead.
+HTTP ingress owns policy resolution and request-body guarding. Edge's
+HostPipeline or Runner supplies the final `HttpPolicy` extension and guards
+input once. Direct HTTP callers must provide the same contract. A missing
+policy is an execution error; `None` means no Claviron limit.
 
-HTTP executors require the existing `HttpPolicy` request extension before
-calling `PhpRuntime::policy`, which narrows that supplied policy with the PHP
-route's request/response overrides. They never reread listener or host config.
-A missing extension is an execution error, not implicit unlimited admission.
-`None` inside a supplied effective body-size policy is valid explicit `off`.
-The existing transport body guard remains the only guard wrapper. PHP's existing
-body-read/collection paths validate the effective route override inline, before
-buffer growth or forwarding input; they add no second guard, box or timer.
-PHP/FPM's own INI limits remain independent. Console/task execution is not
-HTTP admission.
+Script, persistent application and FastCGI readers consume that prepared body.
+They neither narrow the policy again nor repeat its declared-length cap or
+stream byte counter. Guard failures propagate during collection/forwarding;
+an oversized body collected before execution returns 413. Streaming input
+errors abort the PHP input bridge when execution has already begun.
+
+Queue admission, buffering and output backpressure remain execution concerns.
+PHP/FPM INI rules for POST parsing and uploads remain independent; they are not
+a replacement for HTTP ingress bounds. Console/task execution is not HTTP
+admission.
 
 ## Header Policy
 

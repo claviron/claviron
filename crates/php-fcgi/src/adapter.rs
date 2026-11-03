@@ -8,6 +8,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::service::PhpFcgiService;
 
+/// FastCGI dispatch for HTTP input prepared by ingress; see [`PhpRuntime`].
 #[derive(Clone)]
 pub struct PhpFpmAdapter {
     php: Arc<PhpFcgiService>,
