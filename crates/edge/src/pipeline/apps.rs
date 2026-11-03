@@ -4,7 +4,7 @@ pub mod other;
 #[cfg(feature = "warp")]
 pub mod warp;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "broadcast")]
@@ -24,7 +24,9 @@ use crate::VhostResolver;
 use crate::config::HostConfig;
 use crate::pipeline::host::{HostExecution, HostHandler};
 use crate::pipeline::routable::Routable;
-use crate::pipeline::routable::{HostBindingProvider, RouteBinding};
+use crate::pipeline::routable::{
+    HostBindingProvider, RouteBinding, RouteProtocol, matches_protocol,
+};
 
 pub use claviron_http::RustRouter;
 
@@ -65,7 +67,9 @@ impl HostAppSnapshot {
     ) -> Option<&ListenerPlans> {
         self.listener_plans.get(host)
     }
-    /// Look up the prepared execution for an exact canonical name or alias.
+    /// Look up the protocol-independent execution for a canonical name or alias.
+    /// Native listener admission selects protocol-specific plans from the same
+    /// publication; this unbound lookup excludes restricted contributions.
     pub fn resolve(
         &self,
         host: &Host,
@@ -429,14 +433,17 @@ impl HostAppRegistry {
     pub(crate) fn resolve_host_layers(
         &self,
         context: &RouteContext<'_>,
+        protocol: Option<RouteProtocol>,
     ) -> Result<Vec<Arc<dyn RouteLayer>>> {
-        self.resolve_extensions(context, true).map(|resolved| resolved.layers)
+        self.resolve_extensions(context, true, protocol)
+            .map(|resolved| resolved.layers)
     }
 
     pub(crate) fn resolve_extensions(
         &self,
         context: &RouteContext<'_>,
         inherited_only: bool,
+        protocol: Option<RouteProtocol>,
     ) -> Result<ResolvedRouteExtensions> {
         let providers = self
             .routables
@@ -444,6 +451,7 @@ impl HostAppRegistry {
             .expect("host app routables lock poisoned")
             .clone();
         let mut codecs = HashMap::new();
+        let mut inactive = HashSet::new();
         for codec in self
             .route_extensions
             .read()
@@ -456,8 +464,15 @@ impl HostAppRegistry {
             if !provider.match_host(context.host, context.config) {
                 continue;
             }
+            let active = matches_protocol(protocol, |protocol| {
+                provider.match_protocol(protocol)
+            });
             for codec in provider.route_extensions() {
                 let name = codec.name();
+                if !active {
+                    inactive.insert(name);
+                    continue;
+                }
                 if matches!(
                     name,
                     "php"
@@ -495,6 +510,11 @@ impl HostAppRegistry {
             directives.extend(config.extensions.iter());
         }
         for (name, value) in directives {
+            if !codecs.contains_key(name.as_str())
+                && inactive.contains(name.as_str())
+            {
+                continue;
+            }
             let codec = codecs.get(name.as_str()).ok_or_else(|| {
                 Error::msg(format!(
                     "unresolved route directive '{name}' at '{}'",
@@ -531,6 +551,7 @@ impl HostAppRegistry {
         state: &AppState,
         canonical: &Host,
         host_cfg: Arc<HostConfig>,
+        protocol: Option<RouteProtocol>,
     ) -> Result<HostContributions> {
         let mut applications = Vec::new();
         let mut layers = Vec::new();
@@ -544,7 +565,10 @@ impl HostAppRegistry {
             .expect("host app routables lock poisoned")
             .clone();
         for routable in &local_routables {
-            if !routable.match_host(canonical, host_cfg.as_ref()) {
+            if !matches_protocol(protocol, |protocol| {
+                routable.match_protocol(protocol)
+            }) || !routable.match_host(canonical, host_cfg.as_ref())
+            {
                 continue;
             }
             if let Some(application) = Arc::clone(routable).application(
@@ -571,7 +595,10 @@ impl HostAppRegistry {
             .expect("host binding providers lock poisoned")
             .clone();
         for provider in &local_bindings {
-            if !provider.match_host(canonical, host_cfg.as_ref()) {
+            if !matches_protocol(protocol, |protocol| {
+                provider.match_protocol(protocol)
+            }) || !provider.match_host(canonical, host_cfg.as_ref())
+            {
                 continue;
             }
             let Some(binding) =
@@ -598,6 +625,37 @@ impl HostAppRegistry {
             #[cfg(feature = "websocket")]
             h1_upgrades,
         })
+    }
+
+    fn specializes_on(
+        &self,
+        host: &Host,
+        config: &HostConfig,
+        protocol: RouteProtocol,
+    ) -> bool {
+        self.routables
+            .read()
+            .expect("host app routables lock poisoned")
+            .iter()
+            .any(|provider| {
+                provider.match_host(host, config)
+                    && provider.match_protocol(protocol)
+                    && !matches_protocol(None, |protocol| {
+                        provider.match_protocol(protocol)
+                    })
+            })
+            || self
+                .binding_providers
+                .read()
+                .expect("host binding providers lock poisoned")
+                .iter()
+                .any(|provider| {
+                    provider.match_host(host, config)
+                        && provider.match_protocol(protocol)
+                        && !matches_protocol(None, |protocol| {
+                            provider.match_protocol(protocol)
+                        })
+                })
     }
 
     /// Build the live [`HostAppSnapshot`] from registered factories
@@ -646,8 +704,11 @@ impl HostAppRegistry {
             .map(|provider| provider.snapshot());
         let http_unchanged =
             previous.is_some_and(|previous| previous.http == http);
-        let compiler =
-            super::host::compile::HostCompiler { state, http: http.as_deref() };
+        let compiler = super::host::compile::HostCompiler {
+            state,
+            http: http.as_deref(),
+            protocol: None,
+        };
         #[cfg(feature = "rate-limit")]
         let quotas = {
             let previous = previous
@@ -737,25 +798,26 @@ impl HostAppRegistry {
                     .insert(canonical.clone(), record.config.clone());
                 continue;
             }
-            // Only the upgrade features below mutate it.
-            #[cfg_attr(
-                not(any(
-                    all(feature = "lua", feature = "websocket"),
-                    feature = "broadcast"
-                )),
-                allow(unused_mut)
-            )]
-            let mut routable = self.routable_binding(
+            let routable = self.routable_binding(
                 state,
                 canonical,
                 Arc::clone(&record.config),
+                None,
             )?;
+            #[cfg(feature = "websocket")]
+            let mut routable = routable;
+            #[cfg(feature = "websocket")]
+            #[cfg_attr(
+                not(any(feature = "lua", feature = "broadcast")),
+                allow(unused_mut)
+            )]
+            let mut configured_upgrades = Vec::new();
             #[cfg(all(feature = "lua", feature = "websocket"))]
             super::embed::lua::append_websocket_routes(
                 state,
                 canonical,
                 &record.config,
-                &mut routable.h1_upgrades,
+                &mut configured_upgrades,
             )?;
             #[cfg(all(feature = "lua", feature = "webtransport"))]
             super::embed::lua::append_webtransport_routes(
@@ -770,8 +832,10 @@ impl HostAppRegistry {
                 state,
                 canonical,
                 &record.config,
-                &mut routable.h1_upgrades,
+                &mut configured_upgrades,
             )?;
+            #[cfg(feature = "websocket")]
+            routable.h1_upgrades.extend(configured_upgrades.iter().cloned());
             let binding = match custom_bindings.get(canonical).cloned() {
                 Some(binding) => {
                     if routable.app.is_some() {
@@ -794,12 +858,60 @@ impl HostAppRegistry {
                     )
                 })
                 .transpose()?;
+            let mut protocol_inputs = HashMap::new();
+            for listener in http.iter().flat_map(|http| http.listeners.values())
+            {
+                let protocol = RouteProtocol::from(listener.as_ref());
+                if !record.config.allows_listener(&listener.id)
+                    || protocol_inputs.contains_key(&protocol)
+                    || !self.specializes_on(canonical, &record.config, protocol)
+                {
+                    continue;
+                }
+                let contributions = self.routable_binding(
+                    state,
+                    canonical,
+                    record.config.clone(),
+                    Some(protocol),
+                )?;
+                #[cfg(feature = "websocket")]
+                let mut contributions = contributions;
+                #[cfg(feature = "websocket")]
+                contributions
+                    .h1_upgrades
+                    .extend(configured_upgrades.iter().cloned());
+                let selected = if custom_bindings.contains_key(canonical) {
+                    if contributions.app.is_some() {
+                        return Err(Error::msg(format!(
+                            "host '{canonical}' has a manual exclusive binding and a routable app binding",
+                        )));
+                    }
+                    router.clone()
+                } else {
+                    contributions
+                        .app
+                        .as_ref()
+                        .map(|binding| {
+                            binding.build_router(
+                                state,
+                                canonical,
+                                record.config.clone(),
+                            )
+                        })
+                        .transpose()?
+                };
+                protocol_inputs.insert(
+                    protocol,
+                    HostInput::new(canonical, selected, contributions)?,
+                );
+            }
             let (app, listener_plans) = build_host(
                 &compiler,
                 canonical,
                 record.config.clone(),
                 router,
                 routable,
+                &protocol_inputs,
                 #[cfg(feature = "rate-limit")]
                 snapshot.quotas.get(canonical).and_then(Option::as_deref),
             )?;
@@ -817,32 +929,56 @@ impl HostAppRegistry {
     }
 }
 
+struct HostInput {
+    router: Option<RustRouter>,
+    contributions: HostContributions,
+    #[cfg(feature = "websocket")]
+    websocket: Option<Arc<H1UpgradeRegistry>>,
+}
+
+impl HostInput {
+    fn new(
+        _host: &Host,
+        router: Option<RustRouter>,
+        contributions: HostContributions,
+    ) -> Result<Self> {
+        #[cfg(feature = "websocket")]
+        let mut contributions = contributions;
+        #[cfg(feature = "websocket")]
+        let websocket = build_h1_upgrade_registry(
+            _host,
+            std::mem::take(&mut contributions.h1_upgrades),
+        )?;
+        Ok(Self {
+            router,
+            contributions,
+            #[cfg(feature = "websocket")]
+            websocket,
+        })
+    }
+}
+
 fn build_host(
     compiler: &super::host::compile::HostCompiler<'_>,
     canonical: &Host,
     host_cfg: Arc<HostConfig>,
     router: Option<RustRouter>,
     contributions: HostContributions,
+    protocols: &HashMap<RouteProtocol, HostInput>,
     #[cfg(feature = "rate-limit")] quotas: Option<
         &crate::pipeline::layers::HostQuotas,
     >,
 ) -> Result<(HostExecution, Option<ListenerPlans>)> {
-    #[cfg(feature = "websocket")]
-    let mut contributions = contributions;
-    #[cfg(feature = "websocket")]
-    let websocket = build_h1_upgrade_registry(
-        canonical,
-        std::mem::take(&mut contributions.h1_upgrades),
-    )?;
+    let common = HostInput::new(canonical, router, contributions)?;
     let shared = compiler.prepare(
         canonical,
         host_cfg.clone(),
-        router.clone(),
-        &contributions,
+        common.router.clone(),
+        &common.contributions,
         #[cfg(feature = "rate-limit")]
         quotas,
         #[cfg(feature = "websocket")]
-        websocket.clone(),
+        common.websocket.clone(),
     )?;
     let mut plans = Vec::new();
     let mut prepared = HashMap::new();
@@ -852,28 +988,37 @@ fn build_host(
         if !host_cfg.allows_listener(id) {
             continue;
         }
+        let protocol = RouteProtocol::from(listener.as_ref());
+        let input = protocols.get(&protocol);
         let bounds = (
+            input.map(|_| protocol),
             listener.requests.max_body_size,
             listener.requests.body_read_timeout,
         );
-        if bounds == (None, None) {
+        if bounds == (None, None, None) {
             continue;
         }
         let app = match prepared.get(&bounds) {
             Some(app) => HostExecution::clone(app),
             None => {
-                let app = compiler.prepare_target(
+                let input = input.unwrap_or(&common);
+                let selected = super::host::compile::HostCompiler {
+                    state: compiler.state,
+                    http: compiler.http,
+                    protocol: Some(protocol),
+                };
+                let app = selected.prepare_target(
                     super::host::compile::HostCompileTarget {
                         host: canonical,
                         requests: listener.requests,
                     },
                     host_cfg.clone(),
-                    router.clone(),
-                    &contributions,
+                    input.router.clone(),
+                    &input.contributions,
                     #[cfg(feature = "rate-limit")]
                     quotas,
                     #[cfg(feature = "websocket")]
-                    websocket.clone(),
+                    input.websocket.clone(),
                 )?;
                 prepared.insert(bounds, app.clone());
                 app

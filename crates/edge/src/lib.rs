@@ -209,7 +209,8 @@ pub use pipeline::apps::other::{OtherHandler, OtherService};
 pub use pipeline::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
-    HostAppRegistry, HostBindingProvider, RouteBinding, RustRouter,
+    HostAppRegistry, HostBindingProvider, RouteBinding, RouteProtocol,
+    RustRouter,
 };
 #[cfg(feature = "websocket")]
 pub use pipeline::{

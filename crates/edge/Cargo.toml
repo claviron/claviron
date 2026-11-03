@@ -17,7 +17,6 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 default = []
 warp = ["claviron-http/warp"]
 rate-limit = ["claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/quota"]
-acme = ["claviron-http/acme"]
 # Optional Rust application/router adapters; native host compilation is independent.
 axum = [
     "dep:axum",

@@ -120,20 +120,21 @@ fn absent_or_ineffective_defenses_keep_the_direct_router_path() {
             "listeners: [{listener}]\nacl: {{policy: allow}}\n"
         ))
         .unwrap();
-        let owner = HostCompiler { state: &state, http: Some(&http) }
-            .prepare(
-                &"example.test".parse().unwrap(),
-                Arc::new(config),
-                Some(RustRouter::Other(OtherService::new(Reply(
-                    calls.clone(),
-                )))),
-                &HostContributions::default(),
-                #[cfg(feature = "rate-limit")]
-                None,
-                #[cfg(feature = "websocket")]
-                None,
-            )
-            .unwrap();
+        let owner =
+            HostCompiler { state: &state, http: Some(&http), protocol: None }
+                .prepare(
+                    &"example.test".parse().unwrap(),
+                    Arc::new(config),
+                    Some(RustRouter::Other(OtherService::new(Reply(
+                        calls.clone(),
+                    )))),
+                    &HostContributions::default(),
+                    #[cfg(feature = "rate-limit")]
+                    None,
+                    #[cfg(feature = "websocket")]
+                    None,
+                )
+                .unwrap();
         assert_eq!(owner.kind(), "other");
     }
     assert_eq!(calls.load(Ordering::Relaxed), 0);
@@ -199,19 +200,20 @@ routes:
     let mut contributions = HostContributions::default();
     contributions.layers.push(Arc::new(Observe(registered_calls.clone())));
     let http = http();
-    let owner = HostCompiler { state: &state, http: Some(&http) }
-        .prepare(
-            &host,
-            Arc::new(config),
-            Some(RustRouter::Other(OtherService::new(Reply(
-                handler_calls.clone(),
-            )))),
-            &contributions,
-            Some(&quotas),
-            #[cfg(feature = "websocket")]
-            None,
-        )
-        .unwrap();
+    let owner =
+        HostCompiler { state: &state, http: Some(&http), protocol: None }
+            .prepare(
+                &host,
+                Arc::new(config),
+                Some(RustRouter::Other(OtherService::new(Reply(
+                    handler_calls.clone(),
+                )))),
+                &contributions,
+                Some(&quotas),
+                #[cfg(feature = "websocket")]
+                None,
+            )
+            .unwrap();
     let accepted = connection();
     let drops = Arc::new(AtomicUsize::new(0));
     for (listener, peer) in
@@ -277,7 +279,7 @@ fn an_allow_all_child_still_overrides_a_deny_all_parent() {
     )
     .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let owner = HostCompiler { state: &state, http: None }
+    let owner = HostCompiler { state: &state, http: None, protocol: None }
         .prepare(
             &"example.test".parse().unwrap(),
             Arc::new(config),
@@ -327,7 +329,7 @@ fn cors_absence_keeps_the_direct_router_and_scoped_policies_inherit_at_boot() {
             "pipeline",
         ),
     ] {
-        let owner = HostCompiler { state: &state, http: None }
+        let owner = HostCompiler { state: &state, http: None, protocol: None }
             .prepare(
                 &host,
                 Arc::new(serde_yaml::from_str(config).unwrap()),
@@ -439,7 +441,7 @@ fn cors_preflight_spends_quota_and_quota_refusal_keeps_cors_headers() {
         .unwrap()
         .unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
-    let owner = HostCompiler { state: &state, http: None }
+    let owner = HostCompiler { state: &state, http: None, protocol: None }
         .prepare(
             &host,
             Arc::new(config),

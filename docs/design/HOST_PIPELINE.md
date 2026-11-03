@@ -28,7 +28,7 @@ flowchart LR
 | RouteSelection | One prefix/condition selection; omitted for a single scope. |
 | RustRouter / HostHandler | Axum or Other, or a fallthrough Rust contribution. |
 | Static / TryFiles / Embed / Upstream / Link | Prepared native request owners. |
-| Http01 / HttpsRedirect | Explicit challenge replies or HTTPS redirects. |
+| HttpsRedirect | Explicit HTTPS redirects. |
 
 The native compiler currently selects Rust contributions, route extensions,
 WebSocket endpoints, files and configured backends through this contract.

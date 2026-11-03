@@ -1,5 +1,3 @@
-#[cfg(feature = "server")]
-pub mod acme;
 pub mod authority;
 #[cfg(feature = "axum")]
 mod bindings;

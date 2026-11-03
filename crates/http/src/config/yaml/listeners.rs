@@ -62,8 +62,6 @@ pub struct ListenerDefinition {
     #[serde(default)]
     pub tls: Override<bool>,
     #[serde(default)]
-    pub acme: bool,
-    #[serde(default)]
     pub max_connections: Override<Option<NonZeroUsize>>,
     #[serde(default, deserialize_with = "super::helpers::optional_duration")]
     pub graceful_timeout: Override<Option<Duration>>,
@@ -190,7 +188,7 @@ pub enum ListenerSettings {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TcpSecurity {
-    Cleartext { redirect_port: NonZeroU16, acme: bool },
+    Cleartext { redirect_port: NonZeroU16 },
     Tls { handshake_timeout: Duration },
 }
 
@@ -327,9 +325,9 @@ impl ListenerDefinition {
                     options.h2.apply(&defaults.h2.apply(&H2Config::default()));
                 super::tcp::validate(&h1, &h2).map_err(|e| fail(&e.message))?;
                 let security = if tls {
-                    if self.acme || !self.redirect_port.is_inherit() {
+                    if !self.redirect_port.is_inherit() {
                         return Err(fail(
-                            "HTTP-01 and redirect_port belong to cleartext listeners",
+                            "redirect_port belongs to cleartext listeners",
                         ));
                     }
                     let handshake_timeout = options.handshake_timeout.resolve(
@@ -347,16 +345,12 @@ impl ListenerDefinition {
                             "cleartext listeners have no handshake_timeout",
                         ));
                     }
-                    if self.acme && !cfg!(feature = "acme") {
-                        return Err(fail("HTTP-01 requires the acme feature"));
-                    }
                     TcpSecurity::Cleartext {
                         redirect_port: options.redirect_port.resolve(
                             &defaults
                                 .redirect_port
                                 .resolve(&default_redirect_port()),
                         ),
-                        acme: self.acme,
                     }
                 };
                 ListenerSettings::Tcp(TcpListenerConfig {
@@ -382,9 +376,9 @@ impl ListenerDefinition {
                         "QUIC listeners cannot contain tcp/h1/h2 options",
                     ));
                 }
-                if self.acme || !self.redirect_port.is_inherit() {
+                if !self.redirect_port.is_inherit() {
                     return Err(fail(
-                        "HTTP-01 and redirect_port belong to cleartext TCP listeners",
+                        "redirect_port belongs to cleartext TCP listeners",
                     ));
                 }
                 let quic = options

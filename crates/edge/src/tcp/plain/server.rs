@@ -6,14 +6,10 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-#[cfg(feature = "acme")]
-use crate::pipeline::Http01Layer;
 use crate::transport::VhostResolver;
 use crate::transport::instances::ListenerInstances;
 use async_trait::async_trait;
 use claviron_http::ListenerId;
-#[cfg(feature = "acme")]
-use claviron_http::acme::{Http01ChallengeDirectory, Http01DirectoryObserver};
 use claviron_http::config::{
     H1Config, HttpSnapshot, ListenerCapabilities, ListenerConfig,
     ListenerSettings, PlainExecution, TcpConfig, TcpSecurity,
@@ -22,8 +18,6 @@ use claviron_http::listener::{ListenerSnapshot, ListenerSnapshots};
 use claviron_runtime::congif::{
     self, ConfigFile, ConfigObserver, Configurable, Format,
 };
-#[cfg(feature = "acme")]
-use claviron_runtime::registry::Bootable;
 use claviron_runtime::registry::{Component, Reloadable, Runnable, priority};
 use claviron_runtime::{
     AppState, ExecutionSpec, Register, RunContext, RunnableInstance,
@@ -42,8 +36,6 @@ pub(super) struct ServerSnapshot {
     pub(super) listener: Arc<ListenerConfig>,
     pub(super) tcp: TcpConfig,
     pub(super) h1: H1Config,
-    #[cfg(feature = "acme")]
-    pub(super) http01: Option<Arc<Http01Layer>>,
 }
 impl ListenerSnapshot for ServerSnapshot {
     fn listener_id(&self) -> &ListenerId {
@@ -84,50 +76,6 @@ impl HttpServer {
         }
     }
 
-    fn snapshots(
-        &self,
-        config: &HttpSnapshot,
-    ) -> claviron_runtime::registry::Result<
-        BTreeMap<ListenerId, Arc<ServerSnapshot>>,
-    > {
-        #[cfg(feature = "acme")]
-        let directory = if http01_enabled(config) {
-            self.state
-                .registry_ref()
-                .resolve::<Http01ChallengeDirectory>()
-                .and_then(|directory| directory.snapshot())
-        } else {
-            None
-        };
-        build_snapshots(
-            config,
-            #[cfg(feature = "acme")]
-            directory,
-        )
-    }
-
-    #[cfg(feature = "acme")]
-    fn observe_http01(
-        &self,
-        config: &HttpSnapshot,
-    ) {
-        let registry = self.state.registry_ref();
-        let Some(directory) = registry.resolve::<Http01ChallengeDirectory>()
-        else {
-            return;
-        };
-        let Some(server) = registry.resolve::<Self>() else {
-            return;
-        };
-        let observer: Arc<dyn Http01DirectoryObserver> = server;
-        let observer = Arc::downgrade(&observer);
-        if http01_enabled(config) {
-            directory.observe(observer);
-        } else {
-            directory.unobserve(&observer);
-        }
-    }
-
     fn configure_instances(
         &self,
         config: &HttpServerConfig,
@@ -154,7 +102,7 @@ impl HttpServer {
     ) -> claviron_runtime::registry::Result<()> {
         let config = self.state.config_reader().snapshot::<Self>()?;
         let snapshot =
-            self.snapshots(&config)?.remove(id).ok_or_else(|| {
+            build_snapshots(&config)?.remove(id).ok_or_else(|| {
                 claviron_runtime::registry::Error::msg(format!(
                     "cleartext listener '{id}' is not configured"
                 ))
@@ -187,7 +135,7 @@ impl HttpServer {
         vhosts: Arc<VhostResolver>,
     ) -> claviron_runtime::registry::Result<super::ConnectionHandler> {
         let snapshot =
-            self.snapshots(config)?.remove(listener).ok_or_else(|| {
+            build_snapshots(config)?.remove(listener).ok_or_else(|| {
                 claviron_runtime::registry::Error::msg(format!(
                     "cleartext listener '{listener}' is not configured"
                 ))
@@ -200,7 +148,7 @@ impl HttpServer {
         vhosts: Arc<VhostResolver>,
         context: RunContext,
     ) -> claviron_runtime::registry::Result<()> {
-        let generation = self.current.start(self.snapshots(
+        let generation = self.current.start(build_snapshots(
             self.state.config_reader().snapshot::<Self>()?.as_ref(),
         )?)?;
         crate::tcp::listener::serve(
@@ -223,20 +171,15 @@ impl HttpServer {
 }
 
 pub(super) fn build_snapshots(
-    http: &HttpSnapshot,
-    #[cfg(feature = "acme")] directory: Option<Arc<std::path::PathBuf>>,
+    http: &HttpSnapshot
 ) -> claviron_runtime::registry::Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>>
 {
     let mut groups = BTreeMap::new();
-    #[cfg(feature = "acme")]
-    let http01 =
-        directory.map(|directory| Arc::new(Http01Layer::new(directory)));
     for (id, listener) in &http.listeners {
         let ListenerSettings::Tcp(config) = &listener.settings else {
             continue;
         };
-        let TcpSecurity::Cleartext { acme: _acme, .. } = &config.security
-        else {
+        let TcpSecurity::Cleartext { .. } = &config.security else {
             if !cfg!(feature = "tls") {
                 return Err(claviron_runtime::registry::Error::msg(format!(
                     "listener '{id}' requires the Hyper tls feature"
@@ -250,20 +193,10 @@ pub(super) fn build_snapshots(
                 listener: listener.clone(),
                 tcp: config.tcp.clone(),
                 h1: config.h1.clone(),
-                #[cfg(feature = "acme")]
-                http01: if *_acme { http01.clone() } else { None },
             }),
         );
     }
     Ok(groups)
-}
-
-#[cfg(feature = "acme")]
-fn http01_enabled(config: &HttpSnapshot) -> bool {
-    config.listeners.values().any(|listener| {
-        matches!(&listener.settings, ListenerSettings::Tcp(tcp)
-            if matches!(tcp.security, TcpSecurity::Cleartext { acme: true, .. }))
-    })
 }
 
 /// Resolved inputs owned by this transport, excluding sibling listeners.
@@ -341,11 +274,9 @@ impl ConfigObserver for HttpServer {
         config: &Self::Config,
     ) -> congif::Result<()> {
         self.current
-            .publish(self.snapshots(config).map_err(congif::Error::msg)?)
+            .publish(build_snapshots(config).map_err(congif::Error::msg)?)
             .map_err(congif::Error::msg)?;
         self.configure_instances(config);
-        #[cfg(feature = "acme")]
-        self.observe_http01(config);
         info!("🔁 HttpServer listener policies reloaded");
         Ok(())
     }
@@ -376,10 +307,6 @@ impl Component<AppState> for HttpServer {
     fn as_reloadable(&self) -> Option<&dyn Reloadable<AppState>> {
         Some(self)
     }
-    #[cfg(feature = "acme")]
-    fn as_bootable(&self) -> Option<&dyn Bootable<AppState, Self::Deps>> {
-        Some(self)
-    }
     fn as_configurable(&self) -> Option<&dyn congif::ConfigRegistration> {
         Some(self)
     }
@@ -404,43 +331,13 @@ impl Reloadable<AppState> for HttpServer {
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
         let config = state.config_reader().snapshot::<Self>()?;
-        self.current.publish(self.snapshots(config.as_ref())?)?;
+        self.current.publish(build_snapshots(config.as_ref())?)?;
         self.configure_instances(&config);
-        #[cfg(feature = "acme")]
-        self.observe_http01(&config);
         info!("🔁 HttpServer listener policies reloaded");
         Ok(())
     }
 }
 
-#[cfg(feature = "acme")]
-#[async_trait]
-impl Bootable<AppState, (Arc<VhostResolver>,)> for HttpServer {
-    async fn boot(
-        &self,
-        _deps: (Arc<VhostResolver>,),
-        _state: &AppState,
-    ) -> claviron_runtime::registry::Result<()> {
-        let config = self.state.config_reader().snapshot::<Self>()?;
-        self.observe_http01(&config);
-        Ok(())
-    }
-}
-
-#[cfg(feature = "acme")]
-impl Http01DirectoryObserver for HttpServer {
-    fn directory_changed(&self) {
-        let result = self
-            .state
-            .config_reader()
-            .snapshot::<Self>()
-            .map_err(claviron_runtime::registry::Error::from)
-            .and_then(|config| self.current.publish(self.snapshots(&config)?));
-        if let Err(error) = result {
-            tracing::error!(%error, "HTTP-01 listener publication failed");
-        }
-    }
-}
 struct HttpListener {
     id: ListenerId,
     name: Arc<str>,

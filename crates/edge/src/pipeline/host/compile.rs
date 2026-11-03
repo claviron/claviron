@@ -13,7 +13,6 @@ use claviron_types::Host;
 use super::backend::BackendPlan;
 use super::{HostExecution, HostHandler, HostPipelineBuilder};
 use crate::HostConfig;
-use crate::pipeline::RustRouter;
 use crate::pipeline::apps::{
     HostAppRegistry, HostContributions, ResolvedRouteExtensions,
 };
@@ -24,6 +23,7 @@ use crate::pipeline::layers::{
     AclLayer, CorsLayer, CorsState, DenyLayer, ProxyLayer, RequestBodyLayer,
     RouteSelectionLayer, scope_steps,
 };
+use crate::pipeline::{RouteProtocol, RustRouter};
 
 #[derive(Default)]
 struct CorsExchange<S> {
@@ -86,6 +86,7 @@ impl AsMut<crate::pipeline::layers::QuotaState>
 pub(crate) struct HostCompiler<'a> {
     pub(crate) state: &'a AppState,
     pub(crate) http: Option<&'a HttpSnapshot>,
+    pub(crate) protocol: Option<RouteProtocol>,
 }
 
 pub(crate) struct HostCompileTarget<'a> {
@@ -391,13 +392,16 @@ impl HostCompiler<'_> {
             prefix: &root,
         });
         let layers = match &compiler.registry {
-            Some(registry) => registry.resolve_host_layers(&RouteContext {
-                state,
-                host,
-                config: config.as_ref(),
-                route: fallback.as_ref(),
-                prefix: &root,
-            })?,
+            Some(registry) => registry.resolve_host_layers(
+                &RouteContext {
+                    state,
+                    host,
+                    config: config.as_ref(),
+                    route: fallback.as_ref(),
+                    prefix: &root,
+                },
+                self.protocol,
+            )?,
             None if !config.extensions.is_empty() => {
                 return Err(Error::msg(
                     "route extensions require HostAppRegistry",
@@ -430,6 +434,7 @@ impl HostCompiler<'_> {
                                 prefix,
                             },
                             false,
+                            self.protocol,
                         )?,
                         None if route.extensions.is_empty() => {
                             ResolvedRouteExtensions::default()

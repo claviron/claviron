@@ -125,7 +125,6 @@ metrics = [
     "claviron-php-embed?/metrics",
     "claviron-tasks?/metrics",
 ]
-http01 = ["claviron-edge?/acme"]
 ffi = ["dep:claviron-ffi"]
 # ── Protocols ────────────────────────────────────────────────────────
 http3 = ["tls", "claviron-edge/quic", "dep:quinn", "dep:quinn-deferred-config"]

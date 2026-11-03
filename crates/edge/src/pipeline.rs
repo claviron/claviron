@@ -44,7 +44,9 @@ pub use layers::{
 };
 #[cfg(feature = "rate-limit")]
 pub use layers::{QuotaPolicy, QuotaState};
-pub use routable::{HostBindingProvider, Routable, RouteBinding};
+pub use routable::{
+    HostBindingProvider, Routable, RouteBinding, RouteProtocol,
+};
 #[cfg(feature = "webtransport")]
 pub use wt::{
     H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,
@@ -54,6 +56,3 @@ pub use wt::{
 
 #[cfg(feature = "http3")]
 pub use layers::EarlyDataLayer;
-
-#[cfg(feature = "acme")]
-pub use layers::Http01Layer;

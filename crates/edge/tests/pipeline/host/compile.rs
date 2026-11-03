@@ -68,7 +68,7 @@ async fn an_empty_child_scope_does_not_inherit_the_root_file_probe() {
     .unwrap();
     // AppState supplies only identity/context: no provider or engine boots.
     let state = AppState::standalone("native-scope", directory.path());
-    let owner = HostCompiler { state: &state, http: None }
+    let owner = HostCompiler { state: &state, http: None, protocol: None }
         .prepare(
             &"example.test".parse().unwrap(),
             Arc::new(config),
@@ -109,7 +109,7 @@ async fn try_files_precedes_a_declared_php_application_without_starting_php() {
     )).unwrap();
     let state = AppState::standalone("native-php-files", directory.path());
     // No PHP service is registered: a selected application answers 503.
-    let owner = HostCompiler { state: &state, http: None }
+    let owner = HostCompiler { state: &state, http: None, protocol: None }
         .prepare(
             &"example.test".parse().unwrap(),
             Arc::new(config),
@@ -192,7 +192,7 @@ async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
     contributions
         .applications
         .push(crate::pipeline::apps::axum::application(router));
-    let owner = HostCompiler { state: &state, http: None }
+    let owner = HostCompiler { state: &state, http: None, protocol: None }
         .prepare(
             &"example.test".parse().unwrap(),
             Arc::new(config),

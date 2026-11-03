@@ -10,6 +10,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::pipeline::host::{HostHandlerFuture, HostLayerBuilder, HostRequest};
 
+#[path = "apps/protocol.rs"]
+mod protocol;
+
 #[test]
 fn duplicate_snapshot_binding_keeps_the_original_execution() {
     use futures_util::FutureExt;
@@ -122,6 +125,7 @@ fn inactive_provider_layers_keep_the_direct_axum_call_boundary() {
         &crate::pipeline::host::compile::HostCompiler {
             state: &state,
             http: None,
+            protocol: None,
         },
         &"example.test".parse().unwrap(),
         Arc::new(HostConfig::new("public")),
@@ -130,6 +134,7 @@ fn inactive_provider_layers_keep_the_direct_axum_call_boundary() {
             layers: vec![Arc::new(Inactive)],
             ..Default::default()
         },
+        &HashMap::new(),
         #[cfg(feature = "rate-limit")]
         None,
     )
@@ -208,16 +213,18 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
         calls: calls.clone(),
     }));
     let prepared =
-        registry.routable_binding(&state, &host, config.clone()).unwrap();
+        registry.routable_binding(&state, &host, config.clone(), None).unwrap();
     let native = build_host(
         &crate::pipeline::host::compile::HostCompiler {
             state: &state,
             http: None,
+            protocol: None,
         },
         &host,
         config.clone(),
         None,
         prepared.clone(),
+        &HashMap::new(),
         #[cfg(feature = "rate-limit")]
         None,
     )
@@ -226,6 +233,7 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
         &crate::pipeline::host::compile::HostCompiler {
             state: &state,
             http: None,
+            protocol: None,
         },
         &host,
         config,
@@ -233,6 +241,7 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
             Router::new().fallback(|| async { StatusCode::NOT_FOUND }),
         )),
         prepared.clone(),
+        &HashMap::new(),
         #[cfg(feature = "rate-limit")]
         None,
     )
@@ -427,11 +436,13 @@ listeners:
         &crate::pipeline::host::compile::HostCompiler {
             state: &state,
             http: Some(&http),
+            protocol: None,
         },
         &host,
         config,
         Some(RustRouter::Other(OtherService::new(Echo))),
         HostContributions::default(),
+        &HashMap::new(),
         #[cfg(feature = "rate-limit")]
         None,
     )
