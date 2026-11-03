@@ -1,14 +1,26 @@
-# Claviron PHP packages
+# Claviron SAPI PHP package
 
-This directory contains the source for Claviron's Composer packages. Each
-package has its own manifest, dependencies and stable release tags.
+`claviron/sapi` provides the PHP-side companion to Claviron's embedded SAPI:
+native API declarations and fail-fast fallbacks, the `Claviron\` PHP types,
+and `Claviron\Monolog\ClavironHandler` for runtime log channels.
 
-| Package | Purpose |
-| --- | --- |
-| [claviron/sapi](sapi/README.md) | Native API declarations, fallbacks and runtime logging |
-| [claviron/symfony](symfony/README.md) | Persistent Symfony HttpKernel application adapter |
+```sh
+composer require claviron/sapi
+```
 
-`scripts/composer.sh` exports committed package sources to their individual
-distribution repositories. Package versions are independent of the Rust
-release. Runtime-internal scripts embedded in native binaries remain in their
-own Rust crates and are excluded from these Composer distributions.
+Composer installs PHP files only. It does not install or compile the native
+Claviron host. Native definitions win when the matching host is present;
+fallbacks do not emulate runtime services. Use `claviron_runtime_available()`
+for engine presence and `claviron_runtime_configured()` for prepared host
+bindings, not `function_exists()` after the fallbacks have been loaded.
+
+The framework-independent package does not depend on Laravel. Laravel drivers
+and the persistent application adapter are supplied by `claviron/laravel`.
+
+Source changes belong in the [Claviron repository](https://github.com/claviron/claviron/tree/main/php/sapi).
+The standalone Composer repository is a generated distribution, not a second
+development source. Packagist versions follow its release tags.
+
+## License
+
+MIT.

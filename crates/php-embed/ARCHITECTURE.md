@@ -1764,7 +1764,7 @@ Namespace separation is not authorization: a host must deliberately limit what
 it exports, especially secrets. The fallback declaration fails closed outside
 the native host. No additional feature, provider or watcher is introduced.
 
-`php/sapi/fallback/functions.php` at the repository root provides guarded PHP declarations for all built-in functions,
+`../../php/fallback` at the repository root provides guarded PHP declarations for all built-in functions,
 including optional cache functions and the opaque cache handle type. It is a
 fail-fast fallback, not an implementation: missing native functions throw
 `RuntimeException`. Existing native definitions are never replaced, including
