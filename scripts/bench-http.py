@@ -319,7 +319,7 @@ def main():
             group = record["benchmark"].rsplit("/", 1)[0]
             record["components_ns"] = {
                 case: read_estimates(directory / "criterion", f"{group}/{case}")
-                for case in ("native", "prepare")
+                for case in ("native", "bind")
             }
             for estimates in record["components_ns"].values():
                 estimate_mean(estimates)
@@ -335,9 +335,9 @@ def main():
     print(f"{run_id}: {mean:.3f} {metric}")
     if args.target in PLAIN_TARGETS:
         native = estimate_mean(record["components_ns"]["native"])
-        prepare = estimate_mean(record["components_ns"]["prepare"])
+        binding = estimate_mean(record["components_ns"]["bind"])
         print(f"Native owner: {native:.3f} ns/request")
-        print(f"Synchronous host preparation, without application execution: {prepare:.3f} ns/request")
+        print(f"Request binding, without host layer execution: {binding:.3f} ns/request")
         print(f"Host minus native: {mean - native:+.3f} ns/request")
         print("This delta includes response completion; it is not an exclusive pre-handler timer.")
     if baseline:

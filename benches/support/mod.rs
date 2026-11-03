@@ -4,8 +4,6 @@
 
 #[cfg(feature = "axum")]
 pub mod axum;
-#[cfg(feature = "tls")]
-pub mod certificate;
 pub mod decoded;
 pub mod edge;
 pub mod http1;

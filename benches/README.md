@@ -3,6 +3,8 @@
 Compare native Hyper/Axum with Claviron through decoded dispatch, serial HTTP/1
 round trips and concurrent HTTP/1 server CPU measurements.
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the file index and call paths.
+
 ## Layout
 
 | Directory | Measurement |
@@ -34,14 +36,14 @@ the fixture declares no optional policies or backend execution.
 Each produces three measurements:
 
 - `native`: direct application call through response consumption.
-- `prepare`: synchronous host admission and request-context preparation;
-  application execution and prepared-request destruction are outside timing.
+- `bind`: retain the request and connection facts without executing host layers;
+  prepared-request destruction is outside timing.
 - `host`: the registered application through host admission, execution and
   response consumption.
 
 Request construction is outside timing. `host - native` shows the extra full-call
-cost, including body adaptation and response completion. `prepare` isolates only
-the synchronous prefix; it does not include later async admission/dispatch work.
+cost, including body adaptation and response completion. `bind` isolates only
+request binding; it does not include admission or dispatch work.
 
 ## HTTP/1 after connection establishment
 

@@ -246,10 +246,6 @@ hyper-util = { workspace = true, features = ["service", "tokio"] }
 serde = { workspace = true, features = ["derive"] }
 clap = { workspace = true, features = ["derive"] }
 
-# ── TLS benchmark preparation ──────────────────────────────────────────
-rcgen = { workspace = true, features = ["pem"] }
-rustls = { workspace = true, features = ["aws_lc_rs", "logging", "std", "tls12"] }
-
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
 tempfile = "3"

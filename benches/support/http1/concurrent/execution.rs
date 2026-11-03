@@ -3,7 +3,8 @@
 use std::net::SocketAddr;
 
 use claviron::runtime::{
-    ExecutionDriver, RunContext, execution::CurrentThreadDriver,
+    ExecutionDriver, PreparedExecution, RunContext,
+    execution::CurrentThreadDriver,
 };
 use tokio::{runtime::Runtime, sync::oneshot, task::JoinHandle};
 
@@ -43,28 +44,10 @@ impl Running {
                     .for_listener(&listener),
             )
             .map_err(claviron::registry::Error::into_std)?;
-        let args = args.clone();
         let (ready, received) = oneshot::channel();
         let (release, released) = oneshot::channel();
-        let task = runtime.block_on(async {
-            let context = RunContext::new(Default::default());
-            tokio::spawn(prepared.execute(
-                Box::pin(async move {
-                    let server = server::start(&args)
-                        .await
-                        .map_err(claviron::registry::Error::Other)?;
-                    if let Err(server) = ready.send(server) {
-                        server.shutdown().await;
-                        return Err(claviron::registry::Error::msg(
-                            "benchmark readiness receiver closed",
-                        ));
-                    }
-                    let _ = released.await;
-                    Ok(())
-                }),
-                context,
-            )).await
-        });
+        let task =
+            spawn(&runtime, prepared.as_ref(), args.clone(), ready, released);
         let server = match runtime.block_on(received) {
             Ok(server) => server,
             Err(error) => {
@@ -104,4 +87,30 @@ impl Running {
             Ok(())
         })
     }
+}
+
+fn spawn(
+    runtime: &Runtime,
+    prepared: &dyn PreparedExecution,
+    args: Args,
+    ready: oneshot::Sender<Server>,
+    released: oneshot::Receiver<()>,
+) -> JoinHandle<claviron::registry::Result<()>> {
+    let context = RunContext::new(Default::default());
+    runtime.spawn(prepared.execute(
+        Box::pin(async move {
+            let server = server::start(&args)
+                .await
+                .map_err(claviron::registry::Error::Other)?;
+            if let Err(server) = ready.send(server) {
+                server.shutdown().await;
+                return Err(claviron::registry::Error::msg(
+                    "benchmark readiness receiver closed",
+                ));
+            }
+            let _ = released.await;
+            Ok(())
+        }),
+        context,
+    ))
 }
