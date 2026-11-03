@@ -58,6 +58,14 @@ only when preparation contributes no preceding action.
 The driver is a flat loop. There is no recursive `Next`, Tower wrapper chain,
 per-request registration, body decoding or implicit collection.
 
+## NonServingPipeline
+
+Each plain listener has one fixed `NonServingPipeline` for `non_ssl: redirect`
+(the default) and `reject`. The selected host is passed as input; no application
+pipeline is built. A single optional `InterceptsNonServing` binding receives the
+request and borrowed context before the policy. `Handled` replies; `Unhandled`
+continues to redirect/reject. This path does not query `Routable`.
+
 ## Binding and reload
 
 Host preparation completes before table publication. Failed candidates keep
