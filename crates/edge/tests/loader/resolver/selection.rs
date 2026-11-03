@@ -1,5 +1,5 @@
 use super::*;
-use crate::pipeline::other::{OtherHandler, OtherService};
+use crate::pipeline::apps::other::{OtherHandler, OtherService};
 use crate::pipeline::{
     HostAppSnapshot, HostExecution, HostPipelineBuilder, RustRouter,
 };

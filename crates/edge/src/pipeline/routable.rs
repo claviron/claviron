@@ -7,8 +7,8 @@ use claviron_runtime::registry::{AnyComponent, Result};
 use claviron_types::Host;
 
 #[cfg(feature = "axum")]
-use super::apps::AxumRouterFactory;
-use super::apps::OtherFactory;
+use super::apps::axum::Factory as AxumRouterFactory;
+use super::apps::other::Factory as OtherFactory;
 use super::host::HostHandler;
 use crate::config::HostConfig;
 
@@ -90,5 +90,7 @@ pub trait HostBindingProvider: AnyComponent<AppState> {
 pub enum RouteBinding {
     #[cfg(feature = "axum")]
     Axum(Arc<AxumRouterFactory>),
+    #[cfg(feature = "warp")]
+    Warp(Arc<super::apps::warp::Factory>),
     Other(Arc<OtherFactory>),
 }

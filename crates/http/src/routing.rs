@@ -47,22 +47,28 @@ impl RoutableRegistry {
             .push(routable);
     }
 
-    /// Build one router from the current registration snapshot.
+    /// Build the registered contributions, without a router when none contributes.
     pub fn build(
         &self,
         state: &AppState,
-    ) -> Result<Router<AppState>> {
+    ) -> Result<Option<Router<AppState>>> {
         let routables = self
             .routables
             .read()
             .expect("routable registry lock poisoned")
             .clone();
-        routables.into_iter().try_fold(Router::new(), |router, routable| {
-            Ok(match routable.routes(state)? {
-                Some(routes) => router.merge(routes),
-                None => router,
-            })
-        })
+        routables.into_iter().try_fold(
+            None::<Router<AppState>>,
+            |router, routable| {
+                Ok(match routable.routes(state)? {
+                    Some(routes) => Some(match router {
+                        Some(router) => router.merge(routes),
+                        None => routes,
+                    }),
+                    None => router,
+                })
+            },
+        )
     }
 }
 

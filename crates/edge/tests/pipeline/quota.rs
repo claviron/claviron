@@ -1,6 +1,7 @@
 //! Exercise the public Rust binding API without booting providers or an executor.
 
 use super::*;
+use claviron_http::OtherService;
 use claviron_http::ext::PathPrefix;
 use claviron_http::rate_limit::{IpKey, RateLimiter};
 use claviron_orbit::quota::{Quota, QuotaBacking, QuotaConfig, QuotaTable};
@@ -48,7 +49,7 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
     .unwrap();
     let state = AppState::standalone("quota-composition", ".");
     struct Reply;
-    impl crate::pipeline::other::OtherHandler for Reply {
+    impl crate::pipeline::apps::other::OtherHandler for Reply {
         fn call(
             &self,
             request: http::Request<claviron_http::RouteBody>,

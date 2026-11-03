@@ -149,6 +149,13 @@ HTTP boundary, while files + axum preserves the public router/mount adapters.
 `runner-cli` adds command-line parsing to an already-selected `runner` through
 weak forwarding. It does not select a serving composition by itself; a CLI-only
 consumer can use it without pulling in the runner shell.
+`rust` selects the shared runner and its native service preparation module.
+The HTTP crate owns the host-free `RustRouter` contract; Edge and runner adapt
+it after their own preparation. `axum` and `warp` select the typed frameworks.
+`src/runner.rs` re-exports that crate; `src/runner/rust.rs` supplies the optional
+`Runner` facade builder over `Server`. `with_router` accepts the shared router
+variants; `with_service` accepts a compatible Tower service. Both use the existing
+launch, configuration, ingress and lifecycle contracts without Edge.
 When an external crate needs DB-backed vhost import, TLS certificate
 management, runtime providers, HTTP route bodies, or hosting operations, add
 or reuse a `claviron` feature that enables and re-exports the required

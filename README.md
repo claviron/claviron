@@ -323,6 +323,9 @@ actually needs:
   and Orbit integration. It does not select HTTP listeners or worker supervision.
 - `runner` adds the single-application launch and ingress shell; the integration
   registers its engine and routing.
+- `rust` adds `runner::Runner` for a native Rust HTTP service. `with_router`
+  accepts the shared `RustRouter`: select `axum` or `warp` for a framework, or
+  provide an `OtherService`. `with_service` accepts a compatible Tower service.
 - `supervisor` adds managed worker processes to the server lifecycle.
 - `edge` composes the supervised HTTP edge with native host routing, static-file
   support, and native cleartext HTTP/1 and HTTP/2 ingress.

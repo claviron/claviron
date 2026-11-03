@@ -1,10 +1,8 @@
-#[cfg(feature = "axum")]
 use headers::{Header, HeaderName, HeaderValue};
 
 #[derive(Debug, Clone)]
 pub struct ClavironApplication(pub String);
 
-#[cfg(feature = "axum")]
 impl Header for ClavironApplication {
     fn name() -> &'static HeaderName {
         static NAME: HeaderName = HeaderName::from_static("claviron-app");

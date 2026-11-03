@@ -14,7 +14,9 @@ use super::backend::BackendPlan;
 use super::{HostExecution, HostHandler, HostPipelineBuilder};
 use crate::HostConfig;
 use crate::pipeline::RustRouter;
-use crate::pipeline::apps::{HostAppRegistry, HostContributions, ResolvedRouteExtensions};
+use crate::pipeline::apps::{
+    HostAppRegistry, HostContributions, ResolvedRouteExtensions,
+};
 use crate::pipeline::extension::{RouteContext, RouteLayer};
 use crate::pipeline::layers::{RouteSelectionLayer, scope_steps};
 

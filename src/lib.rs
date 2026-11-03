@@ -53,7 +53,7 @@ pub use claviron_php_fcgi as fcgi;
 #[cfg(feature = "resolver")]
 pub use claviron_resolver as resolver;
 #[cfg(feature = "runner")]
-pub use claviron_runner as runner;
+pub mod runner;
 #[cfg(feature = "runtime")]
 pub use claviron_runtime as runtime;
 #[cfg(feature = "metrics")]
@@ -74,6 +74,8 @@ pub use claviron_types::ssl;
 pub use claviron_upstream as upstream;
 pub use error::{Error, Result};
 pub use orbitive;
+#[cfg(feature = "warp")]
+pub use warp;
 #[cfg(feature = "clients")]
 pub mod clients;
 #[cfg(feature = "server")]

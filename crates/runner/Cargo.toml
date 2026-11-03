@@ -15,8 +15,10 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 
 [features]
 default = []
+rust = []
 # `register_router`: the application's axum router, the owner as its fallback.
 axum = ["dep:axum", "claviron-http/routing"]
+warp = ["dep:warp", "claviron-http/warp"]
 # HTTPS on the runner's TCP listener, optionally requiring a client certificate.
 tls = ["dep:claviron-tls", "dep:rustls", "dep:thiserror", "dep:tokio-rustls"]
 # Explicit static mounts in front of the owner, from Claviron's file service.
@@ -71,6 +73,7 @@ hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
 
 # ── Web framework (axum + tower) ────────────────────────────────────────
 axum = { workspace = true, optional = true }
+warp = { workspace = true, optional = true }
 tower = { workspace = true, features = ["util"] }
 
 # ── TLS / certificates ──────────────────────────────────────────────────

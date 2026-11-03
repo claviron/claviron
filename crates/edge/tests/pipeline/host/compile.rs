@@ -163,7 +163,9 @@ async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
         }),
     );
     let mut contributions = HostContributions::default();
-    contributions.applications.push(crate::pipeline::app::application(router));
+    contributions
+        .applications
+        .push(crate::pipeline::apps::axum::application(router));
     let owner = prepare(
         &state,
         &"example.test".parse().unwrap(),

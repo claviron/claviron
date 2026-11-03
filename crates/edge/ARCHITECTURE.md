@@ -21,7 +21,7 @@ flowchart TD
     Transport --> Select[Host selection and native body adaptation]
     Select --> Plan[HostExecution]
     Plan --> Actions[Prepared HostPipeline actions]
-    Actions --> Rust[RustRouter: Axum or Other]
+    Actions --> Rust[RustRouter: Axum, Warp or Other]
     Plan --> Scope[Configured route selection]
 ```
 
@@ -132,7 +132,9 @@ owns native framing and buffered/streamed body bounds during this transition.
 - [`routable.rs`](src/pipeline/routable.rs) — Provider-owned contributions, native layers and exclusive host bindings.
 - [`extension.rs`](src/pipeline/extension.rs) — Typed directives and boot-time RouteContext; borrow inherited settings and prepare effective policy.
 - [`routing.rs`](src/pipeline/routing.rs) — Shared prefix dispatch and route-extension re-exports.
-- [`app.rs`](src/pipeline/app.rs) — Optional Axum ApplicationHandler/HostHandler adapter and HostConfigExt extractor.
+- [`apps/axum.rs`](src/pipeline/apps/axum.rs) — Axum host registration, ApplicationHandler/HostHandler adaptation and HostConfigExt extractor.
+- [`apps/warp.rs`](src/pipeline/apps/warp.rs) — Warp host registration and native handler adaptation.
+- [`apps/other.rs`](src/pipeline/apps/other.rs) — Other host registration and re-exports of the shared HTTP handler contract.
 - [`connect.rs`](src/pipeline/connect.rs) — H2 CONNECT registry, explicit binding execution, authentication payload and session context.
 - [`wt.rs`](src/pipeline/wt.rs) — Native WebTransport handler/session API and exact/fallback registry.
 - [`upstream.rs`](src/pipeline/upstream.rs) — Configured upstream selection after local file steps.
@@ -200,10 +202,6 @@ Disabled file steps allocate no prepared file owner.
 - [`body.rs`](src/pipeline/link/body.rs) — Upload task ownership transfers from head wait to response body.
 - [`websocket.rs`](src/pipeline/link/websocket.rs) — H1/H2 wire acceptance and bounded Link message relay.
 - [`webtransport.rs`](src/pipeline/link/webtransport.rs) — Route-selected H3 sessions and independently owned bidi Link exchanges.
-
-### `pipeline/other/`
-
-- [`other.rs`](src/pipeline/other.rs) — Shared ownership of application-supplied Rust handlers/routers without Axum; no pipeline or built-in backend variants.
 
 ### `tcp/`
 
@@ -276,7 +274,7 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`broadcast.rs`](tests/pipeline/broadcast.rs) — Selected broadcast route ownership.
 - [`broadcast/rest.rs`](tests/pipeline/broadcast/rest.rs) — REST endpoint claims and terminal responses.
 - [`host.rs`](tests/pipeline/host.rs) — Layer preparation, response scope, body ownership, wakeup and cancellation.
-- [`other.rs`](tests/pipeline/other.rs) — Future erasure, head-timing ownership and Noop reply.
+- [`apps/warp.rs`](tests/pipeline/apps/warp.rs) — Warp rejection remains a terminal handled response.
 - [`quota.rs`](tests/pipeline/quota.rs) — Public quota registration shared by canonical names and aliases.
 - [`wt.rs`](tests/pipeline/wt.rs) — Exact native bindings precede Link fallback.
 - [`link.rs`](tests/pipeline/link.rs) — Link route misses, handshake construction, message forwarding and cancellation.

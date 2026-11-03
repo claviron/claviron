@@ -11,6 +11,7 @@
 //! Every ingress calls the one [`Application`] this composes, so an
 //! application never learns which door a request came through.
 
+use std::any::Any;
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
@@ -21,7 +22,7 @@ use bytes::Bytes;
 use claviron_http::body::{GuardedBody, declared_length_within, guard_reply};
 use claviron_http::deadline::head_within;
 use claviron_http::policy::HttpPolicy;
-use claviron_http::{RouteBody, RouteBodyError, empty_body};
+use claviron_http::{RouteBody, RouteBodyError, RouteFuture, empty_body};
 use claviron_runtime::{AppState, registry};
 use http::{Method, Request, Response, StatusCode};
 use http_body_util::BodyExt;
@@ -52,6 +53,11 @@ impl RequestBody {
     /// A request with no body.
     pub fn empty() -> Self {
         Self::new(http_body_util::Empty::<Bytes>::new())
+    }
+
+    /// Recover the existing body without buffering or another erasure wrapper.
+    pub fn into_inner(self) -> RouteBody {
+        self.0
     }
 }
 
@@ -87,7 +93,18 @@ where
     B: http_body::Body<Data = Bytes> + Send + 'static,
     B::Error: Into<RouteBodyError>,
 {
-    body.map_err(Into::into).boxed_unsync()
+    let mut body = Some(body);
+    if let Some(body) =
+        (&mut body as &mut dyn Any).downcast_mut::<Option<RouteBody>>()
+    {
+        return body.take().expect("body is present");
+    }
+    if let Some(body) =
+        (&mut body as &mut dyn Any).downcast_mut::<Option<RequestBody>>()
+    {
+        return body.take().expect("body is present").into_inner();
+    }
+    body.expect("body is present").map_err(Into::into).boxed_unsync()
 }
 
 /// The owner: the language's service — embedded PHP, the ASGI engine — as the
@@ -285,11 +302,15 @@ pub struct Application {
     service: Arc<dyn ErasedService>,
     #[cfg(feature = "broadcast")]
     broadcast: Option<Arc<crate::broadcast::Broadcast>>,
-    upgrades: Option<BoxCloneSyncService<AppRequest, AppResponse, Infallible>>,
+    upgrades: Option<Arc<dyn ErasedService>>,
+    sessions: Option<crate::orbit::OrbitSession>,
     policy: HttpPolicy,
 }
 
 impl Application {
+    pub(crate) fn orbit_session(&self) -> Option<crate::orbit::OrbitSession> {
+        self.sessions.clone()
+    }
     /// The broadcast service's place in front of the owner, when present.
     #[cfg(feature = "broadcast")]
     pub(crate) fn broadcast(&self) -> Option<&crate::broadcast::Broadcast> {
@@ -305,7 +326,7 @@ impl Application {
     pub fn call(
         &self,
         request: AppRequest,
-    ) -> BoxFuture<AppResponse> {
+    ) -> impl Future<Output = AppResponse> + Send + use<> {
         let exchange = claviron_runtime::activity::ACTIVITY.begin();
         let policy = self.policy;
         let service = Arc::clone(&self.service);
@@ -319,15 +340,16 @@ impl Application {
         #[cfg(not(feature = "broadcast"))]
         let broadcasting = false;
         let upgrades = self.upgrades.clone();
-        Box::pin(async move {
+        async move {
             let response = if broadcasting {
-                service.call_erased(request).await
+                let Ok(response) = service.call_erased(request).await;
+                response
             } else {
                 guarded(policy, service, upgrades, request).await
             };
             drop(exchange);
             response
-        })
+        }
     }
 }
 
@@ -336,7 +358,7 @@ impl Application {
 async fn guarded(
     policy: HttpPolicy,
     service: Arc<dyn ErasedService>,
-    upgrades: Option<BoxCloneSyncService<AppRequest, AppResponse, Infallible>>,
+    upgrades: Option<Arc<dyn ErasedService>>,
     mut request: AppRequest,
 ) -> AppResponse {
     // Framing two parsers could read differently, refused before anything
@@ -358,7 +380,7 @@ async fn guarded(
     if request.headers().contains_key(http::header::UPGRADE) {
         return match upgrades {
             Some(upgrades) => {
-                let Ok(response) = upgrades.oneshot(request).await;
+                let Ok(response) = upgrades.call_erased(request).await;
                 response
             }
             None => status(StatusCode::NOT_IMPLEMENTED),
@@ -370,26 +392,39 @@ async fn guarded(
         return status(StatusCode::PAYLOAD_TOO_LARGE);
     }
     request.extensions_mut().insert(policy);
-    let request = request.map(|body| {
-        RequestBody::new(GuardedBody::new(
-            body,
-            policy.requests.max_body_size,
-            policy.requests.body_read_timeout,
-        ))
-    });
+    let request = if policy.requests.max_body_size.is_some()
+        || policy.requests.body_read_timeout.is_some()
+    {
+        request.map(|body| {
+            RequestBody::new(GuardedBody::new(
+                body,
+                policy.requests.max_body_size,
+                policy.requests.body_read_timeout,
+            ))
+        })
+    } else {
+        request
+    };
     match head_within(
         policy.requests.head_timeout,
         service.call_erased(request),
     )
     .await
     {
-        Some(response) => response.map(|body| {
-            guard_reply(
-                body,
-                policy.responses.max_body_size,
-                policy.responses.body_idle_timeout,
-            )
+        Some(Ok(response)) => response.map(|body| {
+            if policy.responses.max_body_size.is_some()
+                || policy.responses.body_idle_timeout.is_some()
+            {
+                guard_reply(
+                    body,
+                    policy.responses.max_body_size,
+                    policy.responses.body_idle_timeout,
+                )
+            } else {
+                body
+            }
         }),
+        Some(Err(never)) => match never {},
         None => status(StatusCode::GATEWAY_TIMEOUT),
     }
 }
@@ -404,7 +439,7 @@ trait ErasedService: Send + Sync + 'static {
     fn call_erased(
         &self,
         request: AppRequest,
-    ) -> BoxFuture<AppResponse>;
+    ) -> RouteFuture;
 }
 
 struct Erased<S>(S);
@@ -423,11 +458,11 @@ where
     fn call_erased(
         &self,
         request: AppRequest,
-    ) -> BoxFuture<AppResponse> {
+    ) -> RouteFuture {
         let service = self.0.clone();
         Box::pin(async move {
             let Ok(response) = service.oneshot(request).await;
-            response.map(route_body)
+            Ok(response.map(route_body))
         })
     }
 }
@@ -448,13 +483,51 @@ where
     B: http_body::Body<Data = Bytes> + Send + 'static,
     B::Error: Into<RouteBodyError>,
 {
+    compose_with(state, service, false, None)
+}
+
+fn compose_with<S, B>(
+    state: &AppState,
+    service: S,
+    rust: bool,
+    sessions: Option<crate::orbit::OrbitSession>,
+) -> registry::Result<()>
+where
+    S: Service<AppRequest, Response = Response<B>, Error = Infallible>
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    S::Future: Send + 'static,
+    B: http_body::Body<Data = Bytes> + Send + 'static,
+    B::Error: Into<RouteBodyError>,
+{
+    compose_service(state, Arc::new(Erased(service)), rust, sessions)
+}
+
+fn compose_service(
+    state: &AppState,
+    service: Arc<dyn ErasedService>,
+    rust: bool,
+    sessions: Option<crate::orbit::OrbitSession>,
+) -> registry::Result<()> {
     let routing =
         state.registry_ref().resolve::<Routing>().ok_or_else(|| {
             registry::Error::msg(
                 "the runner registers Routing before configure",
             )
         })?;
-    let service: Arc<dyn ErasedService> = Arc::new(Erased(service));
+    let owner = state.registry_ref().resolve::<Owner>();
+    let upgrades = if rust && cfg!(feature = "websocket") {
+        Some(Arc::clone(&service))
+    } else {
+        owner
+            .as_ref()
+            .and_then(|owner| owner.upgrades.clone())
+            .map(|service| Arc::new(Erased(service)) as Arc<dyn ErasedService>)
+    };
+    let sessions = sessions
+        .or_else(|| owner.as_ref().and_then(|owner| owner.orbit_session()));
     #[cfg(feature = "files")]
     let service = match routing.files.clone() {
         Some(files) => {
@@ -496,18 +569,50 @@ where
             (None, _) => (None, service),
         }
     };
-    let upgrades = state
-        .registry_ref()
-        .resolve::<Owner>()
-        .and_then(|owner| owner.upgrades.clone());
     state.registry_ref().insert(Arc::new(Application {
         service,
         #[cfg(feature = "broadcast")]
         broadcast,
         upgrades,
+        sessions,
         policy: routing.policy,
     }))?;
     Ok(())
+}
+
+#[cfg(feature = "rust")]
+struct PreparedRouter(claviron_http::RustRouter);
+
+#[cfg(feature = "rust")]
+impl ErasedService for PreparedRouter {
+    fn call_erased(
+        &self,
+        request: AppRequest,
+    ) -> RouteFuture {
+        self.0.handle(request.map(RequestBody::into_inner))
+    }
+}
+
+#[cfg(feature = "rust")]
+pub(crate) fn register_prepared_router(
+    state: &AppState,
+    router: claviron_http::RustRouter,
+    sessions: Option<crate::orbit::OrbitSession>,
+) -> registry::Result<()> {
+    let service: Arc<dyn ErasedService> = Arc::new(PreparedRouter(router));
+    #[cfg(feature = "axum")]
+    if let Some(router) = contributed_routes(state)? {
+        let router = router.fallback(move |request: axum::extract::Request| {
+            let service = Arc::clone(&service);
+            async move {
+                let Ok(response) =
+                    service.call_erased(request.map(RequestBody::new)).await;
+                response
+            }
+        });
+        return compose_with(state, router, true, sessions);
+    }
+    compose_service(state, service, true, sessions)
 }
 
 /// The routables registered through `claviron::http::routing`, in front of the
@@ -528,9 +633,11 @@ fn routables_over(
                 "the runner registers RoutableRegistry before configure",
             )
         })?;
+    let Some(router) = routables.build(state)? else {
+        return Ok(owner);
+    };
     let unmatched = owner.clone();
-    let router = routables
-        .build(state)?
+    let router = router
         .with_state(state.clone())
         .fallback_service(owner.clone())
         .method_not_allowed_fallback(move |request: axum::extract::Request| {
@@ -553,9 +660,54 @@ pub fn ensure_application(state: &AppState) -> registry::Result<()> {
         return Ok(());
     }
     #[cfg(feature = "axum")]
-    return register_router(state, |_| axum::Router::new());
+    return compose(state, routables_over(state, owner(state)?)?);
     #[cfg(not(feature = "axum"))]
     compose(state, owner(state)?)
+}
+
+#[cfg(all(feature = "rust", feature = "axum"))]
+fn contributed_routes(
+    state: &AppState
+) -> registry::Result<Option<axum::Router>> {
+    let registry = state
+        .registry_ref()
+        .resolve::<claviron_http::routing::RoutableRegistry>()
+        .ok_or_else(|| {
+            registry::Error::msg("RoutableRegistry is not registered")
+        })?;
+    Ok(registry.build(state)?.map(|router| router.with_state(state.clone())))
+}
+
+/// Register a terminal service without first erasing it as a language owner.
+#[cfg(feature = "rust")]
+pub(crate) fn register_other<S, B>(
+    state: &AppState,
+    service: S,
+    sessions: Option<crate::orbit::OrbitSession>,
+) -> registry::Result<()>
+where
+    S: Service<AppRequest, Response = Response<B>, Error = Infallible>
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    S::Future: Send + 'static,
+    B: http_body::Body<Data = Bytes> + Send + 'static,
+    B::Error: Into<RouteBodyError>,
+{
+    #[cfg(feature = "axum")]
+    if let Some(router) = contributed_routes(state)? {
+        let router = router.fallback(move |request: axum::extract::Request| {
+            let service = service.clone();
+            async move {
+                let Ok(response) =
+                    service.oneshot(request.map(RequestBody::new)).await;
+                response
+            }
+        });
+        return compose_with(state, router, true, sessions);
+    }
+    compose_with(state, service, true, sessions)
 }
 
 /// This application's Rust routes, in front of its owner.
@@ -622,6 +774,59 @@ where
     let owner = owner(state)?;
     let service = build(owner);
     compose(state, service)
+}
+
+/// Place selected Rust paths before an existing application owner.
+///
+/// Select by the original path before transferring or polling the body. A
+/// selected router's response is terminal, including 404/405. Paths outside
+/// the table reach the owner's normal service unchanged. Register one complete
+/// table during the application's configuration callback.
+pub fn register_routes(
+    state: &AppState,
+    routes: impl IntoIterator<
+        Item = (claviron_http::ext::PathPrefix, claviron_http::RustRouter),
+    >,
+) -> registry::Result<()> {
+    let routes = claviron_http::config::routes::RouteTable::new(routes);
+    if routes.is_empty() {
+        return Ok(());
+    }
+    for (index, (prefix, _)) in routes.iter().enumerate() {
+        if routes.iter().take(index).any(|(other, _)| other == prefix) {
+            return Err(registry::Error::msg(format!(
+                "duplicate Rust route prefix '{prefix}'"
+            )));
+        }
+    }
+    #[cfg(feature = "axum")]
+    let owner = routables_over(state, owner(state)?)?;
+    #[cfg(not(feature = "axum"))]
+    let owner = owner(state)?;
+    compose_service(
+        state,
+        Arc::new(SelectedRoutes { routes, owner }),
+        false,
+        None,
+    )
+}
+
+struct SelectedRoutes {
+    routes:
+        claviron_http::config::routes::RouteTable<claviron_http::RustRouter>,
+    owner: Owner,
+}
+
+impl ErasedService for SelectedRoutes {
+    fn call_erased(
+        &self,
+        request: AppRequest,
+    ) -> RouteFuture {
+        match self.routes.find(request.uri().path()) {
+            Some(router) => router.handle(request.map(RequestBody::into_inner)),
+            None => Box::pin(self.owner.service.clone().oneshot(request)),
+        }
+    }
 }
 
 #[cfg(test)]

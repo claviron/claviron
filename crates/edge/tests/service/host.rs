@@ -1,5 +1,5 @@
 use super::*;
-use crate::pipeline::other::{OtherHandler, OtherService};
+use crate::pipeline::apps::other::{OtherHandler, OtherService};
 use crate::service::resolve_sni_from_table;
 use bytes::Bytes;
 use claviron_http::{RouteFuture, empty_body};

@@ -1,11 +1,15 @@
+#[cfg(feature = "axum")]
+pub mod axum;
+pub mod other;
+#[cfg(feature = "warp")]
+pub mod warp;
+
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "broadcast")]
 pub(crate) mod broadcast;
 
-#[cfg(feature = "axum")]
-use axum::Router;
 use claviron_http::ext::HostKey;
 #[cfg(feature = "websocket")]
 use claviron_http::upgrade::{H1UpgradeRegistry, H1UpgradeRoute};
@@ -19,30 +23,10 @@ use tracing::error;
 use crate::VhostResolver;
 use crate::config::HostConfig;
 use crate::pipeline::host::{HostExecution, HostHandler};
-use crate::pipeline::other::OtherService;
 use crate::pipeline::routable::Routable;
 use crate::pipeline::routable::{HostBindingProvider, RouteBinding};
 
-/// An application-owned Rust router selected inside a host pipeline.
-/// Neither choice owns or bypasses the surrounding host layers.
-#[derive(Clone)]
-pub enum RustRouter {
-    #[cfg(feature = "axum")]
-    /// An application-owned Axum router.
-    Axum(Router),
-    /// An application-owned Rust handler/router without Axum.
-    Other(OtherService),
-}
-
-impl RustRouter {
-    pub fn kind(&self) -> &'static str {
-        match self {
-            #[cfg(feature = "axum")]
-            Self::Axum(_) => "axum",
-            Self::Other(_) => "other",
-        }
-    }
-}
+pub use claviron_http::RustRouter;
 
 use crate::pipeline::extension::{
     RouteContext, RouteEffect, RouteExtension, RouteLayer,
@@ -241,30 +225,14 @@ impl Reloadable<AppState> for HostAppResolver {
     }
 }
 
-/// Cold factory for an application-owned Axum router.
-/// The caller owns its application layers; shared host policy still applies.
-///
-/// [`register_router`]: HostAppRegistry::register_router
-#[cfg(feature = "axum")]
-pub type AxumRouterFactory =
-    dyn Fn(AppState) -> Router<()> + Send + Sync + 'static;
-
-/// Cold factory for another Rust request owner.
-/// It receives the canonical host and effective config. Factory errors prevent
-/// publication instead of waiting for the first request.
-///
-/// [`register_other`]: HostAppRegistry::register_other
-pub type OtherFactory = dyn Fn(AppState, Host, Arc<HostConfig>) -> Result<OtherService>
-    + Send
-    + Sync
-    + 'static;
-
 /// Explicit whole-host Rust router factories, prepared at boot/reload.
 #[derive(Clone)]
 enum Binding {
     #[cfg(feature = "axum")]
-    Axum(Arc<AxumRouterFactory>),
-    Other(Arc<OtherFactory>),
+    Axum(Arc<axum::Factory>),
+    #[cfg(feature = "warp")]
+    Warp(Arc<warp::Factory>),
+    Other(Arc<other::Factory>),
 }
 
 impl Binding {
@@ -272,6 +240,8 @@ impl Binding {
         match binding {
             #[cfg(feature = "axum")]
             RouteBinding::Axum(factory) => Self::Axum(factory),
+            #[cfg(feature = "warp")]
+            RouteBinding::Warp(factory) => Self::Warp(factory),
             RouteBinding::Other(factory) => Self::Other(factory),
         }
     }
@@ -290,6 +260,8 @@ impl Binding {
             )?)),
             #[cfg(feature = "axum")]
             Self::Axum(factory) => Ok(RustRouter::Axum(factory(state.clone()))),
+            #[cfg(feature = "warp")]
+            Self::Warp(factory) => Ok(RustRouter::Warp(factory(state.clone()))),
         }
     }
 }
@@ -344,10 +316,10 @@ pub(crate) struct HostContributions {
 /// # Example
 ///
 /// ```
-/// use claviron_edge::pipeline::{HostAppRegistry, other::OtherService};
+/// use claviron_edge::pipeline::{HostAppRegistry, apps::other::OtherService};
 ///
 /// struct Handler;
-/// impl claviron_edge::pipeline::other::OtherHandler for Handler {
+/// impl claviron_edge::pipeline::apps::other::OtherHandler for Handler {
 ///     fn call(&self, request: http::Request<claviron_http::RouteBody>) -> claviron_http::RouteFuture {
 ///         Box::pin(async move {
 ///             drop(request);
@@ -408,56 +380,6 @@ impl HostAppRegistry {
         }
         extensions.push(extension);
         Ok(())
-    }
-
-    /// Register a complete Axum router for this host.
-    ///
-    /// The factory runs at boot/reload. The router enters the same host scope
-    /// compiler as configured backends, after the scope's active policy layers.
-    /// Its response, including a 404, ends request dispatch.
-    #[cfg(feature = "axum")]
-    pub fn register_router<F>(
-        &self,
-        vhost_key: &'static str,
-        factory: F,
-    ) where
-        F: Fn(AppState) -> Router + Send + Sync + 'static,
-    {
-        let router: Arc<AxumRouterFactory> =
-            Arc::new(move |state: AppState| factory(state));
-
-        self.inner
-            .write()
-            .expect("host app registry lock poisoned")
-            .insert(vhost_key.to_string(), Binding::Axum(router));
-    }
-
-    /// Register another Rust request owner for this host.
-    ///
-    /// The factory receives the canonical host and config at boot/reload.
-    /// The Rust handler/router enters the same host scope compiler as Axum.
-    /// Its response ends dispatch; router selection does not skip host layers.
-    /// Factory errors prevent host publication.
-    pub fn register_other<F>(
-        &self,
-        vhost_key: &'static str,
-        factory: F,
-    ) where
-        F: Fn(AppState, Host, Arc<HostConfig>) -> Result<OtherService>
-            + Send
-            + Sync
-            + 'static,
-    {
-        let f: Arc<OtherFactory> = Arc::new(
-            move |state: AppState, canonical: Host, cfg: Arc<HostConfig>| {
-                factory(state, canonical, cfg)
-            },
-        );
-
-        self.inner
-            .write()
-            .expect("host app registry lock poisoned")
-            .insert(vhost_key.to_string(), Binding::Other(f));
     }
 
     /// Register a provider-shaped route contributor.
@@ -875,7 +797,10 @@ fn build_host(
     #[cfg(feature = "websocket")]
     let mut contributions = contributions;
     #[cfg(feature = "websocket")]
-    let websocket = build_h1_upgrade_registry(canonical, std::mem::take(&mut contributions.h1_upgrades))?;
+    let websocket = build_h1_upgrade_registry(
+        canonical,
+        std::mem::take(&mut contributions.h1_upgrades),
+    )?;
     super::host::compile::prepare(
         state,
         canonical,

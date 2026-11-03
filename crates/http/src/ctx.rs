@@ -170,15 +170,20 @@ pub struct RequestContext<'a> {
 /// `Service<Request<Incoming>>` impl, h3 dispatch `serve_h3_upstream`,
 /// any place that constructs a `RouteBody` from a transport-native body.
 ///
-/// **Don't use when:** the body is already `RouteBody`. Re-boxing is
-/// wasted work (extra Box allocation + indirection).
+/// An existing `RouteBody` is returned unchanged.
 #[inline]
 pub fn boxed_body<B>(body: B) -> RouteBody
 where
     B: Body<Data = Bytes> + Send + 'static,
-    B::Error: StdError + Send + Sync + 'static,
+    B::Error: Into<RouteBodyError>,
 {
-    body.map_err(|err| -> RouteBodyError { Box::new(err) }).boxed_unsync()
+    let mut body = Some(body);
+    if let Some(body) = (&mut body as &mut dyn std::any::Any)
+        .downcast_mut::<Option<RouteBody>>()
+    {
+        return body.take().expect("body is present");
+    }
+    body.expect("body is present").map_err(Into::into).boxed_unsync()
 }
 
 /// Zero-byte [`RouteBody`].

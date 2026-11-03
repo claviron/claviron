@@ -1,5 +1,6 @@
 //! Optional Axum adaptation for explicitly supplied Rust applications.
 
+use claviron_runtime::AppState;
 use std::sync::Arc;
 
 use axum::Router;
@@ -11,10 +12,10 @@ use http::{Request, StatusCode, request::Parts};
 use std::future::Future;
 use tower::ServiceExt;
 
-use super::host::{
+use crate::config::{HostConfig, HostConfigExt};
+use crate::pipeline::host::{
     ApplicationHandler, HostHandler, HostHandlerFuture, HostRequest,
 };
-use crate::config::{HostConfig, HostConfigExt};
 
 /// Rejection for the [`HostConfigExt`] extractor.
 pub struct HostRejection(StatusCode, &'static str);
@@ -70,5 +71,30 @@ impl HostHandler for AxumApplication {
             ApplicationHandler::call(self.0.clone(), request.into_request())
                 .map(ServiceResult::Handled),
         )
+    }
+}
+
+/// Cold Axum router factory for a selected host.
+pub type Factory = dyn Fn(AppState) -> Router + Send + Sync + 'static;
+
+impl super::HostAppRegistry {
+    /// Register a complete Axum router for this host.
+    ///
+    /// The factory runs at boot/reload. The router enters the same host scope
+    /// compiler as configured backends, after the scope's active policy layers.
+    /// Its response, including a 404, ends request dispatch.
+    pub fn register_router<F>(
+        &self,
+        vhost_key: &'static str,
+        factory: F,
+    ) where
+        F: Fn(AppState) -> Router + Send + Sync + 'static,
+    {
+        let router: Arc<Factory> = Arc::new(factory);
+
+        self.inner
+            .write()
+            .expect("host app registry lock poisoned")
+            .insert(vhost_key.to_string(), super::Binding::Axum(router));
     }
 }

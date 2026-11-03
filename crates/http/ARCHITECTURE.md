@@ -147,6 +147,21 @@ facade, so default-store calls use `cache.get(...)` / `cache.put(...)` and a
 named store uses `cache.store(name)?.get(...)`. `AppState` itself remains
 cache-agnostic; the dependency exists only at this Axum boundary.
 
+### Host-free Rust routers
+
+`router.rs` owns `RustRouter` and the `OtherHandler` / `OtherService` contract.
+They accept `Request<RouteBody>` and return `RouteFuture`; they carry no host
+selection, listener or pipeline state. Edge calls them after host resolution
+and active policy layers. Runner uses the same types for one application.
+Axum and Warp are explicit feature-gated variants; Other forwards the handler's
+existing future. `tests/router.rs` verifies future erasure and head-timing
+ownership.
+
+`warp.rs` prepares filters without Warp's server. Its body adapter preserves
+exclusive polling, frames and trailers while satisfying Warp's `Sync` bound;
+it adds no mutex or body buffer. Warp rejections are terminal HTTP responses.
+Path selection and fallback ownership belong to the composition that calls it.
+
 ### 1.3 Application route capabilities
 
 The opt-in `routing` feature enables Axum and exposes `routing::Routable`
@@ -200,6 +215,8 @@ HTTP does not supply an Axum dispatcher or downstream delegation handle.
 Host registration and engine preparation remain Edge-owned; concrete directives
 belong to consumers. The independent `routing` capability only composes
 application-owned Axum routes through `RoutableRegistry`.
+Its builder returns `None` when no provider contributes routes; consumers need
+not create an empty router or fallback service for an absent contribution.
 
 The application declarations under `config::routes` are gated by the HTTP
 crate's dependency-free `js`, `lua` and `orbit` features. The shared WebSocket
@@ -1231,7 +1248,8 @@ or native session ownership. Those arrive only through `server`.
 | `ext/conn.rs`            |  47 | `ConnCtx` — connection-level identity (peer + listener + real IP + country code). |
 | `ext/host.rs`            |  67 | `HostName`, `HostKey` — server-side vhost identity. |
 | `ext/scheme.rs`          |     | Trusted typed request scheme; consults `ConnCtx` only with `server`. |
-| `ext/ip.rs`              |  46 | `RealIp`, `RealIpExt` — resolved real IP + axum extractor. |
+| `ext/real_ip.rs`         |     | Framework-independent `RealIpExt` client-address extension. |
+| `ext/ip.rs`              |     | Optional Axum `RealIp` extractor over the resolved address. |
 | `ext/prefix.rs`          | 100 | `PathPrefix` — invariant-checked, segment-safe path prefix with serde. |
 | `ext/env.rs`             |  48 | `Env` — axum extractor over the runtime `EnvSnapshot`. |
 | `ext/xapp.rs`            |  48 | `ClavironApplication` typed header. |

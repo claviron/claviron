@@ -6,7 +6,7 @@ use claviron_http::{RouteBody, RouteResponse};
 use futures_util::FutureExt;
 use http::Request;
 
-use crate::pipeline::other::OtherService;
+use crate::pipeline::apps::other::OtherService;
 
 /// One selected application's consuming request call.
 ///

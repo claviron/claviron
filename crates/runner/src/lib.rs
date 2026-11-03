@@ -14,6 +14,8 @@ pub mod management;
 pub mod options;
 pub mod orbit;
 pub mod routing;
+#[cfg(feature = "rust")]
+pub mod rust;
 pub mod socket;
 #[cfg(feature = "supervisor")]
 pub mod supervisor;
@@ -32,7 +34,7 @@ pub use orbit::{
 pub use routing::register_router;
 pub use routing::{
     AppRequest, AppResponse, Application, Owner, RequestBody, Routing,
-    ensure_application, register_owner, register_router_with,
+    ensure_application, register_owner, register_router_with, register_routes,
 };
 pub use socket::{Bind, Protocols, SocketIngress};
 #[cfg(feature = "tls")]

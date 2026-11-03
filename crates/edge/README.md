@@ -260,14 +260,16 @@ rather than perform their own file I/O.
 
 ## Application shapes
 
-`RustRouter` selects `Axum` or `Other`. `Axum` holds an application-owned Axum
-router; `Other` holds another Rust handler/router or the compiled host plan.
-Both retain host admission, response policy and request ownership.
+`RustRouter` is the shared host-free HTTP contract: `Axum`, `Warp`, or `Other`.
+Framework variants hold their prepared router; `Other` holds an application-owned
+`OtherHandler`. Edge resolves the host and runs its configured layers before the
+router is called. The compiled host plan is a separate `HostExecution`.
 
 `HostAppRegistry` supports distinct ownership arrangements:
 
 - `register_router` installs a complete Axum router whose application middleware
   is owned by the caller. Host admission still applies.
+- `register_warp` installs a prepared Warp router with the `warp` feature.
 - `register_other` installs a native handler without requiring an Axum router.
 
 Services can implement the host-aware `Routable` contract and register the same
@@ -281,7 +283,7 @@ the body remains private. Return `Unhandled` with that capability to continue;
 consume it with `into_request` when handling the body. A handled error response,
 including 404, does not fall through. Only registered contributions execute,
 in registration order, before the configured owner; absent contributions leave
-the direct owner unchanged. `pipeline::app::application(router)` adapts an Axum
+the direct owner unchanged. `pipeline::apps::axum::application(router)` adapts an Axum
 router as a contribution that owns its reply, including 404. Select its requests
 before invoking that adapter; unrelated requests can remain `Unhandled`.
 
@@ -391,7 +393,7 @@ path. `Handled` ends dispatch; `Unhandled` returns the same unread body to the
 configured files/backend chain. `RouteEffect::Layer` prepares native
 `HostPipeline` head and response actions at boot/reload. An inactive layer
 leaves no request-time wrapper. Axum routers can be supplied explicitly through
-`pipeline::app::application`; their responses, including 404, are handled.
+`pipeline::apps::axum::application`; their responses, including 404, are handled.
 
 ## Reload and connection lifetime
 

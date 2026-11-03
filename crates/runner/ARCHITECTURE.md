@@ -1,6 +1,6 @@
 # Runner architecture
 
-`claviron-runner` is the shell every language runner shares: one application,
+`claviron-runner` is the shell Rust and language runners share: one application,
 served by one process kind, with no virtual hosts. A runner — PHP/Laravel,
 Python/ASGI, and whatever comes next — consumes `claviron-runner` directly
 and supplies one thing of its own: the **owner**, the service that
@@ -79,7 +79,48 @@ a second architecture.
   the facade's certificate-provider bootstrap. DNS, hosting and upstream
   services are not part of this shell; an application composes them separately.
 
-## The owner
+## Rust applications
+
+The `rust` feature adds `rust.rs`: registration of a terminal Rust service and
+finite `ApplicationSetup` preparation. It owns no interpreter and no runnable.
+The facade's `runner::Runner` builder lives in `src/runner/rust.rs`, beside the
+existing `Server` entry point it composes. `with_router` accepts the shared
+HTTP `RustRouter` (`Axum`, `Warp`, or `Other`); framework variants require their
+own feature. `with_service` accepts another compatible Tower HTTP service.
+`rust/axum.rs` and `rust/warp.rs` prepare framework-specific registrations.
+No host resolution or Edge dependency enters this path.
+
+The builder reads `runner.yaml` with Congif, merges explicit options, prepares
+the existing `Launch` envelope and registers additional services. Its boot
+constructor builds the terminal service after configuration has been applied,
+then adds the shared socket/Orbit ingress and management bridge. Continuo owns
+the registered services' boot, execution and drain.
+
+Rust composition does not register a language `Owner`. Without contributed
+routes there is no intermediate Axum router. Registered host-free Routables
+stand before the terminal service; the terminal router retains its own fallback
+and method responses. Files and broadcast retain the shared composition order.
+Inactive request/reply body guards add no body wrapper, and existing canonical
+bodies are reused. The outer application future is concrete; terminal service
+erasure remains one request-future allocation.
+
+Orbit session handlers belong to the prepared `Application`, not its optional
+language owner. `with_orbit_sessions` uses the existing WebSocket and reliable
+WebTransport bidi message-session contract. Broadcast retains its existing
+automatic Orbit session admission when registered. No QUIC listener, datagram,
+uni-stream or server-initiated stream support is added to the runner.
+
+The management bridge still requires registered application controllers for
+start/stop/restart. A ready Rust router does not imply an engine lifecycle or a
+process-restart controller.
+
+`routing::register_routes` compiles selected path prefixes before a language
+owner, independently of the `rust` feature. Selection borrows the original URI
+before transferring the body. A miss preserves the request; a selected router's
+response is terminal. `RequestBody::into_inner` transfers canonical body ownership
+without buffering. Prepared routers return their existing erased future directly.
+
+## Language owners
 
 The owner is what the application *is*: Laravel, a Django project, an ASGI
 app. Everything else is an exception placed in front of it.
@@ -110,7 +151,7 @@ own copies:
 
 - **Registration** is a provider that builds a `Router<AppState>` and knows
   no host, listener or process shape — `claviron::http::routing::Routable`.
-  `register_router(state, build)` stays as the short form and registers one.
+`register_router(state, build)` composes an interceptor over a language owner.
   The edge's own `Routable` is the one in use today: host selection
   (`match_host`) and the same router (`routes`, whose host arguments its
   implementations do not read) in one trait. The two keep the same name in

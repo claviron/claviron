@@ -10,8 +10,6 @@ use http::Request;
 use http::Response;
 use std::ops::ControlFlow;
 
-#[cfg(feature = "access-log")]
-mod log;
 mod acl;
 mod app;
 mod call;
@@ -28,6 +26,8 @@ mod http01;
 mod identity;
 #[cfg(feature = "orbit")]
 mod link;
+#[cfg(feature = "access-log")]
+mod log;
 mod protocol;
 mod proxy;
 #[cfg(feature = "rate-limit")]
@@ -41,8 +41,6 @@ mod upstream;
 #[cfg(feature = "websocket")]
 mod websocket;
 
-#[cfg(feature = "access-log")]
-pub use log::{AccessLogLayer, AccessLogState};
 pub use acl::AclLayer;
 pub use cors::{CorsLayer, CorsState};
 pub use deny::DenyLayer;
@@ -53,6 +51,8 @@ pub use headers::{HeaderClearLayer, HeaderSetLayer, prepare_headers};
 #[cfg(feature = "acme")]
 pub use http01::Http01Layer;
 pub use identity::{IdentityPolicy, IdentityState};
+#[cfg(feature = "access-log")]
+pub use log::{AccessLogLayer, AccessLogState};
 #[cfg(feature = "http3")]
 pub use protocol::EarlyDataLayer;
 pub use protocol::{AuthorityLayer, RejectLayer, UpgradeLayer};

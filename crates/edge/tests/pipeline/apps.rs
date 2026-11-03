@@ -1,4 +1,7 @@
 use super::*;
+#[cfg(feature = "axum")]
+use ::axum::Router;
+use claviron_http::OtherService;
 
 use claviron_http::ServiceResult;
 use http::{Request, StatusCode};
@@ -11,7 +14,7 @@ use crate::pipeline::host::{HostHandlerFuture, HostLayerBuilder, HostRequest};
 fn duplicate_snapshot_binding_keeps_the_original_execution() {
     use futures_util::FutureExt;
     struct Reply(StatusCode);
-    impl crate::pipeline::other::OtherHandler for Reply {
+    impl crate::pipeline::apps::other::OtherHandler for Reply {
         fn call(
             &self,
             request: Request<claviron_http::RouteBody>,
@@ -80,7 +83,10 @@ fn inactive_provider_layers_keep_the_direct_axum_call_boundary() {
         &"example.test".parse().unwrap(),
         Arc::new(HostConfig::new("public")),
         Some(RustRouter::Axum(Router::new())),
-        HostContributions { layers: vec![Arc::new(Inactive)], ..Default::default() },
+        HostContributions {
+            layers: vec![Arc::new(Inactive)],
+            ..Default::default()
+        },
         #[cfg(feature = "rate-limit")]
         None,
     )
@@ -230,7 +236,7 @@ async fn explicit_rust_routers_observe_scoped_layers_and_unread_body_ownership()
         }
     }
     struct Reply(Arc<AtomicUsize>);
-    impl crate::pipeline::other::OtherHandler for Reply {
+    impl crate::pipeline::apps::other::OtherHandler for Reply {
         fn call(
             &self,
             request: Request<claviron_http::RouteBody>,

@@ -1,11 +1,10 @@
 use std::ops::Deref;
 use std::sync::Arc;
 
-#[cfg(feature = "axum")]
 use axum::extract::FromRequestParts;
-#[cfg(feature = "axum")]
+
 use claviron_runtime::AppState;
-#[cfg(feature = "axum")]
+
 use http::request::Parts;
 
 /// Axum extractor for dyn capabilities registered in the Claviron registry.
@@ -23,7 +22,6 @@ impl<T: ?Sized + Send + Sync + 'static> Deref for Inject<T> {
     }
 }
 
-#[cfg(feature = "axum")]
 impl<T> FromRequestParts<AppState> for Inject<T>
 where
     T: ?Sized + Send + Sync + 'static,
@@ -72,7 +70,6 @@ impl<T> Deref for Provide<T> {
     }
 }
 
-#[cfg(feature = "axum")]
 impl<T> FromRequestParts<AppState> for Provide<T>
 where
     T: Send + Sync + 'static,

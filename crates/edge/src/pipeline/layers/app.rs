@@ -4,8 +4,6 @@ use crate::pipeline::host::{
     ContextFuture, ContextHandler, HostContext, HostHandler, HostRequest,
 };
 use claviron_http::{RouteBody, RouteFuture};
-#[cfg(feature = "axum")]
-use futures_util::FutureExt;
 use http::Request;
 use std::sync::Arc;
 
@@ -16,22 +14,6 @@ impl<S> HostLayer<S> for RustRouter {
     ) -> crate::Result<()> {
         layer.request_context(self);
         Ok(())
-    }
-}
-
-impl RustRouter {
-    pub(crate) fn handle(
-        &self,
-        request: Request<RouteBody>,
-    ) -> RouteFuture {
-        match self {
-            Self::Other(owner) => owner.handle(request),
-            #[cfg(feature = "axum")]
-            Self::Axum(router) => {
-                use crate::pipeline::host::ApplicationHandler;
-                Box::pin(router.clone().call(request).map(Ok))
-            }
-        }
     }
 }
 

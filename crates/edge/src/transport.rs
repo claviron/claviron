@@ -36,7 +36,7 @@ pub use crate::loader::resolver::{HostBinding, VhostResolver};
 /// The set of hosts a listener serves, as SNI and authority resolution read it.
 pub use crate::loader::table::VhostTable;
 /// Application-owned Rust handler registration, without Axum.
-pub use crate::pipeline::other::{OtherHandler, OtherService};
+pub use crate::pipeline::apps::other::{OtherHandler, OtherService};
 /// Applications mounted on a host, and the connection-level handlers a
 /// transport dispatches to before routing: CONNECT and WebTransport.
 pub use crate::pipeline::{

@@ -155,7 +155,7 @@ impl Routable for BenchService {
         _host: Arc<HostConfig>,
     ) -> registry::Result<Option<Arc<dyn HostHandler>>> {
         Ok(Some(Arc::new(BenchRoutes {
-            handler: claviron_edge::pipeline::app::application(
+            handler: claviron_edge::pipeline::apps::axum::application(
                 crate::bench::routes(),
             ),
         })))

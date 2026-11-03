@@ -10,9 +10,9 @@
 // Match upstream's finite proof depth without boxing the request path.
 #![recursion_limit = "256"]
 
+pub mod config;
 #[cfg(feature = "access-log")]
 mod log;
-pub mod config;
 
 #[cfg(feature = "db")]
 mod listener;
@@ -205,7 +205,7 @@ where
 pub use claviron_types::Host;
 pub use config::HostConfig;
 pub use pipeline::Routable;
-pub use pipeline::other::{OtherHandler, OtherService};
+pub use pipeline::apps::other::{OtherHandler, OtherService};
 pub use pipeline::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,

@@ -9,12 +9,11 @@
 
 use std::ops::Deref;
 
-#[cfg(feature = "axum")]
 use axum::extract::FromRequestParts;
-#[cfg(feature = "axum")]
+
 use claviron_runtime::AppState;
 use claviron_runtime::env::EnvSnapshot;
-#[cfg(feature = "axum")]
+
 use http::request::Parts;
 
 /// Process env snapshot, captured at `State::initialize`. Pulled from
@@ -39,7 +38,6 @@ impl Deref for Env {
     }
 }
 
-#[cfg(feature = "axum")]
 impl FromRequestParts<AppState> for Env {
     type Rejection = std::convert::Infallible;
 

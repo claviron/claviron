@@ -9,6 +9,7 @@ mod ctx;
 pub mod deadline;
 pub mod dispatch;
 mod error;
+#[cfg(feature = "server")]
 pub mod ext;
 pub mod forwarding;
 #[cfg(feature = "server")]
@@ -19,11 +20,15 @@ pub mod policy;
 #[cfg(feature = "rate-limit")]
 pub mod rate_limit;
 pub mod resolvers;
+mod router;
+pub use router::{OtherHandler, OtherService, RustRouter};
 #[cfg(feature = "routing")]
 pub mod routing;
 #[cfg(feature = "server")]
 pub mod session;
 pub mod trust;
+#[cfg(feature = "warp")]
+pub mod warp;
 #[cfg(feature = "server")]
 pub mod watchdog;
 

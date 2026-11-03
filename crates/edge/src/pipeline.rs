@@ -1,6 +1,4 @@
-#[cfg(feature = "axum")]
-pub mod app;
-pub(crate) mod apps;
+pub mod apps;
 mod connect;
 pub mod embed;
 pub mod extension;
@@ -8,7 +6,6 @@ pub mod host;
 pub mod layers;
 #[cfg(feature = "orbit")]
 pub mod link;
-pub mod other;
 mod routable;
 pub mod routing;
 #[cfg(feature = "upstream")]

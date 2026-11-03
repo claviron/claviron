@@ -51,7 +51,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::routing::{AppRequest, Application, Owner, RequestBody};
+use crate::routing::{AppRequest, Application, RequestBody};
 
 /// A message session the edge carries for the owner: an H1/H2 WebSocket or
 /// one reliable WebTransport bidi stream. The original request, the message
@@ -240,8 +240,7 @@ impl OrbitIngress {
 }
 
 impl Component<AppState> for OrbitIngress {
-    type Deps =
-        (Arc<Application>, Option<Arc<Owner>>, Option<Arc<FleetIncarnation>>);
+    type Deps = (Arc<Application>, Option<Arc<FleetIncarnation>>);
 
     fn name(&self) -> &'static str {
         "OrbitIngress"
@@ -280,14 +279,14 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for OrbitIngress {
 
     async fn run(
         self: Arc<Self>,
-        (application, owner, incarnation): <Self as Component<AppState>>::Deps,
+        (application, incarnation): <Self as Component<AppState>>::Deps,
         state: AppState,
         context: RunContext,
     ) -> registry::Result<()> {
         if state.is_master() {
             return self.watch(&state, context).await;
         }
-        let sessions = owner.and_then(|owner| owner.orbit_session());
+        let sessions = application.orbit_session();
         // The master's count of this worker slot's lives. It stamps the lane
         // and the streams, so a death report that names the process before
         // this one cannot end this one's work.

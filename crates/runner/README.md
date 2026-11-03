@@ -23,7 +23,49 @@ combines multiple applications, script routes, native services, and other
 configured handlers directly on Claviron. A runner does not need to carry that
 virtual-host publication layer merely to execute one framework.
 
-## Request ownership
+## Native Rust applications
+
+Select the facade's `rust` feature for `runner::Runner`. `with_router` accepts
+the shared HTTP `RustRouter`; add `axum` or `warp` for a typed framework adapter.
+A native application needs no language owner:
+
+```rust,no_run
+use claviron::{AppState, axum::{Router, routing::get}, runner::Runner};
+
+fn router(_: AppState) -> Router {
+    Router::new().route("/", get(|| async { "hello" }))
+}
+
+#[tokio::main]
+async fn main() -> claviron::Result<()> {
+    Runner::new().with_router(router).run().await
+}
+```
+
+`runner.yaml` uses the shared options:
+
+```yaml
+name: example-app
+fleet_name: example
+orbit: true
+```
+
+`with_options` overrides file values; `with_config_path` selects another file.
+`with_services::<T>()` and `with_bootstrap` add normal registry participants
+before composition. Host-free HTTP Routables contribute routes before the
+terminal service. `with_service` accepts another compatible Rust HTTP service
+without requiring Axum.
+
+Files, broadcast and session support use the existing optional capabilities.
+`with_orbit_sessions` supplies the application's WebSocket/WebTransport message
+handler over Link; it does not infer a session handler from ordinary HTTP
+routes. Lifecycle management requires the application's registered controller.
+
+For Warp, select `rust` and `warp`, then use `with_warp(filter)` or return
+`claviron::http::warp::router(filter)` from `with_router`. The adapter runs the
+filter without Warp's listener. `OtherService` is the low-level handler choice.
+
+## Language owners
 
 The shared routing path runs admission guards first, then configured broadcast
 paths, explicit static mounts, Rust routes, and finally the application owner.
@@ -54,6 +96,22 @@ Select the root `runner` and `axum` features for this example. It is a
 composition callback, not a complete engine or executable. `register_router`
 also sends method-not-allowed fallbacks to the owner; `register_router_with`
 allows integrations to choose their own ownership arrangement.
+
+With `runner` and `warp`, a language runner can select Rust paths before its
+existing owner, without the native `rust` capability:
+
+```rust,no_run
+use claviron::{http::warp::router, runner, runtime::{AppState, registry}, warp::Filter};
+
+fn configure(state: &AppState, prefix: claviron::http::ext::PathPrefix) -> registry::Result<()> {
+    let filter = claviron::warp::path("health").map(|| "ok");
+    runner::register_routes(state, [(prefix, router(filter).into())])
+}
+```
+
+Selection uses segment prefixes before reading the body. Unmatched paths reach
+the language owner unchanged. A selected router's response, including 404 or
+405, ends dispatch; it cannot return a consumed body to another engine.
 
 Static files are explicit mounts. They must not accidentally expose executable
 application source. Enabling file support does not make every file in the
@@ -119,7 +177,7 @@ Independent masters must not assume they can allocate the same fleet lanes.
 
 ## Optional capabilities
 
-The implementation crate has no default features. Its capabilities are `axum`,
+The implementation crate has no default features. Its capabilities are `rust`, `axum`, `warp`,
 `tls`, `files`, `broadcast`, `cli`, `supervisor`, `websocket`, and `watch`.
 The root facade's `runner-cli` extends an already-selected `runner`; it does not
 enable the shell on its own. Select both for command-line launch options.
