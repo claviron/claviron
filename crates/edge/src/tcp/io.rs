@@ -9,10 +9,15 @@ use tokio::io::{AsyncRead, AsyncWrite, Interest, ReadBuf};
 use tokio::net::TcpStream;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
-/// The protocol owns reads/writes; an H1 connection owner may independently
-/// await socket errors while half-close keeps the protocol's read side idle.
+/// The protocol's side of an accepted socket: reads through Tokio's own read
+/// half, writes and write shutdown on the same socket.
 pub(crate) struct TcpIo(OwnedReadHalf);
 
+/// A second handle on the same socket for its owner to await socket errors.
+///
+/// Used only by an H1 connection with half-close on, where the protocol
+/// leaves its read side idle during a request and would not see one. Unused,
+/// it is dropped and the socket stays with the protocol.
 pub(crate) struct TcpErrors(Option<OwnedWriteHalf>);
 
 impl TcpIo {

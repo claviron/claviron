@@ -94,13 +94,20 @@ async fn serve(
             result = connection.as_mut() => Some(result)
         }
     };
-    let result = tokio::select! {
-        biased;
-        error = errors.failed() => {
-            debug!(listener = %snapshot.listener.id, %error, "H1 socket failed");
-            None
-        },
-        result = serving => result,
+    // Hyper reads the socket in the middle of a request unless half-close is
+    // on, and then sees an error itself. Only half-close needs the observer.
+    let result = if snapshot.h1.half_close {
+        tokio::select! {
+            biased;
+            error = errors.failed() => {
+                debug!(listener = %snapshot.listener.id, %error, "H1 socket failed");
+                None
+            },
+            result = serving => result,
+        }
+    } else {
+        drop(errors);
+        serving.await
     };
     if let Some(Err(error)) = result
         && !error.is_user()

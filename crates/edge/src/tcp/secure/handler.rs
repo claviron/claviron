@@ -178,7 +178,9 @@ impl HttpsListener {
                 }
             }
         };
-        if proto == H1 {
+        // Only an H1 connection with half-close leaves its read side idle
+        // during a request; every other case sees a socket error itself.
+        if proto == H1 && cfg.h1.half_close {
             tokio::select! {
                 biased;
                 error = errors.failed() => Err(ConnectionError::Socket(error)),

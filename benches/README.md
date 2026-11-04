@@ -62,10 +62,11 @@ Both enter the same compiled `HostExecution`. Routable contributes host layers
 and handlers; it is a registration path, not another router kind.
 
 All targets enable TCP_NODELAY and HTTP keep-alive, disable half-close and
-pipeline flush, and run without a header-read timer. The Edge fixture overrides
-Claviron's half-close default to match native `axum::serve`; production defaults
-are unchanged. Native controls retain Tokio's `TcpStream` IO, while Edge retains
-its production `TcpIo` adapter. The comparison includes that IO difference.
+pipeline flush, and run without a header-read timer. The Edge fixture states
+half-close off explicitly; that is also Claviron's default and what native
+`axum::serve` does. Native controls retain Tokio's `TcpStream` IO, while Edge
+retains its production `TcpIo` adapter. The comparison includes that IO
+difference.
 
 The Edge targets call `HttpServer::connection_handler`, the accepted-stream path
 also used by the native listener. Request timing includes protocol decoding,

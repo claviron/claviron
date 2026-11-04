@@ -130,7 +130,15 @@ pub struct H1Config {
     #[serde(default = "default_true")]
     pub keep_alive: bool,
 
-    #[serde(default = "default_true")]
+    /// Keep serving a request after the client closed its write side.
+    ///
+    /// Off, as in Hyper: an end of input in the middle of a request means the
+    /// client left, and the connection and its request end with it. On, such
+    /// a client is still answered, but a client that simply went away can no
+    /// longer be told apart from it until a write to it fails. The edge then
+    /// watches the socket for errors itself, which it otherwise leaves to
+    /// Hyper.
+    #[serde(default)]
     pub half_close: bool,
 
     #[serde(default)]
@@ -145,7 +153,7 @@ impl Default for H1Config {
             max_header_size: default_h1_max_header_size(),
             max_buf_size: None,
             keep_alive: default_true(),
-            half_close: default_true(),
+            half_close: false,
             pipeline_flush: false,
         }
     }

@@ -434,7 +434,7 @@ the earlier header-read phase. This is separate from indefinite graceful drain.
 | TCP accept retry initial / maximum | 50ms / 1s |
 | H1 header deadline / max headers | Driver default / 100 |
 | H1 max parser buffer (request head limit) | 16384 bytes |
-| H1 keep-alive / half-close / pipeline flush | true / true / false |
+| H1 keep-alive / half-close / pipeline flush | true / false / false |
 | H2 heartbeat interval / timeout | None / 20s |
 | H2 stream cap / send buffer | 200 / 409600 bytes |
 | H2 max header list | 16384 bytes |
