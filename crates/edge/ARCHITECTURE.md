@@ -238,6 +238,11 @@ source publication stages every listener's affected host view before committing
 any snapshot; there is no per-listener watcher task. Certificate rotation uses
 the existing live CertResolver. Host, alias, client-auth or listener ALPN changes
 prepare a new matching host/TLS view; accepted work retains its previous owner.
+Host `tls.client_auth.authority` uses the CertStore `local` or `cn` selector.
+Vhost boot and reload resolve the public CA once per selector before listener
+publication. TCP TLS and QUIC build their verifiers from that prepared view.
+`VhostResolver::serving_mtls_h2_port` reads the live TLS listener snapshots
+when a caller needs an address for an exact SNI and canonical host.
 
 A shared cold binding catalog prevents conflicts across cleartext, TLS and QUIC
 factories and retains retiring socket ownership through drain. Active bind/gate
@@ -302,6 +307,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 
 ### `loader/`
 
+- [`authority.rs`](src/loader/authority.rs) — Prepare shared public client-auth CA material for host publications.
 - [`loader.rs`](src/loader.rs) — Module boundary for declaration loading and host publication.
 - [`config.rs`](src/loader/config.rs) — VhostDocument, recursive includes, partial reads and unchanged declaration reuse.
 - [`error.rs`](src/loader/error.rs) — Declaration and load errors.

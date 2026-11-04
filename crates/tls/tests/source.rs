@@ -13,16 +13,24 @@ async fn source_reads_trust_and_identity_without_sni_or_default_certificate() {
         None,
     )
     .unwrap();
-    std::fs::write(directory.path().join("ca.pem"), &ca).unwrap();
     let files: CertStore = serde_yaml::from_str(&format!(
-        "dir: {}\nauthority: {{path: ca.pem}}",
+        "dir: {}\nauthority: {{local: fixture}}",
         directory.path().display()
     ))
     .unwrap();
+    std::fs::create_dir_all(files.ca_dir("fixture")).unwrap();
+    std::fs::write(files.ca_cert_path("fixture"), &ca).unwrap();
+    let key_path = files.ca_key_path("fixture");
     let source = CertificateStore::new(files);
     let trust = source.authority().await.unwrap().unwrap();
     assert_eq!(trust.roots().len(), 1);
-    // There is no CA key file, default identity, resolver, registry, or server.
+    let selected: CertificateSource =
+        serde_yaml::from_str("local: fixture").unwrap();
+    assert_eq!(source.trust(&selected).await.unwrap().roots(), trust.roots());
+    assert!(source.signer(&trust).await.is_err());
+    std::fs::write(key_path, ca_key.serialize_pem()).unwrap();
+    assert!(source.signer(&trust).await.is_ok());
+    std::fs::write(directory.path().join("ca.pem"), &ca).unwrap();
     let key = generators::generate_private_key().unwrap();
     let server = generators::generate_leaf_cert(
         CertificateKind::Server,
@@ -61,6 +69,69 @@ async fn source_reads_trust_and_identity_without_sni_or_default_certificate() {
     assert!(
         source.identity(&selection, CertificateKind::Server).await.is_err()
     );
+}
+
+#[tokio::test]
+async fn configured_file_authority_signs_with_its_intermediate_key() {
+    let directory = tempfile::tempdir().unwrap();
+    let root_key = generators::generate_ca_key().unwrap().serialize_pem();
+    let root = generators::generate_ca_cert(
+        "Root CA",
+        root_key.as_bytes(),
+        30,
+        None,
+        None,
+    )
+    .unwrap();
+    let key = generators::generate_ca_key().unwrap().serialize_pem();
+    let intermediate = generators::generate_intermediate_ca_cert(
+        key.as_bytes(),
+        &root,
+        root_key.as_bytes(),
+        "Intermediate CA",
+        7,
+        &Default::default(),
+        Some(0),
+    )
+    .unwrap();
+    let path = |name| directory.path().join(name);
+    std::fs::write(path("root.pem"), &root).unwrap();
+    std::fs::write(path("intermediate.pem"), &intermediate).unwrap();
+    std::fs::write(path("signer.key"), &key).unwrap();
+    let files: CertStore = serde_yaml::from_str(&format!(
+        "dir: {}\nauthority:\n  cert_path: {}\n  key_path: {}\n  ca_path: {}",
+        directory.path().display(),
+        path("intermediate.pem").display(),
+        path("signer.key").display(),
+        path("root.pem").display(),
+    ))
+    .unwrap();
+    let source = CertificateStore::new(files);
+    let authority = source.authority().await.unwrap().unwrap();
+    assert_eq!(authority.roots().len(), 2);
+    let signer = source.signer(&authority).await.unwrap();
+    assert_eq!(signer.issuer_id(), None);
+    let device = generators::generate_private_key().unwrap();
+    let csr = generators::generate_server_csr(
+        &device,
+        "device.test",
+        Vec::new(),
+        &Default::default(),
+    )
+    .unwrap();
+    let issued = signer
+        .issue_client_csr(csr.der().as_ref(), "device", None, None, 1)
+        .unwrap();
+    let leaf = parsers::take_first_cert_from_der(&issued).unwrap();
+    let issuer =
+        parsers::take_first_cert_from_der(&issued[leaf.as_ref().len()..])
+            .unwrap();
+    leaf.verify_signature(Some(issuer.public_key())).unwrap();
+    assert_eq!(issuer.as_ref(), authority.roots()[0].as_ref());
+    assert_eq!(issued.len(), leaf.as_ref().len() + issuer.as_ref().len());
+
+    std::fs::write(path("signer.key"), root_key).unwrap();
+    assert!(source.signer(&authority).await.is_err());
 }
 
 #[test]
@@ -113,9 +184,13 @@ async fn public_authority_never_queries_private_key_column() {
         .unwrap();
     authority.validate_issuer(&store).await.unwrap();
     assert_eq!(
-        store.public_certificate_by_cn("Fixture CA").await.unwrap().unwrap().id,
-        1
+        CertAuthority::from_cn(&store, "Fixture CA")
+            .await
+            .unwrap()
+            .issuer_name(),
+        Some("Renamed CA")
     );
+    assert!(CertAuthority::from_cn(&store, "Renamed CA").await.is_err());
     // The fixture deliberately has no private-key column. Public reads work,
     // while explicit signing cannot obtain material that was never provided.
     assert!(CertSigner::from_authority(&store, &authority).await.is_err());
@@ -146,5 +221,6 @@ async fn public_authority_never_queries_private_key_column() {
         .unwrap();
     assert!(authority.validate_issuer(&store).await.is_err());
     assert!(CertAuthority::from_issuer(&store, "Renamed CA").await.is_err());
+    assert!(CertAuthority::from_cn(&store, "Fixture CA").await.is_err());
     assert!(signer.validate_issuer(&store).await.is_err());
 }

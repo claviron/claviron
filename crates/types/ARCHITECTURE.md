@@ -345,6 +345,9 @@ The store layout is conventional:
 Client generation and import share `CLIENT_CERT_FILENAME` (`client.crt`) and
 `CLIENT_KEY_FILENAME` (`client.key`) under `CLIENT_CERTS_DIRNAME` (`clients`).
 
+`authority: {local: example}` selects a CA by its store basename.
+`authority: {cn: "Example CA"}` selects by certificate Common Name.
+
 `crl_path` optionally overrides the CRL file. `crl_path()` defaults to
 `dir/CRL_FILENAME` (`revocations.crl`); explicit relative paths are cwd-relative.
 This type performs no revocation I/O or admission checks. `RevocationId` owns

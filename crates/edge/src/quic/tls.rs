@@ -1,15 +1,14 @@
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 use crate::transport::VhostTable;
-use crate::transport::tls::TlsHost;
+use crate::transport::tls::{
+    TlsHost, client_authority, create_host_auth_config,
+};
 use claviron_http::ListenerId;
 use claviron_http::config::QuicConfig;
 use claviron_runtime::registry::{Error, Result};
 use claviron_tls::Proto::H3;
-use claviron_tls::auth::create_auth_config_with_revocations;
-use claviron_tls::auth::verifier::PolicyConfig;
 use claviron_tls::create_tls_config;
 use claviron_tls::orbit::{FleetServerSessions, SessionDomain};
 use claviron_tls::resolver::CertResolver;
@@ -146,28 +145,33 @@ impl H3TlsAccept {
         let mut by_host = HashMap::new();
         for (canonical, record) in table.listener_entries(listener) {
             let host = &record.config;
+            let authority = client_authority(table, canonical, host)?;
             let retained = previous
                 .and_then(|previous| previous.by_host.get(canonical))
-                .filter(|old| old.declaration.same_tls_policy(host));
+                .filter(|old| old.matches(host, authority));
             let auth = &host.tls.client_auth;
             let config = if let Some(old) = retained {
                 old.config.clone()
             } else if auth.is_required() {
-                build_auth_config_for_host(
-                    &canonical.to_string(),
-                    auth.ca_bundle.as_deref(),
-                    auth.organization.as_deref(),
-                    auth.unit.as_deref(),
+                let tls = create_host_auth_config(
+                    canonical,
+                    host,
+                    authority.map(Arc::as_ref),
                     certificates.clone(),
-                    &template.config,
+                    h3_alpns(),
                     template.revocations.clone(),
-                )?
+                )?;
+                prepare_rustls_server_config(tls, EarlyDataTransport::Disabled)
             } else {
                 template.base.clone()
             };
             by_host.insert(
                 canonical.clone(),
-                TlsHost { declaration: host.clone(), config },
+                TlsHost {
+                    declaration: host.clone(),
+                    config,
+                    authority: authority.cloned(),
+                },
             );
         }
         let by_host = Arc::new(by_host);
@@ -240,52 +244,6 @@ impl rustls::server::ResolvesServerCert for RejectCertificates {
         None
     }
 }
-fn build_auth_config_for_host(
-    host: &str,
-    ca_bundle: Option<&Path>,
-    organization: Option<&str>,
-    unit: Option<&str>,
-    cert_resolver: Arc<CertResolver>,
-    _cfg: &QuicConfig,
-    revocations: Arc<Revocations>,
-) -> Result<Arc<RustlsServerConfig>> {
-    let ca_bundle = ca_bundle.ok_or_else(|| {
-        Error::msg(format!(
-            "H3 TLS policy for {host}: client_auth.required needs ca_bundle"
-        ))
-    })?;
-    let policy = subject_policy_for_host(host, organization, unit)?;
-
-    // Client-auth handshakes must not accept replayable early data, and
-    // must not share resumption state with public unauthenticated hosts.
-    let tls_cfg = create_auth_config_with_revocations(
-        ca_bundle,
-        cert_resolver,
-        h3_alpns(),
-        policy.as_ref(),
-        revocations,
-    )
-    .map_err(|e| Error::msg(format!("H3 TLS auth config for {host}: {e}")))?;
-    Ok(prepare_rustls_server_config(tls_cfg, EarlyDataTransport::Disabled))
-}
-
-fn subject_policy_for_host(
-    host: &str,
-    organization: Option<&str>,
-    unit: Option<&str>,
-) -> Result<Option<PolicyConfig>> {
-    match (organization, unit) {
-        (Some(organization), Some(unit)) => Ok(Some(PolicyConfig::new(
-            organization.to_owned(),
-            unit.to_owned(),
-        ))),
-        (None, None) => Ok(None),
-        _ => Err(Error::msg(format!(
-            "H3 TLS policy for {host}: client_auth organization and unit must be configured together"
-        ))),
-    }
-}
-
 fn prepare_rustls_server_config(
     mut tls_cfg: RustlsServerConfig,
     early_data: EarlyDataTransport,

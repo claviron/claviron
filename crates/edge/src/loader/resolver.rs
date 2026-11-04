@@ -18,6 +18,7 @@ use tracing::info;
 
 use crate::HttpConfigProvider;
 use crate::config::HostConfig;
+use crate::loader::authority::PreparedAuthorities;
 use crate::loader::config::{
     VhostDocument, partial_sources, read_document, read_partial_document,
 };
@@ -43,7 +44,12 @@ type ChannelDeps = ();
 
 /// What a full table rebuild reads: listeners, hosting aliases and channels.
 /// File notifications retain the live alias view instead of querying DB.
-type VhostDeps = (Option<Arc<HttpConfigProvider>>, HostingDeps, ChannelDeps);
+type VhostDeps = (
+    Option<Arc<HttpConfigProvider>>,
+    HostingDeps,
+    ChannelDeps,
+    Option<Arc<claviron_tls::CertificateProvider>>,
+);
 
 /// Cold preparation only: the caller supplies prepared config values.
 type HostSource = dyn Fn(&AppState) -> crate::Result<Vec<(Host, Arc<HostConfig>)>>
@@ -437,6 +443,26 @@ impl VhostResolver {
         self.table.load_full()
     }
 
+    /// Find a port on a live TLS listener serving this exact SNI and host
+    /// with mandatory client authentication and HTTP/2. Prefer port 443.
+    #[cfg(all(feature = "tcp", feature = "tls"))]
+    pub fn serving_mtls_h2_port(
+        &self,
+        name: &Host,
+        canonical: &Host,
+    ) -> Option<u16> {
+        let listeners = self.listeners.lock().ok()?;
+        let mut ports = listeners.values().filter_map(|listener| {
+            listener.upgrade()?.mtls_h2_port(name, canonical)
+        });
+        let first = ports.next()?;
+        Some(if first == 443 || ports.any(|port| port == 443) {
+            443
+        } else {
+            first
+        })
+    }
+
     pub fn resolve(
         &self,
         host: &Host,
@@ -515,9 +541,9 @@ impl VhostResolver {
     async fn replace_with(
         &self,
         state: &AppState,
-        (http, hosting, _channels): &VhostDeps,
+        (http, hosting, _channels, _certificates): &VhostDeps,
     ) -> claviron_runtime::registry::Result<()> {
-        let next = self.build_snapshot(state, hosting).await?;
+        let mut next = self.build_snapshot(state, hosting).await?;
         let http = http.as_ref().map(|provider| provider.snapshot());
         next.validate_listeners(http.as_deref())?;
         #[cfg(feature = "access-log")]
@@ -531,6 +557,8 @@ impl VhostResolver {
         }
         #[cfg(not(feature = "access-log"))]
         next.validate_access_logs(|_| false)?;
+        let authorities = PreparedAuthorities::load(&next, state, None).await?;
+        authorities.install(&mut next);
         self.publish(next).map_err(|error| {
             claviron_runtime::registry::Error::msg(error.to_string())
         })?;
@@ -548,7 +576,7 @@ impl VhostResolver {
         &self,
         state: &AppState,
     ) -> claviron_runtime::registry::Result<(usize, usize)> {
-        let (_, hosting, _) = VhostDeps::resolve(state.registry_ref())?;
+        let (_, hosting, _, _) = VhostDeps::resolve(state.registry_ref())?;
         let desired = self.build_snapshot(state, &hosting).await?;
         let current = self.snapshot();
         let want: std::collections::HashMap<&Host, &Host> =
@@ -777,18 +805,26 @@ impl Configurable for VhostResolver {
 
 impl VhostResolver {
     /// The file watcher applies only declaration deltas. Hosting changes and
-    /// explicit reload use their own paths; this never reads hosting rows.
-    fn apply_file_changes(
+    /// explicit reload use their own paths. Prepare new trust before locking.
+    async fn apply_file_changes(
         &self,
         config: &VhostDocument,
         paths: &[PathBuf],
     ) -> congif::Result<()> {
+        let Some(state) = self.state.get() else { return Ok(()) };
+        let snapshot = self.snapshot();
+        let authorities = PreparedAuthorities::load(
+            &config.table().map_err(congif::Error::msg)?,
+            state,
+            snapshot.authorities.as_deref(),
+        )
+        .await
+        .map_err(congif::Error::msg)?;
         let _publication =
             self.publication.lock().map_err(congif::Error::msg)?;
         let previous = self.document.load_full();
         let mut document = config.clone();
         document.retain_unchanged(&previous);
-        let Some(state) = self.state.get() else { return Ok(()) };
         let sources = self
             .sources
             .read()
@@ -905,6 +941,7 @@ impl VhostResolver {
         #[cfg(not(feature = "access-log"))]
         next.validate_access_logs(|_| false).map_err(congif::Error::msg)?;
         if !changed.is_empty() {
+            authorities.install(&mut next);
             self.publish_locked(next).map_err(congif::Error::msg)?;
         }
         self.document.store(Arc::new(document));
@@ -926,6 +963,7 @@ impl ConfigObserver for VhostResolver {
         config: &VhostDocument,
     ) -> congif::Result<()> {
         self.apply_file_changes(config, std::slice::from_ref(&self.config_path))
+            .await
     }
 }
 
@@ -949,7 +987,7 @@ impl PartialConfigObserver for VhostResolver {
         config: &VhostDocument,
         sources: &[PathBuf],
     ) -> congif::Result<()> {
-        self.apply_file_changes(config, sources)
+        self.apply_file_changes(config, sources).await
     }
 }
 

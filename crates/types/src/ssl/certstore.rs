@@ -34,11 +34,12 @@ pub enum CertEntry {
 }
 
 /// CA and default identities are not DNS hostnames. Names try the file store
-/// first, then hosting; explicit CN/path declarations select only one source.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+/// first, then hosting; explicit local, CN and path declarations select one source.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
 #[serde(try_from = "CertificateSourceDeclaration")]
 pub enum CertificateSource {
     Name(CommonName),
+    Local(CommonName),
     Cn(CommonName),
     Path(PathBuf),
     Paths(CertPaths),
@@ -55,6 +56,7 @@ enum CertificateSourceDeclaration {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceSelection {
+    local: Option<CommonName>,
     cn: Option<CommonName>,
     path: Option<PathBuf>,
 }
@@ -67,15 +69,7 @@ impl TryFrom<CertificateSourceDeclaration> for CertificateSource {
     ) -> Result<Self, Self::Error> {
         let source = match source {
             CertificateSourceDeclaration::Name(name) => {
-                let mut components = Path::new(name.as_str()).components();
-                if !matches!(
-                    components.next(),
-                    Some(std::path::Component::Normal(_))
-                ) || components.next().is_some()
-                    || name.as_str().contains(['/', '\\'])
-                {
-                    return Err("certificate name must be a single store name; use path for files".into());
-                }
+                validate_basename(&name)?;
                 return Ok(Self::Name(name));
             }
             CertificateSourceDeclaration::Paths(paths)
@@ -88,16 +82,32 @@ impl TryFrom<CertificateSourceDeclaration> for CertificateSource {
             }
             CertificateSourceDeclaration::Selection(source) => source,
         };
-        match (source.cn, source.path) {
-            (Some(cn), None) => Ok(Self::Cn(cn)),
-            (None, Some(path)) if !path.as_os_str().is_empty() => {
+        match (source.local, source.cn, source.path) {
+            (Some(local), None, None) => {
+                validate_basename(&local)?;
+                Ok(Self::Local(local))
+            }
+            (None, Some(cn), None) => Ok(Self::Cn(cn)),
+            (None, None, Some(path)) if !path.as_os_str().is_empty() => {
                 Ok(Self::Path(path))
             }
             _ => {
-                Err("certificate source must select exactly one non-empty cn or path"
+                Err("certificate source must select exactly one non-empty local, cn or path"
                     .into())
             }
         }
+    }
+}
+
+fn validate_basename(name: &CommonName) -> Result<(), String> {
+    let mut components = Path::new(name.as_str()).components();
+    if matches!(components.next(), Some(std::path::Component::Normal(_)))
+        && components.next().is_none()
+        && !name.as_str().contains(['/', '\\'])
+    {
+        Ok(())
+    } else {
+        Err("certificate name must be a single store basename".into())
     }
 }
 
@@ -109,7 +119,7 @@ pub fn default_certificate_source() -> CertificateSource {
     )
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
 #[serde(deny_unknown_fields)]
 pub struct CertPaths {
     cert_path: Option<PathBuf>,
@@ -240,7 +250,7 @@ impl CertStore {
     pub fn authority_cert_path(&self) -> Option<PathBuf> {
         match self.authority.as_ref() {
             Some(AuthorityEntry::Cn(_)) => None,
-            Some(AuthorityEntry::Name(name)) => {
+            Some(AuthorityEntry::Name(name) | AuthorityEntry::Local(name)) => {
                 Some(self.ca_cert_path(name.as_str()))
             }
             Some(AuthorityEntry::Path(path)) => Some(self.dir.join(path)),

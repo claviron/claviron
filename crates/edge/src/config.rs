@@ -122,15 +122,10 @@ impl HostConfig {
         &self,
         other: &Self,
     ) -> bool {
-        let left = &self.tls.client_auth;
-        let right = &other.tls.client_auth;
         self.listeners == other.listeners
             && self.transport.protocols == other.transport.protocols
             && self.tls.require_alpn == other.tls.require_alpn
-            && left.mode == right.mode
-            && left.ca_bundle == right.ca_bundle
-            && left.organization == right.organization
-            && left.unit == right.unit
+            && self.tls.client_auth == other.tls.client_auth
     }
 
     /// An empty host declaration with an explicit file root and the same

@@ -282,7 +282,7 @@ create an SNI map, register virtual hosts or bind a listener.
 
 - `trust(selection)` / `authority()`: public CA chains only;
 - `identity(selection, kind)`: a server/client certificate and its own key;
-- `signer(authority)`: explicitly obtain a DB local-CA signing capability.
+- `signer(authority)`: explicitly acquire the selected file or DB local-CA signing capability.
 
 Bare names retain file-first lookup. Explicit CNs select hosting; explicit paths
 select files. Partial, invalid or inaccessible file material fails rather than
@@ -316,10 +316,10 @@ No source-only consumer needs a default certificate or SNI entry.
 
 ## 4b. CertAuthority — lending the CA we issue under
 
-`CertAuthority` contains only public chains and optional issuer identity. A
-named `certstore.authority` selects an enabled `local_ca` record through
-`HostingStore::public_certificate_by_id`. That SQL projection never selects or
-decodes `key_der`. File trust similarly opens only the public certificate file.
+`CertAuthority` contains public chains and optional issuer identity.
+`CertificateStore::trust` resolves an explicit local basename or Hosting CA
+Common Name. The Hosting projection reads public material and finds the issuer
+by CA record ID. File trust opens only the public certificate file.
 Hosting persists records and relationships; the consuming application's explicit
 selection establishes trust. Reading a certificate does not grant signing.
 
@@ -327,8 +327,12 @@ selection establishes trust. Reading a certificate does not grant signing.
 its issuer relation, enabled state and chain against the pinned public snapshot.
 `from_issuer` supports an explicit named-issuer override. Issuance revalidation
 rejects disabled or changed authorities; installing changed trust needs restart.
-The source provider never registers a signer or obtains a CA key at boot.
-Application admission and DB access permissions remain the authorization boundary;
+The source provider publishes public trust. A signing consumer can call
+`CertificateStore::signer` at boot. A named file authority uses the CertStore
+CA key path. An explicit file pair supplies `cert_path` and `key_path` under
+`authority`, with optional `ca_path` for the parent chain. The signer checks
+the key and ordered CA chain before use.
+Application admission and source access permissions remain the authorization boundary;
 these typed capabilities do not turn a broadly privileged DB account into a
 restricted one.
 
@@ -336,8 +340,9 @@ Signing runs on a blocking thread and returns material for persistence, without
 writing files or mutating an SNI resolver. Client certificates retain clientAuth;
 server identities retain the existing serverAuth + clientAuth profile.
 Intermediate CAs require explicit path length and remain bounded by their parent.
-The gRPC mTLS manager acquires this signer only for an authorized issuance call;
-its RPC contract and persisted certificate model are unchanged.
+gRPC enrollment prepares the default signer at boot when enabled. Management
+issuance may explicitly select a Hosting issuer. A file issuer can be
+represented in Hosting by its public chain alone.
 
 The [hosting model](../hosting/ARCHITECTURE.md#certificate-identity-and-issuers)
 owns persistence; ACME issuance remains in its separate service integration.
@@ -756,8 +761,9 @@ name uses files first (CA: `ca/<name>/ca.crt`; default: `servers/<name>/fullchai
 and `privkey.pem`), then hosting when required files are absent.
 Default omission or YAML null (`default:` / `default: null`) selects the name
 `default`; it does not disable the default certificate or bypass load errors.
-`{cn: "Roma CA"}` explicitly
-selects hosting only; `{path: ca.crt}` selects file trust only. For a default
+`{local: example}` selects a CertStore basename.
+`{cn: "Example CA"}` selects the exact stored certificate Common Name in
+Hosting. `{path: ca.crt}` selects a certificate path. For a default
 certificate, `path` points to its full chain and the sibling `privkey.pem`.
 Relative `path` resolves against `certstore.dir`; absolute paths stay absolute.
 Existing explicit `cert_path`/`key_path` pairs remain cwd-relative.
@@ -766,7 +772,11 @@ file material never falls through to DB. DB default lookup requires an enabled
 server certificate assigned to this HostingService's server identity. Missing
 DB support/service is an explicit boot error when file fallback needs DB.
 Server certificate entries still use `Host` for
-DNS/SNI identities. CA names such as `Roma CA` are not routing hostnames.
+DNS/SNI identities.
+
+Host `tls.client_auth` in `required` mode accepts one `authority` selector
+(`local` or `cn`) or a `ca_bundle` PEM path. An explicit authority anchors
+verification at the selected CA. A PEM bundle supplies its own trust anchors.
 
 `certstore` (alias `cert_store`) accepts a YAML path or an inline CertStore.
 Omission and explicit null both load `claviron_types::ssl::certstore::default_certstore_path()`:

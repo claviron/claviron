@@ -180,6 +180,9 @@ keeps CA keys on its separate explicit signing path. Existing full-material
 queries remain available to authorized management callers. Database roles and
 application admission, not DTO shape, enforce access permissions.
 
+`issuer_by_ca_certificate_id` resolves the local issuer for a selected CA
+record independently of the issuer's display name.
+
 `public_certificates_by_issuer` is the same public projection for an issuer's
 complete certificate set. It does not filter by usage, enabled state or server
 assignment: these are independent consumer policies, not implicit trust grants.

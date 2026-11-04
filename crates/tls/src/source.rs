@@ -16,10 +16,8 @@ use claviron_types::ssl::certstore::{
 };
 use rustls::sign::CertifiedKey;
 
-#[cfg(feature = "db")]
-use crate::CertSigner;
 use crate::config::TlsConfigSource;
-use crate::{CertAuthority, HostingDeps, TlsError as Error};
+use crate::{CertAuthority, CertSigner, HostingDeps, TlsError as Error};
 
 /// Resolves selected certificate material without creating a listener or SNI map.
 /// Public trust and local signing are distinct operations. This API does not
@@ -83,8 +81,8 @@ impl CertificateStore {
             .map_err(|error| Error::Other(error.to_string()))
     }
 
-    /// Load one selected public CA chain. A bare name tries files first; an
-    /// explicit CN selects hosting only. No private-key query or file is used.
+    /// Load one selected public CA chain. A bare name tries files first.
+    /// Explicit local and CN selections use only their declared source.
     pub async fn trust(
         &self,
         selection: &CertificateSource,
@@ -106,7 +104,21 @@ impl CertificateStore {
                     None
                 }
             }
-            CertificateSource::Cn(_) => None,
+            CertificateSource::Local(name) => {
+                Some(files.ca_cert_path(name.as_str()))
+            }
+            CertificateSource::Cn(cn) => {
+                #[cfg(feature = "db")]
+                return CertAuthority::from_cn(
+                    &self.hosting_store()?,
+                    cn.as_str(),
+                )
+                .await;
+                #[cfg(not(feature = "db"))]
+                return Err(Error::Other(format!(
+                    "authority CN '{cn}' requires database support"
+                )));
+            }
             CertificateSource::Path(path) => Some(files.dir().join(path)),
             CertificateSource::Paths(paths) => Some(
                 paths
@@ -120,8 +132,21 @@ impl CertificateStore {
             ),
         };
         if let Some(path) = path {
+            let parents = match selection {
+                CertificateSource::Paths(paths) => paths.ca_path().cloned(),
+                _ => None,
+            };
+            let explicit_local =
+                matches!(selection, CertificateSource::Local(_));
             return tokio::task::spawn_blocking(move || {
-                CertAuthority::load(path)
+                let authority = CertAuthority::load(path)?;
+                if explicit_local {
+                    authority.validate_ca()?;
+                }
+                match parents {
+                    Some(parents) => authority.with_parent_chain(&parents),
+                    None => Ok(authority),
+                }
             })
             .await
             .map_err(|error| {
@@ -130,15 +155,13 @@ impl CertificateStore {
                 ))
             })?;
         }
-        let name = match selection {
-            CertificateSource::Name(name) | CertificateSource::Cn(name) => {
-                name.as_str()
-            }
-            _ => unreachable!("explicit paths were handled above"),
+        let CertificateSource::Name(name) = selection else {
+            unreachable!("explicit sources were handled above");
         };
         #[cfg(feature = "db")]
         {
-            CertAuthority::from_issuer(&self.hosting_store()?, name).await
+            CertAuthority::from_issuer(&self.hosting_store()?, name.as_str())
+                .await
         }
         #[cfg(not(feature = "db"))]
         Err(Error::Other(format!(
@@ -169,7 +192,7 @@ impl CertificateStore {
         }
         let files = self.files.load_full();
         let pair = match selection {
-            CertificateSource::Name(name) => {
+            CertificateSource::Name(name) | CertificateSource::Local(name) => {
                 let dir = if kind == CertificateKind::Client {
                     files.client_dir(name.as_str())
                 } else {
@@ -181,7 +204,8 @@ impl CertificateStore {
                     (FULLCHAIN_CERT_FILENAME, PRIVKEY_FILENAME)
                 };
                 let pair = (dir.join(cert), dir.join(key));
-                if tokio::fs::try_exists(&pair.0).await?
+                if matches!(selection, CertificateSource::Local(_))
+                    || tokio::fs::try_exists(&pair.0).await?
                     || tokio::fs::try_exists(&pair.1).await?
                 {
                     Some(pair)
@@ -300,13 +324,54 @@ impl CertificateStore {
         )))
     }
 
-    /// Acquire a signing key only for an explicitly selected, pinned authority.
-    #[cfg(feature = "db")]
+    /// Acquire signing material from the source of the boot-pinned authority.
+    /// Named files use the CertStore CA pair. Explicit paths require a key path.
     pub async fn signer(
         &self,
         authority: &CertAuthority,
     ) -> Result<CertSigner, Error> {
-        CertSigner::from_authority(&self.hosting_store()?, authority).await
+        let Some(cert_path) = authority.path() else {
+            #[cfg(feature = "db")]
+            return CertSigner::from_authority(
+                &self.hosting_store()?,
+                authority,
+            )
+            .await;
+            #[cfg(not(feature = "db"))]
+            return Err(Error::Other(
+                "DB signing requires hosting support".into(),
+            ));
+        };
+        let files = self.files.load_full();
+        let key_path = match files.authority_entry() {
+            Some(
+                CertificateSource::Name(name) | CertificateSource::Local(name),
+            ) if files.ca_cert_path(name.as_str()) == cert_path => {
+                files.ca_key_path(name.as_str())
+            }
+            Some(CertificateSource::Paths(paths))
+                if paths.cert_path().is_some_and(|path| path == cert_path) =>
+            {
+                paths.key_path().cloned().ok_or_else(|| {
+                    Error::Other(
+                        "file authority signing requires key_path".into(),
+                    )
+                })?
+            }
+            _ => {
+                return Err(Error::Other(
+                    "selected file authority has no signing source".into(),
+                ));
+            }
+        };
+        let authority = authority.clone();
+        tokio::task::spawn_blocking(move || {
+            CertSigner::from_file(authority, &key_path)
+        })
+        .await
+        .map_err(|error| {
+            Error::Other(format!("CA key loading task failed: {error}"))
+        })?
     }
 }
 

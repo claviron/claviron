@@ -376,6 +376,31 @@ impl ListenerPublication for HttpsListener {
     fn listener_id(&self) -> &ListenerId {
         &self.id
     }
+
+    fn mtls_h2_port(
+        &self,
+        name: &claviron_types::Host,
+        canonical: &claviron_types::Host,
+    ) -> Option<u16> {
+        let current = self.current.load();
+        let snapshot = current.as_ref()?;
+        if !snapshot.tls_accept.serves_mtls_h2(name, canonical) {
+            return None;
+        }
+        let mut ports = snapshot
+            .listener
+            .listen
+            .iter()
+            .map(std::net::SocketAddr::port)
+            .filter(|&port| port != 0);
+        let first = ports.next()?;
+        Some(if first == 443 || ports.any(|port| port == 443) {
+            443
+        } else {
+            first
+        })
+    }
+
     fn prepare(
         &self,
         hosts: &VhostTable,

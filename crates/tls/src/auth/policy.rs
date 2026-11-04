@@ -4,6 +4,7 @@
 
 use std::path::PathBuf;
 
+use claviron_types::ssl::certstore::AuthorityEntry;
 use serde::Deserialize;
 
 #[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
@@ -14,29 +15,55 @@ pub enum ClientAuthMode {
     Required,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize, Default, PartialEq, Eq)]
+#[serde(try_from = "ClientAuthDeclaration")]
 pub struct ClientAuthPolicy {
-    #[serde(default)]
     pub mode: ClientAuthMode,
-    /// Optional host-level client-auth CA bundle override. When unset, a
-    /// future global TLS client-auth CA may be used. Today `required`
-    /// hosts must provide this explicitly.
-    #[serde(default)]
+    pub authority: Option<AuthorityEntry>,
     pub ca_bundle: Option<PathBuf>,
     /// Optional client certificate subject Organization (O) policy.
     /// When set together with `unit`, the TLS ServerConfig rejects
     /// client certificates that do not match before request handling.
-    #[serde(default)]
     pub organization: Option<String>,
     /// Optional client certificate subject Organizational Unit (OU)
-    /// policy. Accepted aliases keep existing config vocabulary loose.
-    #[serde(
-        default,
-        alias = "ou",
-        alias = "org_unit",
-        alias = "organizational_unit"
-    )]
+    /// policy.
     pub unit: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ClientAuthDeclaration {
+    #[serde(default)]
+    mode: ClientAuthMode,
+    authority: Option<AuthorityEntry>,
+    ca_bundle: Option<PathBuf>,
+    organization: Option<String>,
+    #[serde(alias = "ou", alias = "org_unit", alias = "organizational_unit")]
+    unit: Option<String>,
+}
+
+impl TryFrom<ClientAuthDeclaration> for ClientAuthPolicy {
+    type Error = &'static str;
+
+    fn try_from(raw: ClientAuthDeclaration) -> Result<Self, Self::Error> {
+        if raw.authority.is_some() && raw.ca_bundle.is_some() {
+            return Err(
+                "client_auth must select either authority or ca_bundle",
+            );
+        }
+        if raw.authority.as_ref().is_some_and(|source| {
+            !matches!(source, AuthorityEntry::Local(_) | AuthorityEntry::Cn(_))
+        }) {
+            return Err("client_auth.authority must select local or cn");
+        }
+        Ok(Self {
+            mode: raw.mode,
+            authority: raw.authority,
+            ca_bundle: raw.ca_bundle,
+            organization: raw.organization,
+            unit: raw.unit,
+        })
+    }
 }
 
 impl ClientAuthPolicy {
@@ -44,3 +71,7 @@ impl ClientAuthPolicy {
         self.mode == ClientAuthMode::Required
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/auth_policy.rs"]
+mod tests;

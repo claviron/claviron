@@ -48,6 +48,83 @@ impl CertAuthority {
         Ok(Self { path: Some(path), roots, issuer: None })
     }
 
+    pub(crate) fn with_parent_chain(
+        mut self,
+        path: &Path,
+    ) -> Result<Self, Error> {
+        let parents = crate::pem::load_der_certs(path)?;
+        if parents.is_empty() {
+            return Err(Error::Other("authority parent chain is empty".into()));
+        }
+        for parent in parents {
+            if !self.roots.contains(&parent) {
+                self.roots.push(parent);
+            }
+        }
+        Ok(self)
+    }
+
+    pub(crate) fn validate_ca(&self) -> Result<(), Error> {
+        let leaf = self.roots.first().ok_or_else(|| {
+            Error::Other("authority CA chain is empty".into())
+        })?;
+        let cert = claviron_types::ssl::parsers::take_first_cert_from_der(
+            leaf.as_ref(),
+        )?;
+        let constraints = cert
+            .basic_constraints()
+            .map_err(|error| Error::Other(error.to_string()))?;
+        let usage = cert
+            .key_usage()
+            .map_err(|error| Error::Other(error.to_string()))?;
+        if !constraints.is_some_and(|constraints| constraints.value.ca)
+            || usage.is_some_and(|usage| !usage.value.key_cert_sign())
+            || !cert.validity().is_valid()
+        {
+            return Err(Error::Other(
+                "authority must be a valid CA certificate".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Resolve a CA by its certificate CN and retain its issuer ID for signing.
+    #[cfg(feature = "db")]
+    pub async fn from_cn(
+        store: &claviron_hosting::HostingStore,
+        cn: &str,
+    ) -> Result<Self, Error> {
+        let ca = store
+            .public_certificate_by_cn(cn)
+            .await
+            .map_err(|error| Error::Other(error.to_string()))?
+            .ok_or_else(|| {
+                Error::Other(format!("CA certificate '{cn}' not found"))
+            })?;
+        if ca.kind != claviron_hosting::CertificateKind::Ca
+            || !ca.enabled
+            || ca.revoked_at.is_some()
+        {
+            return Err(Error::Other(format!(
+                "certificate '{cn}' must be an enabled, unrevoked CA"
+            )));
+        }
+        let roots =
+            crate::pem::parse_cert_chain_from_bytes(&ca.cn, &ca.certs_der)?;
+        let issuer = store
+            .issuer_by_ca_certificate_id(ca.id)
+            .await
+            .map_err(|error| Error::Other(error.to_string()))?
+            .map(|issuer| AuthorityIssuer {
+                id: issuer.id,
+                certificate_id: ca.id,
+                name: issuer.name,
+            });
+        let authority = Self { path: None, roots, issuer };
+        authority.validate_ca()?;
+        Ok(authority)
+    }
+
     /// Read a selected local issuer's public chain, without its private key.
     /// Selecting trust is the caller's policy, not a HostingStore side effect.
     #[cfg(feature = "db")]
@@ -137,6 +214,7 @@ impl CertAuthority {
             .collect::<Vec<_>>();
         if !ca.enabled
             || ca.kind != claviron_types::CertificateKind::Ca
+            || ca.revoked_at.is_some()
             || ca.certs_der != chain
         {
             return Err(Error::Other("authority CA is disabled or changed; restart after configuring an enabled CA".into()));

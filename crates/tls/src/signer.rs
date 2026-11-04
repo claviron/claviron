@@ -1,15 +1,65 @@
-//! Explicit local-CA signing capability. Never published with public trust.
+//! Explicit local-CA signing capability, independent of public trust loading.
 use crate::{CertAuthority, TlsError as Error};
 
 /// Holds a CA private key only after an explicit signing request.
 /// This is not an authorization check: the caller must enforce admission and
-/// use database credentials permitted to read signing material.
+/// be allowed to read signing material from the selected source.
 pub struct CertSigner {
     authority: CertAuthority,
     key_der: Vec<u8>,
 }
 
 impl CertSigner {
+    pub(crate) fn from_file(
+        authority: CertAuthority,
+        key_path: &std::path::Path,
+    ) -> Result<Self, Error> {
+        use claviron_types::ssl::{
+            generators, parsers::take_first_cert_from_der,
+        };
+
+        let key = crate::pem::load_private_key(key_path)?;
+        rustls::sign::CertifiedKey::from_der(
+            authority.roots().to_vec(),
+            key.clone_key(),
+            &rustls::crypto::aws_lc_rs::default_provider(),
+        )?
+        .keys_match()?;
+        let key = generators::read_private_key_from_der(key.secret_der())?;
+        let mut chain = authority
+            .roots()
+            .iter()
+            .map(|cert| take_first_cert_from_der(cert.as_ref()));
+        let leaf = chain
+            .next()
+            .transpose()?
+            .ok_or_else(|| Error::Other("signing authority is empty".into()))?;
+        let mut current = leaf;
+        loop {
+            if !current.is_ca()
+                || !current.validity().is_valid()
+                || current
+                    .key_usage()
+                    .map_err(|error| Error::Other(error.to_string()))?
+                    .is_some_and(|usage| !usage.value.key_cert_sign())
+            {
+                return Err(Error::Other(
+                    "invalid signing authority certificate".into(),
+                ));
+            }
+            let Some(parent) = chain.next().transpose()? else { break };
+            if current.issuer() != parent.subject()
+                || current.verify_signature(Some(parent.public_key())).is_err()
+            {
+                return Err(Error::Other(
+                    "invalid signing authority chain".into(),
+                ));
+            }
+            current = parent;
+        }
+        Ok(Self { authority, key_der: key.serialize_der() })
+    }
+
     #[cfg(feature = "db")]
     pub async fn from_issuer(
         store: &claviron_hosting::HostingStore,
@@ -45,9 +95,15 @@ impl CertSigner {
             .collect::<Vec<_>>();
         if !ca.enabled
             || ca.kind != claviron_types::CertificateKind::Ca
+            || ca.revoked_at.is_some()
             || ca.certs_der != chain
         {
             return Err(Error::Other("authority CA is disabled or changed; restart after configuring an enabled CA".into()));
+        }
+        if ca.key_der.is_empty() {
+            return Err(Error::Other(
+                "selected hosting issuer has no signing key".into(),
+            ));
         }
         Ok(Self { authority: authority.clone(), key_der: ca.key_der })
     }
@@ -72,6 +128,27 @@ impl CertSigner {
     }
     pub fn issuer_id(&self) -> Option<i32> {
         self.authority.issuer_id()
+    }
+
+    /// Renew an existing leaf with its original key and this issuer.
+    pub fn renew_certificate(
+        &self,
+        leaf: &[u8],
+        key: &[u8],
+        validity_days: u32,
+    ) -> Result<Vec<u8>, Error> {
+        let ca =
+            self.authority.roots().first().ok_or_else(|| {
+                Error::Other("signing authority is empty".into())
+            })?;
+        let mut chain = claviron_types::ssl::renewal::renew_certificate(
+            leaf,
+            key,
+            Some((ca.as_ref(), &self.key_der)),
+            validity_days,
+        )?;
+        self.append_intermediates(&mut chain)?;
+        Ok(chain)
     }
 
     /// Sign a verified CSR with the issuer's client profile. The request's

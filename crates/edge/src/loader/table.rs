@@ -55,6 +55,7 @@ fn default_host() -> &'static Host {
 pub struct VhostTable {
     inner: Arc<HashMap<Host, VhostEntry>>,
     prepared: HashMap<std::any::TypeId, Arc<dyn std::any::Any + Send + Sync>>,
+    pub(crate) authorities: Option<Arc<super::authority::PreparedAuthorities>>,
 }
 
 impl VhostTable {
@@ -105,7 +106,11 @@ impl VhostTable {
         } else {
             self.inner.clone()
         };
-        Self { inner, prepared: HashMap::new() }
+        Self {
+            inner,
+            prepared: HashMap::new(),
+            authorities: self.authorities.clone(),
+        }
     }
 
     pub(crate) fn retain_unchanged(

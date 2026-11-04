@@ -839,6 +839,16 @@ impl HostingStore {
             [name], fetch_optional)?.map(Into::into))
     }
 
+    /// Resolve a local issuer through the CA record it owns.
+    pub async fn issuer_by_ca_certificate_id(
+        &self,
+        id: i32,
+    ) -> Result<Option<CertificateIssuer>> {
+        Ok(run!(self, query_as::<IssuerRow>,
+            "SELECT id, name, kind::TEXT AS kind, acme_account_id, ca_certificate_id FROM hosting.certificate_issuers WHERE kind = 'local_ca' AND ca_certificate_id = $1",
+            [id], fetch_optional)?.map(Into::into))
+    }
+
     /// One named issuer per ACME account, also used for accounts added after
     /// the migration. ON CONFLICT preserves an operator-renamed issuer.
     pub async fn ensure_acme_issuer(

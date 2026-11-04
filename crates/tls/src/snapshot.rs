@@ -45,13 +45,18 @@ impl Snapshot {
         let certstore = cfg.certstore();
 
         match cfg.default_cert_entry() {
-            CertificateSource::Name(name) => {
+            CertificateSource::Name(name) | CertificateSource::Local(name) => {
                 let dir = certstore.server_dir(name.as_str());
                 let cert_path = dir.join(FULLCHAIN_CERT_FILENAME);
                 let key_path = dir.join(PRIVKEY_FILENAME);
                 // Only absence of both files permits DB fallback. A broken or
                 // inaccessible pair is an operator error, not another source.
-                if cert_path.try_exists()? || key_path.try_exists()? {
+                if matches!(
+                    cfg.default_cert_entry(),
+                    CertificateSource::Local(_)
+                ) || cert_path.try_exists()?
+                    || key_path.try_exists()?
+                {
                     snap.load_default(&cert_path, &key_path)?;
                 }
             }

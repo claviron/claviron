@@ -2,14 +2,14 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
-use crate::transport::tls::TlsHost;
+use crate::transport::tls::{
+    TlsHost, client_authority, create_host_auth_config,
+};
 use crate::transport::{VhostCtx, VhostTable, resolve_sni_for_listener};
 use claviron_http::ListenerId;
 use claviron_http::config::{ListenerConfig, TcpListenerConfig};
 use claviron_runtime::registry::Error;
 use claviron_tls::Proto::{H1, H2};
-use claviron_tls::auth::create_auth_config_with_revocations;
-use claviron_tls::auth::verifier::PolicyConfig;
 use claviron_tls::create_tls_config;
 use claviron_tls::orbit::SessionDomain;
 use claviron_types::Host;
@@ -59,6 +59,20 @@ impl TlsAccept {
         &self.hosts
     }
 
+    pub(super) fn serves_mtls_h2(
+        &self,
+        name: &Host,
+        canonical: &Host,
+    ) -> bool {
+        self.hosts.record(name).is_some_and(|record| {
+            &record.canonical == canonical
+                && record.config.tls.client_auth.is_required()
+                && self.policy.by_host.get(canonical).is_some_and(|host| {
+                    host.config.alpn_protocols.iter().any(|alpn| alpn == b"h2")
+                })
+        })
+    }
+
     pub(super) fn prepare_policy(
         deps: &super::server::Deps,
         listener: &ListenerConfig,
@@ -78,53 +92,52 @@ impl TlsAccept {
                 continue;
             }
             let auth = &host.tls.client_auth;
+            let authority = client_authority(table, canonical, host)?;
             let retained = previous
                 .and_then(|previous| previous.by_host.get(canonical))
-                .filter(|old| old.declaration.same_tls_policy(host));
+                .filter(|old| old.matches(host, authority));
             let config = if let Some(old) = retained {
                 old.config.clone()
             } else {
                 let config = if auth.is_required() {
-                    let ca = auth.ca_bundle.as_deref().ok_or_else(|| {
-                        Error::msg(format!(
-                            "TLS host {canonical}: required client auth needs ca_bundle"
-                        ))
-                    })?;
-                    let policy = subject_policy_for_host(
-                        &canonical.to_string(),
-                        auth.organization.as_deref(),
-                        auth.unit.as_deref(),
-                    )?;
                     let alpns = protocols
                         .iter()
                         .flat_map(|protocol| {
-                            protocol.alpn_versions().iter().map(|alpn| alpn.to_vec())
+                            protocol
+                                .alpn_versions()
+                                .iter()
+                                .map(|alpn| alpn.to_vec())
                         })
                         .collect();
                     // mTLS never shares public resumption storage.
-                    create_auth_config_with_revocations(
-                        ca,
+                    create_host_auth_config(
+                        canonical,
+                        host,
+                        authority.map(Arc::as_ref),
                         deps.cert_resolver.clone(),
                         alpns,
-                        policy.as_ref(),
                         deps.revocations.clone(),
                     )
                 } else {
-                    create_tls_config(&protocols, deps.cert_resolver.clone()).map(|mut config| {
-                        config.session_storage = deps.tls_sessions.storage(domain.clone());
-                        config
-                    })
-                }
-                .map_err(|error| {
-                    Error::msg(format!(
-                        "TLS listener '{}' host {canonical}: {error}", listener.id
-                    ))
-                })?;
+                    create_tls_config(&protocols, deps.cert_resolver.clone())
+                        .map(|mut config| {
+                            config.session_storage =
+                                deps.tls_sessions.storage(domain.clone());
+                            config
+                        })
+                        .map_err(|error| {
+                            Error::msg(format!("TLS host {canonical}: {error}"))
+                        })
+                }?;
                 Arc::new(config)
             };
             by_host.insert(
                 canonical.clone(),
-                TlsHost { declaration: host.clone(), config },
+                TlsHost {
+                    declaration: host.clone(),
+                    config,
+                    authority: authority.cloned(),
+                },
             );
         }
         Ok(TlsPolicy { by_host, protocols: tcp.protocols.clone() })
@@ -195,23 +208,6 @@ fn allowed_protocols(
             matches!(protocol, H1 | H2) && tcp.protocols.contains(protocol)
         })
         .collect()
-}
-
-fn subject_policy_for_host(
-    host: &str,
-    organization: Option<&str>,
-    unit: Option<&str>,
-) -> Result<Option<PolicyConfig>, Error> {
-    match (organization, unit) {
-        (Some(organization), Some(unit)) => Ok(Some(PolicyConfig::new(
-            organization.to_owned(),
-            unit.to_owned(),
-        ))),
-        (None, None) => Ok(None),
-        _ => Err(Error::msg(format!(
-            "HTTPS TCP TLS policy for {host}: client_auth organization and unit must be configured together"
-        ))),
-    }
 }
 
 #[cfg(test)]

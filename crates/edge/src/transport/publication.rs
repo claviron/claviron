@@ -15,6 +15,16 @@ pub(crate) type PreparedListener = Box<dyn FnOnce() + Send>;
 /// This contract runs only at start/reload or a host-source publication.
 pub(crate) trait ListenerPublication: Send + Sync {
     fn listener_id(&self) -> &ListenerId;
+
+    #[cfg(all(feature = "tcp", feature = "tls"))]
+    fn mtls_h2_port(
+        &self,
+        _name: &claviron_types::Host,
+        _canonical: &claviron_types::Host,
+    ) -> Option<u16> {
+        None
+    }
+
     fn prepare(
         &self,
         hosts: &VhostTable,

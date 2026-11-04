@@ -39,6 +39,14 @@ pub fn create_client_cert_verifier_with_provider(
     for der in load_der_certs(ca_path)? {
         roots.add(der)?;
     }
+    verifier_from_roots(roots, cfg, provider)
+}
+
+fn verifier_from_roots(
+    roots: RootCertStore,
+    cfg: Option<&PolicyConfig>,
+    provider: &CryptoProvider,
+) -> Result<Arc<dyn ClientCertVerifier>, TlsError> {
     // Base mTLS verifier: chain/time/EKU
     let verifier: Arc<dyn ClientCertVerifier> =
         WebPkiClientVerifier::builder_with_provider(
@@ -99,6 +107,47 @@ pub fn create_auth_config_with_revocations(
     let provider = crate::policy::provider();
     let verifier =
         create_client_cert_verifier_with_provider(ca_path, cfg, &provider)?;
+    auth_config_with_revocations(
+        verifier,
+        resolver,
+        alpns,
+        provider,
+        revocations,
+    )
+}
+
+/// Build client auth anchored at the selected CA in a resolved public chain.
+pub fn create_authority_auth_config_with_revocations(
+    authority: &crate::CertAuthority,
+    resolver: Arc<CertResolver>,
+    alpns: Vec<Vec<u8>>,
+    cfg: Option<&PolicyConfig>,
+    revocations: Arc<Revocations>,
+) -> Result<ServerConfig, TlsError> {
+    let provider = crate::policy::provider();
+    let mut roots = RootCertStore::empty();
+    let ca = authority
+        .roots()
+        .first()
+        .ok_or_else(|| Error::Other("authority CA chain is empty".into()))?;
+    roots.add(ca.clone())?;
+    let verifier = verifier_from_roots(roots, cfg, &provider)?;
+    auth_config_with_revocations(
+        verifier,
+        resolver,
+        alpns,
+        provider,
+        revocations,
+    )
+}
+
+fn auth_config_with_revocations(
+    verifier: Arc<dyn ClientCertVerifier>,
+    resolver: Arc<CertResolver>,
+    alpns: Vec<Vec<u8>>,
+    provider: CryptoProvider,
+    revocations: Arc<Revocations>,
+) -> Result<ServerConfig, TlsError> {
     let verifier = crate::revocation::verifier(verifier, revocations);
     let mut config = ServerConfig::builder_with_provider(Arc::new(provider))
         .with_protocol_versions(&crate::policy::versions())?
