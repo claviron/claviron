@@ -75,8 +75,7 @@ async fn serve(
     });
     let service = H1Service::new(snapshot.clone(), ctx);
     let service = service_fn(move |req| service.call(req));
-    let stream = crate::tcp::io::TcpIo::new(stream);
-    let errors = stream.clone();
+    let (stream, errors) = crate::tcp::io::TcpIo::split(stream);
     let connection = crate::tcp::protocol::h1(&snapshot.h1)
         .serve_connection(TokioIo::new(stream), service);
     #[cfg(feature = "websocket")]

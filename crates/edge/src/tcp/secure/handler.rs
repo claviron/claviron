@@ -17,6 +17,7 @@ use super::conn::TlsHostConnection;
 use super::error::ConnectionError;
 use super::server::HttpsListener;
 use super::server::ServerSnapshot;
+use crate::tcp::io::{TcpErrors, TcpIo};
 use crate::tcp::protocol::h1 as make_h1_builder;
 
 /// Build the hyper HTTP/2 connection builder from a snapshot config slice.
@@ -85,7 +86,8 @@ impl HttpsListener {
     /// Unified stream handler for both HTTP/1.1 and HTTP/2
     async fn handle_stream(
         self: Arc<Self>,
-        tls_stream: TlsStream<crate::tcp::io::TcpIo>,
+        tls_stream: TlsStream<TcpIo>,
+        errors: TcpErrors,
         vhost_conn: TlsHostConnection,
         scope: ConnectionScope,
         snapshot: Arc<ServerSnapshot>,
@@ -111,7 +113,6 @@ impl HttpsListener {
 
         let host = vhost_conn.bind_host(proto, &snapshot.listener)?;
         let vhost_service = crate::tcp::service::service(host);
-        let errors = tls_stream.get_ref().0.clone();
         let stream = TokioIo::new(tls_stream);
 
         // Drive the connection based on protocol.
@@ -257,7 +258,13 @@ impl HttpsListener {
                 // Use the unified handle_stream function
                 let res = self
                     .clone()
-                    .handle_stream(tls_stream, vhost_conn, scope, snap.clone())
+                    .handle_stream(
+                        tls_stream,
+                        accepted.errors,
+                        vhost_conn,
+                        scope,
+                        snap.clone(),
+                    )
                     .await;
 
                 match res {

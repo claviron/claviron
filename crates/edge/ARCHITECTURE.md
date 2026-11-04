@@ -444,7 +444,8 @@ and their preparation paths:
 - [`mod.rs`](src/tcp/mod.rs) — TCP module exports and native fixture inclusion.
 - [`listener.rs`](src/tcp/listener.rs) — Bind groups, shared capacity, accepted tasks/session ownership and drain.
 - [`listener/accept.rs`](src/tcp/listener/accept.rs) — Socket-local accept error classification and declared recovery backoff.
-- [`io.rs`](src/tcp/io.rs) — Shared socket IO and error readiness without a competing byte reader.
+- [`io.rs`](src/tcp/io.rs) — Tokio's native TCP read readiness, with a separate
+  error observer on the same socket and write shutdown owned by the protocol.
 - [`protocol.rs`](src/tcp/protocol.rs) — Hyper H1 builder and TCP socket options from resolved config.
 - [`geo.rs`](src/tcp/geo.rs) — Optional peer country lookup.
 - [`service.rs`](src/tcp/service.rs) — Thin Hyper service and body representation adaptation.

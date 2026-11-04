@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
+use crate::tcp::io::{TcpErrors, TcpIo};
 use crate::transport::tls::{
     TlsHost, client_authority, create_host_auth_config,
 };
@@ -34,7 +35,8 @@ pub(super) struct TlsPolicy {
 }
 
 pub(crate) struct AcceptedTls {
-    pub stream: TlsStream<crate::tcp::io::TcpIo>,
+    pub stream: TlsStream<TcpIo>,
+    pub errors: TcpErrors,
     pub host: VhostCtx,
 }
 
@@ -150,9 +152,10 @@ impl TlsAccept {
         // Both host routing and TLS policy belong to this captured publication.
         let hosts = &self.hosts;
         let policy = &self.policy;
+        let (stream, errors) = TcpIo::split(stream);
         let start = LazyConfigAcceptor::new(
             rustls::server::Acceptor::default(),
-            crate::tcp::io::TcpIo::new(stream),
+            stream,
         )
         .await?;
         let sni = start.client_hello().server_name().map(str::to_owned);
@@ -188,7 +191,11 @@ impl TlsAccept {
                     ),
                 )
             })?;
-        Ok(AcceptedTls { stream: start.into_stream(config).await?, host })
+        Ok(AcceptedTls {
+            stream: start.into_stream(config).await?,
+            errors,
+            host,
+        })
     }
 }
 
