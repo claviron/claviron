@@ -1,13 +1,8 @@
 //! What this process is doing right now.
 //!
-//! Not metrics. A metric is a number someone else reads later, and it may be
-//! absent without changing how the process behaves; this is state the process
-//! acts on — the watchdog decides from it whether requests are still moving.
-//! That is why it has no feature gate: a build that cannot count its own
-//! in-flight work cannot tell whether it is wedged.
-//!
-//! The metrics layer reports these numbers when it is enabled. It does not own
-//! them.
+//! This state is shared by the runtime's exchange and session owners.
+//! The optional HTTP metrics and watchdog read it. Edge starts an exchange
+//! guard only in serving host plans that enable HTTP metrics.
 //!
 //! It lives in the runtime rather than in the HTTP layer because the question
 //! is the runtime's: an edge worker counts HTTP exchanges, a Python runner

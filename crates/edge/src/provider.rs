@@ -15,7 +15,6 @@ use async_trait::async_trait;
 use claviron_http::config::{HttpSnapshot, HttpYaml, ListenerCapabilities};
 #[cfg(feature = "metrics")]
 use claviron_http::metrics::HttpMetricsConfig;
-use claviron_http::watchdog::WatchdogConfig;
 use claviron_runtime::AppState;
 use claviron_runtime::Register;
 use claviron_runtime::congif::{
@@ -59,13 +58,8 @@ impl HttpConfigProvider {
 
     /// HTTP metrics publication and freshness policy.
     #[cfg(feature = "metrics")]
-    pub fn metrics(&self) -> Arc<HttpMetricsConfig> {
+    pub fn metrics(&self) -> Option<Arc<HttpMetricsConfig>> {
         self.snapshot.load().metrics.clone()
-    }
-
-    /// HOL watchdog policy. `None` when the yaml has no `watchdog:` block.
-    pub fn watchdog(&self) -> Option<Arc<WatchdogConfig>> {
-        self.snapshot.load().watchdog.clone()
     }
 
     /// Validate and atomically publish an in-memory HTTP configuration.
@@ -195,11 +189,6 @@ pub fn register_http_config_with_capabilities(
     );
     let config = Arc::new(config);
     state.registry_ref().register(config.clone())?;
-    // The watchdog is not a metric: it reads what this process has in flight
-    // and says so when that stops moving. A build that cannot be scraped still
-    // needs to notice its own wedge.
-    let watchdog = Arc::clone(&config);
-    claviron_http::watchdog::register(state, move || watchdog.watchdog())?;
     #[cfg(feature = "metrics")]
     claviron_http::metrics::register(state, move || config.metrics())?;
     Ok(())

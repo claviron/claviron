@@ -330,11 +330,9 @@ envelope and unknown keys are errors.
 `HttpYaml` enforces this during deserialization: a misspelled or retired
 section cannot publish an empty replacement snapshot over active listeners.
 
-The known top-level `metrics` and `watchdog` sections remain accepted when the
-`metrics` feature is disabled. That build consumes their contents without
-validating metrics policy or creating metrics/watchdog runtime services, so
-operators can share the same HTTP document across build compositions. With
-`metrics` enabled, these sections use their existing typed configuration.
+`metrics` is optional and requires the `metrics` feature. Builds without
+that feature reject the section as an unknown field. The metrics and nested
+watchdog schemas also reject unknown fields.
 
 `HttpYaml::resolve()` produces `HttpSnapshot` with response-header defaults,
 a path-deny set and named `Arc<ListenerConfig>` entries. Each entry holds its
@@ -1144,17 +1142,13 @@ address is the fallback.
 
 Feature-gated on `metrics`. The crate provides three pieces:
 
-### 7.1 Request middleware
+### 7.1 Request accounting
 
-```rust
-pub async fn metrics_middleware(req: Request, next: Next) -> Response;
-```
-
-Two responsibilities, both around the global `HTTP_METRICS` counter:
-bump `request_start` on entry, bump `request_end` on exit. The exit
-bump is wired through an RAII guard, so cancellation, panic, and
-client disconnect all decrement the counter — the in-flight count
-stays accurate even when futures are dropped mid-flight.
+With `metrics` declared in `http.yaml`, Edge prepares a `MetricsLayer` at the
+start of each serving host scope. Plain HTTP, TLS and QUIC share that path.
+An exchange guard records the start and releases the in-flight count at the
+response head or on cancellation. Non-serving HTTP and transport-owned
+session handling stay outside the serving scope.
 
 The same HTTP family owns static response-cache observations. The file cache
 records `HIT+` after `fast_cache_hit`, `HIT` after
@@ -1192,17 +1186,19 @@ the policy in the single-reader `http.yaml` surface:
 
 ```yaml
 metrics:
-  enabled: true
   publish_interval: 1s
   max_age: 5s
+  watchdog:
+    check_interval: 5s
+    stall_timeout: 90s
+    warn_threshold: 1000
+    panic_threshold: 5000
+    panic_on_hol: false
 ```
 
-The private callback beside `metrics::routes()` only resolves
-`claviron_metrics::MetricsProvider` and renders its registered families. It
-does not decide whether an owner reads local state or Orbit. The route does
-not install `metrics_middleware`: the owning vhost router installs that layer
-once around the completed host router, preventing `/metrics` requests from
-being counted twice. HTTP has no supervisor or PHP dependency.
+`metrics::routes()` renders the families registered with `MetricsProvider`.
+An absent `metrics` block leaves HTTP publication unavailable. If enabled
+after boot, start the worker publishers through service management.
 
 ### 7.3 HOL-blocking watchdog
 
@@ -1212,17 +1208,9 @@ pub struct WatchdogConfig { /* check_interval, warn_threshold, panic_threshold,
                                 stall_timeout, panic_on_hol */ }
 ```
 
-A `Provider + Runnable` that polls `HTTP_METRICS` on a configured
-interval looking for evidence of head-of-line blocking — requests
-piling up in flight without the total counter advancing.
-
-The provider is registered only in traffic-serving processes: workers and
-standalone. The master has no watchdog registration or service membership,
-because it does not handle application traffic. `claviron-http::register` owns watchdog registration; the root facade
-bootstrap does not know the concrete provider. The runnable reads configuration
-on every tick from its shared `HttpConfigProvider` so a configuration
-reload that changes the interval or thresholds takes effect on the
-next tick without a process restart.
+A worker or standalone runnable reads process-local request activity at the
+interval declared in `metrics.watchdog`. It starts only when that block is
+present. Policy reloads take effect on its next tick.
 
 `start_policy` reads the current watchdog config: `Some` is `Automatic`,
 `None` is `Unavailable`. A disabled watchdog remains visible on eligible
@@ -1256,7 +1244,7 @@ freeze persist.
 | `routing`    | Implies `axum`; application-owned route composition. Host directive codecs remain Edge-owned. |
 | `server`     | Accepted-connection context, listener identity and native session ownership shared by server transports. Edge configuration/provider/middleware remain in their edge crates. |
 | `cache`      | Axum `Cache` extractor and `cache`; implies only `axum`. |
-| `metrics`    | Adds the HTTP metrics composition provider, HTTP request/transport stores, Axum endpoint, request middleware, HTTP and server metric families, and watchdog. It implies `axum`, not `server`, so a standalone mini HTTP runner may use it without edge listener primitives. |
+| `metrics`    | Adds the HTTP metrics composition provider, HTTP request/transport stores, Axum endpoint, HTTP and server metric families, and optional watchdog. It implies `axum`, not `server`, so a standalone mini HTTP runner may use it without edge listener primitives. |
 
 The base and `axum`-only surfaces remain application-runner safe.
 `types` supplies the base authority identity, but
@@ -1290,7 +1278,7 @@ or native session ownership. Those arrive only through `server`.
 | `metrics/provider.rs`    |     | Separate HTTP/server families, worker publishers, and managed reusable-ring registration. |
 | `metrics/router.rs`      |     | `/metrics` route and its small composition-only callback. |
 | `metrics/middleware.rs`  |  38 | Request `start`/`end` counter middleware with RAII guard. |
-| `metrics/watchdog.rs`    |     | `WatchdogConfig`, progress state, structured diagnostics and the private worker/standalone runnable. |
+| `watchdog.rs`    |     | `WatchdogConfig`, progress state, structured diagnostics and the private worker/standalone runnable. |
 
 ---
 

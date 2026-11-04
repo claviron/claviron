@@ -3,10 +3,13 @@ use std::time::Duration;
 use claviron_helpers::de::deserialize_duration;
 use serde::Deserialize;
 
+use crate::watchdog::WatchdogConfig;
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct HttpMetricsConfig {
-    #[serde(default = "default_enabled")]
-    pub(crate) enabled: bool,
+    #[serde(default)]
+    pub(crate) watchdog: Option<WatchdogConfig>,
 
     #[serde(
         default = "default_publish_interval",
@@ -24,17 +27,13 @@ pub struct HttpMetricsConfig {
 impl Default for HttpMetricsConfig {
     fn default() -> Self {
         Self {
-            enabled: default_enabled(),
+            watchdog: None,
 
             publish_interval: default_publish_interval(),
 
             max_age: default_max_age(),
         }
     }
-}
-
-fn default_enabled() -> bool {
-    true
 }
 
 fn default_publish_interval() -> Duration {

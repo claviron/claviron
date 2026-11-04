@@ -1,10 +1,6 @@
 //! Head-of-line blocking watchdog: state, policy, and diagnostics.
 //!
-//! One of Claviron's oldest pieces, and deliberately not a metric. It reads
-//! `claviron_runtime::activity` — what this process has in flight and how much
-//! it has finished — and says something when the first stops moving while the
-//! second does not. A build with no metrics still has it, because a process that
-//! cannot notice its own wedge is worse than one that cannot be graphed.
+//! Reads process-local HTTP activity when `metrics.watchdog` is declared.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,14 +18,11 @@ use tokio::runtime::Handle;
 use tokio::time::{self, MissedTickBehavior};
 use tracing::{debug, error, warn};
 
-/// The current watchdog configuration: `None` while the yaml has no
-/// `watchdog:` block. Asked at every check, so a reload is taken up at the
-/// next one.
-type ConfigReader = Box<dyn Fn() -> Option<Arc<WatchdogConfig>> + Send + Sync>;
+use crate::metrics::ConfigReader;
 
-pub fn register(
+pub(crate) fn register(
     state: &AppState,
-    config: impl Fn() -> Option<Arc<WatchdogConfig>> + Send + Sync + 'static,
+    config: ConfigReader,
 ) -> claviron_runtime::registry::Result<()> {
     // Registration defines fleet membership; the master never serves HTTP.
     if state.is_master() {
@@ -37,12 +30,13 @@ pub fn register(
     }
     state
         .registry_ref()
-        .register(Arc::new(HttpWatchdogProvider::new(Box::new(config))))?;
+        .register(Arc::new(HttpWatchdogProvider::new(config)))?;
     Ok(())
 }
 
 /// Watchdog configuration for HOL blocking detection
-#[derive(Clone, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct WatchdogConfig {
     /// Check interval (default: 5s)
     #[serde(deserialize_with = "deserialize_duration")]
@@ -263,7 +257,7 @@ impl Runnable<AppState> for HttpWatchdogProvider {
         &self,
         _state: &AppState,
     ) -> ServiceStartPolicy {
-        if (self.config)().is_some() {
+        if (self.config)().is_some_and(|metrics| metrics.watchdog.is_some()) {
             ServiceStartPolicy::Automatic
         } else {
             ServiceStartPolicy::Unavailable
@@ -276,7 +270,10 @@ impl Runnable<AppState> for HttpWatchdogProvider {
         state: AppState,
         context: RunContext,
     ) -> claviron_runtime::registry::Result<()> {
-        let Some(config) = (self.config)() else {
+        let metrics = (self.config)();
+        let Some(config) =
+            metrics.as_ref().and_then(|metrics| metrics.watchdog.as_ref())
+        else {
             // Config may change after the runtime checked start eligibility.
             return Ok(());
         };
@@ -302,7 +299,8 @@ impl Runnable<AppState> for HttpWatchdogProvider {
                     return Ok(());
                 }
                 _ = ticker.tick() => {
-                    let Some(cfg) = (self.config)() else {
+                    let metrics = (self.config)();
+                    let Some(cfg) = metrics.as_ref().and_then(|metrics| metrics.watchdog.as_ref()) else {
                         // Preserve this generation, but do no checks while disabled.
                         continue;
                     };
@@ -312,7 +310,7 @@ impl Runnable<AppState> for HttpWatchdogProvider {
                         ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
                         continue;
                     }
-                    check_hol_blocking(&cfg, &self.state, pid, worker_id);
+                    check_hol_blocking(cfg, &self.state, pid, worker_id);
                 }
             }
         }

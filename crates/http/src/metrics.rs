@@ -3,7 +3,7 @@
 //!
 //! What a process has in flight is not here: that is
 //! `claviron_runtime::activity`, which the families below read and the
-//! watchdog reads too, in builds that have no metrics at all.
+//! watchdog uses for progress checks.
 
 mod config;
 mod http;
@@ -19,6 +19,9 @@ pub use http::*;
 pub use router::routes;
 pub use server::*;
 
+pub(crate) type ConfigReader =
+    Arc<dyn Fn() -> Option<Arc<HttpMetricsConfig>> + Send + Sync>;
+
 /// Register the metric families and their export.
 ///
 /// `config` reads the current configuration — whatever the last reload
@@ -26,7 +29,9 @@ pub use server::*;
 /// changes the interval is taken up without a restart.
 pub fn register(
     state: &claviron_runtime::AppState,
-    config: impl Fn() -> Arc<HttpMetricsConfig> + Send + Sync + 'static,
+    config: impl Fn() -> Option<Arc<HttpMetricsConfig>> + Send + Sync + 'static,
 ) -> claviron_runtime::registry::Result<()> {
-    provider::register(state, Arc::new(config))
+    let config: ConfigReader = Arc::new(config);
+    provider::register(state, config.clone())?;
+    crate::watchdog::register(state, config)
 }

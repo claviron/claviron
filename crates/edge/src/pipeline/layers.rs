@@ -23,6 +23,8 @@ mod identity;
 mod link;
 #[cfg(feature = "access-log")]
 mod log;
+#[cfg(feature = "metrics")]
+mod metrics;
 mod proxy;
 #[cfg(feature = "rate-limit")]
 mod quota;
@@ -45,6 +47,8 @@ pub use headers::{HeaderClearLayer, HeaderSetLayer, prepare_headers};
 pub use identity::IdentityPolicy;
 #[cfg(feature = "access-log")]
 pub use log::{AccessLogLayer, AccessLogState};
+#[cfg(feature = "metrics")]
+pub(crate) use metrics::{MetricsLayer, MetricsState};
 pub use proxy::ProxyLayer;
 #[cfg(feature = "rate-limit")]
 pub(crate) use quota::QuotaRegistrations;

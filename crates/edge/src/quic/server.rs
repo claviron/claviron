@@ -211,11 +211,6 @@ impl TryFrom<HttpSnapshot> for H3ServerConfig {
         config.listeners.retain(|_, listener| {
             matches!(listener.settings, ListenerSettings::Quic(_))
         });
-        config.watchdog = None;
-        #[cfg(feature = "metrics")]
-        {
-            config.metrics = Arc::default();
-        }
         Ok(Self(config))
     }
 }

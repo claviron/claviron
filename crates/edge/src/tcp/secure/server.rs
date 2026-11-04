@@ -230,11 +230,6 @@ impl TryFrom<HttpSnapshot> for HttpsServerConfig {
             matches!(&listener.settings, ListenerSettings::Tcp(tcp)
                 if matches!(tcp.security, TcpSecurity::Tls { .. }))
         });
-        config.watchdog = None;
-        #[cfg(feature = "metrics")]
-        {
-            config.metrics = Arc::default();
-        }
         Ok(Self(config))
     }
 }

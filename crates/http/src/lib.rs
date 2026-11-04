@@ -28,6 +28,7 @@ pub mod trust;
 #[cfg(feature = "warp")]
 pub mod warp;
 #[cfg(feature = "server")]
+#[cfg(feature = "metrics")]
 pub mod watchdog;
 
 #[cfg(feature = "axum")]

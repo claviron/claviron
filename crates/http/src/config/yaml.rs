@@ -36,11 +36,10 @@ pub use crate::policy::{
     RequestPolicy, RequestPolicyOverride, ResponsePolicy,
     ResponsePolicyOverride,
 };
-use crate::watchdog::WatchdogConfig;
 
-/// Full http.yaml declaration. A key this build has no field for is not
-/// read: its fields change with the features compiled in.
+/// The http.yaml schema for the features compiled into this build.
 #[derive(Default, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HttpYaml {
     #[serde(default)]
     pub defaults: HttpDefaults,
@@ -48,11 +47,7 @@ pub struct HttpYaml {
     pub listeners: BTreeMap<ListenerId, ListenerDefinition>,
     #[cfg(feature = "metrics")]
     #[serde(default)]
-    pub(crate) metrics: HttpMetricsConfig,
-    /// HOL watchdog policy. Read in every build: a process notices its own
-    /// wedge whether or not anything is scraping it.
-    #[serde(default)]
-    pub watchdog: Option<WatchdogConfig>,
+    pub(crate) metrics: Option<HttpMetricsConfig>,
 }
 
 #[derive(Default, Deserialize)]
@@ -76,8 +71,7 @@ pub struct HttpSnapshot {
     pub deny: RegexSet,
     pub listeners: BTreeMap<ListenerId, Arc<ListenerConfig>>,
     #[cfg(feature = "metrics")]
-    pub metrics: Arc<HttpMetricsConfig>,
-    pub watchdog: Option<Arc<WatchdogConfig>>,
+    pub metrics: Option<Arc<HttpMetricsConfig>>,
 }
 
 impl PartialEq for HttpSnapshot {
@@ -92,7 +86,6 @@ impl PartialEq for HttpSnapshot {
         self.headers == other.headers
             && self.deny.patterns() == other.deny.patterns()
             && self.listeners == other.listeners
-            && self.watchdog == other.watchdog
     }
 }
 
@@ -182,8 +175,7 @@ impl HttpYaml {
             deny: self.defaults.deny,
             listeners,
             #[cfg(feature = "metrics")]
-            metrics: Arc::new(self.metrics),
-            watchdog: self.watchdog.map(Arc::new),
+            metrics: self.metrics.map(Arc::new),
         })
     }
 }

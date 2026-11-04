@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn http_yaml_rejects_unknown_directives() {
+    let rejected = [
+        ("watchdog: {}", "watchdog"),
+        ("defaults: {headers: {typo: true}}", "typo"),
+        #[cfg(not(feature = "metrics"))]
+        ("metrics: {}", "metrics"),
+        #[cfg(feature = "metrics")]
+        ("metrics: {enabled: true}", "enabled"),
+        #[cfg(feature = "metrics")]
+        ("metrics: {watchdog: {typo: true}}", "typo"),
+    ];
+    for (yaml, key) in rejected {
+        let error = serde_yaml::from_str::<HttpSnapshot>(yaml)
+            .err()
+            .expect("unknown directive must fail")
+            .to_string();
+        assert!(error.contains(&format!("unknown field `{key}`")), "{error}");
+    }
+
+    #[cfg(feature = "metrics")]
+    assert!(
+        serde_yaml::from_str::<HttpSnapshot>("metrics: {}")
+            .unwrap()
+            .metrics
+            .is_some()
+    );
+}
+
+#[test]
 fn listener_execution_inherits_and_overrides_for_plain_tls_and_quic() {
     use claviron_runtime::{ExecutionDomain, ExecutionSpec, ExecutorSpec};
     for driver in [

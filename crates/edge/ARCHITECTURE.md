@@ -104,6 +104,7 @@ registration. No layer is installed unconditionally.
 
 | Order | Entry | Selected by |
 | --- | --- | --- |
+| 0 | HTTP metrics | `metrics` feature and an explicit `http.yaml` metrics block. Counts through the response head or cancellation on every serving listener. |
 | 1 | Response-header hooks | Effective HTTP defaults → host → prefix edits; empty declarations install nothing. |
 | 2 | Trusted proxy / real IP | Nonempty forwarding headers and trusted networks on this listener. |
 | 3 | Access-log start | Effective host/prefix channel or logging default; `off` and absent channels install no layer or log state. |
@@ -369,6 +370,7 @@ and their preparation paths:
 | --- | --- |
 | `ProxyLayer`, `DenyLayer`, `AclLayer` | Effective nonempty listener/host access policy. |
 | `HeaderSetLayer`, `HeaderClearLayer` | Folded response-header edits. |
+| `MetricsLayer` | An explicit HTTP metrics block, before request checks. |
 | `AccessLogLayer` | A selected access channel. |
 | `ReplyPolicy`, `RequestBodyLayer` | Effective nonempty response/request body bounds. |
 | `CorsLayer`, `CorsCapture`, `CorsAdmission` | A declared CORS policy, split around access/quota admission. |
@@ -383,6 +385,7 @@ and their preparation paths:
 | `Arc<WebSocketStage>` | Registered H1 endpoints through `Backend`, gated by host and listener capabilities. |
 | `RedirectLayer` | First effective custom redirect, after contributions and before the terminal router. |
 
+- [`metrics.rs`](src/pipeline/layers/metrics.rs) — Optional request activity guard for serving host scopes.
 - [`deny.rs`](src/pipeline/layers/deny.rs) — Explicit nonempty URI matcher; no transport snapshot or proof wrapper.
 - [`proxy.rs`](src/pipeline/layers/proxy.rs) — Trusted-peer forwarding layer; only request RealIpExt changes.
 - [`acl.rs`](src/pipeline/layers/acl.rs) — Explicit ACL layer; borrow accepted identity or a selected forwarding result.

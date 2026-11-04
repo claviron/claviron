@@ -7,18 +7,15 @@ use async_trait::async_trait;
 use claviron_orbit::{FleetProvider, OrbitStateExt};
 use claviron_runtime::metrics::{MetricsFamily, MetricsProvider};
 use claviron_runtime::registry::{Component, Runnable, priority};
-use claviron_runtime::{AppState, RunContext, registry};
+use claviron_runtime::{AppState, RunContext, ServiceStartPolicy, registry};
 use orbitive::metrics::{OrbitMetricCollector, OrbitMetricPublisher};
 use tracing::{debug, error};
 
 use super::orbit::{HttpMetricsRecord, ServerMetricsRecord};
 use super::{
-    HTTP_METRICS, HttpMetricsConfig, HttpMetricsSnapshot, SERVER_METRICS,
+    ConfigReader, HTTP_METRICS, HttpMetricsSnapshot, SERVER_METRICS,
     ServerMetricsSnapshot,
 };
-
-/// The current metrics configuration, read afresh wherever it is used.
-type ConfigReader = Arc<dyn Fn() -> Arc<HttpMetricsConfig> + Send + Sync>;
 
 struct HttpMetricsFamily {
     config: ConfigReader,
@@ -34,10 +31,9 @@ impl MetricsFamily for HttpMetricsFamily {
         state: &AppState,
         output: &mut String,
     ) -> Result<(), String> {
-        let config = (self.config)();
-        if !config.enabled {
+        let Some(config) = (self.config)() else {
             return Ok(());
-        }
+        };
 
         if state.is_standalone() {
             HTTP_METRICS.write_prometheus(output);
@@ -78,10 +74,9 @@ impl MetricsFamily for ServerMetricsFamily {
         state: &AppState,
         output: &mut String,
     ) -> Result<(), String> {
-        let config = (self.config)();
-        if !config.enabled {
+        let Some(config) = (self.config)() else {
             return Ok(());
-        }
+        };
 
         if state.is_standalone() {
             SERVER_METRICS.write_prometheus(output);
@@ -132,18 +127,31 @@ impl Component<AppState> for HttpMetricsPublisher {
 
 #[async_trait]
 impl Runnable<AppState, (Arc<FleetProvider>,)> for HttpMetricsPublisher {
+    fn start_policy(
+        &self,
+        _state: &AppState,
+    ) -> ServiceStartPolicy {
+        if (self.config)().is_some() {
+            ServiceStartPolicy::Automatic
+        } else {
+            ServiceStartPolicy::Unavailable
+        }
+    }
+
     async fn run(
         self: Arc<Self>,
         (fleet_provider,): (Arc<FleetProvider>,),
         state: AppState,
         context: RunContext,
     ) -> registry::Result<()> {
+        let Some(config) = (self.config)() else {
+            return Ok(());
+        };
         let fleet = fleet_provider.handle().ok_or_else(|| {
             registry::Error::msg("Orbit fleet is unavailable for HTTP metrics")
         })?;
         let publisher = OrbitMetricPublisher::<HttpMetricsRecord>::new(fleet);
-        let mut publish_interval =
-            nonzero_interval((self.config)().publish_interval);
+        let mut publish_interval = nonzero_interval(config.publish_interval);
         let mut ticker = tokio::time::interval(publish_interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -154,15 +162,14 @@ impl Runnable<AppState, (Arc<FleetProvider>,)> for HttpMetricsPublisher {
                     return Ok(());
                 }
                 _ = ticker.tick() => {
-                    let config = (self.config)();
+                    let Some(config) = (self.config)() else {
+                        continue;
+                    };
                     let current_interval = nonzero_interval(config.publish_interval);
                     if current_interval != publish_interval {
                         publish_interval = current_interval;
                         ticker = tokio::time::interval(publish_interval);
                         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                    }
-                    if !config.enabled {
-                        continue;
                     }
 
                     let captured_at = match now_seconds() {
@@ -210,20 +217,33 @@ impl Component<AppState> for ServerMetricsPublisher {
 
 #[async_trait]
 impl Runnable<AppState, (Arc<FleetProvider>,)> for ServerMetricsPublisher {
+    fn start_policy(
+        &self,
+        _state: &AppState,
+    ) -> ServiceStartPolicy {
+        if (self.config)().is_some() {
+            ServiceStartPolicy::Automatic
+        } else {
+            ServiceStartPolicy::Unavailable
+        }
+    }
+
     async fn run(
         self: Arc<Self>,
         (fleet_provider,): (Arc<FleetProvider>,),
         state: AppState,
         context: RunContext,
     ) -> registry::Result<()> {
+        let Some(config) = (self.config)() else {
+            return Ok(());
+        };
         let fleet = fleet_provider.handle().ok_or_else(|| {
             registry::Error::msg(
                 "Orbit fleet is unavailable for server metrics",
             )
         })?;
         let publisher = OrbitMetricPublisher::<ServerMetricsRecord>::new(fleet);
-        let mut publish_interval =
-            nonzero_interval((self.config)().publish_interval);
+        let mut publish_interval = nonzero_interval(config.publish_interval);
         let mut ticker = tokio::time::interval(publish_interval);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
@@ -234,15 +254,14 @@ impl Runnable<AppState, (Arc<FleetProvider>,)> for ServerMetricsPublisher {
                     return Ok(());
                 }
                 _ = ticker.tick() => {
-                    let config = (self.config)();
+                    let Some(config) = (self.config)() else {
+                        continue;
+                    };
                     let current_interval = nonzero_interval(config.publish_interval);
                     if current_interval != publish_interval {
                         publish_interval = current_interval;
                         ticker = tokio::time::interval(publish_interval);
                         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                    }
-                    if !config.enabled {
-                        continue;
                     }
 
                     let captured_at = match now_seconds() {

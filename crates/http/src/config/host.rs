@@ -28,6 +28,7 @@ pub const DEFAULT_SERVER_HEADER: &str = "claviron";
 /// Edge folds HTTP defaults, host and prefix declarations at boot/reload.
 /// Only effective edits enter the selected HostPipeline as response hooks.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct HostHeadersConfig {
     /// Explicit `Server:` value. Absence preserves inherited edits or the
     /// application's header; no library label is added automatically.

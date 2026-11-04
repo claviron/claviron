@@ -26,6 +26,8 @@ use crate::pipeline::layers::{
     ReplyPolicy, RequestBodyLayer, RouteSelectionLayer, prepare_headers,
     scope_steps,
 };
+#[cfg(feature = "metrics")]
+use crate::pipeline::layers::{MetricsLayer, MetricsState};
 use crate::pipeline::{RouteProtocol, RustRouter};
 
 #[derive(Default)]
@@ -110,6 +112,8 @@ struct Compiler<'a> {
     config: &'a HostConfig,
     policy: HttpPolicy,
     headers: Option<&'a claviron_http::config::host::HostHeadersConfig>,
+    #[cfg(feature = "metrics")]
+    metrics: bool,
     #[cfg(feature = "rate-limit")]
     quotas: Option<&'a crate::pipeline::layers::HostQuotas>,
     #[cfg(feature = "broadcast")]
@@ -298,6 +302,28 @@ impl Compiler<'_> {
 
     fn finish_scope<S: Default + Send + 'static>(
         &self,
+        builder: HostPipelineBuilder<S>,
+        extensions: HostPipelineBuilder<S>,
+        scope: ScopePlan<'_>,
+    ) -> Result<HostExecution> {
+        #[cfg(feature = "metrics")]
+        if self.metrics {
+            let mut measured = HostPipelineBuilder::new();
+            measured
+                .layer(MetricsLayer)
+                .map_err(|error| Error::msg(error.to_string()))?;
+            measured.append(builder.map_state(MetricsState::inner_mut));
+            return self.finish_dispatch(
+                measured,
+                extensions.map_state(MetricsState::inner_mut),
+                scope,
+            );
+        }
+        self.finish_dispatch(builder, extensions, scope)
+    }
+
+    fn finish_dispatch<S: Default + Send + 'static>(
+        &self,
         mut builder: HostPipelineBuilder<S>,
         extensions: HostPipelineBuilder<S>,
         scope: ScopePlan<'_>,
@@ -421,6 +447,8 @@ impl HostCompiler<'_> {
             config: &config,
             policy,
             headers: self.http.map(|http| http.headers.as_ref()),
+            #[cfg(feature = "metrics")]
+            metrics: self.http.is_some_and(|http| http.metrics.is_some()),
             router,
             #[cfg(feature = "rate-limit")]
             quotas,
