@@ -69,6 +69,7 @@ policy. Keep benchmark exposure an explicit deployment decision.
 ## Benchmark reports
 
 - [HTTP/1.1 plain-text benchmark with 128 connections](http1-plain-128.md)
+- [HTTP/1.1 plain-text benchmark with 1,024 connections](http1-plain-1024.md)
 
 ## Related crates
 
