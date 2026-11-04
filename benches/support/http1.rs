@@ -241,6 +241,11 @@ fn run_workload<F, Started>(
     });
 }
 
+/// Send the known, unknown, alias and known hosts on one connection.
+///
+/// Each request waits for the connection to accept it. A reply can complete
+/// before the connection task has asked for the next request, and sending
+/// into that gap fails instead of waiting.
 pub(crate) async fn preflight(
     client: &mut hyper::client::conn::http1::SendRequest<
         http_body_util::Empty<Bytes>,
@@ -248,11 +253,13 @@ pub(crate) async fn preflight(
     workload: Workload,
     selects_host: bool,
 ) {
+    client.ready().await.unwrap();
     workload
         .consume(client.send_request(workload.request()).await.unwrap())
         .await;
     let mut missing = workload.request();
     missing.headers_mut().insert(header::HOST, "missing.test".parse().unwrap());
+    client.ready().await.unwrap();
     let response = client.send_request(missing).await.unwrap();
     if selects_host {
         assert_eq!(
@@ -268,7 +275,9 @@ pub(crate) async fn preflight(
     alias
         .headers_mut()
         .insert(header::HOST, "alias.benchmark.test".parse().unwrap());
+    client.ready().await.unwrap();
     workload.consume(client.send_request(alias).await.unwrap()).await;
+    client.ready().await.unwrap();
     workload
         .consume(client.send_request(workload.request()).await.unwrap())
         .await;

@@ -18,8 +18,8 @@ use tokio::{
 };
 
 use super::{
-    Args, Command, Reply, Result, ServerExecution, Target, cpu, execution,
-    process,
+    Args, Command, Reply, Result, ServerExecution, Target, allocation,
+    cpu::Usage, execution, process,
 };
 use crate::support::{edge, http1::Server, plain};
 
@@ -42,21 +42,26 @@ pub(super) fn run(args: &Args) -> Result<()> {
             let command: Command = serde_json::from_str(&line?)?;
             match command {
                 Command::Begin => {
-                    if began.replace(cpu::process()?).is_some() {
+                    if began.replace(Usage::process()?).is_some() {
                         return Err("CPU sample already started".into());
                     }
                     process::write(&mut output, &Reply::Begun)?;
                 }
                 Command::End => {
-                    let elapsed = cpu::process()?
-                        .checked_sub(
-                            began.take().ok_or("CPU sample not started")?,
-                        )
-                        .ok_or("process CPU clock moved backwards")?;
-                    process::write(
-                        &mut output,
-                        &Reply::Cpu(u64::try_from(elapsed.as_nanos())?),
-                    )?;
+                    let used = Usage::process()?
+                        .since(began.take().ok_or("CPU sample not started")?)?;
+                    process::write(&mut output, &Reply::Used(used))?;
+                }
+                Command::BeginCount => {
+                    if !allocation::begin() {
+                        return Err("allocation count already started".into());
+                    }
+                    process::write(&mut output, &Reply::Counting)?;
+                }
+                Command::EndCount => {
+                    let allocated = allocation::end()
+                        .ok_or("allocation count not started")?;
+                    process::write(&mut output, &Reply::Allocated(allocated))?;
                 }
                 Command::Shutdown => break,
             }

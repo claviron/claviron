@@ -1,10 +1,18 @@
 //! Persistent H1 load; client and server use separate processes and runtimes.
+//!
+//! With a control, both servers stay up and their measured windows alternate.
+//! Whatever changes in the machine during the run reaches both owners, so the
+//! ratio between them keeps its meaning when the absolute values drift.
 
-use std::{io, num::NonZeroUsize, path::PathBuf, time::Duration};
+use std::{
+    ffi::OsString, io, num::NonZeroUsize, path::PathBuf, time::Duration,
+};
 
 use clap::{Parser, ValueEnum};
 use serde::{Deserialize, Serialize};
 
+#[path = "concurrent/allocation.rs"]
+mod allocation;
 #[path = "concurrent/client.rs"]
 mod client;
 #[path = "concurrent/cpu.rs"]
@@ -15,6 +23,8 @@ mod execution;
 mod process;
 #[path = "concurrent/server.rs"]
 mod server;
+
+pub use allocation::Counting;
 
 type Result<T> =
     std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -50,6 +60,9 @@ struct Args {
     _bench: bool,
     #[arg(long, value_enum)]
     target: Target,
+    /// A second owner, measured in alternating windows of the same run.
+    #[arg(long, value_enum)]
+    control: Option<Target>,
     #[arg(long)]
     connections: NonZeroUsize,
     #[arg(long)]
@@ -70,6 +83,50 @@ struct Args {
     server: bool,
 }
 
+impl Args {
+    /// The same controls for one serving process, naming its owner.
+    fn server_arguments(
+        &self,
+        target: Target,
+    ) -> Vec<OsString> {
+        fn name(value: impl ValueEnum) -> OsString {
+            value
+                .to_possible_value()
+                .expect("benchmark values are never skipped")
+                .get_name()
+                .into()
+        }
+        let mut arguments: Vec<OsString> = Vec::new();
+        let mut push = |flag: &str, value: OsString| {
+            arguments.push(flag.into());
+            arguments.push(value);
+        };
+        push("--target", name(target));
+        push("--connections", self.connections.to_string().into());
+        push("--server-threads", self.server_threads.to_string().into());
+        push("--server-execution", name(self.server_execution));
+        push("--client-threads", self.client_threads.to_string().into());
+        push(
+            "--warmup-seconds",
+            self.warmup_seconds.as_secs_f64().to_string().into(),
+        );
+        push(
+            "--measurement-seconds",
+            self.measurement_seconds.as_secs_f64().to_string().into(),
+        );
+        push("--samples", self.samples.to_string().into());
+        push("--output", self.output.clone().into());
+        arguments
+    }
+
+    fn http_threads(&self) -> usize {
+        match self.server_execution {
+            ServerExecution::Shared => self.server_threads.get(),
+            ServerExecution::CurrentThread => 1,
+        }
+    }
+}
+
 fn seconds(text: &str) -> std::result::Result<Duration, String> {
     let value: f64 = text.parse().map_err(|error| format!("{error}"))?;
     let duration = Duration::try_from_secs_f64(value)
@@ -84,6 +141,8 @@ fn seconds(text: &str) -> std::result::Result<Duration, String> {
 enum Command {
     Begin,
     End,
+    BeginCount,
+    EndCount,
     Shutdown,
 }
 
@@ -91,8 +150,17 @@ enum Command {
 enum Reply {
     Ready(std::net::SocketAddr),
     Begun,
-    Cpu(u64),
+    Used(cpu::Usage),
+    Counting,
+    Allocated(allocation::Allocations),
     Stopped,
+}
+
+/// What the client observed while one load window ran.
+struct Window {
+    requests: u64,
+    wall_ns: u64,
+    per_connection: Vec<u64>,
 }
 
 #[derive(Serialize)]
@@ -100,26 +168,248 @@ struct Sample {
     requests: u64,
     wall_ns: u64,
     server_cpu_ns: u64,
+    user_cpu_ns: u64,
+    system_cpu_ns: u64,
     per_connection: Vec<u64>,
+}
+
+impl Sample {
+    fn cpu_ns_per_request(&self) -> f64 {
+        self.server_cpu_ns as f64 / self.requests as f64
+    }
+}
+
+/// One serving process, its clients and what has been measured so far.
+struct Side {
+    target: Target,
+    server: process::Server,
+    clients: client::Clients,
+    warmup_requests: u64,
+    warmup_allocated: allocation::Allocations,
+    samples: Vec<Sample>,
+}
+
+impl Side {
+    fn start(
+        args: &Args,
+        target: Target,
+        runtime: &tokio::runtime::Runtime,
+    ) -> Result<Self> {
+        let mut server = process::Server::spawn(args.server_arguments(target))?;
+        let mut clients = runtime.block_on(client::Clients::connect(
+            args,
+            target,
+            server.address,
+        ))?;
+        // Allocations are counted here, never inside a CPU window.
+        server.begin_count()?;
+        let warmup = runtime.block_on(clients.exercise(args.warmup_seconds))?;
+        let warmup_allocated = server.end_count()?;
+        if warmup.requests == 0 {
+            return Err("warm-up completed no request".into());
+        }
+        Ok(Self {
+            target,
+            server,
+            clients,
+            warmup_requests: warmup.requests,
+            warmup_allocated,
+            samples: Vec::with_capacity(args.samples.get()),
+        })
+    }
+
+    fn measure(
+        &mut self,
+        runtime: &tokio::runtime::Runtime,
+        window: Duration,
+    ) -> Result<()> {
+        self.server.begin()?;
+        let observed = runtime.block_on(self.clients.exercise(window))?;
+        let used = self.server.end()?;
+        self.samples.push(Sample {
+            requests: observed.requests,
+            wall_ns: observed.wall_ns,
+            server_cpu_ns: used.user_ns + used.system_ns,
+            user_cpu_ns: used.user_ns,
+            system_cpu_ns: used.system_ns,
+            per_connection: observed.per_connection,
+        });
+        Ok(())
+    }
+
+    fn finish(
+        self,
+        runtime: &tokio::runtime::Runtime,
+        http_threads: usize,
+    ) -> Result<Measured> {
+        let Self {
+            target,
+            server,
+            clients,
+            warmup_requests,
+            warmup_allocated,
+            samples,
+        } = self;
+        runtime.block_on(clients.shutdown())?;
+        let server_pid = server.pid();
+        server.shutdown()?;
+        let total =
+            |field: fn(&Sample) -> u64| samples.iter().map(field).sum::<u64>();
+        let requests = total(|sample| sample.requests);
+        let wall_ns = total(|sample| sample.wall_ns);
+        let server_cpu_ns = total(|sample| sample.server_cpu_ns);
+        let user_cpu_ns = total(|sample| sample.user_cpu_ns);
+        let system_cpu_ns = total(|sample| sample.system_cpu_ns);
+        if requests == 0 || wall_ns == 0 || server_cpu_ns == 0 {
+            return Err(
+                "completed-request, wall and server CPU totals must be positive"
+                    .into(),
+            );
+        }
+        let per_request = |value: u64| value as f64 / requests as f64;
+        Ok(Measured {
+            target,
+            server_pid,
+            warmup_requests,
+            warmup_allocations: warmup_allocated.calls,
+            warmup_allocated_bytes: warmup_allocated.bytes,
+            requests,
+            wall_ns,
+            server_cpu_ns,
+            user_cpu_ns,
+            system_cpu_ns,
+            requests_per_second: requests as f64 * 1e9 / wall_ns as f64,
+            server_cpu_ns_per_request: per_request(server_cpu_ns),
+            user_cpu_ns_per_request: per_request(user_cpu_ns),
+            system_cpu_ns_per_request: per_request(system_cpu_ns),
+            http_thread_utilization: server_cpu_ns as f64
+                / (wall_ns as f64 * http_threads as f64),
+            allocations_per_request: warmup_allocated.calls as f64
+                / warmup_requests as f64,
+            allocated_bytes_per_request: warmup_allocated.bytes as f64
+                / warmup_requests as f64,
+            samples,
+        })
+    }
+}
+
+/// One owner's complete result. CPU figures come from the measured windows;
+/// allocation figures come from its warm-up load.
+#[derive(Serialize)]
+struct Measured {
+    target: Target,
+    server_pid: u32,
+    warmup_requests: u64,
+    warmup_allocations: u64,
+    warmup_allocated_bytes: u64,
+    samples: Vec<Sample>,
+    requests: u64,
+    wall_ns: u64,
+    server_cpu_ns: u64,
+    user_cpu_ns: u64,
+    system_cpu_ns: u64,
+    requests_per_second: f64,
+    server_cpu_ns_per_request: f64,
+    user_cpu_ns_per_request: f64,
+    system_cpu_ns_per_request: f64,
+    /// Server CPU over wall time times HTTP threads. Well below one, the
+    /// client set the load and the server spent the window waiting.
+    http_thread_utilization: f64,
+    allocations_per_request: f64,
+    allocated_bytes_per_request: f64,
+}
+
+impl Measured {
+    fn summary(&self) -> String {
+        format!(
+            "{:?}: requests={} requests/s={:.2} server CPU/request={:.3} us \
+             (user {:.3} + system {:.3}) HTTP-thread utilization={:.1}% \
+             allocations/request={:.2}",
+            self.target,
+            self.requests,
+            self.requests_per_second,
+            self.server_cpu_ns_per_request / 1000.0,
+            self.user_cpu_ns_per_request / 1000.0,
+            self.system_cpu_ns_per_request / 1000.0,
+            self.http_thread_utilization * 100.0,
+            self.allocations_per_request,
+        )
+    }
+}
+
+/// The target against its control, window by window.
+#[derive(Serialize)]
+struct Paired {
+    /// Target CPU/request over control CPU/request, from the run's totals.
+    server_cpu_ratio: f64,
+    /// The same ratio for each adjacent pair of windows.
+    server_cpu_ratio_per_sample: Vec<f64>,
+    user_cpu_ns_per_request_difference: f64,
+    system_cpu_ns_per_request_difference: f64,
+    allocations_per_request_difference: f64,
+}
+
+impl Paired {
+    fn new(
+        target: &Measured,
+        control: &Measured,
+    ) -> Self {
+        Self {
+            server_cpu_ratio: target.server_cpu_ns_per_request
+                / control.server_cpu_ns_per_request,
+            server_cpu_ratio_per_sample: target
+                .samples
+                .iter()
+                .zip(&control.samples)
+                .map(|(target, control)| {
+                    target.cpu_ns_per_request() / control.cpu_ns_per_request()
+                })
+                .collect(),
+            user_cpu_ns_per_request_difference: target.user_cpu_ns_per_request
+                - control.user_cpu_ns_per_request,
+            system_cpu_ns_per_request_difference: target
+                .system_cpu_ns_per_request
+                - control.system_cpu_ns_per_request,
+            allocations_per_request_difference: target.allocations_per_request
+                - control.allocations_per_request,
+        }
+    }
+
+    fn summary(
+        &self,
+        target: Target,
+        control: Target,
+    ) -> String {
+        let (lowest, highest) = self.server_cpu_ratio_per_sample.iter().fold(
+            (f64::INFINITY, f64::NEG_INFINITY),
+            |(lowest, highest), ratio| {
+                (lowest.min(*ratio), highest.max(*ratio))
+            },
+        );
+        format!(
+            "{target:?} / {control:?}: server CPU/request x{:.3} \
+             (per window pair {lowest:.3}..{highest:.3}) \
+             user {:+.3} us system {:+.3} us allocations/request {:+.2}",
+            self.server_cpu_ratio,
+            self.user_cpu_ns_per_request_difference / 1000.0,
+            self.system_cpu_ns_per_request_difference / 1000.0,
+            self.allocations_per_request_difference,
+        )
+    }
 }
 
 #[derive(Serialize)]
 struct Report {
-    target: Target,
+    #[serde(flatten)]
+    measured: Measured,
     client_pid: u32,
-    server_pid: u32,
     connections: usize,
     server_threads: usize,
     server_execution: ServerExecution,
     http_threads: usize,
     client_threads: usize,
-    warmup_requests: u64,
-    samples: Vec<Sample>,
-    requests: u64,
-    wall_ns: u64,
-    server_cpu_ns: u64,
-    requests_per_second: f64,
-    server_cpu_ns_per_request: f64,
+    control: Option<Measured>,
+    paired: Option<Paired>,
 }
 
 pub fn run() -> Result<()> {
@@ -135,62 +425,52 @@ pub fn run() -> Result<()> {
         )
         .into());
     }
-    let mut server = process::Server::spawn()?;
-    let server_pid = server.pid();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(args.client_threads.get())
         .enable_all()
         .build()?;
-    let mut clients =
-        runtime.block_on(client::Clients::connect(&args, server.address))?;
-    let warmup_requests =
-        runtime.block_on(clients.exercise(args.warmup_seconds))?.requests;
-    let mut observations = Vec::with_capacity(args.samples.get());
-    for _ in 0..samples {
-        server.begin()?;
-        let mut sample = runtime.block_on(clients.exercise(window))?;
-        sample.server_cpu_ns = server.end()?;
-        observations.push(sample);
+    let mut sides = vec![Side::start(&args, args.target, &runtime)?];
+    if let Some(control) = args.control {
+        sides.push(Side::start(&args, control, &runtime)?);
     }
-    runtime.block_on(clients.shutdown())?;
-    server.shutdown()?;
-    let requests =
-        observations.iter().map(|sample| sample.requests).sum::<u64>();
-    let wall_ns = observations.iter().map(|sample| sample.wall_ns).sum::<u64>();
-    let server_cpu_ns =
-        observations.iter().map(|sample| sample.server_cpu_ns).sum::<u64>();
-    if requests == 0 || wall_ns == 0 || server_cpu_ns == 0 {
-        return Err(
-            "completed-request, wall and server CPU totals must be positive"
-                .into(),
-        );
+    for sample in 0..samples {
+        // Target first, then control first: neither always follows the other.
+        if sample % 2 == 0 {
+            for side in &mut sides {
+                side.measure(&runtime, window)?;
+            }
+        } else {
+            for side in sides.iter_mut().rev() {
+                side.measure(&runtime, window)?;
+            }
+        }
+    }
+    let http_threads = args.http_threads();
+    let mut finished = sides
+        .into_iter()
+        .map(|side| side.finish(&runtime, http_threads))
+        .collect::<Result<Vec<_>>>()?
+        .into_iter();
+    let measured = finished.next().expect("the target is always measured");
+    let control = finished.next();
+    let paired =
+        control.as_ref().map(|control| Paired::new(&measured, control));
+    println!("{}", measured.summary());
+    if let (Some(control), Some(paired)) = (&control, &paired) {
+        println!("{}", control.summary());
+        println!("{}", paired.summary(measured.target, control.target));
     }
     let report = Report {
-        target: args.target,
+        measured,
         client_pid: std::process::id(),
-        server_pid,
         connections: args.connections.get(),
         server_threads: args.server_threads.get(),
         server_execution: args.server_execution,
-        http_threads: match args.server_execution {
-            ServerExecution::Shared => args.server_threads.get(),
-            ServerExecution::CurrentThread => 1,
-        },
+        http_threads,
         client_threads: args.client_threads.get(),
-        warmup_requests,
-        requests,
-        wall_ns,
-        server_cpu_ns,
-        requests_per_second: requests as f64 * 1e9 / wall_ns as f64,
-        server_cpu_ns_per_request: server_cpu_ns as f64 / requests as f64,
-        samples: observations,
+        control,
+        paired,
     };
     std::fs::write(args.output, serde_json::to_vec_pretty(&report)?)?;
-    println!(
-        "requests={} requests/s={:.2} server CPU/request={:.3} us",
-        report.requests,
-        report.requests_per_second,
-        report.server_cpu_ns_per_request / 1000.0
-    );
     Ok(())
 }

@@ -113,7 +113,7 @@ def build(target):
 
 def compatible(first, second, execution_change=False):
     before, after = dict(first.get("controls", {})), dict(second.get("controls", {}))
-    if (execution_change and before.get("schema") == after.get("schema") == 6
+    if (execution_change and before.get("schema") == after.get("schema") == 7
             and before.get("boundary") == after.get("boundary") == "concurrent-http1-server-process-cpu"):
         for key in ("server_execution", "http_threads"):
             before.pop(key, None)
@@ -159,33 +159,79 @@ def positive_int(value):
     return result
 
 
-def validate_concurrent(report, args):
-    if (report.get("client_pid", 0) <= 0 or report.get("server_pid", 0) <= 0
-            or report["client_pid"] == report["server_pid"]):
-        raise RuntimeError("client and server must be separate processes")
-    expected = {"target": CONCURRENT_TARGETS[args.target], "connections": args.connections,
-                "server_threads": args.server_threads, "client_threads": args.client_threads,
-                "server_execution": args.server_execution,
-                "http_threads": 1 if args.server_execution == "current_thread" else args.server_threads}
-    if any(report.get(key) != value for key, value in expected.items()):
-        raise RuntimeError("server/client topology does not match requested controls")
-    samples = report.get("samples", [])
-    if len(samples) != args.samples or report.get("warmup_requests", 0) <= 0:
+def validate_side(side, target, args):
+    """Check one owner's samples against its own totals."""
+    if side.get("target") != CONCURRENT_TARGETS[target] or side.get("server_pid", 0) <= 0:
+        raise RuntimeError("serving process does not match the requested owner")
+    samples = side.get("samples", [])
+    if len(samples) != args.samples or side.get("warmup_requests", 0) <= 0:
         raise RuntimeError("incomplete warmup or sample count")
     for sample in samples:
         counts = sample.get("per_connection", [])
         if (len(counts) != args.connections or any(count <= 0 for count in counts)
                 or sum(counts) != sample.get("requests")
-                or sample.get("wall_ns", 0) <= 0 or sample.get("server_cpu_ns", -1) < 0):
+                or sample.get("wall_ns", 0) <= 0
+                or sample.get("user_cpu_ns", -1) < 0 or sample.get("system_cpu_ns", -1) < 0
+                or sample.get("server_cpu_ns") != sample["user_cpu_ns"] + sample["system_cpu_ns"]):
             raise RuntimeError("invalid completed-request or CPU sample")
-    for key in ("requests", "wall_ns", "server_cpu_ns"):
-        if report.get(key, 0) <= 0 or report[key] != sum(sample[key] for sample in samples):
+    for key in ("requests", "wall_ns", "server_cpu_ns", "user_cpu_ns", "system_cpu_ns"):
+        if side.get(key, -1) != sum(sample[key] for sample in samples):
             raise RuntimeError(f"inconsistent {key} total")
-    expected_cpu = report["server_cpu_ns"] / report["requests"]
-    expected_rate = report["requests"] * 1e9 / report["wall_ns"]
-    if not (math.isclose(report["server_cpu_ns_per_request"], expected_cpu)
-            and math.isclose(report["requests_per_second"], expected_rate)):
-        raise RuntimeError("reported CPU/request or throughput does not match raw samples")
+    if side["requests"] <= 0 or side["wall_ns"] <= 0 or side["server_cpu_ns"] <= 0:
+        raise RuntimeError("completed-request, wall and server CPU totals must be positive")
+    http_threads = 1 if args.server_execution == "current_thread" else args.server_threads
+    expected = {
+        "requests_per_second": side["requests"] * 1e9 / side["wall_ns"],
+        "server_cpu_ns_per_request": side["server_cpu_ns"] / side["requests"],
+        "user_cpu_ns_per_request": side["user_cpu_ns"] / side["requests"],
+        "system_cpu_ns_per_request": side["system_cpu_ns"] / side["requests"],
+        "http_thread_utilization": side["server_cpu_ns"] / (side["wall_ns"] * http_threads),
+        "allocations_per_request": side.get("warmup_allocations", -1) / side["warmup_requests"],
+        "allocated_bytes_per_request": side.get("warmup_allocated_bytes", -1) / side["warmup_requests"],
+    }
+    for key, value in expected.items():
+        if value < 0 or not math.isclose(side.get(key, math.nan), value):
+            raise RuntimeError(f"reported {key} does not match raw samples")
+
+
+def validate_concurrent(report, args):
+    if (report.get("client_pid", 0) <= 0 or report.get("server_pid", 0) <= 0
+            or report["client_pid"] == report["server_pid"]):
+        raise RuntimeError("client and server must be separate processes")
+    expected = {"connections": args.connections,
+                "server_threads": args.server_threads, "client_threads": args.client_threads,
+                "server_execution": args.server_execution,
+                "http_threads": 1 if args.server_execution == "current_thread" else args.server_threads}
+    if any(report.get(key) != value for key, value in expected.items()):
+        raise RuntimeError("server/client topology does not match requested controls")
+    validate_side(report, args.target, args)
+    control, paired = report.get("control"), report.get("paired")
+    if args.control is None:
+        if control is not None or paired is not None:
+            raise RuntimeError("an unrequested control was measured")
+        return
+    if control is None or paired is None:
+        raise RuntimeError("the requested control was not measured")
+    validate_side(control, args.control, args)
+    if control["server_pid"] in (report["server_pid"], report["client_pid"]):
+        raise RuntimeError("target, control and client must be separate processes")
+    ratios = [target["server_cpu_ns"] / target["requests"] / (other["server_cpu_ns"] / other["requests"])
+              for target, other in zip(report["samples"], control["samples"])]
+    expected = {
+        "server_cpu_ratio": report["server_cpu_ns_per_request"] / control["server_cpu_ns_per_request"],
+        "user_cpu_ns_per_request_difference":
+            report["user_cpu_ns_per_request"] - control["user_cpu_ns_per_request"],
+        "system_cpu_ns_per_request_difference":
+            report["system_cpu_ns_per_request"] - control["system_cpu_ns_per_request"],
+        "allocations_per_request_difference":
+            report["allocations_per_request"] - control["allocations_per_request"],
+    }
+    recorded = paired.get("server_cpu_ratio_per_sample", [])
+    if (len(recorded) != len(ratios)
+            or not all(math.isclose(first, second) for first, second in zip(recorded, ratios))
+            or not all(math.isclose(paired.get(key, math.nan), value, abs_tol=1e-9)
+                       for key, value in expected.items())):
+        raise RuntimeError("reported paired comparison does not match raw samples")
 
 
 def main():
@@ -199,14 +245,17 @@ def main():
     parser.add_argument("--server-execution", choices=("shared", "current_thread"),
                         help="HTTP execution placement; concurrent targets default to shared")
     parser.add_argument("--client-threads", type=positive_int)
+    parser.add_argument("--control", choices=CONCURRENT_TARGETS,
+                        help="Measure this owner in alternating windows of the same run.")
     parser.add_argument("--compare", help="Compare with this local run ID, including the other target.")
     args = parser.parse_args()
     concurrent = args.target in CONCURRENT_TARGETS
     topology = (args.connections, args.server_threads, args.client_threads)
     if concurrent and not all(topology):
         parser.error("concurrent targets require --connections, --server-threads and --client-threads")
-    if not concurrent and (any(value is not None for value in topology) or args.server_execution is not None):
-        parser.error("connection/thread/execution options apply only to concurrent targets")
+    if not concurrent and (any(value is not None for value in topology) or args.server_execution is not None
+                           or args.control is not None):
+        parser.error("connection/thread/execution/control options apply only to concurrent targets")
     if concurrent:
         args.server_execution = args.server_execution or "shared"
     if args.samples <= 0:
@@ -238,7 +287,7 @@ def main():
         "source": source,
         "artifact_sha256": file_digest(executable),
         "controls": {
-            "schema": 6 if concurrent else 4,
+            "schema": 7 if concurrent else 4,
             "boundary": BENCHMARKS[args.target][1],
             "workload_sha256": {
                 path.relative_to(ROOT).as_posix(): file_digest(path)
@@ -272,7 +321,8 @@ def main():
     if concurrent:
         record["controls"].update(server_threads=args.server_threads, client_threads=args.client_threads,
                                   server_execution=args.server_execution,
-                                  http_threads=1 if args.server_execution == "current_thread" else args.server_threads)
+                                  http_threads=1 if args.server_execution == "current_thread" else args.server_threads,
+                                  control=args.control)
     previous = [json.loads(path.read_text()) for path in sorted(HISTORY.glob("*/run.json"))]
     if args.compare:
         baseline = next((old for old in previous if old["run_id"] == args.compare), None)
@@ -295,6 +345,8 @@ def main():
                      "--warmup-seconds", str(args.warmup_seconds),
                      "--measurement-seconds", str(args.measurement_seconds),
                      "--samples", str(args.samples), "--output", str(directory / "measurements.json")]
+        if args.control:
+            arguments += ["--control", CONCURRENT_TARGETS[args.control]]
     else:
         arguments = [str(executable), "--bench", "--noplot",
                  "--warm-up-time", str(args.warmup_seconds),
@@ -330,7 +382,8 @@ def main():
     mean = mean_time(record)
     metric = "server CPU ns/request" if concurrent else "ns/request"
     if concurrent:
-        print(f"HTTP execution: {args.server_execution}; HTTP runtime threads: {record['measurements']['http_threads']}; "
+        print(f"HTTP execution: {args.server_execution}; "
+              f"HTTP runtime threads: {record['measurements']['http_threads']}; "
               f"main runtime threads: {args.server_threads}")
     print(f"{run_id}: {mean:.3f} {metric}")
     if args.target in PLAIN_TARGETS:

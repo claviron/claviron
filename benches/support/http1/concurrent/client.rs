@@ -13,7 +13,7 @@ use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
 use tokio::{net::TcpStream, sync::Barrier, task::JoinHandle};
 
-use super::{Args, Result, Sample};
+use super::{Args, Result, Target, Window};
 use crate::support::{
     http1::{Workload, preflight},
     plain,
@@ -27,6 +27,7 @@ pub(super) struct Clients {
 impl Clients {
     pub(super) async fn connect(
         args: &Args,
+        target: Target,
         address: SocketAddr,
     ) -> Result<Self> {
         let mut connections = Vec::with_capacity(args.connections.get());
@@ -38,7 +39,7 @@ impl Clients {
                 hyper::client::conn::http1::handshake(TokioIo::new(stream))
                     .await?;
             drivers.push(tokio::spawn(driver));
-            preflight(&mut sender, Workload::Plain, args.target.selects_host())
+            preflight(&mut sender, Workload::Plain, target.selects_host())
                 .await;
             connections.push(sender);
         }
@@ -48,7 +49,7 @@ impl Clients {
     pub(super) async fn exercise(
         &mut self,
         duration: Duration,
-    ) -> Result<Sample> {
+    ) -> Result<Window> {
         let connections = std::mem::take(&mut self.connections);
         let start = Arc::new(Barrier::new(connections.len() + 1));
         let stop = Arc::new(AtomicBool::new(false));
@@ -60,6 +61,9 @@ impl Clients {
                 start.wait().await;
                 let mut requests = 0u64;
                 loop {
+                    // Wait until the connection takes another request: a
+                    // reply can finish before its task asks for the next.
+                    connection.ready().await?;
                     let response =
                         connection.send_request(plain::request()).await?;
                     plain::consume(response).await;
@@ -82,10 +86,9 @@ impl Clients {
             self.connections.push(connection);
             per_connection.push(requests);
         }
-        Ok(Sample {
+        Ok(Window {
             requests: per_connection.iter().sum(),
             wall_ns: u64::try_from(began.elapsed().as_nanos())?,
-            server_cpu_ns: 0,
             per_connection,
         })
     }

@@ -7,6 +7,12 @@ pub mod support;
 #[path = "../../support/http1/concurrent.rs"]
 mod concurrent;
 
+// The serving child counts its allocations through this allocator. It wraps
+// the system allocator and counts only while a window is open.
+#[cfg(unix)]
+#[global_allocator]
+static ALLOCATOR: concurrent::Counting = concurrent::Counting;
+
 #[cfg(unix)]
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     concurrent::run()

@@ -11,7 +11,7 @@ commands and comparison controls. This file indexes the implementation.
 | --- | --- | --- |
 | `dispatch/` | Decoded request through response consumption. Plain Edge cases also isolate request binding. | Host plans, application registration, request construction. |
 | `transport/http1/` serial targets | Client/server protocol work, request construction, socket IO and response consumption on one established connection. | Host publication, bind/accept, connection setup and preflight. |
-| `transport/http1/concurrent.rs` | Concurrent requests; server process CPU divided by completed requests. | Separate processes/runtimes, connection setup, preflight and warmup. |
+| `transport/http1/concurrent.rs` | Concurrent requests; server process user and system CPU divided by completed requests, alternating with an optional control. | Separate processes/runtimes, connection setup and preflight. Warmup is untimed and carries the allocation count. |
 
 Edge targets execute production `HostExecution` or `ConnectionHandler` code.
 Native controls call Hyper or Axum directly. Plain and JSON workloads remain
@@ -66,10 +66,12 @@ Edge Other, Edge Axum or Edge Routable; all use the plain workload.
 
 ```text
 concurrent::run
-  process::Server::spawn -> server::run
-    execution::Running::start -> server::start
-  client::Clients -> warmup -> measured windows
-  client shutdown -> server shutdown -> executor drain/finalize
+  Side::start, for the target and then the optional control
+    process::Server::spawn -> server::run
+      execution::Running::start -> server::start
+    client::Clients -> preflight -> counted warmup
+  measured windows, alternating between the sides
+  Side::finish: client shutdown -> server shutdown -> executor drain/finalize
 ```
 
 ## `support/`
@@ -89,12 +91,13 @@ concurrent::run
 
 | File | Responsibility |
 | --- | --- |
-| [concurrent.rs](support/http1/concurrent.rs) | CLI types, targets, execution mode, measurement windows and report assembly. |
-| [concurrent/process.rs](support/http1/concurrent/process.rs) | Spawn/join the server child and exchange typed control messages over stdin/stdout. |
-| [concurrent/server.rs](support/http1/concurrent/server.rs) | Server control loop, CPU sample boundaries, target selection and connection drain. |
+| [concurrent.rs](support/http1/concurrent.rs) | CLI types, targets, execution mode, alternating measurement windows, per-owner totals, paired comparison and report assembly. |
+| [concurrent/process.rs](support/http1/concurrent/process.rs) | Spawn/join one server child per owner and exchange typed control messages over stdin/stdout. |
+| [concurrent/server.rs](support/http1/concurrent/server.rs) | Server control loop, CPU sample and allocation-count boundaries, target selection and connection drain. |
+| [concurrent/allocation.rs](support/http1/concurrent/allocation.rs) | Counting wrapper over the system allocator; enabled only around the warm-up load. |
 | [concurrent/execution.rs](support/http1/concurrent/execution.rs) | Own the server runtime and optional `CurrentThreadDriver`; retain the submitted task until shutdown, then drain/finalize. |
-| [concurrent/client.rs](support/http1/concurrent/client.rs) | Persistent connections, synchronized request loops, complete-response counts and client teardown. |
-| [concurrent/cpu.rs](support/http1/concurrent/cpu.rs) | Unix `getrusage(RUSAGE_SELF)` user/system CPU for all server process threads, excluding the client process. |
+| [concurrent/client.rs](support/http1/concurrent/client.rs) | Persistent connections, synchronized request loops that wait for connection readiness, complete-response counts and client teardown. |
+| [concurrent/cpu.rs](support/http1/concurrent/cpu.rs) | Unix `getrusage(RUSAGE_SELF)` user and system CPU, kept separate, for all server process threads, excluding the client process. |
 
 `shared` serves on the main multi-thread runtime. `current_thread` keeps that
 runtime and places HTTP on one additional Claviron current-thread executor.

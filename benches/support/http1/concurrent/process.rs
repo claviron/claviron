@@ -1,10 +1,11 @@
 use std::{
+    ffi::OsString,
     io::{BufRead, BufReader, Write},
     net::SocketAddr,
     process::{Child, ChildStdin, ChildStdout, Command as Process, Stdio},
 };
 
-use super::{Command, Reply, Result};
+use super::{Command, Reply, Result, allocation::Allocations, cpu::Usage};
 
 pub(super) struct Server {
     child: Option<Child>,
@@ -14,9 +15,11 @@ pub(super) struct Server {
 }
 
 impl Server {
-    pub(super) fn spawn() -> Result<Self> {
+    /// Start this executable again as one serving process. The arguments
+    /// name its owner, so a control can run beside the measured target.
+    pub(super) fn spawn(arguments: Vec<OsString>) -> Result<Self> {
         let mut child = Process::new(std::env::current_exe()?)
-            .args(std::env::args_os().skip(1))
+            .args(arguments)
             .arg("--server")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -63,10 +66,24 @@ impl Server {
         }
     }
 
-    pub(super) fn end(&mut self) -> Result<u64> {
+    pub(super) fn end(&mut self) -> Result<Usage> {
         match self.request(Command::End)? {
-            Reply::Cpu(nanos) => Ok(nanos),
+            Reply::Used(usage) => Ok(usage),
             _ => Err("unexpected CPU end reply".into()),
+        }
+    }
+
+    pub(super) fn begin_count(&mut self) -> Result<()> {
+        match self.request(Command::BeginCount)? {
+            Reply::Counting => Ok(()),
+            _ => Err("unexpected allocation count begin reply".into()),
+        }
+    }
+
+    pub(super) fn end_count(&mut self) -> Result<Allocations> {
+        match self.request(Command::EndCount)? {
+            Reply::Allocated(allocations) => Ok(allocations),
+            _ => Err("unexpected allocation count end reply".into()),
         }
     }
 

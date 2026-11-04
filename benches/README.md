@@ -117,17 +117,52 @@ new requests between replies; outstanding replies finish and are counted. Every
 response must pass the same status/content/body checks. Request or connection-task
 failure invalidates the run.
 
-The server samples Unix `getrusage(RUSAGE_SELF)` user+system CPU before and after
-each window. This includes all server runtime threads and the control thread,
-excludes client CPU, and adds no clock reads to request handling. Raw windows
-retain completed requests, wall time, server CPU and per-connection counts.
-Throughput uses completed requests / observed wall time; CPU/request uses total
-server CPU / completed requests. These are not request latency percentiles.
+The server samples Unix `getrusage(RUSAGE_SELF)` before and after each window
+and reports user and system CPU separately. This includes all server runtime
+threads and the control thread, excludes client CPU, and adds no clock reads to
+request handling. Raw windows retain completed requests, wall time, user and
+system CPU and per-connection counts. Throughput uses completed requests /
+observed wall time; CPU/request uses server CPU / completed requests. These are
+not request latency percentiles.
+
+### Reading the result
+
+- **User CPU/request is the serving code; system CPU/request is the kernel and
+  how the runtime uses it.** A host-path cost appears in user time and stays
+  about the same across execution modes. System time changes with thread count
+  and load, and dominates a lightly loaded multi-thread runtime.
+- **HTTP-thread utilization** is server CPU over wall time times HTTP threads.
+  Near 100% the server set the pace and its throughput is a server result.
+  Well below that, the client set the pace: CPU/request then includes time the
+  server spent waiting, and throughput says nothing about the server. Use
+  `current_thread`, or fewer server threads than client threads, when the
+  comparison is about serving cost.
+- **Allocations/request** counts the serving process's allocation calls
+  (`alloc`, zeroed `alloc` and `realloc`) during its warm-up load, divided by
+  the warm-up's completed requests. Counting is off in every CPU window, so a
+  target that allocates more is not charged for being counted. The figure is
+  the same on any host and across runs, which makes it the first thing to
+  compare when a serving path changes.
+
+### Paired control
+
+`--control` names a second owner. Both servers stay up with their own
+connections, and their measured windows alternate: target then control in one
+sample, control then target in the next. Each owner still receives the full
+measurement duration. The report adds the control's own result and a paired
+comparison: the CPU/request ratio from the totals, the same ratio for each pair
+of adjacent windows, and the user, system and allocation differences.
+
+Absolute CPU/request moves with the machine between runs; the ratio inside one
+run does not, because both owners saw the same conditions. Use at least four
+samples so the per-pair range is visible. Naming an owner as its own control
+measures that range with no real difference, which is the floor below which a
+ratio means nothing.
 
 Keep connections and client threads fixed while varying server threads from
 one to several to expose concurrency costs. This includes Arc and activity-counter
 contention, allocation and scheduling; it does not attribute the entire change
-to Arc. Run every native and Edge owner with matching inputs.
+to Arc. Compare Edge Other and Edge Routable with Hyper, and Edge Axum with Axum.
 
 ## Run
 
@@ -144,27 +179,27 @@ controls; no compilation occurs during measurement. Times and sample count are
 explicit arguments, and Criterion requires at least ten samples.
 
 For concurrent server CPU, all five targets use the same `http1-concurrent`
-executable with different owners:
+executable with different owners. Name the native owner as the control:
 
 ```sh
 python3 scripts/bench-http.py http1-concurrent-edge-other \
+  --control http1-concurrent-hyper \
   --connections 1024 --server-threads 4 --client-threads 4 \
-  --server-execution shared \
-  --warmup-seconds 3 --measurement-seconds 5 --samples 1
+  --server-execution current_thread \
+  --warmup-seconds 3 --measurement-seconds 5 --samples 4
 ```
 
-Substitute `http1-concurrent-hyper`, `http1-concurrent-axum`,
-`http1-concurrent-edge-axum` or `http1-concurrent-edge-routable`. Repeat with
-`--server-threads 1`, keeping other inputs fixed. These targets require Unix
-process CPU accounting and do not use Criterion's serial RTT estimator.
-Use `--samples 1` for one uninterrupted load window; multiple samples drain
-outstanding replies between windows.
+Substitute `http1-concurrent-edge-axum` with `--control http1-concurrent-axum`,
+or `http1-concurrent-edge-routable` with the Hyper control. These targets
+require Unix process CPU accounting and do not use Criterion's serial RTT
+estimator. Each sample drains outstanding replies before the next window
+begins. Without `--control` one owner is measured alone and no ratio is
+reported.
 
-Repeat each case with `--server-execution current_thread`, leaving connections,
-main-runtime threads, client threads and timing unchanged. Compare native Hyper
-with Edge Other, and native Axum with Edge Axum, within each execution mode.
-Compare each owner across modes to measure execution placement separately.
-`shared` remains the default when the execution argument is omitted.
+Repeat each case with `--server-execution shared`, leaving connections,
+main-runtime threads, client threads and timing unchanged, to measure execution
+placement separately. Check its HTTP-thread utilization before reading its
+CPU/request. `shared` remains the default when the execution argument is omitted.
 
 For the narrower decoded-dispatch comparison:
 
@@ -188,8 +223,13 @@ the latest compatible run of the same target. Source/binary changes during a run
 invalidate it. Arithmetic differences do not establish statistical significance.
 
 Keep decoded calls, serial RTT and concurrent server CPU results separate.
-The launcher rejects comparisons with different measurement boundaries or
-thread/connection controls. None of these targets reports request p99.
+The launcher rejects comparisons with different measurement boundaries,
+thread/connection controls or paired control. None of these targets reports
+request p99.
+
+Serial RTT is a round-trip time on one connection and includes the client. A
+serving-path difference well under a microsecond is below what it resolves;
+use the paired concurrent measurement for that.
 
 An explicit `--compare RUN_ID` may compare concurrent runs that differ only in
 HTTP execution placement; automatic history comparisons keep the same mode.
