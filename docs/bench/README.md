@@ -66,6 +66,10 @@ These adapters register shared handlers; they do not start a background task,
 select an interpreter, add a database dependency, or choose deployment admission
 policy. Keep benchmark exposure an explicit deployment decision.
 
+## Benchmark reports
+
+- [HTTP/1.1 plain-text benchmark with 128 connections](http1-plain-128.md)
+
 ## Related crates
 
 - [Edge](../../crates/edge/README.md): virtual-host routing and common admission.
