@@ -1,7 +1,8 @@
 use rcgen::{
     BasicConstraints, CertificateParams, CertificateSigningRequest,
-    DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair,
-    KeyUsagePurpose, PublicKeyData,
+    CertificateSigningRequestParams, DistinguishedName, DnType,
+    ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair, KeyUsagePurpose,
+    PublicKeyData,
 };
 use time::{Duration as TimeDuration, OffsetDateTime};
 
@@ -127,21 +128,57 @@ pub fn generate_leaf_cert(
     validity_days: u32,
     extra_sans: &[impl Into<String> + Clone],
 ) -> Result<Vec<u8>, Error> {
+    let key = read_private_key_from_pem(client_key_pem)?;
+    let mut sans = vec![client_name.to_owned()];
+    for name in extra_sans {
+        let name = name.clone().into();
+        if !sans.contains(&name) {
+            sans.push(name);
+        }
+    }
+    let mut params = leaf_params(kind, client_name, sans)?;
+    let issuer =
+        validated_issuer(&mut params, ca_cert_pem, ca_key_pem, validity_days)?;
+    Ok(params.signed_by(&key, &issuer)?.pem().into_bytes())
+}
+
+/// Verify a PKCS#10 request and sign only its public key with issuer-owned claims.
+pub fn sign_client_csr(
+    common_name: &str,
+    csr_der: &[u8],
+    ca_cert_pem: &[u8],
+    ca_key_pem: &[u8],
+    validity_days: u32,
+    aliases: Vec<String>,
+) -> Result<Vec<u8>, Error> {
+    let csr = CertificateSigningRequestParams::from_der(&csr_der.into())?;
+    let mut params =
+        leaf_params(CertificateKind::Client, common_name, aliases)?;
+    let mut serial = [0; 16];
+    rustls::crypto::aws_lc_rs::default_provider()
+        .secure_random
+        .fill(&mut serial)
+        .map_err(|_| {
+            Error::Other("could not generate a certificate serial".into())
+        })?;
+    // Keep each serial positive and independent of a reused public key.
+    serial[0] = (serial[0] & 0x7f) | 0x40;
+    params.serial_number = Some(rcgen::SerialNumber::from_slice(&serial));
+    let issuer =
+        validated_issuer(&mut params, ca_cert_pem, ca_key_pem, validity_days)?;
+    Ok(params.signed_by(&csr.public_key, &issuer)?.pem().into_bytes())
+}
+
+fn leaf_params(
+    kind: CertificateKind,
+    client_name: &str,
+    sans: Vec<String>,
+) -> Result<CertificateParams, Error> {
     if !matches!(kind, CertificateKind::Server | CertificateKind::Client) {
         return Err(Error::Other(
             "leaf issuance requires server or client".into(),
         ));
     }
-    // Build SANs: CN first, then extras (dedup preserving order)
-    let mut sans: Vec<String> = Vec::with_capacity(1 + extra_sans.len());
-    sans.push(client_name.to_string());
-    for s in extra_sans {
-        let s_str = s.clone().into();
-        if s_str != client_name && !sans.iter().any(|x| x == &s_str) {
-            sans.push(s_str);
-        }
-    }
-
     // rcgen detects DNS/IP only. URI identities must use the URI GeneralName.
     let (uris, names): (Vec<_>, Vec<_>) = sans.into_iter().partition(|value| {
         value.contains(':') && value.parse::<std::net::IpAddr>().is_err()
@@ -173,16 +210,7 @@ pub fn generate_leaf_cert(
         params.extended_key_usages.push(ExtendedKeyUsagePurpose::ServerAuth);
     }
 
-    let ca_issuer =
-        validated_issuer(&mut params, ca_cert_pem, ca_key_pem, validity_days)?;
-
-    // Prepare client keypair from PEM bytes
-    let client_key = KeyPair::from_pem(std::str::from_utf8(client_key_pem)?)?;
-
-    // Generate end-entity keypair and issue cert
-    let cert = params.signed_by(&client_key, &ca_issuer)?;
-
-    Ok(cert.pem().into_bytes())
+    Ok(params)
 }
 
 fn validated_issuer(

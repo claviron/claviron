@@ -1024,6 +1024,10 @@ fast, and consistent across every endpoint in the process.
 
 ## Explicit client subject identity
 
+`CertSigner::issue_client_csr` verifies a PKCS#10 signature and signs the
+device public key with the caller's client identity and validated permissions.
+The resulting chain contains public certificates only.
+
 `CertSigner::issue_client_certificate` accepts an optional `ssl::SubjectUri`.
 It signs that identity into a URI SAN while retaining the CN and clientAuth
 profile. Plain issuance declares no application permissions and does not resolve

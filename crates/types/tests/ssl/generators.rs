@@ -1,6 +1,51 @@
 use super::{generate_private_key, read_private_key_from_der};
 
 #[test]
+fn enrollment_csr_proves_key_possession_without_selecting_certificate_claims() {
+    use super::*;
+
+    let ca_key = generate_ca_key().unwrap().serialize_pem();
+    let ca =
+        generate_ca_cert("authority.test", ca_key.as_bytes(), 30, None, None)
+            .unwrap();
+    let device = generate_private_key().unwrap();
+    let csr = generate_server_csr(
+        &device,
+        "untrusted.test",
+        vec!["untrusted.test".into()],
+        &Organization::default(),
+    )
+    .unwrap();
+    let issue = |csr| {
+        sign_client_csr(
+            "operator",
+            csr,
+            &ca,
+            ca_key.as_bytes(),
+            1,
+            vec!["urn:uuid:a15bc548-16e1-4a10-b772-ad00c3b66a52".into()],
+        )
+    };
+    let signed = issue(csr.der().as_ref()).unwrap();
+    let der =
+        crate::ssl::parsers::concat_chain_bytes_from_pem(&signed).unwrap();
+    let certificate =
+        crate::ssl::parsers::take_first_cert_from_der(&der).unwrap();
+    let identity = crate::ssl::peer::peer_identity(&der).unwrap();
+    assert_eq!(identity.common_names, ["operator"]);
+    assert_eq!(
+        identity.subject_uris,
+        ["urn:uuid:a15bc548-16e1-4a10-b772-ad00c3b66a52"]
+    );
+    assert_eq!(certificate.public_key().raw, device.subject_public_key_info());
+    let eku = certificate.extended_key_usage().unwrap().unwrap();
+    assert!(eku.value.client_auth && !eku.value.server_auth);
+    let mut tampered = csr.der().as_ref().to_vec();
+    *tampered.last_mut().unwrap() ^= 1;
+    assert!(issue(&tampered).is_err());
+}
+
+#[test]
 fn persisted_private_key_round_trips_without_rotation() {
     let original = generate_private_key().unwrap().serialize_der();
     let restored =

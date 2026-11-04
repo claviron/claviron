@@ -74,6 +74,55 @@ impl CertSigner {
         self.authority.issuer_id()
     }
 
+    /// Sign a verified CSR with the issuer's client profile. The request's
+    /// subject and extensions are replaced by the authenticated claims.
+    pub fn issue_client_csr(
+        &self,
+        csr_der: &[u8],
+        common_name: &str,
+        subject: Option<&claviron_types::ssl::SubjectUri>,
+        permissions: Option<&claviron_types::permission::Permissions>,
+        validity_days: u32,
+    ) -> Result<Vec<u8>, Error> {
+        use claviron_types::ssl::{
+            formatters, generators, parsers, permission,
+        };
+        if subject
+            .is_some_and(|uri| permission::is_permission_uri(uri.as_str()))
+        {
+            return Err(Error::Other(
+                "subject cannot declare permissions".into(),
+            ));
+        }
+        let mut aliases = Vec::new();
+        if let Some(subject) = subject {
+            aliases.push(subject.to_string());
+        }
+        if let Some(permissions) = permissions {
+            aliases.push(permission::to_uri(permissions));
+        }
+        let ca_key = generators::read_private_key_from_der(&self.key_der)?
+            .serialize_pem();
+        let ca_der = self
+            .authority
+            .roots()
+            .iter()
+            .flat_map(|cert| cert.as_ref().iter().copied())
+            .collect::<Vec<_>>();
+        let ca_pem = formatters::certificate_chain_to_pem(&ca_der)?;
+        let cert = generators::sign_client_csr(
+            common_name,
+            csr_der,
+            ca_pem.as_bytes(),
+            ca_key.as_bytes(),
+            validity_days,
+            aliases,
+        )?;
+        let mut chain = parsers::concat_chain_bytes_from_pem(&cert)?;
+        self.append_intermediates(&mut chain)?;
+        Ok(chain)
+    }
+
     /// Issue client authentication material with an optional application URI identity.
     /// The CN remains a label; this method assigns no application permissions.
     pub fn issue_client_certificate(
@@ -208,13 +257,24 @@ impl CertSigner {
         let mut certs_der = parsers::concat_chain_bytes_from_pem(&cert)?;
         // Store intermediates after the leaf. A self-issued root is a trust
         // anchor and does not belong in the transmitted certificate chain.
+        self.append_intermediates(&mut certs_der)?;
+        Ok(IssuedCertificate { certs_der, key_der: key.serialize_der() })
+    }
+
+    fn append_intermediates(
+        &self,
+        chain: &mut Vec<u8>,
+    ) -> Result<(), Error> {
         for issuer in self.authority.roots() {
-            let parsed = parsers::take_first_cert_from_der(issuer.as_ref())?;
+            let parsed =
+                claviron_types::ssl::parsers::take_first_cert_from_der(
+                    issuer.as_ref(),
+                )?;
             if parsed.subject() != parsed.issuer() {
-                certs_der.extend_from_slice(issuer.as_ref());
+                chain.extend_from_slice(issuer.as_ref());
             }
         }
-        Ok(IssuedCertificate { certs_der, key_der: key.serialize_der() })
+        Ok(())
     }
 }
 
