@@ -523,19 +523,6 @@ impl HostAppRegistry {
             .backend_factories
             .read()
             .expect("backend factories lock poisoned");
-        if factories
-            .iter()
-            .filter(|factory| {
-                context.route.extensions.contains_key(factory.name())
-            })
-            .count()
-            > 1
-        {
-            return Err(Error::msg(format!(
-                "route '{}' declares multiple backends",
-                context.prefix
-            )));
-        }
         let mut owners = Vec::new();
         for factory in factories.iter() {
             owners.extend(factory.prepare(context)?);
@@ -737,6 +724,7 @@ impl HostAppRegistry {
             {
                 continue;
             }
+            routable.prepare_sessions(state, canonical, &host_cfg)?;
             if let Some(application) = Arc::clone(routable).application(
                 state,
                 canonical,
@@ -1069,24 +1057,8 @@ impl HostAppRegistry {
             #[cfg(feature = "websocket")]
             let mut routable = routable;
             #[cfg(feature = "websocket")]
-            #[cfg_attr(
-                not(any(feature = "lua", feature = "broadcast")),
-                allow(unused_mut)
-            )]
+            #[cfg_attr(not(feature = "broadcast"), allow(unused_mut))]
             let mut configured_upgrades = Vec::new();
-            #[cfg(all(feature = "lua", feature = "websocket"))]
-            super::embed::lua::append_websocket_routes(
-                state,
-                canonical,
-                &record.config,
-                &mut configured_upgrades,
-            )?;
-            #[cfg(all(feature = "lua", feature = "webtransport"))]
-            super::embed::lua::append_webtransport_routes(
-                state,
-                canonical,
-                &record.config,
-            )?;
             #[cfg(all(feature = "orbit", feature = "webtransport"))]
             super::link::webtransport::bind(state, canonical, &record.config)?;
             #[cfg(feature = "broadcast")]

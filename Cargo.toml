@@ -99,6 +99,7 @@ supervisor = ["server", "dep:claviron-supervisor", "claviron-runner?/supervisor"
 # The supervised HTTP edge with native host routing and file serving.
 # Select `axum` separately for Rust Axum applications.
 edge = [
+    "claviron-lua?/edge",
     "claviron-php-embed?/edge",
     "claviron-php-fcgi?/edge",
     "supervisor",

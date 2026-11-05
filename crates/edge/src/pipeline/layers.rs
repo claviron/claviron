@@ -12,8 +12,6 @@ mod body;
 mod call;
 mod cors;
 mod deny;
-#[cfg(feature = "lua")]
-mod embed;
 mod extension;
 pub(super) use extension::ScopedExtension;
 mod fallback;

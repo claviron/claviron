@@ -141,7 +141,7 @@ registration. No layer is installed unconditionally.
 | 13 | Custom redirect | Effective host/prefix `redirect`; terminal after contributions, before the Rust router. |
 | 14 | RustRouter | An explicit Axum/Warp/Other binding. |
 | 15 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
-| 16 | Link → Lua → PHP → Upstream | Configured backend declarations and their compiled features. |
+| 16 | Link → registered Backends | Configured declarations; factories prepare owners in registration order. |
 | 17 | Index/SPA file fallback | An index or SPA declaration. |
 
 Custom `redirect` terminates a serving host's selected scope after Routable
@@ -305,11 +305,10 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 
 | Feature | Enables |
 | --- | --- |
-| `server` | Provider, host compilation and transport-facing APIs. |
 | `tcp`, `tls` | Native cleartext H1; optional TLS H1/H2. |
 | `http3`, `quic` | H3 contracts; native Quinn/H3 driver. |
 | `axum` | Rust router adapter. |
-| `lua` | Native Lua backend. |
+| `lua` | Shared Lua route declarations; the Lua crate supplies execution/session adapters. |
 | `php` | Shared PHP declarations only; execution engines supply Backend owners. |
 | `orbit` | Native Link dispatch. Upstream contributes through its own backend factory. |
 | `websocket`, `webtransport` | Native session bindings and combined runtime adapters. |
@@ -368,6 +367,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`apps.rs`](src/pipeline/apps.rs) — Retained factories, directives and per-host application snapshot preparation/reuse.
 - [`routable.rs`](src/pipeline/routable.rs) — Provider-owned contributions, native layers and exclusive host bindings.
 - [`non_serving.rs`](src/pipeline/non_serving.rs) — Fixed plain redirect/reject flow and the optional single request interceptor.
+- [`backend.rs`](src/pipeline/backend.rs) — BackendFactory, effective preparation input and mandatory identity/reply ownership.
 - [`extension.rs`](src/pipeline/extension.rs) — Typed directives and boot-time RouteContext; borrow inherited settings and prepare effective policy.
 - [`routing.rs`](src/pipeline/routing.rs) — Shared prefix dispatch and route-extension re-exports.
 - [`apps/axum.rs`](src/pipeline/apps/axum.rs) — Axum host registration and ApplicationHandler/HostHandler adaptation.
@@ -401,7 +401,7 @@ Disabled file steps allocate no prepared file owner.
 - [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Consume synchronous DispatchCall decisions before await; only compact pending futures enter suspended state, reusing existing application erasure.
 - [`execution.rs`](src/pipeline/host/execution.rs) — Published host execution; separate from the Axum/Other router choice.
 - [`compile.rs`](src/pipeline/host/compile.rs) — Compile prefix scopes, conditions, Rust contributions and backend owners.
-- [`backend.rs`](src/pipeline/host/backend.rs) — Backend/BackendHandler handoff contract and cold backend preparation.
+- [`backend.rs`](src/pipeline/host/backend.rs) — Backend handoff actions and native Link/file fallback preparation.
 
 ### `pipeline/layers/`
 
@@ -423,7 +423,7 @@ and their preparation paths:
 | `Backend<B>` | Effective-policy handoff to a prepared backend. |
 | `RustRouter`, `Arc<dyn HostHandler>` | Through `Backend`; their own HostLayer implementations support explicit builder use. |
 | `StaticStage`, `TryFilesStage`, `Arc<dyn DispatchStep>` | Native file/fallback steps; the Arc adapter installs their consuming calls. |
-| `LinkBackend`, `LuaBackend` and registered Backend owners | Configured owners through `Backend`; typed HostLayer adapters support explicit builder use. |
+| `LinkBackend` and registered Backend owners | Configured owners through `Backend`; typed HostLayer adapters support explicit builder use. |
 | `Arc<WebSocketStage>` | Registered H1 endpoints through `Backend`, gated by host and listener capabilities. |
 | `RedirectLayer` | First effective custom redirect, after contributions and before the terminal router. |
 
@@ -442,7 +442,6 @@ and their preparation paths:
 - [`layers.rs`](src/pipeline/layers.rs) — HostLayer preparation contract and concrete exports.
 - [`app.rs`](src/pipeline/layers/app.rs) — RustRouter and HostHandler builder adapters.
 - [`call.rs`](src/pipeline/layers/call.rs) — Shared DispatchStep builder adapter.
-- [`embed.rs`](src/pipeline/layers/embed.rs) — Lua/PHP builder adapters through Backend.
 - [`link.rs`](src/pipeline/layers/link.rs) — Link Backend builder adapter.
 - [`fallback.rs`](src/pipeline/layers/fallback.rs) — Index/SPA fallback without repeating Static or TryFiles.
 - [`identity.rs`](src/pipeline/layers/identity.rs) — Explicit accepted-connection and selected-host metadata; scheme, protocol and TLS remain in ConnCtx.
@@ -455,13 +454,6 @@ and their preparation paths:
 - [`log.rs`](src/pipeline/layers/log.rs) — Access-record hooks borrow accepted facts; inactive channels install no layer.
 
 
-### `pipeline/embed/`
-
-- [`embed.rs`](src/pipeline/embed.rs) — Embedded adapter boundary; engines and their lifecycle belong to their owning crates.
-- [`lua.rs`](src/pipeline/embed/lua.rs) — Lua mount selection; a nonmatch returns synchronously without a future allocation.
-- [`lua/origin.rs`](src/pipeline/embed/lua/origin.rs) — Shared socket-origin checks against admitted authority and transport scheme.
-- [`lua/websocket.rs`](src/pipeline/embed/lua/websocket.rs) — Lua H1 upgrades and H2 CONNECT from flat/scoped declarations.
-- [`lua/webtransport.rs`](src/pipeline/embed/lua/webtransport.rs) — Lua native H3 session admission and stream handoff.
 
 ### `pipeline/link/`
 
@@ -552,10 +544,6 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`wt.rs`](tests/pipeline/wt.rs) — Exact native bindings precede Link fallback.
 - [`link.rs`](tests/pipeline/link.rs) — Link route misses, handshake construction, message forwarding and cancellation.
 - [`link/webtransport.rs`](tests/pipeline/link/webtransport.rs) — Independent streams, route ownership, cancellation and partial writes.
-- [`embed/lua.rs`](tests/pipeline/embed/lua.rs) — Lua mount precedence and unchanged unread bodies/trailers.
-- [`embed/lua/origin.rs`](tests/pipeline/embed/lua/origin.rs) — Origin ambiguity, requested aliases/ports and accepted scheme.
-- [`embed/lua/socket_path.rs`](tests/pipeline/embed/lua/socket_path.rs) — Mounted endpoint paths and removed/masked socket ownership.
-- [`embed/lua/webtransport.rs`](tests/pipeline/embed/lua/webtransport.rs) — H3 endpoint ownership and effective origin policy.
 
 ### `pipeline/host/`
 

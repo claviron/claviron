@@ -11,6 +11,8 @@ pub mod app;
 pub mod config;
 #[cfg(any(feature = "postgres", feature = "mysql", feature = "sqlite"))]
 pub mod db;
+#[cfg(feature = "edge")]
+pub mod edge;
 mod engine;
 #[cfg(feature = "orbit")]
 pub mod events;

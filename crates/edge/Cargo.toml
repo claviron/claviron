@@ -27,11 +27,11 @@ access-log = [
     "dep:claviron-logging",
     "claviron-logging/pipeline",
 ]
-websocket = ["tcp", "claviron-http/websocket", "claviron-lua?/websocket"]
+websocket = ["tcp", "claviron-http/websocket"]
 # Configured Pusher REST endpoints currently use an optional Rust router adapter.
 broadcast = ["axum", "dep:claviron-pusher", "claviron-pusher/http", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
 php = ["dep:claviron-php"]
-lua = ["dep:claviron-lua", "claviron-http/lua"]
+lua = ["claviron-http/lua"]
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
     "claviron-http/orbit",
@@ -48,7 +48,7 @@ db = ["dep:claviron-db", "dep:claviron-hosting", "claviron-hosting/server"]
 postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
 metrics = ["axum", "claviron-http/metrics"]
 http3 = ["claviron-http/http3"]
-webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport", "claviron-lua?/webtransport"]
+webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport"]
 # Native drivers are opt-in; host declarations alone open no sockets.
 tcp = ["claviron-types/ssl", "dep:claviron-sys", "dep:socket2", "dep:hyper", "dep:hyper-util"]
 tls = ["dep:rustls", "dep:tokio-rustls"]
@@ -69,7 +69,6 @@ claviron-helpers.workspace = true
 claviron-hosting = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
 claviron-logging = { workspace = true, optional = true }
-claviron-lua = { workspace = true, optional = true, features = ["app"] }
 claviron-orbit = { workspace = true, optional = true }
 claviron-php = { workspace = true, optional = true }
 claviron-pusher = { workspace = true, optional = true }

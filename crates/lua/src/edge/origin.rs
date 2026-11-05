@@ -114,5 +114,5 @@ fn same_host(
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/pipeline/embed/lua/origin.rs"]
+#[path = "../../tests/edge/origin.rs"]
 mod tests;

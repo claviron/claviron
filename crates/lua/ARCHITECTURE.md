@@ -22,6 +22,25 @@ Status: in use — `lua:` tasks, the extensions below, and applications.
   phases. They come after the engine and its first extension, and each gets
   its own section here when it is designed.
 
+## Optional Edge integration
+
+`edge.rs` registers the configured BackendFactory. Its prepared owners select
+mounts and forward to `LuaApplicationAdapter`; an absent declaration installs no
+HTTP action. The owner declares identity export and execution-owned replies
+through the common Backend contract.
+
+`edge/websocket.rs` and `edge/webtransport.rs` own native session adapters;
+`edge/origin.rs` shares browser-origin validation. A cold Routable contribution
+prepares session bindings for matching hosts. Socket admission still checks the
+selected host declaration, including removed and more-specific masked routes.
+`Routable::prepare_sessions` and H1 upgrade preparation run before publication;
+there is no engine-specific registration call inside Edge.
+
+The `edge` feature is independent of native application/Runner use. WebSocket
+and WebTransport extend an already-selected Edge integration through weak
+feature forwarding. Pure ownership/path/origin tests live in `tests/edge` and
+start no Lua engine or listener.
+
 ## The engine
 
 - **Lua 5.5**, through `mlua` with `lua55` and `vendored`: the C source is
@@ -384,18 +403,17 @@ passes the request body directly to that generation. Missing/stopped application
 answer 503 without reading the body. Existing streaming, admission and lifecycle
 behavior remains with LuaApplication.
 
-Edge's pipeline/embed/lua.rs prepares only declared mounts, in stable longest
+The optional edge.rs integration prepares only declared mounts, in stable longest
 prefix order, with later equal-prefix declarations winning as before. A
 nonmatching mount returns the unread request capability; a matching error is
 handled, never a signal to try another backend. HostConfig and registry lookup
-belong to cold composition. Lua itself does not know either a host pipeline or
-the order of other backends.
+belong to cold composition. Native execution remains independent of host pipelines and backend order.
 
-The websocket feature selects app and native framing dependencies only. The
-H1UpgradeHandler implementation, H2 CONNECT adapter and HTTP handshake validation
-live in Edge's pipeline/embed/lua/websocket.rs. Its WebTransport adapter is
-beside it; both share origin admission in origin.rs. The host registry only
-calls their cold registration functions. Native engine prepare and
+The websocket feature selects app and native framing dependencies and weakly
+extends an already-selected Edge adapter. H1UpgradeHandler, H2 CONNECT and HTTP
+handshake validation live in edge/websocket.rs; WebTransport is beside it.
+Both share origin admission in edge/origin.rs. Host preparation calls their
+native registration contracts. Native engine prepare and
 serve_websocket remain shared by H1 and H2. This
 separates wire admission from Lua callbacks without adding tasks or changing
 accepted generation ownership, stream draining or engine shutdown.

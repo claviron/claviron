@@ -69,8 +69,10 @@ Host routing and HTTP upgrade admission belong to the consumer, not the engine.
 `serve::LuaApplicationAdapter` is the native entry for a named managed
 application. It retains the prepared service and route policy, acquires the
 current application generation for each call, and forwards `Request<RouteBody>`
-without adapting or collecting its body. Edge's `pipeline::embed::lua::LuaBackend`
-uses this entry directly. Lua has no Axum dependency or router binding.
+without adapting or collecting its body. The optional `edge` module registers
+its BackendFactory and H1/H2 WebSocket or H3 WebTransport contributions. The
+facade selects this integration when both Edge and Lua are enabled; native
+engine and Runner use remain Edge-free. Lua has no Axum dependency or binding.
 
 Requests carry method, path, query, headers, and body-reading methods. Responses
 can be strings or tables with status, headers, and a body; a function-valued body

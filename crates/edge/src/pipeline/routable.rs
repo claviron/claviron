@@ -86,6 +86,18 @@ pub trait Routable: AnyComponent<AppState> {
         host: &HostConfig,
     ) -> bool;
 
+    /// Prepare protocol-native session bindings for this selected host.
+    /// Called at boot/reload, before application/layer preparation. Session
+    /// admission and stream ownership remain with the native registries.
+    fn prepare_sessions(
+        &self,
+        _state: &AppState,
+        _key: &Host,
+        _host: &HostConfig,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     /// Prepare this provider's native Rust request contribution at boot/reload.
     /// Unhandled returns the supplied request capability to the next contribution
     /// and ultimately the configured owner. Only changed host preparation calls

@@ -307,11 +307,11 @@ body to the backend. Directory-index and SPA fallback remain behind backend
 owners. Mount prefixes and disk directories are prepared once, without URI
 rewriting or a second Static/TryFiles probe in the backend fallback.
 
-Embedded runtime backends live under `pipeline::embed`. Lua uses
-`embed::lua::LuaBackend` to select its prepared mount and call the native Lua
-application adapter. A matching unavailable application returns 503; it never
-falls through to another backend. Nonmatching mounts retain the original body.
-Lua dispatch requires no Axum middleware, extractor or `Next`.
+Lua's optional `edge` module supplies its configured BackendFactory and native
+H1/H2 WebSocket and H3 WebTransport contributions. Edge owns only shared route
+declarations and session registries. A matching unavailable application returns
+503; nonmatching mounts return the original unread body. Lua constructs no
+Axum middleware or router.
 
 PHP engines expose optional native Edge backend modules. The facade prepares
 the common file mapping and runner order, then installs Script, Application or

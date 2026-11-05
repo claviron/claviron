@@ -261,18 +261,6 @@ impl HostConfig {
         )
     }
 
-    #[cfg(all(
-        feature = "lua",
-        any(feature = "websocket", feature = "webtransport")
-    ))]
-    pub(crate) fn lua_routes(
-        &self
-    ) -> impl Iterator<Item = (Option<&PathPrefix>, &LuaRouteConfig)> {
-        self.scopes().flat_map(|(prefix, scope)| {
-            scope.lua().iter().map(move |route| (prefix, route))
-        })
-    }
-
     /// Every Link destination needed by host-level lifecycle coordination.
     #[cfg(feature = "orbit")]
     pub(crate) fn link_routes(

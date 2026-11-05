@@ -151,7 +151,7 @@ impl BackendPlan {
         }
         let state = context.state;
         let config = context.route;
-        #[cfg(any(feature = "orbit", feature = "lua"))]
+        #[cfg(feature = "orbit")]
         let policy = context.policy();
         let steps = std::iter::empty::<Arc<dyn BackendHandler>>();
         #[cfg(feature = "orbit")]
@@ -161,18 +161,6 @@ impl BackendPlan {
                 config.orbit(),
                 Some(context.prefix),
                 policy.requests,
-            )
-            .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>),
-        );
-        #[cfg(feature = "lua")]
-        let steps = steps.chain(
-            crate::pipeline::embed::lua::LuaBackend::new(
-                state
-                    .registry_ref()
-                    .resolve::<claviron_lua::serve::LuaApplications>(),
-                config.lua(),
-                Some(context.prefix),
-                policy,
             )
             .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>),
         );

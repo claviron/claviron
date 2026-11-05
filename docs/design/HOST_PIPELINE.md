@@ -15,6 +15,12 @@ Axum, Warp and Other are application adapters inside that plan. Host admission
 and configured policies run before the selected owner. Authentication and session
 policy remain with application providers and frameworks.
 
+Route extensions prepare controls and interception independently of the Rust
+application adapter. Backend factories prepare execution owners after effective
+policy resolution. PHP Embed, FCGI, Lua and Upstream supply optional Edge adapters
+from their own crates; native engine/Runner use does not require Edge. Link
+remains native in Edge.
+
 [EDGE_BACKENDS](EDGE_BACKENDS.md) defines request handoff;
 [LIFETIME_POLICY](LIFETIME_POLICY.md) defines preparation and publication.
 
@@ -24,7 +30,10 @@ policy remain with application providers and frameworks.
 flowchart LR
     Config[Host and listener declarations] --> Scope[Select host / listener / prefix]
     Rust[Rust registrations] --> Scope
-    Scope --> Builder[HostPipelineBuilder]
+    Scope --> Extensions[RouteExtension: controls and hooks]
+    Scope --> Backends[BackendFactory: execution owners]
+    Extensions --> Builder[HostPipelineBuilder]
+    Backends --> Builder
     Prepared[Prepared builder or pipeline] -->|append: move actions| Builder
     Builder --> Plan[Flat immutable HostPipeline]
 ```
@@ -61,7 +70,8 @@ refused streams return 425. No protocol-policy layer enters HostPipeline.
 `Routable` provides a typed extension API in place of a conventional edge
 server's loadable module API. Registered providers implement this Rust trait;
 host and listener-protocol matching run at boot/reload. A provider can contribute
-handlers, `RouteLayer` actions, WebSocket endpoints and `RouteExtension` codecs.
+handlers, `RouteLayer` actions, native session bindings, WebSocket endpoints
+and `RouteExtension` codecs.
 A directive compiles into a handler, layer or route condition. Requests execute
 the prepared contributions; they do not query the provider again.
 
@@ -194,6 +204,7 @@ layers, never transport snapshot attributes.
 ## Code
 
 - [Types and contracts](../../crates/edge/src/pipeline/host.rs)
+- [Backend contracts and factories](../../crates/edge/src/pipeline/backend.rs)
 - [Builder](../../crates/edge/src/pipeline/host/builder.rs)
 - [Code registration](../../crates/edge/src/pipeline/host/registration.rs)
 - [Execution and body ownership](../../crates/edge/src/pipeline/host/request.rs)

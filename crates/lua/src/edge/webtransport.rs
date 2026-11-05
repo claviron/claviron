@@ -1,9 +1,9 @@
 //! Bind configured Lua socket endpoints to the existing native H3 registry.
 use std::sync::Arc;
 
+use crate::webtransport::SessionEnd;
+use crate::{app::LuaApplication, serve::LuaApplications};
 use async_trait::async_trait;
-use claviron_lua::webtransport::SessionEnd;
-use claviron_lua::{app::LuaApplication, serve::LuaApplications};
 use claviron_runtime::{
     AppState,
     registry::{Error, Result},
@@ -12,8 +12,8 @@ use claviron_types::Host;
 use http::StatusCode;
 
 use super::configured_route;
-use crate::HostConfig;
-use crate::pipeline::{
+use claviron_edge::HostConfig;
+use claviron_edge::pipeline::{
     AnyAuthenticated, AuthContext, H3WebTransportSession, WebTransportAccept,
     WebTransportHandler, WebTransportRegistry, WebTransportReject,
     WebTransportResult,
@@ -32,7 +32,7 @@ pub(crate) fn append_routes(
         .registry_ref()
         .resolve::<WebTransportRegistry>()
         .ok_or_else(|| Error::msg("Lua requires the WebTransport registry"))?;
-    for (prefix, route) in config.lua_routes() {
+    for (prefix, route) in super::lua_routes(config) {
         for socket in route.websockets() {
             let path = super::mounted_websocket_path(prefix, &socket.path);
             registry.bind_handler(
@@ -89,13 +89,11 @@ impl WebTransportHandler for Handler {
         ) {
             return Err(WebTransportReject::forbidden());
         }
-        let app = claviron_lua::webtransport::prepare(
-            &self.service,
-            &self.application,
-        )
-        .map_err(|_| {
-            WebTransportReject::new(StatusCode::SERVICE_UNAVAILABLE)
-        })?;
+        let app =
+            crate::webtransport::prepare(&self.service, &self.application)
+                .map_err(|_| {
+                    WebTransportReject::new(StatusCode::SERVICE_UNAVAILABLE)
+                })?;
         Ok(WebTransportAccept::authenticated(app))
     }
 
@@ -132,7 +130,7 @@ impl WebTransportHandler for Handler {
                 )
             })
             .collect();
-        claviron_lua::webtransport::serve_session(
+        crate::webtransport::serve_session(
             || session.accept_bi(),
             session.incoming_capacity(),
             ctx.uri.to_string(),
@@ -147,5 +145,5 @@ impl WebTransportHandler for Handler {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/pipeline/embed/lua/webtransport.rs"]
+#[path = "../../tests/edge/webtransport.rs"]
 mod tests;

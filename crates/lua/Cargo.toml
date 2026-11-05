@@ -28,6 +28,7 @@ test = false
 
 [features]
 default = []
+edge = ["app", "dep:claviron-edge", "claviron-edge/lua", "dep:claviron-types"]
 # A host's configuration: `lua.yaml`'s search path, read at boot and reload.
 server = ["dep:async-trait", "dep:claviron-runtime", "dep:serde", "dep:serde_yaml"]
 # The fleet's shared state as Lua modules: `claviron.orbit.cell`, …
@@ -40,9 +41,9 @@ fetch = ["dep:reqwest", "server"]
 app = ["server", "dep:bytes", "dep:claviron-app", "dep:claviron-helpers", "dep:claviron-http", "dep:http", "dep:http-body", "dep:http-body-util"]
 # WebSockets for applications: `websocket:` on a `lua:` route, over an
 # HTTP/1.1 Upgrade or an HTTP/2 extended CONNECT.
-websocket = ["app", "dep:fastwebsockets", "dep:hyper", "dep:hyper-util"]
+websocket = ["claviron-edge?/websocket", "app", "dep:fastwebsockets", "dep:hyper", "dep:hyper-util"]
 # Reliable WebTransport streams reuse the fleet's bounded message codec.
-webtransport = ["app", "dep:claviron-orbit", "dep:futures-util"]
+webtransport = ["claviron-edge?/webtransport", "app", "dep:claviron-orbit", "dep:futures-util"]
 # Shared SQL dependencies; adapters require `postgres`, `mysql` or `sqlite`.
 db = ["server", "dep:claviron-db", "claviron-db/server", "dep:futures-util", "dep:sqlx", "sqlx/json"]
 # `claviron.db.mysql`, on the MySQL pools.
@@ -57,6 +58,8 @@ tasks = ["dep:claviron-tasks", "server"]
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-app = { workspace = true, optional = true }
+claviron-edge = { workspace = true, optional = true }
+claviron-types = { workspace = true, optional = true }
 claviron-db = { workspace = true, default-features = false, optional = true }
 claviron-helpers = { workspace = true, optional = true }
 claviron-http = { workspace = true, optional = true }

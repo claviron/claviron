@@ -457,13 +457,15 @@ pub fn register(state: &AppState) -> Result<()> {
 
     #[cfg(feature = "edge")]
     claviron_edge::register(state)?;
-    #[cfg(feature = "upstream")]
-    claviron_upstream::edge::register(state)?;
+    #[cfg(all(feature = "edge", feature = "lua"))]
+    claviron_lua::edge::register(state)?;
     #[cfg(all(
         feature = "edge",
         any(feature = "php_embed", feature = "php_fcgi")
     ))]
     super::backends::register(state)?;
+    #[cfg(feature = "upstream")]
+    claviron_upstream::edge::register(state)?;
     // The static file cache learns about changed files from a reload, not
     // from the hot path. Application servers can own it without an edge.
     #[cfg(feature = "files")]

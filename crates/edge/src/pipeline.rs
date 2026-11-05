@@ -1,7 +1,6 @@
 pub mod apps;
 pub mod backend;
 mod connect;
-pub mod embed;
 pub mod extension;
 pub mod host;
 pub mod layers;

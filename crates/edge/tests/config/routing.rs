@@ -18,24 +18,6 @@ fn file_routes_apply_default_root_before_normalizing_any_route_shape() {
     }
 }
 
-#[cfg(all(
-    feature = "lua",
-    any(feature = "websocket", feature = "webtransport")
-))]
-#[test]
-fn lua_socket_declarations_include_scopes_without_duplicating_the_root() {
-    let config: HostConfig = serde_yaml::from_str(
-        "routes:\n  /:\n    lua: {application: root}\n  /api:\n    lua: {application: api}\n",
-    ).unwrap();
-    let applications: Vec<_> = config
-        .lua_routes()
-        .map(|(prefix, route)| {
-            (route.application.as_str(), prefix.map(|path| path.as_str()))
-        })
-        .collect();
-    assert_eq!(applications, [("root", None), ("api", Some("/api"))]);
-}
-
 #[cfg(feature = "orbit")]
 #[test]
 fn link_lifecycle_destinations_include_flat_and_scoped_routes() {

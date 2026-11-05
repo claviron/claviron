@@ -8,11 +8,11 @@ fn prefix(value: &str) -> PathPrefix {
 
 #[test]
 fn native_socket_selection_rejects_removed_and_masked_lua_endpoints() {
-    let host: crate::HostConfig = serde_yaml::from_str(
+    let host: claviron_edge::HostConfig = serde_yaml::from_str(
         "lua: {application: demo, websocket: {path: /socket}}\nroutes:\n  /socket: {static: {}}\n",
     ).unwrap();
     assert!(configured_route(&host, "/socket", "demo").is_none());
-    let removed = crate::HostConfig::new("public");
+    let removed = claviron_edge::HostConfig::new("public");
     assert!(configured_route(&removed, "/socket", "demo").is_none());
 }
 
