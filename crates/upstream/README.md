@@ -181,11 +181,11 @@ provider. Explicit profile stop/start keeps its separate lifecycle. Direct
 `UpstreamService` consumers retain profile-owned maintenance.
 
 Public entry points are organized by responsibility: `UpstreamProvider`,
-`binding::UpstreamApp`, `binding::call_upstream_service`,
-`proxy::service::UpstreamService`, and the `origin`, `resolve`, `config`, and
-`metrics` modules. Host router construction belongs to Edge. The implementation
-has no default features; optional `metrics` adds instrumentation. It has no Axum
-feature, dependency or route binding. Edge prepares its native dispatch owner.
+`app::UpstreamApp`, `proxy::service::UpstreamService`, and the `origin`,
+`resolve`, `config`, and `metrics` modules. The optional `edge` feature adds
+`edge::register`, which registers the configured BackendFactory. The Claviron
+facade's `upstream` feature selects this integration automatically. Low-level
+outbound services remain available without Edge; there is no Axum binding.
 
 ## Related crates
 

@@ -198,19 +198,27 @@ fn file_routes_reject_dot_segments_in_derived_directory_suffixes() {
     );
 }
 
-#[cfg(feature = "upstream")]
 #[test]
 fn file_routes_static_declarations_preserve_upstream_owners() {
     let config: HostConfig = serde_yaml::from_str(
         "root: public\nupstream: backend\nroutes:\n  /assets:\n    directory: build\n    static: {}\n  /assets/private:\n    cors: disabled\n",
     ).unwrap();
-    assert_eq!(config.upstream_name(), Some("backend"));
+    assert_eq!(
+        config.extensions.get("upstream").and_then(serde_yaml::Value::as_str),
+        Some("backend")
+    );
     assert_eq!(config.statics.as_ref().unwrap()[0].path.as_str(), "/assets");
     let config: HostConfig = serde_yaml::from_str(
         "root: public\nupstream: backend\nroutes:\n  /other:\n    upstream: other-backend\n",
     ).unwrap();
     assert_eq!(
-        config.routes.find("/other").unwrap().upstream_name(),
+        config
+            .routes
+            .find("/other")
+            .unwrap()
+            .extensions
+            .get("upstream")
+            .and_then(serde_yaml::Value::as_str),
         Some("other-backend")
     );
 }
@@ -245,7 +253,21 @@ fn disabled_rate_limit_is_rejected_instead_of_silently_ignored() {
     }
 }
 
-#[cfg(not(feature = "upstream"))]
+#[test]
+fn upstream_declarations_remain_for_backend_preparation() {
+    for source in [
+        "upstream: example\n",
+        "routes: {'/': {upstream: example}}\n",
+        "routes: {'/api': {upstream: example}}\n",
+    ] {
+        let config: HostConfig = serde_yaml::from_str(source).unwrap();
+        assert!(config.scopes().any(|(_, scope)| {
+            scope.extensions.get("upstream").and_then(serde_yaml::Value::as_str)
+                == Some("example")
+        }));
+    }
+}
+
 #[test]
 fn disabled_upstream_is_rejected_in_flat_and_scoped_declarations() {
     for source in [

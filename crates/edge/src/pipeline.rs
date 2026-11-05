@@ -10,8 +10,6 @@ pub mod link;
 mod non_serving;
 mod routable;
 pub mod routing;
-#[cfg(feature = "upstream")]
-pub mod upstream;
 #[cfg(feature = "webtransport")]
 mod wt;
 

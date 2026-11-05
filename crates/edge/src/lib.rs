@@ -6,10 +6,6 @@
 //! and `quic` modules retain separate HTTP/1.1, HTTP/2,
 //! and HTTP/3 wire mechanics and connection ownership.
 
-// Native upstream dispatch proves Send through nested Hyper futures.
-// Match upstream's finite proof depth without boxing the request path.
-#![recursion_limit = "256"]
-
 pub mod config;
 #[cfg(feature = "access-log")]
 mod log;

@@ -130,7 +130,7 @@ http3 = ["tls", "claviron-edge/quic", "dep:quinn", "dep:quinn-deferred-config"]
 # DNS origins are always available; the application binds the resolver
 # (`dyn ResolverFactory`, e.g. `resolver-hickory`). A hostname origin with no
 # bound resolver is a boot error.
-upstream = ["dep:claviron-upstream", "claviron-edge?/upstream", "resolver"]
+upstream = ["edge", "dep:claviron-upstream", "claviron-upstream/edge", "resolver"]
 resolver = ["dep:claviron-resolver"]
 resolver-hickory = ["resolver", "claviron-resolver/hickory"]
 # http connect extensions

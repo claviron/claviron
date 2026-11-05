@@ -22,7 +22,6 @@ axum = [
     "dep:axum",
     "claviron-http/axum",
 ]
-upstream = ["dep:claviron-upstream"]
 # One access record per request, to the log channel logging.yaml names.
 access-log = [
     "dep:claviron-logging",
@@ -82,7 +81,6 @@ claviron-runtime.workspace = true
 claviron-sys = { workspace = true, optional = true }
 claviron-tls.workspace = true
 claviron-types.workspace = true
-claviron-upstream = { workspace = true, optional = true }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true

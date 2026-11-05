@@ -66,7 +66,7 @@ path.
 | [edge::quic](crates/edge/src/quic/mod.rs) | Edge's HTTP/3 over QUIC and native request/connection integration. | `http3` (includes `tls`) |
 | [tls](crates/tls/README.md) | TLS handshakes, shared certificate resolution, and mTLS client-auth policy. | `tls` (includes `ssl`) |
 | [files](crates/files/README.md) | Static-file serving, caching, and response construction. | `files`; included by `edge`, usable without it |
-| [upstream](crates/upstream/README.md) | HTTP origin selection, pools, forwarding, and reload. | `upstream` (includes resolver contracts) |
+| [upstream](crates/upstream/README.md) | HTTP origin selection, pools, forwarding, and reload. | `upstream` (includes Edge integration and resolver contracts) |
 | [resolver](crates/resolver/README.md) | DNS client contracts and optional Hickory implementation. | `resolver`; built-in driver: `resolver-hickory` |
 
 Upstream applications bind their resolver implementation explicitly.

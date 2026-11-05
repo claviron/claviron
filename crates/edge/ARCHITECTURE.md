@@ -311,7 +311,7 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 | `axum` | Rust router adapter. |
 | `lua` | Native Lua backend. |
 | `php`, `php_embed`, `php_fcgi` | PHP declarations; Embed or FastCGI adapters. |
-| `orbit`, `upstream` | Link or HTTP-upstream dispatch. |
+| `orbit` | Native Link dispatch. Upstream contributes through its own backend factory. |
 | `websocket`, `webtransport` | Native session bindings and combined runtime adapters. |
 | `broadcast` | Pusher REST and broadcast session composition. |
 | `rate-limit`, `access-log` | Optional quota and access-record paths. |
@@ -375,7 +375,6 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`apps/other.rs`](src/pipeline/apps/other.rs) — Other host registration and re-exports of the shared HTTP handler contract.
 - [`connect.rs`](src/pipeline/connect.rs) — H2 CONNECT registry, explicit binding execution, authentication payload and session context.
 - [`wt.rs`](src/pipeline/wt.rs) — Native WebTransport handler/session API and exact/fallback registry.
-- [`upstream.rs`](src/pipeline/upstream.rs) — Configured upstream selection after local file steps.
 - [`apps/broadcast.rs`](src/pipeline/apps/broadcast.rs) — Broadcast H1/H2/H3 session bindings and session admission.
 - [`apps/broadcast/rest.rs`](src/pipeline/apps/broadcast/rest.rs) — Claim configured REST endpoints without wrapping unrelated requests.
 
@@ -445,7 +444,6 @@ and their preparation paths:
 - [`call.rs`](src/pipeline/layers/call.rs) — Shared DispatchStep builder adapter.
 - [`embed.rs`](src/pipeline/layers/embed.rs) — Lua/PHP builder adapters through Backend.
 - [`link.rs`](src/pipeline/layers/link.rs) — Link Backend builder adapter.
-- [`upstream.rs`](src/pipeline/layers/upstream.rs) — Upstream Backend builder adapter.
 - [`fallback.rs`](src/pipeline/layers/fallback.rs) — Index/SPA fallback without repeating Static or TryFiles.
 - [`identity.rs`](src/pipeline/layers/identity.rs) — Explicit accepted-connection and selected-host metadata; scheme, protocol and TLS remain in ConnCtx.
 - [`identity/extensions.rs`](src/pipeline/layers/identity/extensions.rs) — One metadata export at Backend entry; preserve existing boxes and request-local forwarding.

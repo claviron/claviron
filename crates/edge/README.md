@@ -320,11 +320,11 @@ resolution; a matching unavailable application returns 503. Script/FCGI
 resolution may yield the original unread request. PHP engines and shared
 contracts no longer supply Axum bindings.
 
-`pipeline::upstream::UpstreamStage` selects an upstream profile and calls its
-native request boundary. It retains live profile replacement and the service's
-existing streaming, lease and cancellation behavior. Static/TryFiles belong to
-the preceding host steps; the explicit `UpstreamRouter` file composition remains
-available separately.
+Upstream registers its own `BackendFactory` through its opt-in `edge` module.
+Edge retains no Upstream service dependency or special dispatch adapter.
+The prepared owner preserves live profiles, streaming and lease ownership;
+Static/TryFiles remain preceding host steps. Another Claviron edge is an
+ordinary HTTP origin with its own authority, forwarding and TLS policy.
 
 `pipeline::link::LinkBackend` prepares segment-safe application mounts and their
 destination handles. A miss returns the original request; a matching unavailable

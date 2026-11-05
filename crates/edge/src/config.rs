@@ -7,7 +7,7 @@ use std::sync::Arc;
 use claviron_helpers::de::opt_one_or_many;
 use claviron_http::config::cors::CorsConfig;
 pub use claviron_http::config::host::{
-    DEFAULT_SERVER_HEADER, HostHeadersConfig, HostUpstreamConfig,
+    DEFAULT_SERVER_HEADER, HostHeadersConfig,
 };
 #[cfg(feature = "lua")]
 pub use claviron_http::config::routes::JavaScriptWebSocketConfig;
@@ -162,7 +162,6 @@ impl HostConfig {
                     orbit: None,
                     #[cfg(feature = "broadcast")]
                     broadcast: None,
-                    upstream: None,
                 },
                 listeners: None,
                 aliases: Aliases::default(),

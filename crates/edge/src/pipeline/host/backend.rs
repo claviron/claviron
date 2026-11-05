@@ -150,7 +150,6 @@ impl BackendPlan {
             return Self { steps: Vec::new(), fallback: None };
         }
         let state = context.state;
-        let host = context.host;
         let config = context.route;
         #[cfg(any(feature = "orbit", feature = "lua"))]
         let policy = context.policy();
@@ -182,23 +181,6 @@ impl BackendPlan {
             crate::pipeline::embed::php::PhpBackend::new(state, config)
                 .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>),
         );
-        #[cfg(feature = "upstream")]
-        let steps = steps.chain(
-            crate::pipeline::upstream::UpstreamStage::prepare(
-                state,
-                host,
-                config.upstream.as_ref(),
-                claviron_upstream::proxy::service::UpstreamRequestPolicy {
-                    allow_h1_upgrade: config.transport.h1.upgrade,
-                    allow_connect_protocol: config
-                        .transport
-                        .h2
-                        .connect_protocol,
-                },
-            )
-            .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>),
-        );
-        let _ = host;
         Self {
             steps: steps.collect(),
             fallback: prepare_fallback(state, config),

@@ -11,9 +11,9 @@ use super::PusherConfig;
 #[cfg(feature = "rate-limit")]
 use super::quota;
 use super::{
-    CorsConfig, DEFAULT_SERVER_HEADER, HostHeadersConfig, HostUpstreamConfig,
-    HttpPolicyOverride, RedirectConfig, RequestPolicyOverride,
-    ResponsePolicyOverride, StaticConfig, acl, is_dynamic_file,
+    CorsConfig, DEFAULT_SERVER_HEADER, HostHeadersConfig, HttpPolicyOverride,
+    RedirectConfig, RequestPolicyOverride, ResponsePolicyOverride,
+    StaticConfig, acl, is_dynamic_file,
 };
 use super::{HostConfig, HostFields};
 use claviron_helpers::de::opt_one_or_many;
@@ -56,8 +56,6 @@ pub struct RouteConfig {
     #[cfg(feature = "broadcast")]
     #[serde(alias = "pusher")]
     pub(super) broadcast: Option<Arc<super::PusherConfig>>,
-    #[serde(default)]
-    pub upstream: Option<super::HostUpstreamConfig>,
     /// Where this host's access records go: a channel `logging.yaml`
     /// declares, or `off` for none. Unwritten, `logging.yaml`'s own
     /// `access_log`. Several hosts may name one channel; each record carries
@@ -155,10 +153,6 @@ impl RouteConfig {
 
     pub fn acl(&self) -> Option<&acl::AccessLimiter> {
         self.acl.as_ref()
-    }
-
-    pub fn upstream_name(&self) -> Option<&str> {
-        self.upstream.as_ref().map(HostUpstreamConfig::name)
     }
 
     /// Declared server label, or the library identity.
@@ -436,7 +430,7 @@ fn is_application_directive(name: &str) -> bool {
 }
 
 fn is_builtin_directive(name: &str) -> bool {
-    is_application_directive(name)
+    (is_application_directive(name) && name != "upstream")
         || matches!(
             name,
             "root"
@@ -465,7 +459,6 @@ fn validate_feature(
         "php" => cfg!(feature = "php"),
         "lua" => cfg!(feature = "lua"),
         "orbit" => cfg!(feature = "orbit"),
-        "upstream" => cfg!(feature = "upstream"),
         "broadcast" | "pusher" => cfg!(feature = "broadcast"),
         "rate_limit" => cfg!(feature = "rate-limit"),
         _ => true,
@@ -516,7 +509,8 @@ fn validate(
         let name = name.as_str().ok_or("route directive must be a string")?;
         if is_application_directive(name) {
             owners += 1;
-        } else if !is_builtin_directive(name) {
+        }
+        if !is_builtin_directive(name) {
             extensions.insert(name.to_owned(), value.clone());
         }
         validate_feature(prefix, name)?;

@@ -32,8 +32,6 @@ mod quota;
 mod redirect;
 mod reply;
 mod selection;
-#[cfg(feature = "upstream")]
-mod upstream;
 #[cfg(feature = "websocket")]
 mod websocket;
 

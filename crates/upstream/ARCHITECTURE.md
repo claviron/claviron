@@ -12,31 +12,22 @@ file/static handling, availability signals, and the step-by-step Rust
 migration path.
 
 The crate is not a second web server and not a generic proxy sidecar.
-It is an application dispatch primitive consumed through the native host
-pipeline. Edge owns UpstreamStage and the separately exposed UpstreamRouter;
-this crate supplies UpstreamApp and call_upstream_service with normalized HTTP
-requests/responses. There is no Axum feature, dependency or route binding.
+The optional `edge` module registers the `upstream` BackendFactory. It compiles
+selected application/profile handles at boot/reload and declares identity and
+external SSE ownership through Edge's common Backend contract. Edge depends on
+no Upstream implementation. There is no Axum dependency or Upstream RustRouter
+variant. Low-level outbound services remain available without the `edge` feature.
 
----
-
-## 1. Boundary
+## Boundary
 
 ```text
-claviron-hyper / claviron-h3
-  -> HostService admission / native Hyper or H3 adapter
-  -> RustRouter
-  -> native UpstreamStage or OtherService::new(UpstreamRouter)
+Edge host policy -> Rust application -> Static -> TryFiles
+  -> prepared Upstream backend -> origin response
 ```
 
-The transport crates continue to own socket accept, TLS/QUIC, ALPN,
-SNI, 421 guards, deny/body-limit guards, and conversion into
-`Request<RouteBody>`. HTTP upstream receives that normalized request
-shape and returns a `RouteResponse`.
-
-No RustRouter::Upstream is introduced. UpstreamStage implements Edge's native
-DispatchStep; UpstreamRouter remains an explicit application-owned composition.
-Both call binding::call_upstream_service with Request<RouteBody> and the prepared
-H1/H2 session policy. The same selected service owns its request and response IO.
+The selected service retains request/response IO and live profile ownership.
+The origin may be any supported HTTP server, including another Claviron edge;
+ingress admission and outbound authority/TLS policy remain independent.
 
 ---
 
@@ -98,7 +89,8 @@ crate is arranged:
 
 ```text
 claviron::upstream::register / UpstreamProvider   boot and reload owner
-claviron::upstream::binding    UpstreamApp, call_upstream_service
+claviron::upstream::app        UpstreamApp
+claviron::upstream::edge       optional BackendFactory registration
 claviron::upstream::service    UpstreamService, UpstreamLifecycle,
                                UpstreamRequestPolicy, MembershipError/Target
 claviron::upstream::origin     OriginId, OriginHealth, PoolGeneration, ConnectTarget
@@ -729,29 +721,11 @@ route-local wildcard excludes
 ```
 
 Configured host dispatch runs Rust applications, Static and TryFiles before
-its prepared backend steps. Link/Lua/PHP retain their preceding mount ownership;
-UpstreamStage is the low-priority HTTP backend. It selects the existing explicit
-exact/path/regex route before the root fallback, then retains final 404 when no
-service matches. It does not repeat a local file probe. An absent upstream
-installs no UpstreamStage and prepares no provider/service handle.
-
-The explicit UpstreamRouter API retains its own composition:
-
-```text
-Host admission -> Rust contributions
-  -> upstream exact/path/regex routes
-  -> try_handle_files with its caller-supplied FileSite
-  -> upstream root fallback
-  -> final 404
-```
-
-A root fallback remains distinct from an ordinary prefix, and route-local
-excludes retain their existing matcher behavior. The automatic upstream binding
-can prepare its file steps separately while preserving residual index/SPA
-fallback; direct callers keep their own FileSite policy. Native profile
-selection and call_upstream_service do not collect or re-box an existing
-RouteBody. Service cancellation, accepted lease/stream ownership and live
-profile replacement are unchanged by the dispatch boundary.
+the upstream backend. The prepared owner selects explicit exact/path/regex
+routes before root fallback and retains final 404 on a miss. It performs no
+local file probe. Without an upstream declaration, no service handle or backend
+action is prepared. Response completion uses the common Backend contract;
+profile replacement and accepted lease/stream ownership remain service-owned.
 
 Reverse caching is intentionally not specified here yet. The pipeline
 finding in `../edge` captures the current
