@@ -52,10 +52,8 @@ fn assert_context(
         &extensions.get::<HostName>().unwrap().0,
         &host.hostname.0
     ));
-    assert!(Arc::ptr_eq(
-        &extensions.get::<HostKey>().unwrap().0,
-        &host.vhost_key.0
-    ));
+    // The canonical key selects the host inside the edge; no backend reads it.
+    assert!(extensions.get::<HostKey>().is_none());
     assert_eq!(extensions.get::<HttpPolicy>(), Some(&HttpPolicy::unlimited()));
     assert!(extensions.get::<Arc<HostConfig>>().is_none());
     assert!(extensions.get::<claviron_http::ListenerId>().is_none());
@@ -71,7 +69,7 @@ fn identity_exports_shared_runtime_owners_without_retaining_host_configuration()
     let mut second = Request::new(());
     export(&mut first, &connection, &host);
     export(&mut second, &connection, &host);
-    assert_eq!(first.extensions().len(), 4);
+    assert_eq!(first.extensions().len(), 3);
     assert_context(first.extensions(), &connection, &host);
     assert_context(second.extensions(), &connection, &host);
     assert!(first.extensions().get::<RealIpExt>().is_none());

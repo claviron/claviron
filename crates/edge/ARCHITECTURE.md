@@ -143,7 +143,7 @@ once, immediately before the first Backend. Static, TryFiles and file fallback
 remain native steps; requests answered there before any Backend create no
 identity extension map.
 
-Identity exports the existing `Arc<ConnCtx>`, selected `HostName`/`HostKey` and
+Identity exports the existing `Arc<ConnCtx>`, selected `HostName` and
 effective scope `HttpPolicy`. Scheme, protocol, TLS and peer GeoIP stay in
 `ConnCtx`; only configured trusted forwarding adds request-local `RealIpExt`.
 Body ownership is transferred unchanged. Later Backend fallthrough does not

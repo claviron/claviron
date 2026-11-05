@@ -44,7 +44,7 @@ impl DispatchStep for First {
         &self,
         mut request: Request<RouteBody>,
     ) -> DispatchCall {
-        assert_eq!(request.extensions().len(), 4);
+        assert_eq!(request.extensions().len(), 3);
         assert_eq!(
             request.extensions().get::<HttpPolicy>(),
             Some(&HttpPolicy::unlimited())

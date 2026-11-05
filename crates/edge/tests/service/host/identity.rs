@@ -12,9 +12,8 @@ use futures_util::FutureExt;
 fn check<B>(request: &Request<B>) {
     let connection = request.extensions().get::<Arc<ConnCtx>>().unwrap();
     let host = request.extensions().get::<HostName>().unwrap();
-    let key = request.extensions().get::<HostKey>().unwrap();
     assert_eq!(host.0.to_string(), "alias.test");
-    assert_eq!(key.0.to_string(), "app.test");
+    assert!(request.extensions().get::<HostKey>().is_none());
     assert_eq!(connection.country_code.as_deref(), Some("GB"));
     assert_eq!(
         request.extensions().get::<HttpPolicy>(),

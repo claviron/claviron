@@ -97,7 +97,7 @@ does not stop the shared runtime or unrelated work. Follow
 ## Request identity
 
 The builder places Identity immediately before the first Backend. It exports
-the existing `Arc<ConnCtx>`, selected `HostName`/`HostKey` and effective policy.
+the existing `Arc<ConnCtx>`, selected `HostName` and effective policy.
 Later Backend fallthrough preserves those values without another insertion.
 
 Transport facts remain in `ConnCtx`. Trusted forwarding is request-local
