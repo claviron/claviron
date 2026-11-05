@@ -76,6 +76,7 @@ fn quota_layer_borrows_accepted_identity_and_cancellation_does_not_refund_admiss
     let connection = connection();
     let context = Some(HostContext {
         host: None,
+        policy: None,
         connection: &connection,
         arrival: RequestArrival::Established,
     });
@@ -118,6 +119,7 @@ fn quota_snapshot_headers_come_from_the_admission_that_produced_the_reply() {
     let connection = connection();
     let context = Some(HostContext {
         host: None,
+        policy: None,
         connection: &connection,
         arrival: RequestArrival::Established,
     });

@@ -68,6 +68,7 @@ impl super::super::DispatchStep for RegisteredBackend {
     fn call(
         &self,
         request: Request<claviron_http::RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> super::super::DispatchCall {
         assert!(request.extensions().is_empty());
         super::super::DispatchCall::ready(
@@ -296,6 +297,7 @@ impl super::super::DispatchStep for UnavailableBackend {
     fn call(
         &self,
         request: Request<claviron_http::RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> super::super::DispatchCall {
         drop(request);
         super::super::DispatchCall::ready(

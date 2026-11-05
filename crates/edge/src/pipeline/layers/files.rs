@@ -34,6 +34,7 @@ impl DispatchStep for StaticStage {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         let mount = self.mount.clone();
         DispatchCall::new(async move {
@@ -71,6 +72,7 @@ impl DispatchStep for TryFilesStage {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         let site = self.site.clone();
         DispatchCall::new(async move {
@@ -128,7 +130,9 @@ impl<S> super::HostLayer<S> for StaticStage {
         self,
         layer: &mut crate::pipeline::host::HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.request(move |request| DispatchStep::call(&self, request));
+        layer.request_in(move |request, context| {
+            DispatchStep::call(&self, request, context)
+        });
         Ok(())
     }
 }
@@ -138,7 +142,9 @@ impl<S> super::HostLayer<S> for TryFilesStage {
         self,
         layer: &mut crate::pipeline::host::HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.request(move |request| DispatchStep::call(&self, request));
+        layer.request_in(move |request, context| {
+            DispatchStep::call(&self, request, context)
+        });
         Ok(())
     }
 }

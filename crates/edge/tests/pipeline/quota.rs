@@ -76,6 +76,7 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
     });
     let context = Some(crate::pipeline::host::HostContext {
         host: None,
+        policy: None,
         connection: &connection,
         arrival: crate::service::RequestArrival::Established,
     });

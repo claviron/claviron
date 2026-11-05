@@ -50,8 +50,11 @@ pub use response::ReplyHooks;
 
 type HeadAction<S, R> =
     Box<dyn Fn(&mut RequestParts, &mut S) -> ControlFlow<R> + Send + Sync>;
-type RequestAction =
-    Box<dyn Fn(Request<RouteBody>) -> DispatchCall + Send + Sync>;
+type RequestAction = Box<
+    dyn for<'a> Fn(Request<RouteBody>, Option<HostContext<'a>>) -> DispatchCall
+        + Send
+        + Sync,
+>;
 type ContextHeadAction<S, R> = Box<
     dyn for<'a> Fn(
             &mut RequestParts,

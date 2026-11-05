@@ -56,7 +56,7 @@ fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
             .uri(path)
             .body(claviron_http::boxed_body(UnreadBody(drops.clone())))
             .unwrap();
-        let DispatchCall::Ready(result) = backend.call(request) else {
+        let DispatchCall::Ready(result) = backend.call(request, None) else {
             panic!("mount selection is synchronous");
         };
         match result {

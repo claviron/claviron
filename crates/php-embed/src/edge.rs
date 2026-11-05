@@ -58,6 +58,7 @@ impl DispatchStep for UnavailableApplication {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<claviron_edge::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         drop(request);
         DispatchCall::ready(ServiceResult::Handled(

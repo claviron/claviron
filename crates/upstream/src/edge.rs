@@ -79,7 +79,7 @@ impl UpstreamStage {
 impl BackendHandler for UpstreamStage {
     fn contract(&self) -> BackendContract {
         BackendContract {
-            identity: BackendIdentity::Request,
+            identity: BackendIdentity::None,
             reply: BackendReply::ExternalEventStream(self.shutdown.clone()),
         }
     }
@@ -89,6 +89,7 @@ impl DispatchStep for UpstreamStage {
     fn call(
         &self,
         request: Request<RouteBody>,
+        context: Option<claviron_edge::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         let path = request.uri().path();
         let service = self
@@ -103,15 +104,16 @@ impl DispatchStep for UpstreamStage {
             )));
         };
         let policy = self.policy;
+        // Copied while the context is lent: the exchange outlives this call.
+        // With no accepted transport behind the request there is no edge
+        // policy for the profile's own to narrow.
+        let edge = context
+            .and_then(|context| context.policy())
+            .copied()
+            .unwrap_or(claviron_http::policy::HttpPolicy::unlimited());
         DispatchCall::new(async move {
             ServiceResult::Handled(
-                call_upstream_service(
-                    service,
-                    request,
-                    policy.allow_h1_upgrade,
-                    policy.allow_connect_protocol,
-                )
-                .await,
+                call_upstream_service(service, request, edge, policy).await,
             )
         })
     }
@@ -120,11 +122,10 @@ impl DispatchStep for UpstreamStage {
 async fn call_upstream_service(
     service: UpstreamService,
     request: Request<RouteBody>,
-    allow_h1_upgrade: bool,
-    allow_connect_protocol: bool,
+    edge: claviron_http::policy::HttpPolicy,
+    policy: UpstreamRequestPolicy,
 ) -> claviron_http::RouteResponse {
-    let mut scope = RequestScope::from_request(&request);
-    scope.policy =
-        UpstreamRequestPolicy { allow_h1_upgrade, allow_connect_protocol };
+    let mut scope = RequestScope::under(&request, edge);
+    scope.policy = policy;
     service.handle_scoped(request, scope).await
 }

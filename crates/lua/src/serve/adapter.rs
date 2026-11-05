@@ -42,9 +42,12 @@ impl LuaApplicationAdapter {
 
     /// Transfer the existing body directly into the current Lua application.
     /// Body delivery, admission, execution and cancellation remain engine-owned.
+    /// `edge` is the policy of the scope that selected this application, which
+    /// the route's own narrows; `None` when no edge stands in front of it.
     pub async fn handle(
         &self,
         request: Request<RouteBody>,
+        edge: Option<claviron_http::policy::HttpPolicy>,
     ) -> RouteResponse {
         let Some(application) = self
             .service
@@ -58,7 +61,7 @@ impl LuaApplicationAdapter {
             );
             return response;
         };
-        let policy = crate::app::route_policy(&request, &self.route);
+        let policy = crate::app::route_policy(edge, &self.route);
         application.handle(request, policy).await
     }
 }

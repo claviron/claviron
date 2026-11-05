@@ -242,6 +242,7 @@ routes:
                     .unwrap(),
                 Some(HostContext {
                     host: None,
+                    policy: None,
                     connection: &untrusted,
                     arrival: RequestArrival::Established,
                 }),
@@ -266,6 +267,7 @@ routes:
                     .unwrap(),
                 Some(HostContext {
                     host: None,
+                    policy: None,
                     connection: &accepted,
                     arrival: RequestArrival::Established,
                 }),
@@ -318,6 +320,7 @@ fn an_allow_all_child_still_overrides_a_deny_all_parent() {
                     .unwrap(),
                 Some(HostContext {
                     host: None,
+                    policy: None,
                     connection: &accepted,
                     arrival: RequestArrival::Established,
                 }),
@@ -485,6 +488,7 @@ fn cors_preflight_spends_quota_and_quota_refusal_keeps_cors_headers() {
                     .unwrap(),
                 Some(HostContext {
                     host: None,
+                    policy: None,
                     connection: &accepted,
                     arrival: RequestArrival::Established,
                 }),

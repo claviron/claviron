@@ -167,7 +167,7 @@ fn ordinary_requests_pass_the_original_body_inline_on_exact_path_lookup() {
             .body(claviron_http::boxed_body(Unread(drops.clone())))
             .unwrap();
         let DispatchCall::Ready(ServiceResult::Unhandled(request)) =
-            stage.call(request)
+            stage.call(request, None)
         else {
             panic!("ordinary requests must pass synchronously");
         };

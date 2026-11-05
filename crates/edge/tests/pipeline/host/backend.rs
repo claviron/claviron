@@ -25,6 +25,7 @@ impl DispatchStep for FileStep {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         assert!(request.extensions().is_empty());
         if request.uri().path() == "/asset" {
@@ -50,6 +51,7 @@ impl DispatchStep for First {
     fn call(
         &self,
         mut request: Request<RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         assert_eq!(request.extensions().len(), 3);
         assert_eq!(
@@ -84,6 +86,7 @@ impl DispatchStep for Last {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         assert!(Arc::ptr_eq(
             request.extensions().get::<Arc<ConnCtx>>().unwrap(),
@@ -145,6 +148,7 @@ impl DispatchStep for Untouched {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         // Nothing is written for an owner that declares no identity.
         assert!(request.extensions().is_empty());
@@ -189,6 +193,7 @@ impl DispatchStep for Pending {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         assert!(request.extensions().get::<Arc<ConnCtx>>().is_some());
         DispatchCall::new(async move {
@@ -234,6 +239,7 @@ impl DispatchStep for External {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         match request.uri().path() {
             "/miss" => DispatchCall::ready(ServiceResult::Unhandled(request)),
@@ -303,4 +309,67 @@ fn backend_handoff_ends_only_the_selected_external_event_stream() {
             .unwrap();
         assert_eq!(frame.data_ref().unwrap().as_ptr(), pointer);
     }
+}
+
+/// An owner that reads its scope from the context and declares no export.
+struct Borrower {
+    policy: HttpPolicy,
+    connection: Arc<ConnCtx>,
+    last: bool,
+}
+impl BackendHandler for Borrower {
+    fn contract(&self) -> crate::pipeline::BackendContract {
+        crate::pipeline::BackendContract {
+            identity: crate::pipeline::BackendIdentity::None,
+            reply: crate::pipeline::BackendReply::Owner,
+        }
+    }
+}
+impl DispatchStep for Borrower {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+        context: Option<crate::pipeline::host::HostContext<'_>>,
+    ) -> DispatchCall {
+        let context = context.expect("an accepted request has a context");
+        assert_eq!(context.policy(), Some(&self.policy));
+        assert!(Arc::ptr_eq(context.connection, &self.connection));
+        assert_eq!(context.hostname().unwrap().0.to_string(), "alias.test");
+        assert!(request.extensions().is_empty());
+        DispatchCall::ready(if self.last {
+            ServiceResult::Handled(Response::new(request.into_body()))
+        } else {
+            ServiceResult::Unhandled(request)
+        })
+    }
+}
+
+#[test]
+fn each_backend_is_lent_its_own_scope_policy_and_the_request_is_not_written() {
+    let connection = connection();
+    let hostname = HostName(Arc::new("alias.test".parse().unwrap()));
+    let key = HostKey(Arc::new("app.test".parse().unwrap()));
+    let context = Some(
+        HostContext::new(&connection, RequestArrival::Established)
+            .with_host(&hostname, &key),
+    );
+    let mut narrowed = HttpPolicy::unlimited();
+    narrowed.requests.max_body_size = Some(1024);
+    let mut builder = HostPipelineBuilder::<()>::new();
+    for (policy, last) in [(narrowed, false), (HttpPolicy::unlimited(), true)] {
+        builder
+            .layer(Backend::new(
+                Borrower { policy, connection: connection.clone(), last },
+                policy,
+            ))
+            .unwrap();
+    }
+    let response = builder
+        .build()
+        .into_execution()
+        .handle_in(Request::new(empty_body()), context)
+        .now_or_never()
+        .expect("synchronous owners are ready")
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }

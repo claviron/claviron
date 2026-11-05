@@ -77,6 +77,21 @@ impl<S> HostLayerBuilder<S> {
         &mut self,
         action: impl Fn(Request<RouteBody>) -> DispatchCall + Send + Sync + 'static,
     ) -> &mut Self {
+        self.request_in(move |request, _| action(request))
+    }
+
+    /// As [`request`](Self::request), for an owner that borrows the accepted
+    /// facts while it decides.
+    pub fn request_in(
+        &mut self,
+        action: impl for<'a> Fn(
+            Request<RouteBody>,
+            Option<HostContext<'a>>,
+        ) -> DispatchCall
+        + Send
+        + Sync
+        + 'static,
+    ) -> &mut Self {
         self.before.push(Action::Request(Box::new(action)));
         self
     }

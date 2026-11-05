@@ -44,6 +44,7 @@ impl DispatchStep for Fcgi {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<claviron_edge::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         let service = self.service.clone();
         let runtime = self.runtime.clone();

@@ -84,7 +84,7 @@ impl LuaBackend {
 impl claviron_edge::pipeline::BackendHandler for LuaBackend {
     fn contract(&self) -> claviron_edge::pipeline::BackendContract {
         claviron_edge::pipeline::BackendContract {
-            identity: claviron_edge::pipeline::BackendIdentity::Request,
+            identity: claviron_edge::pipeline::BackendIdentity::None,
             reply: claviron_edge::pipeline::BackendReply::Owner,
         }
     }
@@ -94,13 +94,16 @@ impl DispatchStep for LuaBackend {
     fn call(
         &self,
         request: Request<RouteBody>,
+        context: Option<claviron_edge::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         let Some(mount) = self.select(request.uri().path()) else {
             return DispatchCall::ready(ServiceResult::Unhandled(request));
         };
         let adapter = mount.adapter.clone();
+        // Copied while the context is lent: the call outlives it.
+        let edge = context.and_then(|context| context.policy()).copied();
         DispatchCall::new(async move {
-            ServiceResult::Handled(adapter.handle(request).await)
+            ServiceResult::Handled(adapter.handle(request, edge).await)
         })
     }
 }

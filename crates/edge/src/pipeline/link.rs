@@ -28,9 +28,7 @@ use http::Request;
 
 use super::host::{DispatchCall, DispatchStep};
 use claviron_http::ext::{ConnCtx, PathPrefix};
-use claviron_http::policy::{
-    BodyNeed, HttpPolicy, RequestPolicy, RequestPolicyOverride,
-};
+use claviron_http::policy::{BodyNeed, RequestPolicy, RequestPolicyOverride};
 use claviron_orbit::transport::{
     Exchange, HttpVersion, TRANSPORT_BUFFER_BYTES, TransportService,
     TransportTarget,
@@ -108,7 +106,7 @@ impl LinkBackend {
 impl crate::pipeline::host::BackendHandler for LinkBackend {
     fn contract(&self) -> crate::pipeline::BackendContract {
         crate::pipeline::BackendContract {
-            identity: crate::pipeline::BackendIdentity::Request,
+            identity: crate::pipeline::BackendIdentity::None,
             reply: crate::pipeline::BackendReply::ExternalEventStream(
                 self.shutdown.clone(),
             ),
@@ -120,6 +118,7 @@ impl DispatchStep for LinkBackend {
     fn call(
         &self,
         request: Request<RouteBody>,
+        context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         let Some(route) = self.select(request.uri().path()) else {
             return DispatchCall::ready(ServiceResult::Unhandled(request));
@@ -129,16 +128,27 @@ impl DispatchStep for LinkBackend {
                 "the Link route has no prepared destination",
             )));
         };
-        let requests = route.requests;
+        // Taken while the context is lent: the exchange outlives this call.
+        // The edge's policy for this scope, narrowed by this application's
+        // block; with no accepted transport behind the request there is no
+        // edge policy to narrow.
+        let policy = context
+            .and_then(|context| context.policy())
+            .map_or(RequestPolicy::unlimited(), |policy| policy.requests)
+            .narrow(&route.requests);
+        let connection = context.map(|context| context.connection.clone());
         DispatchCall::new(async move {
-            ServiceResult::Handled(dispatch(target, requests, request).await)
+            ServiceResult::Handled(
+                dispatch(target, policy, connection, request).await,
+            )
         })
     }
 }
 
 async fn dispatch(
     target: TransportTarget,
-    requests: RequestPolicyOverride,
+    policy: RequestPolicy,
+    connection: Option<Arc<ConnCtx>>,
     request: Request<RouteBody>,
 ) -> RouteResponse {
     let handshake = match websocket::Handshake::from_request(&request) {
@@ -147,16 +157,6 @@ async fn dispatch(
     };
     let websocket = handshake.is_some();
     let (mut parts, body) = request.into_parts();
-    // The edge's policy for this host, narrowed by this application's block.
-    let policy = parts
-        .extensions
-        .get::<HttpPolicy>()
-        .map(|policy| policy.requests)
-        .unwrap_or(RequestPolicy::unlimited())
-        .narrow(&requests);
-    // `Arc<ConnCtx>` is what the transports insert; asked for bare, it was
-    // never there and the application saw no addresses.
-    let connection = parts.extensions.get::<Arc<ConnCtx>>().cloned();
     // What completing an upgrade needs, taken before the parts are spent:
     // Hyper's handle on the connection, the owner of the session that
     // outlives this request, and the key the handshake answers.

@@ -45,12 +45,21 @@ pub(crate) struct RequestScope {
     pub(crate) responses: claviron_http::policy::ResponsePolicy,
 }
 impl RequestScope {
+    /// For a caller that carries the edge's policy in the request itself.
     pub(crate) fn from_request(req: &Request<RouteBody>) -> Self {
         let edge = req
             .extensions()
             .get::<claviron_http::policy::HttpPolicy>()
             .copied()
             .unwrap_or(claviron_http::policy::HttpPolicy::unlimited());
+        Self::under(req, edge)
+    }
+
+    /// Under a policy the caller already holds.
+    pub(crate) fn under(
+        req: &Request<RouteBody>,
+        edge: claviron_http::policy::HttpPolicy,
+    ) -> Self {
         Self {
             lease: None,
             pending: None,

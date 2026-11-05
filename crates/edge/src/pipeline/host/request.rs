@@ -167,11 +167,13 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
                         }
                     }
                     Action::Request(action) => {
-                        let decision =
-                            match action(Request::from_parts(head, body)) {
-                                DispatchCall::Ready(decision) => decision,
-                                DispatchCall::Pending(work) => work.await,
-                            };
+                        let decision = match action(
+                            Request::from_parts(head, body),
+                            context,
+                        ) {
+                            DispatchCall::Ready(decision) => decision,
+                            DispatchCall::Pending(work) => work.await,
+                        };
                         match decision {
                             ServiceResult::Handled(response) => {
                                 break 'finish (response, step.scope);
@@ -183,11 +185,13 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
                         }
                     }
                     Action::ExternalRequest(action, shutdown) => {
-                        let decision =
-                            match action(Request::from_parts(head, body)) {
-                                DispatchCall::Ready(decision) => decision,
-                                DispatchCall::Pending(work) => work.await,
-                            };
+                        let decision = match action(
+                            Request::from_parts(head, body),
+                            context,
+                        ) {
+                            DispatchCall::Ready(decision) => decision,
+                            DispatchCall::Pending(work) => work.await,
+                        };
                         match decision {
                             ServiceResult::Handled(response) => {
                                 let response =

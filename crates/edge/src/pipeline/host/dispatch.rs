@@ -7,7 +7,7 @@ use std::task::{Context, Poll};
 use claviron_http::{RouteBody, RouteResponse, ServiceResult};
 use http::Request;
 
-use super::HostHandlerFuture;
+use super::{HostContext, HostHandlerFuture};
 
 pub type DispatchResult = ServiceResult<RouteResponse, Request<RouteBody>>;
 
@@ -88,10 +88,16 @@ impl Future for DispatchFuture {
 
 /// A body-owning operation. Registration in a host plan uses HostLayer; this
 /// call contract also serves PHP's selected runner without another plan.
+///
+/// `context` lends the accepted connection, the selected host name and the
+/// scope's policy for the duration of the call. Pending work is `'static`, so
+/// an owner copies what that work needs before it returns. It is absent when
+/// the plan runs with no accepted transport behind it.
 pub trait DispatchStep: Send + Sync + 'static {
     fn call(
         &self,
         request: Request<RouteBody>,
+        context: Option<HostContext<'_>>,
     ) -> DispatchCall;
 }
 

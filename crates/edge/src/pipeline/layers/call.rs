@@ -6,7 +6,7 @@ impl<S> HostLayer<S> for Arc<dyn DispatchStep> {
         self,
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.request(move |request| self.call(request));
+        layer.request_in(move |request, context| self.call(request, context));
         Ok(())
     }
 }

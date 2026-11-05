@@ -157,8 +157,10 @@ boot/reload whether it reads identity through the required
 `BackendHandler::contract` declaration. The builder inserts Identity once,
 immediately before the first Backend that reads it. A plan whose owners read
 none inserts none: the request reaches its owner as it arrived and no
-extension map is created. The configured backends that execute for a host
-(PHP, Lua, Link, Upstream, WebSocket, broadcast) read it. A Rust handler
+extension map is created. Every Backend call is lent the accepted connection,
+host name and its scope's policy through `HostContext`; Link, Lua and Upstream
+take them there and export nothing. PHP, WebSocket and broadcast read identity
+from the request. A Rust handler
 (`OtherHandler`, `HostHandler`) never receives it; a Rust owner that needs the
 accepted facts is a route extension and borrows them from `HostContext`, which
 writes nothing. An Axum or Warp router has no declaration of its own and

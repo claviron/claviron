@@ -613,17 +613,13 @@ fn unavailable() -> RouteResponse {
     response
 }
 
-/// The route's policy narrows the one the edge hands over.
+/// The route's policy narrows the one the edge lends. With no edge in front
+/// there is none to narrow.
 pub(crate) fn route_policy(
-    request: &Request<RouteBody>,
+    edge: Option<HttpPolicy>,
     route: &HttpPolicyOverride,
 ) -> HttpPolicy {
-    request
-        .extensions()
-        .get::<HttpPolicy>()
-        .copied()
-        .unwrap_or(HttpPolicy::unlimited())
-        .narrow(route)
+    edge.unwrap_or(HttpPolicy::unlimited()).narrow(route)
 }
 
 #[cfg(test)]

@@ -51,7 +51,7 @@ async fn rest_claims_only_its_paths_and_never_reinterprets_a_handled_404() {
             .uri(uri)
             .body(claviron_http::bytes_body(payload))
             .unwrap();
-        let result = match rest.call(request) {
+        let result = match rest.call(request, None) {
             DispatchCall::Ready(result) => result,
             DispatchCall::Pending(work) => work.await,
         };

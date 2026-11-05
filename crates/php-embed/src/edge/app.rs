@@ -31,6 +31,7 @@ impl DispatchStep for Application {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<claviron_edge::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         let adapter = self.0.clone();
         DispatchCall::new(async move {

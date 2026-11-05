@@ -26,8 +26,9 @@ Status: in use — `lua:` tasks, the extensions below, and applications.
 
 `edge.rs` registers the configured BackendFactory. Its prepared owners select
 mounts and forward to `LuaApplicationAdapter`; an absent declaration installs no
-HTTP action. The owner declares identity export and execution-owned replies
-through the common Backend contract.
+HTTP action. The owner declares no identity export and execution-owned replies
+through the common Backend contract; it copies its scope's policy from the
+call's `HostContext`, and the route's own policy narrows that.
 
 `edge/websocket.rs` and `edge/webtransport.rs` own native session adapters;
 `edge/origin.rs` shares browser-origin validation. A cold Routable contribution

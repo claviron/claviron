@@ -33,6 +33,7 @@ impl DispatchStep for FileFallback {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         let owner = self.clone();
         DispatchCall::new(async move {

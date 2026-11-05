@@ -38,7 +38,7 @@ fn unavailable_application_releases_the_unread_body_and_returns_503() {
     );
     let request =
         Request::new(claviron_http::boxed_body(UnreadBody(drops.clone())));
-    let mut call = Box::pin(adapter.handle(request));
+    let mut call = Box::pin(adapter.handle(request, None));
     let Poll::Ready(response) =
         call.as_mut().poll(&mut Context::from_waker(Waker::noop()))
     else {

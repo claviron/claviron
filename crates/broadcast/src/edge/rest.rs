@@ -69,6 +69,7 @@ impl DispatchStep for Rest {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<claviron_edge::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         if !self.endpoints.accepts(request.uri().path()) {
             return DispatchCall::ready(ServiceResult::Unhandled(request));

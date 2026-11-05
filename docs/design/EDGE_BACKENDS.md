@@ -117,15 +117,23 @@ does not stop the shared runtime or unrelated work. Follow
 
 ## Request identity
 
-Identity is written into the request, which costs an extension map for every
-request, so it is exported only to a backend that reads it. A backend states
-that once, when the host plan is prepared, through the required
-`BackendHandler::contract` declaration. `BackendIdentity::None` preserves the
-request; `Request` exports metadata. The configured backends that execute for a
-host read it. A Rust handler (`OtherHandler`, `HostHandler`) receives the
-request as it arrived; a Rust owner that needs the accepted facts is a route
-extension and borrows them from `HostContext`. An Axum or Warp router has no
-declaration of its own and always receives identity.
+Every backend call is lent a `HostContext`: the accepted `Arc<ConnCtx>`, the
+selected `HostName` and the effective policy of the scope that selected the
+backend. Nothing is written for it. The work a backend leaves pending outlives
+the call, so it copies what that work needs before it returns. Link, Lua and
+Upstream take their policy and connection this way.
+
+Identity written into the request is the other, dearer form: it costs an
+extension map for every request, so it is exported only to a backend that
+reads it there. A backend states that once, when the host plan is prepared,
+through the required `BackendHandler::contract` declaration.
+`BackendIdentity::None` preserves the request; `Request` exports metadata. PHP,
+WebSocket and broadcast still read it from the request, where their own
+execution carries it further. A Rust handler (`OtherHandler`, `HostHandler`)
+receives the request as it arrived; a Rust owner that needs the accepted facts
+is a route extension and borrows them from `HostContext`. An Axum or Warp
+router reads through extractors, has no declaration of its own and always
+receives identity.
 
 The builder places Identity immediately before the first Backend that reads
 it. It exports the existing `Arc<ConnCtx>`, selected `HostName` and effective

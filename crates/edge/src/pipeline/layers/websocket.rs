@@ -64,6 +64,7 @@ impl DispatchStep for WebSocketStage {
     fn call(
         &self,
         request: Request<RouteBody>,
+        _context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
         let Some(binding) = self.bindings.get(request.uri().path()) else {
             return DispatchCall::ready(ServiceResult::Unhandled(request));
@@ -82,8 +83,9 @@ impl DispatchStep for Arc<WebSocketStage> {
     fn call(
         &self,
         request: Request<RouteBody>,
+        context: Option<crate::pipeline::host::HostContext<'_>>,
     ) -> DispatchCall {
-        self.as_ref().call(request)
+        self.as_ref().call(request, context)
     }
 }
 
