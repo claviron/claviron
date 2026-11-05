@@ -59,8 +59,8 @@ pub fn revoke(
             "authority certificate and private key do not match".into(),
         ));
     }
-    let issuer =
-        Issuer::from_ca_cert_pem(std::str::from_utf8(issuer_pem)?, key)?;
+    // The DER read above serves the signer too, whichever form came in.
+    let issuer = Issuer::from_ca_cert_der(&issuer_der.as_slice().into(), key)?;
     let mut preserved = String::new();
     let mut entries = BTreeMap::new();
     let mut number = vec![0];

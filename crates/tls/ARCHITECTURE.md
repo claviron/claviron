@@ -326,7 +326,9 @@ selection establishes trust. Reading a certificate does not grant signing.
 
 `CertSigner::from_authority` explicitly acquires the selected CA key, checking
 its issuer relation, enabled state and chain against the pinned public snapshot.
-`from_issuer` supports an explicit named-issuer override. Issuance revalidation
+`from_issuer` supports an explicit named-issuer override. The key is parsed
+once when the capability is acquired; every issuance signs with it and with
+the authority's DER certificate, with no PEM in between. Issuance revalidation
 rejects disabled or changed authorities; installing changed trust needs restart.
 The source provider publishes public trust. A signing consumer can call
 `CertificateStore::signer` at boot. A named file authority uses the CertStore

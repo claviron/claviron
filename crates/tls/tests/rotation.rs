@@ -2,17 +2,16 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use claviron_hosting::{CertificateAlias, CertificateKind};
-use claviron_types::ssl::{generators, parsers};
+use claviron_types::ssl::generators;
 use time::OffsetDateTime;
 
 use super::*;
 
 fn certificate(aliases: &[&str]) -> HostedCertificate {
     let ca_key = generators::generate_ca_key().unwrap();
-    let ca_pem = ca_key.serialize_pem();
     let ca_cert = generators::generate_ca_cert(
         &"authority.test".parse().unwrap(),
-        ca_pem.as_bytes(),
+        &ca_key,
         30,
         &Default::default(),
     )
@@ -21,9 +20,9 @@ fn certificate(aliases: &[&str]) -> HostedCertificate {
     let cert = generators::generate_leaf_cert(
         CertificateKind::Server,
         &"example.test".parse().unwrap(),
-        key.serialize_pem().as_bytes(),
+        &key,
         &ca_cert,
-        ca_pem.as_bytes(),
+        &ca_key,
         1,
         aliases,
     )
@@ -35,7 +34,7 @@ fn certificate(aliases: &[&str]) -> HostedCertificate {
             kind: CertificateKind::Server,
             issuer_id: None,
             cn: "example.test".into(),
-            certs_der: parsers::concat_chain_bytes_from_pem(&cert).unwrap(),
+            certs_der: cert.to_vec(),
             key_der: key.serialize_der(),
             expires_at: now + time::Duration::days(1),
             issued_at: now,

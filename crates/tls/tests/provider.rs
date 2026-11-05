@@ -146,13 +146,15 @@ async fn failed_reload_file_snapshot_keeps_serving_certificates() {
     };
     use claviron_types::ssl::generators;
     let key = generators::generate_ca_key().unwrap();
-    let pem = generators::generate_ca_cert(
+    let der = generators::generate_ca_cert(
         &"Fixture CA".parse().unwrap(),
-        key.serialize_pem().as_bytes(),
+        &key,
         1,
         &Default::default(),
     )
     .unwrap();
+    let pem = claviron_types::ssl::formatters::certificate_chain_to_pem(&der)
+        .unwrap();
     let server_dir = directory.0.join("servers/default");
     let ca_dir = directory.0.join("ca/fixture");
     std::fs::create_dir_all(&server_dir).unwrap();

@@ -1,13 +1,19 @@
 use super::*;
 use claviron_types::ssl::{generators, parsers};
 
+/// The store reads the PEM a file holds.
+fn pem(certificate: &[u8]) -> String {
+    claviron_types::ssl::formatters::certificate_chain_to_pem(certificate)
+        .unwrap()
+}
+
 #[tokio::test]
 async fn source_reads_trust_and_identity_without_sni_or_default_certificate() {
     let directory = tempfile::tempdir().unwrap();
     let ca_key = generators::generate_ca_key().unwrap();
     let ca = generators::generate_ca_cert(
         &"Fixture CA".parse().unwrap(),
-        ca_key.serialize_pem().as_bytes(),
+        &ca_key,
         30,
         &Default::default(),
     )
@@ -19,7 +25,7 @@ async fn source_reads_trust_and_identity_without_sni_or_default_certificate() {
     .unwrap();
     let fixture = "fixture".parse().unwrap();
     std::fs::create_dir_all(files.ca_dir(fixture)).unwrap();
-    std::fs::write(files.ca_cert_path(fixture), &ca).unwrap();
+    std::fs::write(files.ca_cert_path(fixture), pem(&ca)).unwrap();
     let key_path = files.ca_key_path(fixture);
     let source = CertificateStore::new(files);
     let trust = source.authority().await.unwrap().unwrap();
@@ -30,19 +36,19 @@ async fn source_reads_trust_and_identity_without_sni_or_default_certificate() {
     assert!(source.signer(&trust).await.is_err());
     std::fs::write(key_path, ca_key.serialize_pem()).unwrap();
     assert!(source.signer(&trust).await.is_ok());
-    std::fs::write(directory.path().join("ca.pem"), &ca).unwrap();
+    std::fs::write(directory.path().join("ca.pem"), pem(&ca)).unwrap();
     let key = generators::generate_private_key().unwrap();
     let server = generators::generate_leaf_cert(
         CertificateKind::Server,
         &"vpn.test".parse().unwrap(),
-        key.serialize_pem().as_bytes(),
+        &key,
         &ca,
-        ca_key.serialize_pem().as_bytes(),
+        &ca_key,
         1,
         &[] as &[String],
     )
     .unwrap();
-    std::fs::write(directory.path().join("server.pem"), &server).unwrap();
+    std::fs::write(directory.path().join("server.pem"), pem(&server)).unwrap();
     std::fs::write(
         directory.path().join(PRIVKEY_FILENAME),
         key.serialize_pem(),
@@ -52,10 +58,7 @@ async fn source_reads_trust_and_identity_without_sni_or_default_certificate() {
     let identity =
         source.identity(&selection, CertificateKind::Server).await.unwrap();
     assert_eq!(identity.cert.len(), 1);
-    assert_eq!(
-        identity.cert[0].as_ref(),
-        parsers::concat_chain_bytes_from_pem(&server).unwrap()
-    );
+    assert_eq!(identity.cert[0].as_ref(), server.as_ref());
     assert!(source.identity(&selection, CertificateKind::Ca).await.is_err());
     let ca_selection = CertificateSource::Path("ca.pem".into());
     let error = source
@@ -74,19 +77,19 @@ async fn source_reads_trust_and_identity_without_sni_or_default_certificate() {
 #[tokio::test]
 async fn configured_file_authority_signs_with_its_intermediate_key() {
     let directory = tempfile::tempdir().unwrap();
-    let root_key = generators::generate_ca_key().unwrap().serialize_pem();
+    let root_key = generators::generate_ca_key().unwrap();
     let root = generators::generate_ca_cert(
         &"Root CA".parse().unwrap(),
-        root_key.as_bytes(),
+        &root_key,
         30,
         &Default::default(),
     )
     .unwrap();
-    let key = generators::generate_ca_key().unwrap().serialize_pem();
+    let key = generators::generate_ca_key().unwrap();
     let intermediate = generators::generate_intermediate_ca_cert(
-        key.as_bytes(),
+        &key,
         &root,
-        root_key.as_bytes(),
+        &root_key,
         &"Intermediate CA".parse().unwrap(),
         7,
         &Default::default(),
@@ -94,9 +97,9 @@ async fn configured_file_authority_signs_with_its_intermediate_key() {
     )
     .unwrap();
     let path = |name| directory.path().join(name);
-    std::fs::write(path("root.pem"), &root).unwrap();
-    std::fs::write(path("intermediate.pem"), &intermediate).unwrap();
-    std::fs::write(path("signer.key"), &key).unwrap();
+    std::fs::write(path("root.pem"), pem(&root)).unwrap();
+    std::fs::write(path("intermediate.pem"), pem(&intermediate)).unwrap();
+    std::fs::write(path("signer.key"), key.serialize_pem()).unwrap();
     let files: CertStore = serde_yaml::from_str(&format!(
         "dir: {}\nauthority:\n  cert_path: {}\n  key_path: {}\n  ca_path: {}",
         directory.path().display(),
@@ -135,7 +138,7 @@ async fn configured_file_authority_signs_with_its_intermediate_key() {
     assert_eq!(issuer.as_ref(), authority.roots()[0].as_ref());
     assert_eq!(issued.len(), leaf.as_ref().len() + issuer.as_ref().len());
 
-    std::fs::write(path("signer.key"), root_key).unwrap();
+    std::fs::write(path("signer.key"), root_key.serialize_pem()).unwrap();
     assert!(source.signer(&authority).await.is_err());
 }
 
@@ -166,14 +169,14 @@ async fn public_authority_never_queries_private_key_column() {
     let key = generators::generate_ca_key().unwrap();
     let ca = generators::generate_ca_cert(
         &"Fixture CA".parse().unwrap(),
-        key.serialize_pem().as_bytes(),
+        &key,
         30,
         &Default::default(),
     )
     .unwrap();
-    let der = parsers::concat_chain_bytes_from_pem(&ca).unwrap();
+    let der = ca.as_ref();
     sqlx::query("INSERT INTO hosting_certificates (id, kind, issuer_id, cn, certs_der, expires_at, issued_at, updated_at, enabled) VALUES (1, 'ca', NULL, 'Fixture CA', ?, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', NULL, 1)")
-        .bind(&der).execute(&pool).await.unwrap();
+        .bind(der).execute(&pool).await.unwrap();
     let store = claviron_hosting::HostingStore::sqlite(pool.clone());
     let authority =
         CertAuthority::from_issuer(&store, "Fixture CA").await.unwrap();

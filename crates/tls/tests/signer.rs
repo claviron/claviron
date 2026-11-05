@@ -13,18 +13,14 @@ fn signer_material_issues_verifiable_identities_without_files() {
     let key = generators::generate_ca_key().unwrap();
     let ca = generators::generate_ca_cert(
         &"authority.test".parse().unwrap(),
-        key.serialize_pem().as_bytes(),
+        &key,
         30,
         &Default::default(),
     )
     .unwrap();
-    let ca_der = parsers::concat_chain_bytes_from_pem(&ca).unwrap();
     let authority = CertSigner {
-        authority: CertAuthority::new(
-            PathBuf::new(),
-            vec![CertificateDer::from(ca_der)],
-        ),
-        key_der: key.serialize_der(),
+        authority: CertAuthority::new(PathBuf::new(), vec![ca]),
+        key,
     };
     let issued = authority
         .issue_certificate(
@@ -166,7 +162,8 @@ fn signer_material_issues_verifiable_identities_without_files() {
             PathBuf::new(),
             vec![CertificateDer::from(intermediate.certs_der)],
         ),
-        key_der: intermediate.key_der,
+        key: generators::read_private_key_from_der(&intermediate.key_der)
+            .unwrap(),
     };
     let leaf = intermediate
         .issue_certificate(
@@ -201,7 +198,7 @@ fn signer_material_issues_verifiable_identities_without_files() {
     assert!(
         (CertSigner {
             authority: CertAuthority::new(PathBuf::new(), vec![]),
-            key_der: vec![]
+            key: generators::generate_ca_key().unwrap()
         })
         .issue_certificate(
             CertificateKind::Client,

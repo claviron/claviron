@@ -55,16 +55,15 @@ fn renewal_preserves_encoded_identity_and_all_extensions_without_rotating_key()
     );
 
     let leaf_key = generators::generate_private_key().unwrap();
-    let leaf = generators::generate_client_cert(
+    let leaf_der = generators::generate_client_cert(
         &"client.test".parse().unwrap(),
-        leaf_key.serialize_pem().as_bytes(),
-        cert.pem().as_bytes(),
-        key.serialize_pem().as_bytes(),
+        &leaf_key,
+        original,
+        &key,
         1,
         &["alias.test"],
     )
     .unwrap();
-    let leaf_der = parsers::concat_chain_bytes_from_pem(&leaf).unwrap();
     let renewed = renew_certificate(
         &leaf_der,
         &leaf_key.serialize_der(),

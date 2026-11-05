@@ -132,13 +132,16 @@ async fn client_authority_survives_listener_publication_and_reload() {
     let path = files.ca_cert_path(fixture);
     let write_ca = || {
         let key = generators::generate_ca_key().unwrap();
-        let pem = generators::generate_ca_cert(
+        let der = generators::generate_ca_cert(
             &"Fixture CA".parse().unwrap(),
-            key.serialize_pem().as_bytes(),
+            &key,
             30,
             &Default::default(),
         )
         .unwrap();
+        let pem =
+            claviron_types::ssl::formatters::certificate_chain_to_pem(&der)
+                .unwrap();
         std::fs::write(&path, pem).unwrap();
     };
     write_ca();

@@ -6,7 +6,7 @@ fn crl_updates_preserve_revocations_and_use_authority_expiry() {
     let key = generators::generate_ca_key().unwrap();
     let ca = generators::generate_ca_cert(
         &"root.test".parse().unwrap(),
-        key.serialize_pem().as_bytes(),
+        &key,
         30,
         &Default::default(),
     )
@@ -15,9 +15,9 @@ fn crl_updates_preserve_revocations_and_use_authority_expiry() {
         let client_key = generators::generate_private_key().unwrap();
         generators::generate_client_cert(
             &name.parse().unwrap(),
-            client_key.serialize_pem().as_bytes(),
+            &client_key,
             &ca,
-            key.serialize_pem().as_bytes(),
+            &key,
             1,
             &[] as &[&str],
         )
@@ -49,8 +49,7 @@ fn crl_updates_preserve_revocations_and_use_authority_expiry() {
     let (_, crl) = CertificateRevocationList::from_der(der.as_ref()).unwrap();
     assert_eq!(crl.iter_revoked_certificates().count(), 2);
     assert_eq!(crl.crl_number().unwrap().to_bytes_be(), [3]);
-    let ca_der = parsers::sanitize_pem_content_to_der(&ca);
-    let authority = parsers::take_first_cert_from_der(&ca_der).unwrap();
+    let authority = parsers::take_first_cert_from_der(&ca).unwrap();
     crl.verify_signature(authority.public_key()).unwrap();
     assert_eq!(crl.next_update().unwrap(), authority.validity().not_after);
     assert_eq!(

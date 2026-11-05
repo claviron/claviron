@@ -15,15 +15,11 @@ fn preserves_subject_identity_without_host_normalization() {
 #[test]
 fn reads_from_a_certificate_without_copying_and_accepts_any_host() {
     use crate::ssl::generators::{generate_ca_cert, generate_ca_key};
-    use crate::ssl::parsers::{
-        concat_chain_bytes_from_pem, take_first_cert_from_der,
-    };
+    use crate::ssl::parsers::take_first_cert_from_der;
 
-    let key = generate_ca_key().unwrap().serialize_pem();
+    let key = generate_ca_key().unwrap();
     let name: CommonName = "Roma CA".parse().unwrap();
-    let pem = generate_ca_cert(&name, key.as_bytes(), 1, &Default::default())
-        .unwrap();
-    let der = concat_chain_bytes_from_pem(&pem).unwrap();
+    let der = generate_ca_cert(&name, &key, 1, &Default::default()).unwrap();
     let certificate = take_first_cert_from_der(&der).unwrap();
 
     // The text is a slice of the certificate's own bytes.

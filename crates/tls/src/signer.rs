@@ -6,7 +6,9 @@ use crate::{CertAuthority, TlsError as Error};
 /// be allowed to read signing material from the selected source.
 pub struct CertSigner {
     authority: CertAuthority,
-    key_der: Vec<u8>,
+    /// Parsed once when the capability is acquired; every issuance signs
+    /// with it as it is.
+    key: claviron_types::ssl::generators::KeyPair,
 }
 
 impl CertSigner {
@@ -57,7 +59,7 @@ impl CertSigner {
             }
             current = parent;
         }
-        Ok(Self { authority, key_der: key.serialize_der() })
+        Ok(Self { authority, key })
     }
 
     #[cfg(feature = "db")]
@@ -105,7 +107,10 @@ impl CertSigner {
                 "selected hosting issuer has no signing key".into(),
             ));
         }
-        Ok(Self { authority: authority.clone(), key_der: ca.key_der })
+        let key = claviron_types::ssl::generators::read_private_key_from_der(
+            &ca.key_der,
+        )?;
+        Ok(Self { authority: authority.clone(), key })
     }
 
     #[cfg(feature = "db")]
@@ -114,7 +119,7 @@ impl CertSigner {
         store: &claviron_hosting::HostingStore,
     ) -> Result<(), Error> {
         let current = Self::from_authority(store, &self.authority).await?;
-        if current.key_der != self.key_der {
+        if current.key.serialized_der() != self.key.serialized_der() {
             return Err(Error::Other(
                 "authority CA key changed; restart to load the new issuer"
                     .into(),
@@ -137,14 +142,10 @@ impl CertSigner {
         key: &[u8],
         validity_days: u32,
     ) -> Result<Vec<u8>, Error> {
-        let ca =
-            self.authority.roots().first().ok_or_else(|| {
-                Error::Other("signing authority is empty".into())
-            })?;
         let mut chain = claviron_types::ssl::renewal::renew_certificate(
             leaf,
             key,
-            Some((ca.as_ref(), &self.key_der)),
+            Some((self.certificate()?, self.key.serialized_der())),
             validity_days,
         )?;
         self.append_intermediates(&mut chain)?;
@@ -161,9 +162,7 @@ impl CertSigner {
         permissions: Option<&claviron_types::permission::Permissions>,
         validity_days: u32,
     ) -> Result<Vec<u8>, Error> {
-        use claviron_types::ssl::{
-            formatters, generators, parsers, permission,
-        };
+        use claviron_types::ssl::{generators, permission};
         if subject
             .is_some_and(|uri| permission::is_permission_uri(uri.as_str()))
         {
@@ -178,24 +177,15 @@ impl CertSigner {
         if let Some(permissions) = permissions {
             aliases.push(permission::to_uri(permissions));
         }
-        let ca_key = generators::read_private_key_from_der(&self.key_der)?
-            .serialize_pem();
-        let ca_der = self
-            .authority
-            .roots()
-            .iter()
-            .flat_map(|cert| cert.as_ref().iter().copied())
-            .collect::<Vec<_>>();
-        let ca_pem = formatters::certificate_chain_to_pem(&ca_der)?;
         let cert = generators::sign_client_csr(
             common_name,
             csr_der,
-            ca_pem.as_bytes(),
-            ca_key.as_bytes(),
+            self.certificate()?,
+            &self.key,
             validity_days,
             aliases,
         )?;
-        let mut chain = parsers::concat_chain_bytes_from_pem(&cert)?;
+        let mut chain = cert.to_vec();
         self.append_intermediates(&mut chain)?;
         Ok(chain)
     }
@@ -269,9 +259,7 @@ impl CertSigner {
         &self,
         request: SigningRequest<'_>,
     ) -> Result<IssuedCertificate, Error> {
-        use claviron_types::ssl::{
-            formatters, generators, parsers, permission,
-        };
+        use claviron_types::ssl::{generators, permission};
         let SigningRequest {
             kind,
             common_name,
@@ -295,15 +283,7 @@ impl CertSigner {
             names.push(permission::to_uri(&permissions));
         }
         let aliases = names.as_slice();
-        let ca_key = generators::read_private_key_from_der(&self.key_der)?
-            .serialize_pem();
-        let ca_der = self
-            .authority
-            .roots()
-            .iter()
-            .flat_map(|cert| cert.as_ref().iter().copied())
-            .collect::<Vec<_>>();
-        let ca_pem = formatters::certificate_chain_to_pem(&ca_der)?;
+        let ca = self.certificate()?;
         let key = generators::generate_private_key()?;
         let cert = if kind == claviron_types::CertificateKind::Ca {
             let path_len = ca_path_len.ok_or_else(|| {
@@ -312,9 +292,9 @@ impl CertSigner {
                 )
             })?;
             generators::generate_intermediate_ca_cert(
-                key.serialize_pem().as_bytes(),
-                ca_pem.as_bytes(),
-                ca_key.as_bytes(),
+                &key,
+                ca,
+                &self.key,
                 common_name,
                 validity_days,
                 &claviron_types::ssl::Organization::default(),
@@ -324,18 +304,27 @@ impl CertSigner {
             generators::generate_leaf_cert(
                 kind,
                 common_name,
-                key.serialize_pem().as_bytes(),
-                ca_pem.as_bytes(),
-                ca_key.as_bytes(),
+                &key,
+                ca,
+                &self.key,
                 validity_days,
                 aliases,
             )?
         };
-        let mut certs_der = parsers::concat_chain_bytes_from_pem(&cert)?;
+        let mut certs_der = cert.to_vec();
         // Store intermediates after the leaf. A self-issued root is a trust
         // anchor and does not belong in the transmitted certificate chain.
         self.append_intermediates(&mut certs_der)?;
         Ok(IssuedCertificate { certs_der, key_der: key.serialize_der() })
+    }
+
+    /// The certificate this capability signs with, as DER.
+    fn certificate(&self) -> Result<&[u8], Error> {
+        self.authority
+            .roots()
+            .first()
+            .map(AsRef::as_ref)
+            .ok_or_else(|| Error::Other("signing authority is empty".into()))
     }
 
     fn append_intermediates(

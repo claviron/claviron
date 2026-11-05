@@ -4,10 +4,10 @@ use super::{generate_private_key, read_private_key_from_der};
 fn enrollment_csr_proves_key_possession_without_selecting_certificate_claims() {
     use super::*;
 
-    let ca_key = generate_ca_key().unwrap().serialize_pem();
+    let ca_key = generate_ca_key().unwrap();
     let ca = generate_ca_cert(
         &"authority.test".parse().unwrap(),
-        ca_key.as_bytes(),
+        &ca_key,
         30,
         &Default::default(),
     )
@@ -25,14 +25,12 @@ fn enrollment_csr_proves_key_possession_without_selecting_certificate_claims() {
             &"operator".parse().unwrap(),
             csr,
             &ca,
-            ca_key.as_bytes(),
+            &ca_key,
             1,
             vec!["urn:uuid:a15bc548-16e1-4a10-b772-ad00c3b66a52".into()],
         )
     };
-    let signed = issue(csr.der().as_ref()).unwrap();
-    let der =
-        crate::ssl::parsers::concat_chain_bytes_from_pem(&signed).unwrap();
+    let der = issue(csr.der().as_ref()).unwrap();
     let certificate =
         crate::ssl::parsers::take_first_cert_from_der(&der).unwrap();
     let identity = crate::ssl::peer::peer_identity(&der).unwrap();
@@ -61,28 +59,25 @@ fn persisted_private_key_round_trips_without_rotation() {
 #[test]
 fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     use super::*;
-    let ca_key = generate_ca_key().unwrap().serialize_pem();
+    let ca_key = generate_ca_key().unwrap();
     let ca = generate_ca_cert(
         &"authority.test".parse().unwrap(),
-        ca_key.as_bytes(),
+        &ca_key,
         30,
         &Default::default(),
     )
     .unwrap();
     let key = generate_private_key().unwrap();
-    let key_pem = key.serialize_pem();
     let aliases = vec!["other.test".to_string()];
-    let signed = generate_client_cert(
+    let der = generate_client_cert(
         &"client.test".parse().unwrap(),
-        key_pem.as_bytes(),
+        &key,
         &ca,
-        ca_key.as_bytes(),
+        &ca_key,
         1,
         &aliases,
     )
     .unwrap();
-    let der =
-        crate::ssl::parsers::concat_chain_bytes_from_pem(&signed).unwrap();
     let cert = crate::ssl::parsers::take_first_cert_from_der(&der).unwrap();
     assert!(!cert.is_ca());
     let eku = cert.extended_key_usage().unwrap().unwrap();
@@ -97,9 +92,9 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     assert!(
         generate_client_cert(
             &"client.test".parse().unwrap(),
-            key_pem.as_bytes(),
+            &key,
             &ca,
-            ca_key.as_bytes(),
+            &ca_key,
             0,
             &aliases
         )
@@ -108,9 +103,9 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     assert!(
         generate_client_cert(
             &"client.test".parse().unwrap(),
-            key_pem.as_bytes(),
+            &key,
             &ca,
-            ca_key.as_bytes(),
+            &ca_key,
             u32::MAX,
             &aliases
         )
@@ -119,9 +114,9 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     assert!(
         generate_client_cert(
             &"client.test".parse().unwrap(),
-            key_pem.as_bytes(),
+            &key,
             &ca,
-            ca_key.as_bytes(),
+            &ca_key,
             31,
             &aliases
         )
@@ -130,9 +125,9 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     assert!(
         generate_client_cert(
             &"client.test".parse().unwrap(),
-            key_pem.as_bytes(),
+            &key,
             &ca,
-            key_pem.as_bytes(),
+            &key,
             1,
             &aliases
         )
@@ -142,9 +137,9 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     assert!(
         generate_client_cert(
             &"child.test".parse().unwrap(),
-            ca_key.as_bytes(),
-            &signed,
-            key_pem.as_bytes(),
+            &ca_key,
+            &der,
+            &key,
             1,
             &aliases
         )

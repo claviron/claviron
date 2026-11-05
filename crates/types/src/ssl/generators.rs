@@ -1,14 +1,21 @@
+/// The key type every generator takes, named here so a caller holds one
+/// without depending on the certificate library itself.
+pub use rcgen::KeyPair;
 use rcgen::{
     BasicConstraints, CertificateParams, CertificateSigningRequest,
     CertificateSigningRequestParams, DistinguishedName, DnType,
-    ExtendedKeyUsagePurpose, IsCa, Issuer, KeyPair, KeyUsagePurpose,
-    PublicKeyData,
+    ExtendedKeyUsagePurpose, IsCa, Issuer, KeyUsagePurpose, PublicKeyData,
 };
+use rustls::pki_types::CertificateDer;
 use time::{Duration as TimeDuration, OffsetDateTime};
 
 use super::error::Error;
 use super::{CommonName, Organization, SubjectUri};
 use crate::{Aliases, CertificateKind};
+
+// Certificates and keys cross this module in the form their holder already
+// has: a key as the `KeyPair` that was generated or loaded, a certificate as
+// DER. PEM is a file format, produced and read where a file is.
 
 /// The subject of a certificate this module issues: its common name and the
 /// organization attributes its issuer states. Built here and nowhere else.
@@ -73,24 +80,24 @@ pub fn generate_server_csr(
     Ok(csr)
 }
 
-/// Generate a server certificate signed by the given CA (PEM), using rcgen.
-/// Returns the certificate in PEM format. The end-entity key is provided as PEM bytes.
+/// Generate a server certificate for the names of a request, signed by the
+/// given CA certificate (DER) and its key.
 pub fn generate_server_cert(
     csr: &CertificateSigningRequest,
-    subject_key_pem: &[u8],
-    ca_cert_pem: &[u8],
-    ca_key_pem: &[u8],
+    subject_key: &KeyPair,
+    ca_cert: &[u8],
+    ca_key: &KeyPair,
     validity_days: u32,
-) -> Result<Vec<u8>, Error> {
+) -> Result<CertificateDer<'static>, Error> {
     let aliases = Aliases::from_csr_der(csr.der().as_ref())?;
     let cname =
         CommonName::from(aliases.first().ok_or(Error::NoDomainsProvided)?);
     generate_leaf_cert(
         CertificateKind::Server,
         &cname,
-        subject_key_pem,
-        ca_cert_pem,
-        ca_key_pem,
+        subject_key,
+        ca_cert,
+        ca_key,
         validity_days,
         &Vec::<String>::from(&aliases),
     )
@@ -102,21 +109,20 @@ pub fn generate_server_cert(
 ///   - keyUsage        = digitalSignature
 ///   - extendedKeyUsage= clientAuth
 ///   - subjectAltName  = CN + any extra SAN entries (DNS/IP/email/URI strings are auto-parsed)
-///     Returns client certificates data in PEM format.
 pub fn generate_client_cert(
     client_name: &CommonName,
-    client_key_pem: &[u8],
-    ca_cert_pem: &[u8],
-    ca_key_pem: &[u8],
+    client_key: &KeyPair,
+    ca_cert: &[u8],
+    ca_key: &KeyPair,
     validity_days: u32,
     extra_sans: &[impl Into<String> + Clone],
-) -> Result<Vec<u8>, Error> {
+) -> Result<CertificateDer<'static>, Error> {
     generate_leaf_cert(
         CertificateKind::Client,
         client_name,
-        client_key_pem,
-        ca_cert_pem,
-        ca_key_pem,
+        client_key,
+        ca_cert,
+        ca_key,
         validity_days,
         extra_sans,
     )
@@ -127,13 +133,12 @@ pub fn generate_client_cert(
 pub fn generate_leaf_cert(
     kind: CertificateKind,
     client_name: &CommonName,
-    client_key_pem: &[u8],
-    ca_cert_pem: &[u8],
-    ca_key_pem: &[u8],
+    key: &KeyPair,
+    ca_cert: &[u8],
+    ca_key: &KeyPair,
     validity_days: u32,
     extra_sans: &[impl Into<String> + Clone],
-) -> Result<Vec<u8>, Error> {
-    let key = read_private_key_from_pem(client_key_pem)?;
+) -> Result<CertificateDer<'static>, Error> {
     let mut sans = vec![String::from(client_name)];
     for name in extra_sans {
         let name = name.clone().into();
@@ -142,20 +147,20 @@ pub fn generate_leaf_cert(
         }
     }
     let mut params = leaf_params(kind, client_name, sans)?;
-    let issuer =
-        validated_issuer(&mut params, ca_cert_pem, ca_key_pem, validity_days)?;
-    Ok(params.signed_by(&key, &issuer)?.pem().into_bytes())
+    let (issuer, _) =
+        validated_issuer(&mut params, ca_cert, ca_key, validity_days)?;
+    Ok(params.signed_by(key, &issuer)?.into())
 }
 
 /// Verify a PKCS#10 request and sign only its public key with issuer-owned claims.
 pub fn sign_client_csr(
     common_name: &CommonName,
     csr_der: &[u8],
-    ca_cert_pem: &[u8],
-    ca_key_pem: &[u8],
+    ca_cert: &[u8],
+    ca_key: &KeyPair,
     validity_days: u32,
     aliases: Vec<String>,
-) -> Result<Vec<u8>, Error> {
+) -> Result<CertificateDer<'static>, Error> {
     let csr = CertificateSigningRequestParams::from_der(&csr_der.into())?;
     let mut params =
         leaf_params(CertificateKind::Client, common_name, aliases)?;
@@ -169,9 +174,9 @@ pub fn sign_client_csr(
     // Keep each serial positive and independent of a reused public key.
     serial[0] = (serial[0] & 0x7f) | 0x40;
     params.serial_number = Some(rcgen::SerialNumber::from_slice(&serial));
-    let issuer =
-        validated_issuer(&mut params, ca_cert_pem, ca_key_pem, validity_days)?;
-    Ok(params.signed_by(&csr.public_key, &issuer)?.pem().into_bytes())
+    let (issuer, _) =
+        validated_issuer(&mut params, ca_cert, ca_key, validity_days)?;
+    Ok(params.signed_by(&csr.public_key, &issuer)?.into())
 }
 
 fn leaf_params(
@@ -211,12 +216,16 @@ fn leaf_params(
     Ok(params)
 }
 
-fn validated_issuer(
+/// The issuer a certificate is signed by, once it is known that the authority
+/// may sign, that the key is its own and that the requested validity lies
+/// inside the authority's. Sets that validity on `params` and returns the
+/// authority's own delegation limit beside the issuer.
+fn validated_issuer<'key>(
     params: &mut CertificateParams,
-    ca_cert_pem: &[u8],
-    ca_key_pem: &[u8],
+    ca_cert: &[u8],
+    ca_key: &'key KeyPair,
     validity_days: u32,
-) -> Result<Issuer<'static, KeyPair>, Error> {
+) -> Result<(Issuer<'static, &'key KeyPair>, Option<u32>), Error> {
     if validity_days == 0 {
         return Err(Error::Other("validity_days must be positive".into()));
     }
@@ -224,10 +233,7 @@ fn validated_issuer(
     let expires_at = now
         .checked_add(TimeDuration::days(i64::from(validity_days)))
         .ok_or_else(|| Error::Other("validity_days is out of range".into()))?;
-    let ca_key = KeyPair::from_pem(std::str::from_utf8(ca_key_pem)?)?;
-    let (_, ca_pem) = x509_parser::pem::parse_x509_pem(ca_cert_pem)
-        .map_err(|_| Error::Other("invalid CA certificate PEM".into()))?;
-    let ca = super::parsers::take_first_cert_from_der(&ca_pem.contents)?;
+    let ca = super::parsers::take_first_cert_from_der(ca_cert)?;
     if !ca.is_ca()
         || ca.key_usage()?.is_some_and(|usage| !usage.value.key_cert_sign())
     {
@@ -250,21 +256,20 @@ fn validated_issuer(
     }
     params.not_before = now;
     params.not_after = expires_at;
-    let ca_issuer =
-        Issuer::from_ca_cert_pem(std::str::from_utf8(ca_cert_pem)?, ca_key)?;
-
-    Ok(ca_issuer)
+    let path_limit =
+        ca.basic_constraints()?.and_then(|ext| ext.value.path_len_constraint);
+    let issuer = Issuer::from_ca_cert_der(&ca_cert.into(), ca_key)?;
+    Ok((issuer, path_limit))
 }
 
-/// Generate a self-signed **CA certificate** using the provided CA key PEM bytes.
+/// Generate a self-signed **CA certificate** with the provided CA key.
 /// The subject carries the organization attributes that are stated.
-/// Returns the CA certificate PEM bytes.
 pub fn generate_ca_cert(
     ca_name: &CommonName,
-    ca_key_pem: &[u8],
+    ca_key: &KeyPair,
     validity_days: u32,
     org: &Organization,
-) -> Result<Vec<u8>, Error> {
+) -> Result<CertificateDer<'static>, Error> {
     // Start with empty SANs for a CA cert
     let mut params = CertificateParams::new(Vec::<String>::new())?;
 
@@ -286,14 +291,7 @@ pub fn generate_ca_cert(
         .checked_add(TimeDuration::days(i64::from(validity_days)))
         .ok_or_else(|| Error::Other("validity_days is out of range".into()))?;
 
-    // Generate CA key from PEM and self-sign
-    let ca_key = KeyPair::from_pem(std::str::from_utf8(ca_key_pem)?)?;
-    let ca_cert = params.self_signed(&ca_key)?;
-
-    // PEM outputs
-    let ca_cert_pem = ca_cert.pem().into_bytes();
-
-    Ok(ca_cert_pem)
+    Ok(params.self_signed(ca_key)?.into())
 }
 
 /// Generate an **intermediate CA certificate** signed by an existing CA (issuer).
@@ -302,19 +300,19 @@ pub fn generate_ca_cert(
 ///   - basicConstraints = CA:TRUE (optionally constrained by `path_len`)
 ///   - keyUsage        = keyCertSign, cRLSign
 ///   - extendedKeyUsage: none (not needed for CA)
-///   - subjectAltName  = empty (CA certlerde SAN zorunlu değildir)
+///   - subjectAltName  = empty (a CA certificate needs none)
 ///
-/// Accepts optional organization name and country code for DN fields.
-/// Returns the intermediate certificate PEM bytes.
+/// The subject carries the organization attributes that are stated. The
+/// issuer certificate is DER.
 pub fn generate_intermediate_ca_cert(
-    int_key_pem: &[u8],
-    issuer_ca_cert_pem: &[u8],
-    issuer_ca_key_pem: &[u8],
+    int_key: &KeyPair,
+    issuer_ca_cert: &[u8],
+    issuer_ca_key: &KeyPair,
     common_name: &CommonName,
     validity_days: u32,
     org: &Organization,
     path_len: Option<u8>,
-) -> Result<Vec<u8>, Error> {
+) -> Result<CertificateDer<'static>, Error> {
     // Start with an empty SAN list for a CA certificate
     let mut params = CertificateParams::new(Vec::<String>::new())?;
 
@@ -330,17 +328,13 @@ pub fn generate_intermediate_ca_cert(
 
     params.distinguished_name = subject(common_name, Some(org));
 
-    let issuer = validated_issuer(
+    let (issuer, path_limit) = validated_issuer(
         &mut params,
-        issuer_ca_cert_pem,
-        issuer_ca_key_pem,
+        issuer_ca_cert,
+        issuer_ca_key,
         validity_days,
     )?;
-    let (_, pem) = x509_parser::pem::parse_x509_pem(issuer_ca_cert_pem)
-        .map_err(|_| Error::Other("invalid CA certificate PEM".into()))?;
-    let ca = super::parsers::take_first_cert_from_der(&pem.contents)?;
-    if let Some(limit) =
-        ca.basic_constraints()?.and_then(|ext| ext.value.path_len_constraint)
+    if let Some(limit) = path_limit
         && (limit == 0
             || path_len.is_none_or(|requested| u32::from(requested) >= limit))
     {
@@ -350,13 +344,7 @@ pub fn generate_intermediate_ca_cert(
         ));
     }
 
-    // Build intermediate CA key pair from PEM
-    let int_key = KeyPair::from_pem(std::str::from_utf8(int_key_pem)?)?;
-
-    // Sign using the provided intermediate CA key
-    let int_cert = params.signed_by(&int_key, &issuer)?;
-
-    Ok(int_cert.pem().into_bytes())
+    Ok(params.signed_by(int_key, &issuer)?.into())
 }
 
 const ALPHANUM: &[u8] =

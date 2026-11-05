@@ -478,6 +478,13 @@ Built on top of `rcgen` (pure-Rust X.509 generator). The crate
 defaults to ECDSA P-256 / SHA-256 for both CA and end-entity keys —
 the modern profile, fast handshake, small certificate size.
 
+Material crosses the generators in the form its holder already has:
+a key as the `KeyPair` that was generated or loaded, a certificate as
+DER, and the result as `CertificateDer<'static>`. PEM is a file
+format; it is produced and read where a file is, by
+`formatters::certificate_chain_to_pem`, `read_private_key_from_pem`
+and the import and CRL paths that take operator files.
+
 ### 6.1 Key generation
 
 ```rust
@@ -505,19 +512,19 @@ pub fn generate_server_csr(
 ) -> Result<CertificateSigningRequest, Error>
 
 pub fn generate_server_cert(
-    csr:             &CertificateSigningRequest,
-    subject_key_pem: &[u8],
-    ca_cert_pem:     &[u8],
-    ca_key_pem:      &[u8],
-    validity_days:   u32,
-) -> Result<Vec<u8>, Error>
+    csr:           &CertificateSigningRequest,
+    subject_key:   &KeyPair,
+    ca_cert:       &[u8],          // DER
+    ca_key:        &KeyPair,
+    validity_days: u32,
+) -> Result<CertificateDer<'static>, Error>
 ```
 
 Two-stage. The CSR generation produces a certificate-signing
 request with the requested CN, the SAN list (rcgen auto-detects
 DNS / IP / URI / email by content), and the organisation DN
-fields. The signing step takes the CSR plus the CA's PEM bundle
-and emits a PEM-encoded server certificate.
+fields. The signing step takes the CSR plus the CA's certificate
+and key and returns the server certificate.
 
 The end-entity profile sets:
 - Extended Key Usage: `clientAuth` + `serverAuth`. Both are set
@@ -530,13 +537,13 @@ The end-entity profile sets:
 
 ```rust
 pub fn generate_client_cert(
-    client_name:    &str,
-    client_key_pem: &[u8],
-    ca_cert_pem:    &[u8],
-    ca_key_pem:     &[u8],
-    validity_days:  u32,
-    extra_sans:     &[impl Into<String> + Clone],
-) -> Result<Vec<u8>, Error>
+    client_name:   &CommonName,
+    client_key:    &KeyPair,
+    ca_cert:       &[u8],          // DER
+    ca_key:        &KeyPair,
+    validity_days: u32,
+    extra_sans:    &[impl Into<String> + Clone],
+) -> Result<CertificateDer<'static>, Error>
 ```
 
 The mTLS workhorse. Mints a client certificate signed by the
@@ -549,7 +556,7 @@ provided CA, with:
   while preserving insertion order.
 - `is_ca = NoCa` (leaf cert, cannot sign anything).
 
-The returned PEM is what a client (an HTTP client library, a curl
+The returned certificate is what a client (an HTTP client library, a curl
 command, a database client, anything that speaks TLS) presents to
 a server during the handshake. See §8 for the architectural
 implications.
@@ -559,20 +566,20 @@ implications.
 ```rust
 pub fn generate_ca_cert(
     ca_name:       &CommonName,
-    ca_key_pem:    &[u8],
+    ca_key:        &KeyPair,
     validity_days: u32,
     org:           &Organization,
-) -> Result<Vec<u8>, Error>
+) -> Result<CertificateDer<'static>, Error>
 
 pub fn generate_intermediate_ca_cert(
-    int_key_pem:        &[u8],
-    issuer_ca_cert_pem: &[u8],
-    issuer_ca_key_pem:  &[u8],
-    common_name:        &CommonName,
-    validity_days:      u32,
-    org:                &Organization,
-    path_len:           Option<u8>,
-) -> Result<Vec<u8>, Error>
+    int_key:        &KeyPair,
+    issuer_ca_cert: &[u8],         // DER
+    issuer_ca_key:  &KeyPair,
+    common_name:    &CommonName,
+    validity_days:  u32,
+    org:            &Organization,
+    path_len:       Option<u8>,
+) -> Result<CertificateDer<'static>, Error>
 ```
 
 A self-signed root CA and an intermediate CA generator. The root
