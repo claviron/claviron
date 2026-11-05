@@ -5,17 +5,16 @@ use crate::ssl::{generators, parsers};
 fn crl_updates_preserve_revocations_and_use_authority_expiry() {
     let key = generators::generate_ca_key().unwrap();
     let ca = generators::generate_ca_cert(
-        "root.test",
+        &"root.test".parse().unwrap(),
         key.serialize_pem().as_bytes(),
         30,
-        None,
-        None,
+        &Default::default(),
     )
     .unwrap();
-    let client = |name| {
+    let client = |name: &str| {
         let client_key = generators::generate_private_key().unwrap();
         generators::generate_client_cert(
-            name,
+            &name.parse().unwrap(),
             client_key.serialize_pem().as_bytes(),
             &ca,
             key.serialize_pem().as_bytes(),

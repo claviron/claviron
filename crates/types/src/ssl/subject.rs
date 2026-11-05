@@ -5,7 +5,7 @@ use super::SSLError;
 
 /// An absolute ASCII URI. Namespace meaning and access policy belong to callers.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SubjectUri(String);
+pub struct SubjectUri(Box<str>);
 
 impl SubjectUri {
     pub fn as_str(&self) -> &str {
@@ -46,7 +46,19 @@ impl FromStr for SubjectUri {
                 return Err(invalid());
             }
         }
-        Ok(Self(value.to_owned()))
+        Ok(Self(value.into()))
+    }
+}
+
+/// The URI as a subject alternative name of a certificate under construction.
+impl TryFrom<&SubjectUri> for rcgen::SanType {
+    type Error = SSLError;
+
+    fn try_from(uri: &SubjectUri) -> Result<Self, Self::Error> {
+        uri.as_str()
+            .try_into()
+            .map(rcgen::SanType::URI)
+            .map_err(|_| SSLError::Other("subject URI must be ASCII".into()))
     }
 }
 

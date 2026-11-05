@@ -6,11 +6,10 @@ async fn source_reads_trust_and_identity_without_sni_or_default_certificate() {
     let directory = tempfile::tempdir().unwrap();
     let ca_key = generators::generate_ca_key().unwrap();
     let ca = generators::generate_ca_cert(
-        "Fixture CA",
+        &"Fixture CA".parse().unwrap(),
         ca_key.serialize_pem().as_bytes(),
         30,
-        None,
-        None,
+        &Default::default(),
     )
     .unwrap();
     let files: CertStore = serde_yaml::from_str(&format!(
@@ -34,7 +33,7 @@ async fn source_reads_trust_and_identity_without_sni_or_default_certificate() {
     let key = generators::generate_private_key().unwrap();
     let server = generators::generate_leaf_cert(
         CertificateKind::Server,
-        "vpn.test",
+        &"vpn.test".parse().unwrap(),
         key.serialize_pem().as_bytes(),
         &ca,
         ca_key.serialize_pem().as_bytes(),
@@ -76,11 +75,10 @@ async fn configured_file_authority_signs_with_its_intermediate_key() {
     let directory = tempfile::tempdir().unwrap();
     let root_key = generators::generate_ca_key().unwrap().serialize_pem();
     let root = generators::generate_ca_cert(
-        "Root CA",
+        &"Root CA".parse().unwrap(),
         root_key.as_bytes(),
         30,
-        None,
-        None,
+        &Default::default(),
     )
     .unwrap();
     let key = generators::generate_ca_key().unwrap().serialize_pem();
@@ -88,7 +86,7 @@ async fn configured_file_authority_signs_with_its_intermediate_key() {
         key.as_bytes(),
         &root,
         root_key.as_bytes(),
-        "Intermediate CA",
+        &"Intermediate CA".parse().unwrap(),
         7,
         &Default::default(),
         Some(0),
@@ -114,13 +112,19 @@ async fn configured_file_authority_signs_with_its_intermediate_key() {
     let device = generators::generate_private_key().unwrap();
     let csr = generators::generate_server_csr(
         &device,
-        "device.test",
+        &"device.test".parse().unwrap(),
         Vec::new(),
         &Default::default(),
     )
     .unwrap();
     let issued = signer
-        .issue_client_csr(csr.der().as_ref(), "device", None, None, 1)
+        .issue_client_csr(
+            csr.der().as_ref(),
+            &"device".parse().unwrap(),
+            None,
+            None,
+            1,
+        )
         .unwrap();
     let leaf = parsers::take_first_cert_from_der(&issued).unwrap();
     let issuer =
@@ -160,11 +164,10 @@ async fn public_authority_never_queries_private_key_column() {
         .unwrap();
     let key = generators::generate_ca_key().unwrap();
     let ca = generators::generate_ca_cert(
-        "Fixture CA",
+        &"Fixture CA".parse().unwrap(),
         key.serialize_pem().as_bytes(),
         30,
-        None,
-        None,
+        &Default::default(),
     )
     .unwrap();
     let der = parsers::concat_chain_bytes_from_pem(&ca).unwrap();
@@ -205,7 +208,13 @@ async fn public_authority_never_queries_private_key_column() {
         .unwrap();
     let signer = CertSigner::from_authority(&store, &authority).await.unwrap();
     let issued = signer
-        .issue_certificate(CertificateKind::Client, "client.test", &[], 1, None)
+        .issue_certificate(
+            CertificateKind::Client,
+            &"client.test".parse().unwrap(),
+            &[],
+            1,
+            None,
+        )
         .unwrap();
     assert!(!issued.key_der.is_empty());
     assert!(

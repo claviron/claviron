@@ -12,11 +12,10 @@ use super::*;
 fn signer_material_issues_verifiable_identities_without_files() {
     let key = generators::generate_ca_key().unwrap();
     let ca = generators::generate_ca_cert(
-        "authority.test",
+        &"authority.test".parse().unwrap(),
         key.serialize_pem().as_bytes(),
         30,
-        None,
-        None,
+        &Default::default(),
     )
     .unwrap();
     let ca_der = parsers::concat_chain_bytes_from_pem(&ca).unwrap();
@@ -30,7 +29,7 @@ fn signer_material_issues_verifiable_identities_without_files() {
     let issued = authority
         .issue_certificate(
             CertificateKind::Client,
-            "client.test",
+            &"client.test".parse().unwrap(),
             &["alias.test".into()],
             1,
             None,
@@ -54,7 +53,12 @@ fn signer_material_issues_verifiable_identities_without_files() {
     let subject =
         "urn:uuid:00000000-0000-4000-8000-000000000007".parse().unwrap();
     let identified = authority
-        .issue_client_certificate("display-name.test", &[], Some(&subject), 1)
+        .issue_client_certificate(
+            &"display-name.test".parse().unwrap(),
+            &[],
+            Some(&subject),
+            1,
+        )
         .unwrap();
     let peer = claviron_types::ssl::peer::peer_identity(&identified.certs_der)
         .unwrap();
@@ -71,7 +75,7 @@ fn signer_material_issues_verifiable_identities_without_files() {
     catalog.register_name("service.read").unwrap();
     let scoped = authority
         .issue_client_certificate_with_permissions(
-            "scoped.test",
+            &"scoped.test".parse().unwrap(),
             &[],
             Some(&subject),
             1,
@@ -100,7 +104,7 @@ fn signer_material_issues_verifiable_identities_without_files() {
     assert!(
         authority
             .issue_client_certificate_with_permissions(
-                "scoped.test",
+                &"scoped.test".parse().unwrap(),
                 &[],
                 None,
                 1,
@@ -112,7 +116,7 @@ fn signer_material_issues_verifiable_identities_without_files() {
     assert!(
         authority
             .issue_client_certificate(
-                "scoped.test",
+                &"scoped.test".parse().unwrap(),
                 &["urn:claviron:permissions:v1:service.read".into()],
                 None,
                 1
@@ -122,11 +126,22 @@ fn signer_material_issues_verifiable_identities_without_files() {
     let reserved = "urn:claviron:permissions:v1:service.read".parse().unwrap();
     assert!(
         authority
-            .issue_client_certificate("scoped.test", &[], Some(&reserved), 1)
+            .issue_client_certificate(
+                &"scoped.test".parse().unwrap(),
+                &[],
+                Some(&reserved),
+                1
+            )
             .is_err()
     );
     let server = authority
-        .issue_certificate(CertificateKind::Server, "server.test", &[], 1, None)
+        .issue_certificate(
+            CertificateKind::Server,
+            &"server.test".parse().unwrap(),
+            &[],
+            1,
+            None,
+        )
         .unwrap();
     assert!(
         parsers::take_first_cert_from_der(&server.certs_der)
@@ -140,7 +155,7 @@ fn signer_material_issues_verifiable_identities_without_files() {
     let intermediate = authority
         .issue_certificate(
             CertificateKind::Ca,
-            "intermediate.test",
+            &"intermediate.test".parse().unwrap(),
             &[],
             10,
             Some(0),
@@ -154,7 +169,13 @@ fn signer_material_issues_verifiable_identities_without_files() {
         key_der: intermediate.key_der,
     };
     let leaf = intermediate
-        .issue_certificate(CertificateKind::Client, "client.test", &[], 1, None)
+        .issue_certificate(
+            CertificateKind::Client,
+            &"client.test".parse().unwrap(),
+            &[],
+            1,
+            None,
+        )
         .unwrap();
     let (_, chain_leaf) =
         x509_parser::parse_x509_certificate(&leaf.certs_der).unwrap();
@@ -170,7 +191,7 @@ fn signer_material_issues_verifiable_identities_without_files() {
         intermediate
             .issue_certificate(
                 CertificateKind::Ca,
-                "nested.test",
+                &"nested.test".parse().unwrap(),
                 &[],
                 1,
                 Some(0)
@@ -182,7 +203,13 @@ fn signer_material_issues_verifiable_identities_without_files() {
             authority: CertAuthority::new(PathBuf::new(), vec![]),
             key_der: vec![]
         })
-        .issue_certificate(CertificateKind::Client, "client.test", &[], 1, None)
+        .issue_certificate(
+            CertificateKind::Client,
+            &"client.test".parse().unwrap(),
+            &[],
+            1,
+            None
+        )
         .is_err()
     );
 }

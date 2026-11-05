@@ -154,14 +154,7 @@ pub fn plan_import(
     };
     let (common_name, aliases) = if kind == CertificateKind::Ca {
         // A CA's subject is an authority identity, never a routing hostname.
-        let name = cert
-            .subject()
-            .iter_common_name()
-            .next()
-            .ok_or_else(|| Error::Other("missing subject CN".into()))?
-            .as_str()?;
-        let name = super::CommonName::try_from(name.to_owned())
-            .map_err(Error::Other)?;
+        let name = super::CommonName::try_from(cert.subject())?;
         (name.into_string(), Vec::new())
     } else {
         let name = Host::try_from(&cert)?;

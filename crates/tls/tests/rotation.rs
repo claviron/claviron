@@ -11,17 +11,16 @@ fn certificate(aliases: &[&str]) -> HostedCertificate {
     let ca_key = generators::generate_ca_key().unwrap();
     let ca_pem = ca_key.serialize_pem();
     let ca_cert = generators::generate_ca_cert(
-        "authority.test",
+        &"authority.test".parse().unwrap(),
         ca_pem.as_bytes(),
         30,
-        None,
-        None,
+        &Default::default(),
     )
     .unwrap();
     let key = generators::generate_private_key().unwrap();
     let cert = generators::generate_leaf_cert(
         CertificateKind::Server,
-        "example.test",
+        &"example.test".parse().unwrap(),
         key.serialize_pem().as_bytes(),
         &ca_cert,
         ca_pem.as_bytes(),

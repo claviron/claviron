@@ -276,12 +276,12 @@ is part of the public type.
 
 ```rust
 pub struct Organization {
-    pub name:    String,
-    pub email:   String,
-    pub country: String,
-    pub state:   String,
-    pub city:    String,
-    pub unit:    String,
+    pub name:    Box<str>,
+    pub email:   Box<str>,
+    pub country: Box<str>,
+    pub state:   Box<str>,
+    pub city:    Box<str>,
+    pub unit:    Box<str>,
 }
 ```
 
@@ -289,7 +289,10 @@ The subject DN fields used when generating a certificate. All
 fields are optional (empty strings are skipped in serialization
 and skipped in DN composition), so the same struct works for a
 minimal "just the organisation name" CA and for a fully-attested
-end-entity certificate.
+end-entity certificate. The text is exact-size and immutable once
+read; an absent attribute allocates nothing. `Organization` writes its
+own attributes into a subject under construction, so no caller
+assembles them by hand.
 
 The `from_name(name)` constructor is the common ergonomic shortcut
 for the minimal case.
@@ -297,18 +300,30 @@ for the minimal case.
 ### 3.3 `Issuer`
 
 ```rust
-pub struct Issuer {
-    pub cn:           String,
-    pub organization: String,
-    pub country:      String,
-    pub unit:         String,
+pub struct Issuer<'a> {
+    pub cn:           Option<&'a str>,
+    pub organization: Option<&'a str>,
+    pub country:      Option<&'a str>,
+    pub unit:         Option<&'a str>,
 }
 ```
 
-The reverse direction: the issuer-shaped fields extracted from a
-parsed X.509 certificate's issuer DN. Used by the parsers module
-(`TryFrom<&X509Certificate>`) so a deployed certificate's
-provenance can be inspected without re-parsing the raw DN bytes.
+The reverse direction: the issuer-shaped fields of a parsed X.509
+certificate's issuer DN. It is a view: every attribute borrows from
+the certificate's DER and nothing is copied. An absent attribute is
+`None`, not an empty string.
+
+### 3.4 Names: binary first, text where it is read
+
+The certificate libraries set the cost of each direction. `rcgen`
+owns one `String` per subject attribute, so the cheapest hand-off is
+a move; `x509-parser` lends every name from the DER it parsed. The
+types here follow both: `CommonName` and `SubjectUri` hold exact-size
+text and convert into `rcgen` values directly, and `CommonName::read`
+returns the name as a slice of the certificate's own bytes. A subject
+is assembled in one place in `generators`, from a `CommonName` and
+the optional `Organization`. Retained certificates stay DER; text is
+produced by the consumer that reads it.
 
 The structural difference from `Organization`: an issuer has a CN
 (the CA's common name); an organisation does not (CN is the
@@ -395,10 +410,12 @@ certificate bytes into the domain types defined above. The bridge
 crate is `x509-parser`; the conversion shapes are `TryFrom`
 implementations:
 
-- `TryFrom<&X509Certificate> for Organization` — extracts O / CN /
-  email / C / L / OU from the subject DN.
-- `TryFrom<&X509Certificate> for Issuer` — extracts CN / O / C /
-  OU from the issuer DN.
+- `TryFrom<&X509Certificate> for Organization` — extracts O /
+  email / C / L / OU from the subject DN (in `organization.rs`).
+- `TryFrom<&X509Certificate> for Issuer<'_>` — borrows CN / O / C /
+  OU from the issuer DN (in `issuer.rs`).
+- `TryFrom<&X509Name> for CommonName` and `CommonName::read` — the
+  subject CN, owned or borrowed (in `cn.rs`).
 - `TryFrom<&X509Certificate> for Host` — extracts the subject CN
   and parses it into a `Host`.
 - `TryFrom<&X509Certificate> for Aliases` — extracts every
@@ -460,7 +477,7 @@ as certificate renewal, where retaining the existing identity is required.
 ```rust
 pub fn generate_server_csr(
     private_key: &KeyPair,
-    cname:       &str,
+    cname:       &CommonName,
     aliases:     impl Into<Vec<String>>,
     org:         &Organization,
 ) -> Result<CertificateSigningRequest, Error>
@@ -519,18 +536,17 @@ implications.
 
 ```rust
 pub fn generate_ca_cert(
-    ca_name:       &str,
+    ca_name:       &CommonName,
     ca_key_pem:    &[u8],
     validity_days: u32,
-    org_name:      Option<&str>,
-    country:       Option<&str>,
+    org:           &Organization,
 ) -> Result<Vec<u8>, Error>
 
 pub fn generate_intermediate_ca_cert(
     int_key_pem:        &[u8],
     issuer_ca_cert_pem: &[u8],
     issuer_ca_key_pem:  &[u8],
-    common_name:        &str,
+    common_name:        &CommonName,
     validity_days:      u32,
     org:                &Organization,
     path_len:           Option<u8>,
@@ -743,8 +759,10 @@ host.
 | `aliases.rs`     | 148 | `Aliases` (newtype `Vec<Host>`), unique-push semantics, one-or-many serde, `domains()` borrowing iterator, conversions from `Sni` lists. |
 | `ssl.rs`         | small | Feature-gated SSL namespace and public re-exports. |
 | `ssl/algorithm.rs`   | 42 | Storage-neutral `Algorithm` enum, `FromStr`, `Display`, and serde. |
-| `ssl/organization.rs`| 49 | `Organization` certificate subject fields. |
-| `ssl/issuer.rs`      | 18 | `Issuer` certificate issuer fields. |
+| `ssl/cn.rs`          | 110 | `CommonName`: validated subject name, borrowed read from a parsed name, conversions from hosts and into subject values. |
+| `ssl/organization.rs`| 95 | `Organization` subject fields, its read from a certificate and its write into a subject. |
+| `ssl/issuer.rs`      | 33 | `Issuer<'a>`: borrowed view of a certificate's issuer name. |
+| `ssl/subject.rs`     | 70 | `SubjectUri`: validated URI identity and its subject-alternative-name conversion. |
 | `ssl/certstore.rs`   | 200 | `CertStore` on-disk layout helper and YAML loader. |
 | `ssl/parsers.rs`     | 192 | X.509 / CSR / PEM parsing and conversions into shared identity types. |
 | `ssl/generators.rs`  | 301 | Key, CSR, CA, server, client, and intermediate certificate generators. |

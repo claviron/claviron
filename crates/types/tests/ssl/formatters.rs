@@ -6,11 +6,10 @@ use crate::ssl::parsers::concat_chain_bytes_from_pem;
 fn concatenated_der_round_trips_through_public_fullchain_pem() {
     let key = generate_ca_key().unwrap();
     let certificate = generate_ca_cert(
-        "test-ca",
+        &"test-ca".parse().unwrap(),
         key.serialize_pem().as_bytes(),
         1,
-        None,
-        None,
+        &Default::default(),
     )
     .unwrap();
     let der = concat_chain_bytes_from_pem(&certificate).unwrap();

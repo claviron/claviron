@@ -156,7 +156,7 @@ impl CertSigner {
     pub fn issue_client_csr(
         &self,
         csr_der: &[u8],
-        common_name: &str,
+        common_name: &claviron_types::ssl::CommonName,
         subject: Option<&claviron_types::ssl::SubjectUri>,
         permissions: Option<&claviron_types::permission::Permissions>,
         validity_days: u32,
@@ -204,7 +204,7 @@ impl CertSigner {
     /// The CN remains a label; this method assigns no application permissions.
     pub fn issue_client_certificate(
         &self,
-        common_name: &str,
+        common_name: &claviron_types::ssl::CommonName,
         aliases: &[String],
         subject: Option<&claviron_types::ssl::SubjectUri>,
         validity_days: u32,
@@ -224,7 +224,7 @@ impl CertSigner {
     /// delegation; membership in the catalog is not permission to issue a grant.
     pub fn issue_client_certificate_with_permissions(
         &self,
-        common_name: &str,
+        common_name: &claviron_types::ssl::CommonName,
         aliases: &[String],
         subject: Option<&claviron_types::ssl::SubjectUri>,
         validity_days: u32,
@@ -249,7 +249,7 @@ impl CertSigner {
     pub fn issue_certificate(
         &self,
         kind: claviron_types::CertificateKind,
-        common_name: &str,
+        common_name: &claviron_types::ssl::CommonName,
         aliases: &[String],
         validity_days: u32,
         ca_path_len: Option<u8>,
@@ -357,7 +357,7 @@ impl CertSigner {
 
 struct SigningRequest<'a> {
     kind: claviron_types::CertificateKind,
-    common_name: &'a str,
+    common_name: &'a claviron_types::ssl::CommonName,
     aliases: &'a [String],
     subject: Option<&'a claviron_types::ssl::SubjectUri>,
     validity_days: u32,

@@ -146,11 +146,10 @@ async fn failed_reload_file_snapshot_keeps_serving_certificates() {
     use claviron_types::ssl::generators;
     let key = generators::generate_ca_key().unwrap();
     let pem = generators::generate_ca_cert(
-        "Fixture CA",
+        &"Fixture CA".parse().unwrap(),
         key.serialize_pem().as_bytes(),
         1,
-        None,
-        None,
+        &Default::default(),
     )
     .unwrap();
     let server_dir = directory.0.join("servers/default");

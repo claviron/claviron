@@ -5,20 +5,24 @@ fn enrollment_csr_proves_key_possession_without_selecting_certificate_claims() {
     use super::*;
 
     let ca_key = generate_ca_key().unwrap().serialize_pem();
-    let ca =
-        generate_ca_cert("authority.test", ca_key.as_bytes(), 30, None, None)
-            .unwrap();
+    let ca = generate_ca_cert(
+        &"authority.test".parse().unwrap(),
+        ca_key.as_bytes(),
+        30,
+        &Default::default(),
+    )
+    .unwrap();
     let device = generate_private_key().unwrap();
     let csr = generate_server_csr(
         &device,
-        "untrusted.test",
+        &"untrusted.test".parse().unwrap(),
         vec!["untrusted.test".into()],
         &Organization::default(),
     )
     .unwrap();
     let issue = |csr| {
         sign_client_csr(
-            "operator",
+            &"operator".parse().unwrap(),
             csr,
             &ca,
             ca_key.as_bytes(),
@@ -58,14 +62,18 @@ fn persisted_private_key_round_trips_without_rotation() {
 fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     use super::*;
     let ca_key = generate_ca_key().unwrap().serialize_pem();
-    let ca =
-        generate_ca_cert("authority.test", ca_key.as_bytes(), 30, None, None)
-            .unwrap();
+    let ca = generate_ca_cert(
+        &"authority.test".parse().unwrap(),
+        ca_key.as_bytes(),
+        30,
+        &Default::default(),
+    )
+    .unwrap();
     let key = generate_private_key().unwrap();
     let key_pem = key.serialize_pem();
     let aliases = vec!["other.test".to_string()];
     let signed = generate_client_cert(
-        "client.test",
+        &"client.test".parse().unwrap(),
         key_pem.as_bytes(),
         &ca,
         ca_key.as_bytes(),
@@ -88,7 +96,7 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     );
     assert!(
         generate_client_cert(
-            "client.test",
+            &"client.test".parse().unwrap(),
             key_pem.as_bytes(),
             &ca,
             ca_key.as_bytes(),
@@ -99,7 +107,7 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     );
     assert!(
         generate_client_cert(
-            "client.test",
+            &"client.test".parse().unwrap(),
             key_pem.as_bytes(),
             &ca,
             ca_key.as_bytes(),
@@ -110,7 +118,7 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     );
     assert!(
         generate_client_cert(
-            "client.test",
+            &"client.test".parse().unwrap(),
             key_pem.as_bytes(),
             &ca,
             ca_key.as_bytes(),
@@ -121,7 +129,7 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     );
     assert!(
         generate_client_cert(
-            "client.test",
+            &"client.test".parse().unwrap(),
             key_pem.as_bytes(),
             &ca,
             key_pem.as_bytes(),
@@ -133,7 +141,7 @@ fn client_issuance_requires_matching_ca_key_and_bounded_validity() {
     // A correctly paired end-entity certificate is still not a signing CA.
     assert!(
         generate_client_cert(
-            "child.test",
+            &"child.test".parse().unwrap(),
             ca_key.as_bytes(),
             &signed,
             key_pem.as_bytes(),

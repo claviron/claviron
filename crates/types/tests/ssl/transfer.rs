@@ -3,11 +3,10 @@ use super::*;
 fn root() -> (Vec<u8>, rcgen::KeyPair) {
     let key = generators::generate_ca_key().unwrap();
     let cert = generators::generate_ca_cert(
-        "root.test",
+        &"root.test".parse().unwrap(),
         key.serialize_pem().as_bytes(),
         30,
-        None,
-        None,
+        &Default::default(),
     )
     .unwrap();
     (cert, key)
@@ -26,7 +25,7 @@ fn detects_target_role_and_issuer_independent_of_chain_order() {
         let key = generators::generate_private_key().unwrap();
         let leaf = generators::generate_leaf_cert(
             kind,
-            "leaf.test",
+            &"leaf.test".parse().unwrap(),
             key.serialize_pem().as_bytes(),
             &ca,
             ca_key.serialize_pem().as_bytes(),
@@ -70,9 +69,13 @@ fn detects_target_role_and_issuer_independent_of_chain_order() {
 fn ca_subjects_are_authority_names_not_host_aliases() {
     let key = generators::generate_ca_key().unwrap();
     let pem = key.serialize_pem();
-    let ca =
-        generators::generate_ca_cert("Roma CA", pem.as_bytes(), 30, None, None)
-            .unwrap();
+    let ca = generators::generate_ca_cert(
+        &"Roma CA".parse().unwrap(),
+        pem.as_bytes(),
+        30,
+        &Default::default(),
+    )
+    .unwrap();
     let root = plan_import(&ca, pem.as_bytes(), &[]).unwrap();
     assert_eq!(root.common_name, "Roma CA");
     assert!(root.aliases.is_empty());
@@ -83,7 +86,7 @@ fn ca_subjects_are_authority_names_not_host_aliases() {
         intermediate_pem.as_bytes(),
         &ca,
         pem.as_bytes(),
-        "Roma Issuing CA",
+        &"Roma Issuing CA".parse().unwrap(),
         2,
         &super::super::Organization::default(),
         Some(0),
@@ -107,7 +110,7 @@ fn rejects_unrelated_chains_and_ambiguous_database_authorities() {
         plan_import(&ca, ca_key.serialize_pem().as_bytes(), &[]).unwrap();
     let key = generators::generate_private_key().unwrap();
     let leaf = generators::generate_client_cert(
-        "client.test",
+        &"client.test".parse().unwrap(),
         key.serialize_pem().as_bytes(),
         &ca,
         ca_key.serialize_pem().as_bytes(),

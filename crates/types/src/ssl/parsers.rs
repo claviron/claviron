@@ -10,7 +10,6 @@ use x509_parser::pem::parse_x509_pem;
 use x509_parser::prelude::X509Error;
 
 use super::error::Error;
-use super::{Issuer, Organization};
 use crate::{Aliases, Host};
 
 /// PEM files include BEGIN/END headers and base64 armor; this helper strips those and
@@ -43,57 +42,6 @@ pub fn concat_chain_bytes_from_pem(pem: &[u8]) -> Result<Vec<u8>, Error> {
         out.extend_from_slice(cert.as_ref()); // append each DER
     }
     Ok(out)
-}
-
-impl<'a> TryFrom<&'a X509Certificate<'a>> for Organization {
-    type Error = Error;
-
-    fn try_from(cert: &'a X509Certificate<'a>) -> Result<Self, Self::Error> {
-        let mut org = Organization::default();
-        if let Some(attr) = cert.subject().iter_organization().next() {
-            org.name = attr.as_str()?.to_owned();
-        }
-        if let Some(attr) = cert.subject().iter_email().next() {
-            org.email = attr.as_str()?.to_owned();
-        }
-
-        if let Some(attr) = cert.subject().iter_country().next() {
-            org.country = attr.as_str()?.to_owned();
-        }
-        if let Some(attr) = cert.subject().iter_locality().next() {
-            org.city = attr.as_str()?.to_owned();
-        }
-        if let Some(attr) = cert.subject().iter_organizational_unit().next() {
-            org.unit = attr.as_str()?.to_owned();
-        }
-        Ok(org)
-    }
-}
-
-impl<'a> TryFrom<&'a X509Certificate<'a>> for Issuer {
-    type Error = Error;
-
-    fn try_from(cert: &'a X509Certificate<'a>) -> Result<Self, Self::Error> {
-        let mut iss = Issuer::default();
-        // use issuer() instead of subject() if you want the signing CA info,
-        // or subject() if you want the end-entity info:
-
-        let issuer_name = cert.issuer();
-        if let Some(attr) = issuer_name.iter_common_name().next() {
-            iss.cn = attr.as_str()?.to_owned();
-        }
-
-        if let Some(attr) = issuer_name.iter_country().next() {
-            iss.country = attr.as_str()?.to_owned();
-        }
-        if let Some(attr) = issuer_name.iter_organization().next() {
-            iss.organization = attr.as_str()?.to_owned();
-        }
-        if let Some(attr) = issuer_name.iter_organizational_unit().next() {
-            iss.unit = attr.as_str()?.to_owned();
-        }
-        Ok(iss)
-    }
 }
 
 impl<'a> TryFrom<&'a X509Certificate<'a>> for Host {

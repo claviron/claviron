@@ -1,6 +1,6 @@
 mod algorithm;
 pub mod certstore;
-mod common_name;
+mod cn;
 pub mod crl;
 mod error;
 pub mod formatters;
@@ -16,7 +16,7 @@ mod subject;
 pub mod transfer;
 
 pub use algorithm::Algorithm;
-pub use common_name::CommonName;
+pub use cn::CommonName;
 pub use error::{Error, Error as SSLError};
 pub use issuer::Issuer;
 pub use organization::Organization;

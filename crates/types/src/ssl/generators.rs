@@ -6,9 +6,23 @@ use rcgen::{
 };
 use time::{Duration as TimeDuration, OffsetDateTime};
 
-use super::Organization;
 use super::error::Error;
-use crate::{Aliases, CertificateKind, KeyString};
+use super::{CommonName, Organization, SubjectUri};
+use crate::{Aliases, CertificateKind};
+
+/// The subject of a certificate this module issues: its common name and the
+/// organization attributes its issuer states. Built here and nowhere else.
+fn subject(
+    common_name: &CommonName,
+    organization: Option<&Organization>,
+) -> DistinguishedName {
+    let mut subject = DistinguishedName::new();
+    subject.push(DnType::CommonName, common_name);
+    if let Some(organization) = organization {
+        organization.write(&mut subject);
+    }
+    subject
+}
 
 fn generate_keypair_ecdsa_p256() -> Result<KeyPair, Error> {
     Ok(KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256)?)
@@ -37,7 +51,7 @@ pub fn read_private_key_from_der(key_content: &[u8]) -> Result<KeyPair, Error> {
 
 pub fn generate_server_csr(
     private_key: &KeyPair,
-    cname: &str,
+    cname: &CommonName,
     aliases: impl Into<Vec<String>>,
     org: &Organization,
 ) -> Result<CertificateSigningRequest, Error> {
@@ -49,17 +63,7 @@ pub fn generate_server_csr(
     // debug!(?aliases, "creating server csr from aliases");
     let mut params = CertificateParams::new(aliases)?;
 
-    // Subject DN: set CN to the first extracted domain
-    let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, cname.to_string());
-
-    if !org.name.is_empty() {
-        dn.push(DnType::OrganizationName, org.name.to_string());
-    }
-    if !org.country.is_empty() {
-        dn.push(DnType::CountryName, org.country.to_string());
-    }
-    params.distinguished_name = dn;
+    params.distinguished_name = subject(cname, Some(org));
 
     // Create CSR using provided keypair
     let csr = params.serialize_request(private_key)?;
@@ -79,7 +83,8 @@ pub fn generate_server_cert(
     validity_days: u32,
 ) -> Result<Vec<u8>, Error> {
     let aliases = Aliases::from_csr_der(csr.der().as_ref())?;
-    let cname = aliases.first().ok_or(Error::NoDomainsProvided)?.key_string();
+    let cname =
+        CommonName::from(aliases.first().ok_or(Error::NoDomainsProvided)?);
     generate_leaf_cert(
         CertificateKind::Server,
         &cname,
@@ -99,7 +104,7 @@ pub fn generate_server_cert(
 ///   - subjectAltName  = CN + any extra SAN entries (DNS/IP/email/URI strings are auto-parsed)
 ///     Returns client certificates data in PEM format.
 pub fn generate_client_cert(
-    client_name: &str,
+    client_name: &CommonName,
     client_key_pem: &[u8],
     ca_cert_pem: &[u8],
     ca_key_pem: &[u8],
@@ -121,7 +126,7 @@ pub fn generate_client_cert(
 /// serverAuth + clientAuth profile; client certificates have clientAuth only.
 pub fn generate_leaf_cert(
     kind: CertificateKind,
-    client_name: &str,
+    client_name: &CommonName,
     client_key_pem: &[u8],
     ca_cert_pem: &[u8],
     ca_key_pem: &[u8],
@@ -129,7 +134,7 @@ pub fn generate_leaf_cert(
     extra_sans: &[impl Into<String> + Clone],
 ) -> Result<Vec<u8>, Error> {
     let key = read_private_key_from_pem(client_key_pem)?;
-    let mut sans = vec![client_name.to_owned()];
+    let mut sans = vec![String::from(client_name)];
     for name in extra_sans {
         let name = name.clone().into();
         if !sans.contains(&name) {
@@ -144,7 +149,7 @@ pub fn generate_leaf_cert(
 
 /// Verify a PKCS#10 request and sign only its public key with issuer-owned claims.
 pub fn sign_client_csr(
-    common_name: &str,
+    common_name: &CommonName,
     csr_der: &[u8],
     ca_cert_pem: &[u8],
     ca_key_pem: &[u8],
@@ -171,7 +176,7 @@ pub fn sign_client_csr(
 
 fn leaf_params(
     kind: CertificateKind,
-    client_name: &str,
+    client_name: &CommonName,
     sans: Vec<String>,
 ) -> Result<CertificateParams, Error> {
     if !matches!(kind, CertificateKind::Server | CertificateKind::Client) {
@@ -185,18 +190,11 @@ fn leaf_params(
     });
     let mut params = CertificateParams::new(names)?;
     for uri in uris {
-        let uri = uri.parse::<super::SubjectUri>()?;
-        params.subject_alt_names.push(rcgen::SanType::URI(
-            uri.as_str().try_into().map_err(|_| {
-                Error::Other("subject URI must be ASCII".into())
-            })?,
-        ));
+        let uri = uri.parse::<SubjectUri>()?;
+        params.subject_alt_names.push((&uri).try_into()?);
     }
 
-    // Subject DN (CN)
-    let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, client_name);
-    params.distinguished_name = dn;
+    params.distinguished_name = subject(client_name, None);
 
     // Leaf cert
     params.is_ca = IsCa::NoCa;
@@ -259,14 +257,13 @@ fn validated_issuer(
 }
 
 /// Generate a self-signed **CA certificate** using the provided CA key PEM bytes.
-/// Accepts optional organization name and country code for DN fields.
+/// The subject carries the organization attributes that are stated.
 /// Returns the CA certificate PEM bytes.
 pub fn generate_ca_cert(
-    ca_name: &str,
+    ca_name: &CommonName,
     ca_key_pem: &[u8],
     validity_days: u32,
-    org_name: Option<&str>,
-    country: Option<&str>,
+    org: &Organization,
 ) -> Result<Vec<u8>, Error> {
     // Start with empty SANs for a CA cert
     let mut params = CertificateParams::new(Vec::<String>::new())?;
@@ -278,22 +275,7 @@ pub fn generate_ca_cert(
     params.key_usages =
         vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
 
-    // Subject DN
-    let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, ca_name);
-
-    if let Some(name) = org_name
-        && !name.is_empty()
-    {
-        dn.push(DnType::OrganizationName, name.to_string());
-    }
-    if let Some(cc) = country
-        && !cc.is_empty()
-    {
-        dn.push(DnType::CountryName, cc.to_string());
-    }
-
-    params.distinguished_name = dn;
+    params.distinguished_name = subject(ca_name, Some(org));
 
     if validity_days == 0 {
         return Err(Error::Other("validity_days must be positive".into()));
@@ -328,7 +310,7 @@ pub fn generate_intermediate_ca_cert(
     int_key_pem: &[u8],
     issuer_ca_cert_pem: &[u8],
     issuer_ca_key_pem: &[u8],
-    common_name: &str,
+    common_name: &CommonName,
     validity_days: u32,
     org: &Organization,
     path_len: Option<u8>,
@@ -346,16 +328,7 @@ pub fn generate_intermediate_ca_cert(
     params.key_usages =
         vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
 
-    // Subject DN
-    let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, common_name);
-    if !org.name.is_empty() {
-        dn.push(DnType::OrganizationName, org.name.to_string());
-    }
-    if !org.country.is_empty() {
-        dn.push(DnType::CountryName, org.country.to_string());
-    }
-    params.distinguished_name = dn;
+    params.distinguished_name = subject(common_name, Some(org));
 
     let issuer = validated_issuer(
         &mut params,
