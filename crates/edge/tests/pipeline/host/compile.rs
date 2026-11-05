@@ -103,6 +103,22 @@ fn backend_factories_resolve_only_during_preparation_and_preserve_body_ownership
         assert_eq!(frame.data_ref().unwrap().as_ptr(), pointer);
     }
     assert_eq!(preparations.load(Ordering::Relaxed), prepared);
+
+    for source in ["{}", "execute: null"] {
+        HostCompiler { state: &state, http: None, protocol: None }
+            .prepare(
+                &"example.test".parse().unwrap(),
+                Arc::new(serde_yaml::from_str::<HostConfig>(source).unwrap()),
+                None,
+                &HostContributions::default(),
+                #[cfg(feature = "rate-limit")]
+                None,
+                #[cfg(feature = "websocket")]
+                None,
+            )
+            .unwrap();
+    }
+    assert_eq!(preparations.load(Ordering::Relaxed), prepared);
 }
 
 #[cfg(feature = "access-log")]

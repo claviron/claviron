@@ -76,6 +76,7 @@ pub trait BackendFactory: Send + Sync {
 }
 
 /// Decode a backend's configuration once, then prepare its concrete owners.
+/// An absent or null directive prepares no owner.
 pub fn factory<C, F>(
     name: &'static str,
     prepare: F,
@@ -114,7 +115,12 @@ where
         &self,
         context: &BackendContext<'_>,
     ) -> Result<Vec<Arc<dyn BackendHandler>>> {
-        let Some(source) = context.route.extensions.get(self.name) else {
+        let Some(source) = context
+            .route
+            .extensions
+            .get(self.name)
+            .filter(|source| !source.is_null())
+        else {
             return Ok(Vec::new());
         };
         let config =

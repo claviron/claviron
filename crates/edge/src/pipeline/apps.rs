@@ -522,7 +522,8 @@ impl HostAppRegistry {
         let factories = self
             .backend_factories
             .read()
-            .expect("backend factories lock poisoned");
+            .expect("backend factories lock poisoned")
+            .clone();
         let mut owners = Vec::new();
         for factory in factories.iter() {
             owners.extend(factory.prepare(context)?);
