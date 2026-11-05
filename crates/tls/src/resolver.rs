@@ -406,6 +406,7 @@ impl Bootable<AppState, (Arc<CertificateProvider>,)> for CertResolverProvider {
         use claviron_runtime::registry::Resolve;
         let hosting = HostingDeps::resolve(registry)?;
         let certificates = build_certificates(state, &hosting).await?;
+        prepare_randomness().await?;
         let count = certificates.resolver.count();
         trace!(resolver = %format_args!("{:p}", Arc::as_ptr(&certificates.resolver)), process_id = std::process::id(), cert_count = count, "Shared TLS resolver registered");
         registry.register(certificates.resolver)?;
@@ -418,6 +419,27 @@ impl Bootable<AppState, (Arc<CertificateProvider>,)> for CertResolverProvider {
         }
         Ok(())
     }
+}
+
+/// A process's first random bytes initialise the crypto library's entropy
+/// source, which takes tens of milliseconds. A process that is about to serve
+/// handshakes pays that here, at boot and under the blocking boundary, and not
+/// inside the first handshake it serves.
+async fn prepare_randomness() -> Result<(), crate::error::Error> {
+    tokio::task::spawn_blocking(|| {
+        rustls::crypto::aws_lc_rs::default_provider()
+            .secure_random
+            .fill(&mut [0_u8; 32])
+    })
+    .await
+    .map_err(|error| {
+        crate::error::Error::Other(format!(
+            "TLS randomness task failed: {error}"
+        ))
+    })?
+    .map_err(|_| {
+        crate::error::Error::Other("TLS randomness is unavailable".into())
+    })
 }
 
 pub fn install_aws_crypto_provider() {

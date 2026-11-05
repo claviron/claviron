@@ -315,6 +315,11 @@ SNI preparation keeps the serving certificate snapshot intact. Resolver replacem
 retains its Arc identity; accepted connections keep their negotiated identity.
 No source-only consumer needs a default certificate or SNI entry.
 
+After it publishes a resolver, the provider asks the crypto library for random
+bytes once, under the blocking boundary. A process's first request initialises
+the library's entropy source and takes tens of milliseconds; paid at boot it
+does not fall inside the first handshake that process serves.
+
 ## 4b. CertAuthority — lending the CA we issue under
 
 `CertAuthority` contains public chains and optional issuer identity.
