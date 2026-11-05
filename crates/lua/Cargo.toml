@@ -48,9 +48,7 @@ webtransport = ["claviron-edge?/webtransport", "app", "dep:claviron-orbit", "dep
 db = ["server", "dep:claviron-db", "claviron-db/server", "dep:futures-util", "dep:sqlx", "sqlx/json"]
 # `claviron.db.mysql`, on the MySQL pools.
 mysql = ["db", "claviron-db/mysql", "sqlx/mysql"]
-
 postgres = ["db", "claviron-db/postgres", "sqlx/postgres"]
-
 sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite", "dep:sqlx-core"]
 # `lua:` tasks in Claviron's task service.
 tasks = ["dep:claviron-tasks", "server"]

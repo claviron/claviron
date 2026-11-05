@@ -12,7 +12,7 @@ use http::{Request, StatusCode};
 use super::AuthorityError;
 #[cfg(feature = "tcp")]
 use super::CleartextRequest;
-use super::extensions::VhostCtx;
+use super::ctx::VhostCtx;
 use crate::pipeline::host::HostPolicy;
 use crate::pipeline::{AuthContext, HostExecution};
 

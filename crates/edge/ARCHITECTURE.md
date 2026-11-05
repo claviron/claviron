@@ -367,7 +367,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`service.rs`](src/service.rs) — Transport handoff exports; no file loading or backend execution engine.
 - [`authority.rs`](src/service/authority.rs) — Validated cleartext authority and connection-local name identity reuse; borrowed access to the admitted request.
 - [`bindings.rs`](src/service/bindings.rs) — Pair live names with the captured TLS policy epoch.
-- [`extensions.rs`](src/service/extensions.rs) — VhostCtx and connection-time SNI selection/rejections.
+- [`ctx`](src/service/ctx.rs) — VhostCtx and connection-time SNI selection/rejections.
 - [`host.rs`](src/service/host.rs) — HostService and native request handoff; no fixed Ingress/Identity/Access chain.
 - [`host/cache.rs`](src/service/host/cache.rs) — Cleartext metadata cache, owner selection against the supplied publication, and reuse of the last admitted owner for a repeated authority on that same publication.
 - [`host/dispatch.rs`](src/service/host/dispatch.rs) — Execute the prepared host owner; retain the direct-call optimization only for a plan without preceding actions.
