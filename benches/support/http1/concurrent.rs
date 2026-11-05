@@ -23,6 +23,8 @@ mod execution;
 mod process;
 #[path = "concurrent/server.rs"]
 mod server;
+#[path = "concurrent/tls.rs"]
+mod tls;
 
 pub use allocation::Counting;
 
@@ -45,6 +47,41 @@ impl Target {
     }
 }
 
+/// What carries HTTP/1 between the client and the server.
+///
+/// A new mode is measured with Edge Other against native Hyper; the other
+/// owners stay on `plain`.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    ValueEnum,
+)]
+#[serde(rename_all = "snake_case")]
+#[value(rename_all = "snake_case")]
+enum Mode {
+    #[default]
+    Plain,
+    Tls,
+}
+
+impl Mode {
+    fn accepts(
+        self,
+        target: Target,
+    ) -> bool {
+        match self {
+            Self::Plain => true,
+            Self::Tls => matches!(target, Target::Hyper | Target::EdgeOther),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
 #[value(rename_all = "snake_case")]
@@ -63,6 +100,8 @@ struct Args {
     /// A second owner, measured in alternating windows of the same run.
     #[arg(long, value_enum)]
     control: Option<Target>,
+    #[arg(long, value_enum, default_value_t = Mode::Plain)]
+    mode: Mode,
     #[arg(long)]
     connections: NonZeroUsize,
     #[arg(long)]
@@ -102,6 +141,7 @@ impl Args {
             arguments.push(value);
         };
         push("--target", name(target));
+        push("--mode", name(self.mode));
         push("--connections", self.connections.to_string().into());
         push("--server-threads", self.server_threads.to_string().into());
         push("--server-execution", name(self.server_execution));
@@ -148,7 +188,12 @@ enum Command {
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Reply {
-    Ready(std::net::SocketAddr),
+    /// The bound address and, in `tls` mode, the authority (DER) that
+    /// signed this server's certificate.
+    Ready {
+        address: std::net::SocketAddr,
+        trust: Option<Vec<u8>>,
+    },
     Begun,
     Used(cpu::Usage),
     Counting,
@@ -200,6 +245,7 @@ impl Side {
             args,
             target,
             server.address,
+            server.trust.as_deref(),
         ))?;
         // Allocations are counted here, never inside a CPU window.
         server.begin_count()?;
@@ -403,6 +449,7 @@ struct Report {
     #[serde(flatten)]
     measured: Measured,
     client_pid: u32,
+    mode: Mode,
     connections: usize,
     server_threads: usize,
     server_execution: ServerExecution,
@@ -414,6 +461,15 @@ struct Report {
 
 pub fn run() -> Result<()> {
     let args = Args::parse();
+    for target in std::iter::once(args.target).chain(args.control) {
+        if !args.mode.accepts(target) {
+            return Err(format!(
+                "{:?} mode measures Edge Other against Hyper; {target:?} is not served in it",
+                args.mode
+            )
+            .into());
+        }
+    }
     if args.server {
         return server::run(&args);
     }
@@ -463,6 +519,7 @@ pub fn run() -> Result<()> {
     let report = Report {
         measured,
         client_pid: std::process::id(),
+        mode: args.mode,
         connections: args.connections.get(),
         server_threads: args.server_threads.get(),
         server_execution: args.server_execution,

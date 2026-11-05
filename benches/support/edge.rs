@@ -133,21 +133,21 @@ pub struct Connection {
     pub listener: Arc<claviron::http::config::ListenerConfig>,
 }
 
-/// Publish registered applications with their host table before accepting IO.
-/// Only cold preparation is supplied here; request handling is the native driver.
-pub fn connection(owner: Owner) -> Connection {
-    use claviron::edge::tcp::plain::{HttpServer, HttpServerConfig};
-
-    let hosts = Hosts::http1();
+/// Register the HTTP defaults and the selected owner without provider boot.
+fn publish(
+    owner: Owner,
+    http: &str,
+) -> AppState {
     let state = AppState::standalone_in_fleet("http1-bench", "bh1bench", ".");
-    let http = Arc::new(claviron::edge::HttpConfigProvider::empty(
+    let provider = Arc::new(claviron::edge::HttpConfigProvider::empty(
         state.config_dir().join("http.yaml"),
     ));
-    http.replace_from_yaml(include_str!("fixtures/http1.yaml"))
+    provider
+        .replace_from_yaml(http)
         .expect("prepare HTTP defaults from the listener fixture");
     state
         .registry_ref()
-        .register(http)
+        .register(provider)
         .expect("register prepared HTTP defaults without provider boot");
     let registry = Arc::new(HostAppRegistry::default());
     state
@@ -164,6 +164,16 @@ pub fn connection(owner: Owner) -> Connection {
             registry.register_routable(Arc::new(Routes(Arc::new(Plain))))
         }
     }
+    state
+}
+
+/// Publish registered applications with their host table before accepting IO.
+/// Only cold preparation is supplied here; request handling is the native driver.
+pub fn connection(owner: Owner) -> Connection {
+    use claviron::edge::tcp::plain::{HttpServer, HttpServerConfig};
+
+    let hosts = Hosts::http1();
+    let state = publish(owner, include_str!("fixtures/http1.yaml"));
     let id = "plain".parse().unwrap();
     let listener = hosts.http.listeners.get(&id).unwrap().clone();
     let config = HttpServerConfig::try_from(hosts.http)
@@ -172,4 +182,58 @@ pub fn connection(owner: Owner) -> Connection {
         .connection_handler(&config, &id, hosts.vhosts)
         .expect("prepare native HTTP/1 connection handler");
     Connection { handler, listener }
+}
+
+#[cfg(feature = "tls")]
+pub struct SecureConnection {
+    pub handler: claviron::edge::tcp::secure::ConnectionHandler,
+    pub listener: Arc<claviron::http::config::ListenerConfig>,
+    /// The fleet session table the listener requires. The caller unlinks it
+    /// once every connection has finished.
+    pub sessions: Arc<claviron::tls::orbit::FleetServerSessions>,
+}
+
+/// The same publication behind the native TLS listener. The certificate is
+/// the caller's; the session table is the real shared-memory one, opened
+/// under a fleet name of this process alone.
+#[cfg(feature = "tls")]
+pub fn secure_connection(
+    owner: Owner,
+    certificate: Arc<rustls::sign::CertifiedKey>,
+) -> SecureConnection {
+    use claviron::edge::tcp::secure::{HttpsServer, HttpsServerConfig};
+    use claviron::tls::orbit::FleetServerSessions;
+
+    let hosts = Hosts::http1_tls();
+    let state = publish(owner, include_str!("fixtures/http1-tls.yaml"));
+    let id = "secure".parse().unwrap();
+    let listener = hosts.http.listeners.get(&id).unwrap().clone();
+    let config = HttpsServerConfig::try_from(hosts.http)
+        .expect("valid TLS listener configuration");
+    let fleet = claviron::orbitive::Fleet::join(
+        &format!("bh{}", std::process::id()),
+        1,
+    )
+    .expect("join the benchmark process's own fleet");
+    let sessions = Arc::new(
+        FleetServerSessions::open(Arc::new(fleet))
+            .expect("open the fleet TLS session table"),
+    );
+    let certificates = Arc::new(claviron::tls::CertResolver::new(
+        [json::HOST, "alias.benchmark.test"]
+            .map(|name| (name.to_owned(), certificate.clone()))
+            .into(),
+        certificate,
+    ));
+    let handler = HttpsServer::empty(state)
+        .connection_handler(
+            &config,
+            &id,
+            certificates,
+            hosts.vhosts,
+            sessions.clone(),
+            Arc::default(),
+        )
+        .expect("prepare native TLS connection handler");
+    SecureConnection { handler, listener, sessions }
 }

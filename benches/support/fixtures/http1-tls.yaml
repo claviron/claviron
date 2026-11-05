@@ -1,0 +1,15 @@
+listeners:
+  secure:
+    transport: tcp
+    tls: true
+    listen: 127.0.0.1:0
+    protocols: [h1]
+    requests:
+      max_body_size: off
+      body_read_timeout: off
+      head_timeout: null
+    h1:
+      header_read_timeout: null
+      keep_alive: true
+      half_close: false
+      pipeline_flush: false

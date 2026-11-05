@@ -12,6 +12,8 @@ pub(super) struct Server {
     input: Option<ChildStdin>,
     output: BufReader<ChildStdout>,
     pub(super) address: SocketAddr,
+    /// The authority the server's certificate chains to, in `tls` mode.
+    pub(super) trust: Option<Vec<u8>>,
 }
 
 impl Server {
@@ -29,8 +31,8 @@ impl Server {
         let mut output =
             BufReader::new(child.stdout.take().expect("piped child stdout"));
         let ready = read(&mut output);
-        let address = match ready {
-            Ok(Reply::Ready(address)) => address,
+        let (address, trust) = match ready {
+            Ok(Reply::Ready { address, trust }) => (address, trust),
             other => {
                 drop(input);
                 let status = child.wait()?;
@@ -44,7 +46,13 @@ impl Server {
                 .into());
             }
         };
-        Ok(Self { child: Some(child), input: Some(input), output, address })
+        Ok(Self {
+            child: Some(child),
+            input: Some(input),
+            output,
+            address,
+            trust,
+        })
     }
 
     pub(super) fn pid(&self) -> u32 {

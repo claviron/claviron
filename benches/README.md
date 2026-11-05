@@ -93,6 +93,19 @@ process with its own main multi-thread Tokio runtime. A separate client process
 keeps the declared TCP connections open, with one in-flight request per connection.
 Connections and both runtime thread counts are required inputs.
 
+`--mode` selects what carries HTTP/1: `plain` (the default) or `tls`. A new
+mode is measured with Edge Other against native Hyper only; the other owners
+stay on `plain`. In `tls` mode each serving process makes its own authority
+and server certificate in memory and reports the authority to its client, so
+no file is read or written. The native control uses the same crypto provider,
+certificate type and ALPN protocol through `tokio-rustls`. The Edge target
+enters the production TLS `ConnectionHandler`, including the handshake, the
+server-name host selection and the request authority check, and opens the
+real fleet TLS session table under a fleet name of its own process, removing
+it on shutdown. Every handshake completes during connection setup, before
+warm-up; the measured windows contain persistent connections only. Runs of
+different modes are never compared with each other.
+
 `--server-execution shared` serves HTTP on the main runtime. Selecting
 `current_thread` places bind, accept and connection tasks on one additional
 current-thread executor using Claviron's production `CurrentThreadDriver` and
@@ -175,7 +188,7 @@ python3 scripts/bench-http.py http1-plain-edge-other \
 ```
 
 Substitute a target from the HTTP/1 table to compare another host owner. The script
-builds the optimized benchmark first, using the same `edge,axum` features for all
+builds the optimized benchmark first, using the same `edge,axum,tls` features for all
 controls; no compilation occurs during measurement. Times and sample count are
 explicit arguments, and Criterion requires at least ten samples.
 
@@ -196,6 +209,11 @@ require Unix process CPU accounting and do not use Criterion's serial RTT
 estimator. Each sample drains outstanding replies before the next window
 begins. Without `--control` one owner is measured alone and no ratio is
 reported.
+
+Add `--mode tls` to the Edge Other/Hyper pair to measure the same load over
+TLS. Read its ratio beside the `plain` ratio of the same pair: both sides pay
+for the same record encryption, so the difference between the two ratios is
+what the TLS serving path adds.
 
 Repeat each case with `--server-execution shared`, leaving connections,
 main-runtime threads, client threads and timing unchanged, to measure execution

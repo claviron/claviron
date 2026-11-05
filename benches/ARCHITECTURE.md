@@ -62,7 +62,9 @@ All three use the native Edge accepted-stream handler, including host selection.
 
 [transport/http1/concurrent.rs](transport/http1/concurrent.rs) defines the
 `http1-concurrent` executable on Unix. Its `--target` selects Hyper, Axum,
-Edge Other, Edge Axum or Edge Routable; all use the plain workload.
+Edge Other, Edge Axum or Edge Routable; all use the plain workload. Its
+`--mode` carries that workload over cleartext or, for Hyper and Edge Other,
+over TLS.
 
 ```text
 concurrent::run
@@ -83,7 +85,7 @@ concurrent::run
 | [plain.rs](support/plain.rs) | Static plain request/response checks and paired dispatch timing; plain dispatch and HTTP/1 targets. |
 | [json.rs](support/json.rs) | Shared hostname, JSON payload, request/response construction and checks. |
 | [axum.rs](support/axum.rs) | Plain and JSON Axum routers for native and registered Edge owners. |
-| [edge.rs](support/edge.rs) | Register Other/Axum/Routable owners, compile host plans and prepare production HTTP/1 connection handlers. |
+| [edge.rs](support/edge.rs) | Register Other/Axum/Routable owners, compile host plans and prepare production HTTP/1 connection handlers, cleartext and TLS. |
 | [setup.rs](support/setup.rs) | Parse embedded HTTP/vhost fixtures and prepare dispatch connection facts without provider boot. |
 | [http1.rs](support/http1.rs) | Serial loopback servers, Hyper client, host preflight and Criterion RTT timing; concurrent clients reuse preflight and reply checks. |
 
@@ -96,6 +98,7 @@ concurrent::run
 | [concurrent/server.rs](support/http1/concurrent/server.rs) | Server control loop, CPU sample and allocation-count boundaries, target selection and connection drain. |
 | [concurrent/allocation.rs](support/http1/concurrent/allocation.rs) | Counting wrapper over the system allocator; enabled only around the warm-up load. |
 | [concurrent/execution.rs](support/http1/concurrent/execution.rs) | Own the server runtime and optional `CurrentThreadDriver`; retain the submitted task until shutdown, then drain/finalize. |
+| [concurrent/tls.rs](support/http1/concurrent/tls.rs) | The `tls` mode's in-memory authority and server identity, the native control's acceptor and the client's connector. |
 | [concurrent/client.rs](support/http1/concurrent/client.rs) | Persistent connections, synchronized request loops that wait for connection readiness, complete-response counts and client teardown. |
 | [concurrent/cpu.rs](support/http1/concurrent/cpu.rs) | Unix `getrusage(RUSAGE_SELF)` user and system CPU, kept separate, for all server process threads, excluding the client process. |
 

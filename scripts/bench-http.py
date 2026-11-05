@@ -41,7 +41,7 @@ BENCHMARKS.update({name: (f"transport/http1/concurrent/{owner}/plain", "concurre
                    for name, owner in CONCURRENT_TARGETS.items()})
 PLAIN_TARGETS = {"dispatch-edge-other", "dispatch-edge-axum", "dispatch-edge-pipeline"}
 # Keep code generation and optional adapter availability identical across targets.
-FEATURES = ["edge", "axum"]
+FEATURES = ["edge", "axum", "tls"]
 
 
 def command(*args, cwd=ROOT):
@@ -113,7 +113,7 @@ def build(target):
 
 def compatible(first, second, execution_change=False):
     before, after = dict(first.get("controls", {})), dict(second.get("controls", {}))
-    if (execution_change and before.get("schema") == after.get("schema") == 7
+    if (execution_change and before.get("schema") == after.get("schema") == 8
             and before.get("boundary") == after.get("boundary") == "concurrent-http1-server-process-cpu"):
         for key in ("server_execution", "http_threads"):
             before.pop(key, None)
@@ -198,7 +198,7 @@ def validate_concurrent(report, args):
     if (report.get("client_pid", 0) <= 0 or report.get("server_pid", 0) <= 0
             or report["client_pid"] == report["server_pid"]):
         raise RuntimeError("client and server must be separate processes")
-    expected = {"connections": args.connections,
+    expected = {"mode": args.mode, "connections": args.connections,
                 "server_threads": args.server_threads, "client_threads": args.client_threads,
                 "server_execution": args.server_execution,
                 "http_threads": 1 if args.server_execution == "current_thread" else args.server_threads}
@@ -247,6 +247,9 @@ def main():
     parser.add_argument("--client-threads", type=positive_int)
     parser.add_argument("--control", choices=CONCURRENT_TARGETS,
                         help="Measure this owner in alternating windows of the same run.")
+    parser.add_argument("--mode", choices=("plain", "tls"),
+                        help="What carries HTTP/1; concurrent targets default to plain. "
+                             "tls measures Edge Other against Hyper only.")
     parser.add_argument("--compare", help="Compare with this local run ID, including the other target.")
     args = parser.parse_args()
     concurrent = args.target in CONCURRENT_TARGETS
@@ -254,10 +257,14 @@ def main():
     if concurrent and not all(topology):
         parser.error("concurrent targets require --connections, --server-threads and --client-threads")
     if not concurrent and (any(value is not None for value in topology) or args.server_execution is not None
-                           or args.control is not None):
-        parser.error("connection/thread/execution/control options apply only to concurrent targets")
+                           or args.control is not None or args.mode is not None):
+        parser.error("connection/thread/execution/control/mode options apply only to concurrent targets")
     if concurrent:
         args.server_execution = args.server_execution or "shared"
+        args.mode = args.mode or "plain"
+        served = {"http1-concurrent-hyper", "http1-concurrent-edge-other"}
+        if args.mode == "tls" and not {args.target, args.control or args.target} <= served:
+            parser.error("--mode tls measures http1-concurrent-edge-other against http1-concurrent-hyper")
     if args.samples <= 0:
         parser.error("--samples must be positive")
     # Only Criterion targets require at least ten statistical samples.
@@ -287,7 +294,7 @@ def main():
         "source": source,
         "artifact_sha256": file_digest(executable),
         "controls": {
-            "schema": 7 if concurrent else 4,
+            "schema": 8 if concurrent else 4,
             "boundary": BENCHMARKS[args.target][1],
             "workload_sha256": {
                 path.relative_to(ROOT).as_posix(): file_digest(path)
@@ -322,7 +329,7 @@ def main():
         record["controls"].update(server_threads=args.server_threads, client_threads=args.client_threads,
                                   server_execution=args.server_execution,
                                   http_threads=1 if args.server_execution == "current_thread" else args.server_threads,
-                                  control=args.control)
+                                  control=args.control, mode=args.mode)
     previous = [json.loads(path.read_text()) for path in sorted(HISTORY.glob("*/run.json"))]
     if args.compare:
         baseline = next((old for old in previous if old["run_id"] == args.compare), None)
@@ -338,6 +345,7 @@ def main():
     environment = dict(os.environ, CRITERION_HOME=str(directory / "criterion"))
     if concurrent:
         arguments = [str(executable), "--target", CONCURRENT_TARGETS[args.target],
+                     "--mode", args.mode,
                      "--connections", str(args.connections),
                      "--server-threads", str(args.server_threads),
                      "--server-execution", args.server_execution,

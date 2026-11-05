@@ -251,6 +251,9 @@ hyper = { workspace = true, features = ["client", "http1", "server"] }
 hyper-util = { workspace = true, features = ["service", "tokio"] }
 serde = { workspace = true, features = ["derive"] }
 clap = { workspace = true, features = ["derive"] }
+# TLS for the benchmark client and the native controls.
+rustls = { workspace = true, features = ["aws_lc_rs", "std"] }
+tokio-rustls.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
@@ -352,7 +355,7 @@ name = "http1-concurrent"
 path = "benches/transport/http1/concurrent.rs"
 harness = false
 test = false
-required-features = ["edge", "axum"]
+required-features = ["edge", "axum", "tls"]
 
 [workspace]
 members = [

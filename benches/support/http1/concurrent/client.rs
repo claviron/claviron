@@ -13,7 +13,7 @@ use hyper::client::conn::http1::SendRequest;
 use hyper_util::rt::TokioIo;
 use tokio::{net::TcpStream, sync::Barrier, task::JoinHandle};
 
-use super::{Args, Result, Target, Window};
+use super::{Args, Result, Target, Window, tls};
 use crate::support::{
     http1::{Workload, preflight},
     plain,
@@ -29,18 +29,41 @@ impl Clients {
         args: &Args,
         target: Target,
         address: SocketAddr,
+        trust: Option<&[u8]>,
     ) -> Result<Self> {
+        let secure = trust.map(tls::Client::trusting).transpose()?;
         let mut connections = Vec::with_capacity(args.connections.get());
         let mut drivers = Vec::with_capacity(args.connections.get());
         for _ in 0..args.connections.get() {
             let stream = TcpStream::connect(address).await?;
             stream.set_nodelay(true)?;
-            let (mut sender, driver) =
-                hyper::client::conn::http1::handshake(TokioIo::new(stream))
-                    .await?;
-            drivers.push(tokio::spawn(driver));
-            preflight(&mut sender, Workload::Plain, target.selects_host())
-                .await;
+            // The TLS handshake completes here, before any load window.
+            let mut sender = match &secure {
+                None => {
+                    let (sender, driver) =
+                        hyper::client::conn::http1::handshake(TokioIo::new(
+                            stream,
+                        ))
+                        .await?;
+                    drivers.push(tokio::spawn(driver));
+                    sender
+                }
+                Some(secure) => {
+                    let (sender, driver) =
+                        hyper::client::conn::http1::handshake(TokioIo::new(
+                            secure.connect(stream).await?,
+                        ))
+                        .await?;
+                    drivers.push(tokio::spawn(driver));
+                    sender
+                }
+            };
+            if secure.is_some() {
+                named_preflight(&mut sender, target.selects_host()).await?;
+            } else {
+                preflight(&mut sender, Workload::Plain, target.selects_host())
+                    .await;
+            }
             connections.push(sender);
         }
         Ok(Self { connections, drivers })
@@ -100,4 +123,35 @@ impl Clients {
         }
         Ok(())
     }
+}
+
+/// Over TLS the handshake's server name selected the host. Send the known
+/// host, then another one: an owner that selects hosts must refuse a request
+/// whose authority leaves the name the connection was accepted for.
+async fn named_preflight(
+    client: &mut SendRequest<Empty<Bytes>>,
+    selects_host: bool,
+) -> Result<()> {
+    use http::{StatusCode, header};
+    use http_body_util::BodyExt;
+
+    client.ready().await?;
+    plain::consume(client.send_request(plain::request()).await?).await;
+    let mut other = plain::request();
+    other.headers_mut().insert(header::HOST, "missing.test".parse()?);
+    client.ready().await?;
+    let response = client.send_request(other).await?;
+    if selects_host {
+        assert_eq!(
+            response.status(),
+            StatusCode::MISDIRECTED_REQUEST,
+            "the request authority must be checked against the accepted name"
+        );
+        response.into_body().collect().await?;
+    } else {
+        plain::consume(response).await;
+    }
+    client.ready().await?;
+    plain::consume(client.send_request(plain::request()).await?).await;
+    Ok(())
 }

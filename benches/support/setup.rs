@@ -34,6 +34,15 @@ impl Hosts {
         )
     }
 
+    /// The same host behind a TLS listener, for the concurrent `tls` mode.
+    #[cfg(feature = "tls")]
+    pub fn http1_tls() -> Self {
+        Self::parse(
+            include_str!("fixtures/http1-tls.yaml"),
+            include_str!("fixtures/http1-tls-vhosts.yaml"),
+        )
+    }
+
     fn parse(
         http: &str,
         vhosts: &str,
