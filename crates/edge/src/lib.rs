@@ -198,10 +198,29 @@ where
     Ok(())
 }
 
+/// Prepare connection state for the selected hosts' connections, once each,
+/// when they are accepted. See [`pipeline::AcceptLayer`].
+pub fn register_accept_layer(
+    state: &AppState,
+    select: impl Fn(&Host, &HostConfig, pipeline::RouteProtocol) -> bool
+    + Send
+    + Sync
+    + 'static,
+    layer: impl pipeline::AcceptLayer,
+) -> RegistryResult<()> {
+    state
+        .registry_ref()
+        .resolve::<pipeline::HostAppRegistry>()
+        .ok_or_else(|| RegistryError::msg("HostAppRegistry not registered"))?
+        .register_accept_layer(select, layer);
+    Ok(())
+}
+
 pub use claviron_types::Host;
 pub use config::HostConfig;
 pub use pipeline::Routable;
 pub use pipeline::apps::other::{OtherHandler, OtherService};
+pub use pipeline::{AcceptLayer, Accepted};
 pub use pipeline::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
