@@ -880,16 +880,8 @@ fn register_tls_vars(
     };
     if let Some(cert) = tls.client_cert.as_ref() {
         unsafe {
-            register_variable(
-                c"SSL_CLIENT_S_DN",
-                cert.subject_dn.as_str(),
-                vars,
-            );
-            register_variable(
-                c"SSL_CLIENT_I_DN",
-                cert.issuer_dn.as_str(),
-                vars,
-            );
+            register_variable(c"SSL_CLIENT_S_DN", &*cert.subject_dn, vars);
+            register_variable(c"SSL_CLIENT_I_DN", &*cert.issuer_dn, vars);
         }
     }
 }

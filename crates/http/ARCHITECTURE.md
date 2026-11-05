@@ -672,7 +672,7 @@ pub struct ConnCtx {
     pub local_ip:     IpAddr,
     pub local_port:   u16,
     pub real_ip:      Option<IpAddr>,
-    pub country_code: Option<String>,
+    pub country_code: Option<Arc<str>>,
     pub tls:          Option<TlsInfo>,
 }
 ```
@@ -692,11 +692,14 @@ cloning or mutating the connection facts. The fields cover:
   is the peer IP. Behind a trusted proxy it is resolved for **each request**,
   never retained from an earlier request on a multiplexed connection. H3
   WebTransport authentication uses the same request-scoped resolution.
-- The optional ISO country code from a GeoIP lookup. `None` when
-  GeoIP is disabled or the IP is non-routable.
+- The country code from a GeoIP lookup, or the configured code for an
+  address it does not cover. The text is shared with the lookup cache, not
+  copied per connection. `None` when GeoIP is not built in.
 - Optional TLS metadata captured by the terminating transport
-  (`TlsInfo`): negotiated protocol, cipher, and verified client-cert
-  subject/issuer when mTLS was completed. PHP runners expose this
+  (`TlsInfo`): the negotiated protocol and cipher as the TLS library's own
+  typed values, and the verified client certificate's parsed facts as one
+  shared `PeerIdentity` when mTLS was completed. No text is stored for the
+  protocol or cipher; `ssl_protocol()` and `ssl_cipher()` return static names. PHP runners expose this
   through standard CGI/mod_ssl-style variables such as
   `SSL_PROTOCOL`, `SSL_CIPHER`, and `SSL_CLIENT_S_DN`.
 

@@ -6,14 +6,10 @@ use crate::transport::{
     HostBinding, HostRejection, HostService, VhostCtx, VhostResolver,
 };
 use claviron_http::config::ListenerConfig;
-use claviron_http::ext::{
-    ClientAuthStatus, ConnCtx, TlsClientCertInfo, TlsInfo,
-};
+use claviron_http::ext::{ClientAuthStatus, ConnCtx, TlsInfo};
 use claviron_runtime::AppState;
 use claviron_tls::Proto;
-use claviron_types::ssl::{
-    parsers::take_first_cert_from_der, peer::peer_identity,
-};
+use claviron_types::ssl::peer::peer_identity;
 use tokio_rustls::server::TlsStream;
 
 use super::error::ConnectionError;
@@ -24,7 +20,8 @@ use super::error::ConnectionError;
 /// A request for another name receives 421, even if it shares the certificate;
 /// connection coalescing must not switch authentication or application policy.
 pub(crate) struct TlsHostConnection {
-    ctx: Arc<ConnCtx>,
+    /// Owned until the protocol is known; shared once, complete.
+    ctx: ConnCtx,
     vctx: VhostCtx,
 }
 
@@ -54,7 +51,7 @@ impl TlsHostConnection {
         // alt-svc / redirect targets without consulting `http.yaml`.
         let local_port = local_addr.port();
 
-        let conn_ctx = Arc::new(ConnCtx {
+        let conn_ctx = ConnCtx {
             state: Default::default(),
             listener: listener.id.clone(),
             proto: None,
@@ -64,33 +61,26 @@ impl TlsHostConnection {
             real_ip: None,
             tls: tls_info(tls_stream),
             country_code: crate::tcp::geo::country_code(socket_addr.ip()),
-        });
+        };
 
         Ok(Self { ctx: conn_ctx, vctx })
     }
 
     /// Bind the shared host dispatcher to Hyper without re-reading live policy.
+    /// The negotiated protocol completes the connection facts, which are
+    /// shared from here on.
     pub fn bind_host(
-        &self,
+        self,
         proto: Proto,
         listener: &ListenerConfig,
     ) -> Result<HostService, ConnectionError> {
-        let app = self
-            .vctx
+        let Self { mut ctx, mut vctx } = self;
+        let app = vctx
             .application
-            .clone()
+            .take()
             .ok_or(ConnectionError::ApplicationUnavailable)?;
-
-        let mut conn_ctx = (*self.ctx).clone();
-        conn_ctx.proto = Some(proto);
-
-        let host = HostService::new(
-            app,
-            Arc::new(conn_ctx),
-            self.vctx.clone(),
-            listener.policy(),
-        );
-        Ok(host)
+        ctx.proto = Some(proto);
+        Ok(HostService::new(app, Arc::new(ctx), vctx, listener.policy()))
     }
 
     pub fn host_config(&self) -> &HostConfig {
@@ -120,22 +110,17 @@ fn tls_info<IO>(tls_stream: &TlsStream<IO>) -> Option<TlsInfo> {
     let protocol_version = conn.protocol_version();
     let cipher_suite =
         conn.negotiated_cipher_suite().map(|suite| suite.suite());
-    let client_cert = conn
-        .peer_certificates()
-        .and_then(|certs| certs.first())
-        .and_then(|cert| {
-            let parsed = take_first_cert_from_der(cert.as_ref()).ok()?;
-            Some(TlsClientCertInfo {
-                subject_dn: parsed.subject().to_string(),
-                issuer_dn: parsed.issuer().to_string(),
-                identity: peer_identity(cert.as_ref()).ok().map(Arc::new),
-            })
-        });
-    let client_auth = if client_cert.is_some() {
+    // A presented certificate was verified by the handshake. Its names are
+    // parsed once; a certificate whose names do not parse stays verified
+    // but carries no identity facts.
+    let leaf = conn.peer_certificates().and_then(|certs| certs.first());
+    let client_auth = if leaf.is_some() {
         ClientAuthStatus::Verified
     } else {
         ClientAuthStatus::NotProvided
     };
+    let client_cert =
+        leaf.and_then(|cert| peer_identity(cert.as_ref()).ok()).map(Arc::new);
 
     Some(TlsInfo { protocol_version, cipher_suite, client_auth, client_cert })
 }

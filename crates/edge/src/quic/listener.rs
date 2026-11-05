@@ -10,9 +10,7 @@ use std::sync::Arc;
 use crate::transport::{HostService, RequestArrival};
 use bytes::Bytes;
 use claviron_http::config::ListenerSettings;
-use claviron_http::ext::{
-    ClientAuthStatus, ConnCtx, TlsClientCertInfo, TlsInfo,
-};
+use claviron_http::ext::{ClientAuthStatus, ConnCtx, TlsInfo};
 #[cfg(feature = "metrics")]
 use claviron_http::metrics::SERVER_METRICS;
 use claviron_runtime::gate::{Gate, GateDrainOutcome, Permit};
@@ -20,9 +18,7 @@ use claviron_runtime::registry::{Error, Result};
 use claviron_runtime::{RunContext, RunMode};
 use claviron_sys::net::{PortSharing, create_udp_socket};
 use claviron_tls::Proto::H3;
-use claviron_types::ssl::{
-    parsers::take_first_cert_from_der, peer::peer_identity,
-};
+use claviron_types::ssl::peer::peer_identity;
 use futures_util::FutureExt;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use h3_quinn::Connection as H3QuinnConnection;
@@ -596,25 +592,22 @@ fn h3_tls_info(
     conn: &QuinnConnection,
     _handshake_data: Option<&HandshakeData>,
 ) -> TlsInfo {
-    let client_cert = conn
+    // A presented certificate was verified by the handshake. Its names are
+    // parsed once; a certificate whose names do not parse stays verified
+    // but carries no identity facts.
+    let leaf = conn
         .peer_identity()
         .and_then(|identity| {
             identity.downcast::<Vec<CertificateDer<'static>>>().ok()
         })
-        .and_then(|certs| certs.first().cloned())
-        .and_then(|cert| {
-            let parsed = take_first_cert_from_der(cert.as_ref()).ok()?;
-            Some(TlsClientCertInfo {
-                subject_dn: parsed.subject().to_string(),
-                issuer_dn: parsed.issuer().to_string(),
-                identity: peer_identity(cert.as_ref()).ok().map(Arc::new),
-            })
-        });
-    let client_auth = if client_cert.is_some() {
+        .and_then(|certs| certs.first().cloned());
+    let client_auth = if leaf.is_some() {
         ClientAuthStatus::Verified
     } else {
         ClientAuthStatus::NotProvided
     };
+    let client_cert =
+        leaf.and_then(|cert| peer_identity(cert.as_ref()).ok()).map(Arc::new);
 
     // QUIC always runs over TLS 1.3. Quinn exposes the verified peer identity,
     // but not the negotiated cipher suite through its public connection API.
@@ -627,11 +620,11 @@ fn h3_tls_info(
 }
 
 #[cfg(feature = "geoip")]
-fn country_code_for(remote: SocketAddr) -> Option<String> {
+fn country_code_for(remote: SocketAddr) -> Option<Arc<str>> {
     Some(claviron_geoip::geoip_lookup(remote.ip()))
 }
 
 #[cfg(not(feature = "geoip"))]
-fn country_code_for(_remote: SocketAddr) -> Option<String> {
+fn country_code_for(_remote: SocketAddr) -> Option<Arc<str>> {
     None
 }

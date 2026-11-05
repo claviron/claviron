@@ -32,10 +32,10 @@ fn enrollment_csr_proves_key_possession_without_selecting_certificate_claims() {
     let certificate =
         crate::ssl::parsers::take_first_cert_from_der(&der).unwrap();
     let identity = crate::ssl::peer::peer_identity(&der).unwrap();
-    assert_eq!(identity.common_names, ["operator"]);
+    assert_eq!(*identity.common_names, ["operator"].map(Box::<str>::from));
     assert_eq!(
-        identity.subject_uris,
-        ["urn:uuid:a15bc548-16e1-4a10-b772-ad00c3b66a52"]
+        *identity.subject_uris,
+        ["urn:uuid:a15bc548-16e1-4a10-b772-ad00c3b66a52"].map(Box::<str>::from)
     );
     assert_eq!(certificate.public_key().raw, device.subject_public_key_info());
     let eku = certificate.extended_key_usage().unwrap().unwrap();

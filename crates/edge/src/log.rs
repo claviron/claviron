@@ -92,7 +92,6 @@ impl AccessLogTarget {
                     matches!(tls.client_auth, ClientAuthStatus::Verified)
                 })
                 .and_then(|tls| tls.client_cert.as_ref())
-                .and_then(|cert| cert.identity.as_ref())
                 .filter(|identity| identity.common_names.len() == 1)
                 .cloned(),
             progress: AccessProgress::default(),
@@ -224,12 +223,13 @@ impl Drop for AccessGuard {
         if let Some(status) = self.progress.status {
             push("status", Value::U64(u64::from(status.as_u16())));
         }
-        let client_cn = self.client_identity.as_ref().and_then(|identity| {
-            match identity.common_names.as_slice() {
-                [name] => Some(name.as_str()),
+        let client_cn =
+            self.client_identity.as_ref().and_then(|identity| match &*identity
+                .common_names
+            {
+                [name] => Some(&**name),
                 _ => None,
-            }
-        });
+            });
         if let Some(client_cn) = client_cn {
             push("client_cn", Value::Str(client_cn));
         }

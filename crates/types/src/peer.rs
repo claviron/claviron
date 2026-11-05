@@ -12,10 +12,12 @@ use std::sync::Arc;
 pub struct PeerIdentity {
     /// Exact public leaf DER, available for host-owned credential pinning.
     pub certificate: Arc<[u8]>,
-    pub subject_dn: String,
-    pub issuer_dn: String,
-    pub common_names: Vec<String>,
-    pub subject_uris: Vec<String>,
+    // Parsed once and never changed: exact-size text, borrowed by readers
+    // through the `Arc<PeerIdentity>` the connection already shares.
+    pub subject_dn: Box<str>,
+    pub issuer_dn: Box<str>,
+    pub common_names: Box<[Box<str>]>,
+    pub subject_uris: Box<[Box<str>]>,
 }
 
 impl std::fmt::Debug for PeerIdentity {

@@ -20,10 +20,11 @@ fn certificate(with_uris: bool) -> Vec<u8> {
 fn peer_identity_preserves_structured_cn_uri_candidates_and_exact_credential() {
     let der = certificate(true);
     let peer = peer_identity(&der).unwrap();
-    assert_eq!(peer.common_names, ["operator, one"]);
+    assert_eq!(*peer.common_names, ["operator, one"].map(Box::<str>::from));
     assert_eq!(
-        peer.subject_uris,
+        *peer.subject_uris,
         ["urn:example:subject:one", "urn:example:other:two"]
+            .map(Box::<str>::from)
     );
     assert_eq!(&*peer.certificate, der);
     assert!(!format!("{peer:?}").contains("certificate:"));
@@ -32,7 +33,7 @@ fn peer_identity_preserves_structured_cn_uri_candidates_and_exact_credential() {
 #[test]
 fn peer_identity_cn_only_does_not_invent_a_subject_or_authorization() {
     let peer = peer_identity(&certificate(false)).unwrap();
-    assert_eq!(peer.common_names, ["operator, one"]);
+    assert_eq!(*peer.common_names, ["operator, one"].map(Box::<str>::from));
     assert!(peer.subject_uris.is_empty());
     assert!(peer_identity(b"malformed certificate").is_err());
 }

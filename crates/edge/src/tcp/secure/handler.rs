@@ -105,6 +105,8 @@ impl HttpsListener {
             vhost_conn.host_config().tls.require_alpn,
         )?;
 
+        // Read before the connection facts are completed and handed on.
+        let h2_connect_protocol = policy.h2.connect_protocol;
         debug!("🎭 ALPN negotiated {}", proto.version());
         let scope = scope.with_graceful_signal(host_retired(
             vhost_conn.binding(&self.state),
@@ -120,7 +122,7 @@ impl HttpsListener {
             match proto {
                 H2 => {
                     let conn_fut =
-                        make_h2_builder(&cfg.h2, policy.h2.connect_protocol)
+                        make_h2_builder(&cfg.h2, h2_connect_protocol)
                             .serve_connection(stream, vhost_service);
                     tokio::pin!(conn_fut);
 

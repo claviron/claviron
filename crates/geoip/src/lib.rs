@@ -21,7 +21,7 @@ fn geoip_config_path(state: &AppState) -> PathBuf {
 }
 
 static GEO_DB: OnceCell<Arc<Reader<Vec<u8>>>> = OnceCell::new();
-static NON_ROUTABLE_CODE: OnceCell<String> = OnceCell::new();
+static NON_ROUTABLE_CODE: OnceCell<Arc<str>> = OnceCell::new();
 
 /// The owner of `geoip.yaml`. Congif prepares the file before boot; this
 /// provider applies it once and reads nothing itself.
@@ -43,7 +43,7 @@ pub fn register(state: &AppState) -> Result<()> {
 
 /// Boot-time initializer; call this once during app startup.
 pub fn boot_geoip(cfg: &GeoIpConfig) {
-    let _ = NON_ROUTABLE_CODE.set(cfg.non_routable.clone());
+    let _ = NON_ROUTABLE_CODE.set(Arc::from(cfg.non_routable.as_str()));
     GEO_CACHE.get_or_init(|| cfg.cache.build());
     if !cfg.enabled {
         return;
@@ -115,9 +115,13 @@ impl Component<AppState> for GeoIpProvider {
 }
 
 // No pre-boot lookup may freeze a default policy before configuration arrives.
-static GEO_CACHE: OnceCell<Cache<IpAddr, String>> = OnceCell::new();
+static GEO_CACHE: OnceCell<Cache<IpAddr, Arc<str>>> = OnceCell::new();
 
-pub fn geoip_lookup(ip: IpAddr) -> String {
+/// The country code for `ip`, or the configured code where GeoIP has none.
+///
+/// The text is shared: a cached address hands out its existing code, and
+/// every uncovered address the one configured code, without copying either.
+pub fn geoip_lookup(ip: IpAddr) -> Arc<str> {
     use maxminddb::PathElement;
 
     let cache = GEO_CACHE.get();
@@ -145,7 +149,7 @@ pub fn geoip_lookup(ip: IpAddr) -> String {
         }
     };
 
-    let iso: String = match db.lookup(ip) {
+    let iso: Arc<str> = match db.lookup(ip) {
         Ok(r) => {
             let country: Option<String> = r
                 .decode_path(&[
@@ -166,7 +170,7 @@ pub fn geoip_lookup(ip: IpAddr) -> String {
                     .flatten(),
             };
 
-            iso.unwrap_or_else(non_routable_code)
+            iso.map_or_else(non_routable_code, Arc::from)
         }
         Err(_) => non_routable_code(),
     };
@@ -177,8 +181,8 @@ pub fn geoip_lookup(ip: IpAddr) -> String {
     iso
 }
 
-fn non_routable_code() -> String {
-    NON_ROUTABLE_CODE.get().cloned().unwrap_or_else(|| "ZZ".to_string())
+fn non_routable_code() -> Arc<str> {
+    NON_ROUTABLE_CODE.get().cloned().unwrap_or_else(|| Arc::from("ZZ"))
 }
 
 fn is_non_routable(ip: &IpAddr) -> bool {
@@ -265,7 +269,7 @@ impl Default for GeoIpCacheConfig {
 }
 
 impl GeoIpCacheConfig {
-    fn build(&self) -> Cache<IpAddr, String> {
+    fn build(&self) -> Cache<IpAddr, Arc<str>> {
         Cache::builder()
             .max_capacity(self.capacity)
             .time_to_live(self.ttl)

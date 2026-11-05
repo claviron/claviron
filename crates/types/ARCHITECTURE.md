@@ -856,7 +856,8 @@ padded PKCS#8 PEM export.
 ## Peer identity facts
 
 PeerIdentity is a pure shared value with exact public leaf DER, subject/issuer
-DNs, structured CNs and URI SAN candidates. SSL peer extraction parses these
+DNs, structured CNs and URI SAN candidates. Its text is parsed once into
+exact-size boxed strings; readers borrow it through the shared value. SSL peer extraction parses these
 facts without selecting an identity namespace or performing authentication.
 Transports retain their TLS verification flag and attach the parsed value.
 The host owns trust-domain selection and user binding; issuer DN is not a

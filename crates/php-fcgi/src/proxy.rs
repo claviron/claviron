@@ -440,8 +440,8 @@ fn add_tls_params(
         params.custom("SSL_CLIENT_VERIFY", tls.ssl_client_verify().to_string());
     if let Some(cert) = tls.client_cert.as_ref() {
         params = params
-            .custom("SSL_CLIENT_S_DN", cert.subject_dn.clone())
-            .custom("SSL_CLIENT_I_DN", cert.issuer_dn.clone());
+            .custom("SSL_CLIENT_S_DN", cert.subject_dn.to_string())
+            .custom("SSL_CLIENT_I_DN", cert.issuer_dn.to_string());
     }
 
     params

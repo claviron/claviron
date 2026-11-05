@@ -4,35 +4,58 @@ use std::sync::{Arc, Mutex};
 use claviron_tls::Proto;
 use rustls::{CipherSuite, ProtocolVersion};
 
-#[derive(Clone)]
-pub struct TlsClientCertInfo {
-    pub subject_dn: String,
-    pub issuer_dn: String,
-    /// Parsed public leaf facts. Trust still comes from `TlsInfo::client_auth`.
-    pub identity: Option<std::sync::Arc<claviron_types::PeerIdentity>>,
-}
-
 #[derive(Clone, Copy)]
 pub enum ClientAuthStatus {
     NotProvided,
     Verified,
 }
 
+/// TLS facts of an accepted connection, kept as the transport reported them.
+/// Text is produced only where a consumer needs it, from static names.
 #[derive(Clone)]
 pub struct TlsInfo {
     pub protocol_version: Option<ProtocolVersion>,
     pub cipher_suite: Option<CipherSuite>,
     pub client_auth: ClientAuthStatus,
-    pub client_cert: Option<TlsClientCertInfo>,
+    /// Parsed leaf facts of the certificate the handshake verified. Absent
+    /// when none was presented, or when its names could not be parsed; trust
+    /// still comes from `client_auth`.
+    pub client_cert: Option<Arc<claviron_types::PeerIdentity>>,
 }
 
 impl TlsInfo {
-    pub fn ssl_protocol(&self) -> Option<String> {
-        self.protocol_version.map(format_protocol_version)
+    /// The negotiated protocol under its usual server-variable name.
+    pub fn ssl_protocol(&self) -> Option<&'static str> {
+        match self.protocol_version? {
+            ProtocolVersion::TLSv1_0 => Some("TLSv1"),
+            ProtocolVersion::TLSv1_1 => Some("TLSv1.1"),
+            ProtocolVersion::TLSv1_2 => Some("TLSv1.2"),
+            ProtocolVersion::TLSv1_3 => Some("TLSv1.3"),
+            _ => None,
+        }
     }
 
-    pub fn ssl_cipher(&self) -> Option<String> {
-        self.cipher_suite.map(format_cipher_suite)
+    /// The negotiated suite under its registered name. TLS 1.3 suites carry
+    /// no key exchange in theirs, so the library's `TLS13_` prefix is `TLS_`.
+    pub fn ssl_cipher(&self) -> Option<&'static str> {
+        match self.cipher_suite? {
+            CipherSuite::TLS13_AES_128_GCM_SHA256 => {
+                Some("TLS_AES_128_GCM_SHA256")
+            }
+            CipherSuite::TLS13_AES_256_GCM_SHA384 => {
+                Some("TLS_AES_256_GCM_SHA384")
+            }
+            CipherSuite::TLS13_CHACHA20_POLY1305_SHA256 => {
+                Some("TLS_CHACHA20_POLY1305_SHA256")
+            }
+            CipherSuite::TLS13_AES_128_CCM_SHA256 => {
+                Some("TLS_AES_128_CCM_SHA256")
+            }
+            CipherSuite::TLS13_AES_128_CCM_8_SHA256 => {
+                Some("TLS_AES_128_CCM_8_SHA256")
+            }
+            suite => suite.as_str(),
+        }
     }
 
     pub fn ssl_client_verify(&self) -> &'static str {
@@ -41,23 +64,6 @@ impl TlsInfo {
             ClientAuthStatus::Verified => "SUCCESS",
         }
     }
-}
-
-fn format_protocol_version(version: ProtocolVersion) -> String {
-    match version {
-        ProtocolVersion::TLSv1_0 => "TLSv1".to_string(),
-        ProtocolVersion::TLSv1_1 => "TLSv1.1".to_string(),
-        ProtocolVersion::TLSv1_2 => "TLSv1.2".to_string(),
-        ProtocolVersion::TLSv1_3 => "TLSv1.3".to_string(),
-        _ => format!("{version:?}"),
-    }
-}
-
-fn format_cipher_suite(suite: CipherSuite) -> String {
-    let name = format!("{suite:?}");
-    name.strip_prefix("TLS13_")
-        .map(|rest| format!("TLS_{rest}"))
-        .unwrap_or(name)
 }
 
 /// Typed state owned by one accepted connection and shared by its requests.
@@ -105,8 +111,10 @@ pub struct ConnCtx {
     /// proxied request's identity on a reusable connection.
     pub real_ip: Option<IpAddr>,
 
-    /// Optional ISO country code from GeoIP (e.g., "TR", "US"); None if disabled or non-routable
-    pub country_code: Option<String>,
+    /// Country code from GeoIP (for example "TR"), or the configured code
+    /// for addresses it does not cover; `None` when GeoIP is not built in.
+    /// Shared with the lookup cache rather than copied per connection.
+    pub country_code: Option<Arc<str>>,
 
     /// TLS details captured by the terminating transport, if any.
     pub tls: Option<TlsInfo>,

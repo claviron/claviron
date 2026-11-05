@@ -58,8 +58,8 @@ fn signer_material_issues_verifiable_identities_without_files() {
         .unwrap();
     let peer = claviron_types::ssl::peer::peer_identity(&identified.certs_der)
         .unwrap();
-    assert_eq!(peer.common_names, ["display-name.test"]);
-    assert_eq!(peer.subject_uris, [subject.to_string()]);
+    assert_eq!(*peer.common_names, ["display-name.test"].map(Box::<str>::from));
+    assert_eq!(*peer.subject_uris, [subject.to_string().into_boxed_str()]);
     verifier
         .verify_client_cert(
             &CertificateDer::from(identified.certs_der),
@@ -82,7 +82,7 @@ fn signer_material_issues_verifiable_identities_without_files() {
     let peer =
         claviron_types::ssl::peer::peer_identity(&scoped.certs_der).unwrap();
     let permissions = claviron_types::ssl::permission::from_uris(
-        peer.subject_uris.iter().map(String::as_str),
+        peer.subject_uris.iter().map(|uri| &**uri),
     )
     .unwrap()
     .unwrap();
