@@ -79,8 +79,8 @@ broadcast:
 
 `fleet` has no socket address or duplicate credentials. It uses the registered
 Broadcast service and that service's `broadcast.yaml` application catalog.
-Edge prepares exact `/app/{key}` bindings from the catalog before requests
-arrive.
+Broadcast's optional Edge integration prepares exact `/app/{key}` bindings
+from the catalog before requests arrive.
 
 An external target instead uses `target: { http: ... }`, with an `address`
 and separate `connect_timeout`, `request_timeout`, and `idle_timeout` settings.
@@ -91,9 +91,12 @@ generation. Configuration rejects unknown fields.
 
 The implementation's `http` feature adds `PusherAdapter`, an axum-free
 request/response adapter for external Pusher servers. It is not required
-merely to use wire types and signatures.
+merely to use wire types and signatures. It does not select Edge; native
+HTTP/Runner composition remains independent of host-based exposure.
 
-The adapter forwards `/app/{key}` upgrades and `/apps/{id}` REST paths,
+`PusherAdapter::accepts_path` identifies its namespaces before the caller
+transfers the request or reads its body. The adapter forwards `/app/{key}`
+upgrades and `/apps/{id}` REST paths,
 preserving the public path and query. It replaces untrusted forwarding facts
 through the shared HTTP boundary, strips hop-by-hop response headers, and keeps
 accepted tunnels under listener session ownership.

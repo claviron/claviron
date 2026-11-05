@@ -457,6 +457,8 @@ pub fn register(state: &AppState) -> Result<()> {
 
     #[cfg(feature = "edge")]
     claviron_edge::register(state)?;
+    #[cfg(all(feature = "edge", feature = "broadcast"))]
+    claviron_broadcast::edge::register(state)?;
     #[cfg(all(feature = "edge", feature = "lua"))]
     claviron_lua::edge::register(state)?;
     #[cfg(all(

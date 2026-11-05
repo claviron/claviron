@@ -36,9 +36,9 @@ enum Work {
 }
 
 impl DispatchCall {
-    pub(in crate::pipeline) fn response(
-        work: claviron_http::RouteFuture
-    ) -> Self {
+    /// Reuse an existing terminal HTTP future without adding another future box.
+    /// Its response is Handled, including error statuses such as 404.
+    pub fn response(work: claviron_http::RouteFuture) -> Self {
         Self::Pending(DispatchFuture { inner: Work::Response(work) })
     }
     pub fn ready(result: DispatchResult) -> Self {

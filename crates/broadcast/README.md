@@ -142,7 +142,13 @@ worker queue.
 
 The implementation's optional `pusher` feature adds an external HTTP target
 adapter through [claviron-pusher](../pusher/README.md). It is not needed for
-native publication or local sessions. Edge selects it for its HTTP bindings.
+native publication or local sessions.
+
+The optional `edge` feature owns host-based REST and H1/H2/H3 session bindings.
+It is off by default. The facade selects it only with `edge` plus `broadcast`;
+`broadcast` alone and Runner composition do not enable Edge. REST endpoints
+retain their position before native Static/TryFiles. Pusher's independent HTTP
+adapter remains available without Edge.
 
 - [WebSocket](../http/docs/upgrade/README.md): HTTP/1 upgrade ownership.
 - [Orbit](../orbit/README.md): bounded fleet state and transport.

@@ -28,7 +28,7 @@ or:
 broadcast:
   target:
     http:
-      address: xd01:6001
+      address: 127.0.0.1:6001
       connect_timeout: 5s
       request_timeout: 600ms
       idle_timeout: 120s
@@ -53,8 +53,8 @@ HostConfig -> PusherConfig -> fleet | external HTTP
                     service + live sessions
 ```
 
-`edge` resolves the target while compiling a host snapshot. For a
-fleet target it obtains the registered `BroadcastService` and creates exact
+Broadcast's opt-in `edge` module resolves the target during host preparation.
+For a fleet target it obtains the registered `BroadcastService` and creates exact
 `/app/{key}` upgrade routes. Exact routes preserve the constant-time lookup of
 the shared H1 upgrade registry; the hot path does not scan the app catalog.
 
@@ -76,6 +76,10 @@ the shared Claviron boundary, strips hop-by-hop response headers, and keeps an
 upgraded tunnel under listener session ownership. Connect, request, and idle
 timeouts have separate meanings.
 
+`PusherAdapter::accepts_path` selects these namespaces without reading a body
+or depending on host routing. Runner and the optional Broadcast Edge adapter
+can use it before transferring request ownership.
+
 The axum-free adapter is the one entry to that implementation. Errors become HTTP responses rather than terminating the host
 service.
 
@@ -95,4 +99,6 @@ service.
 The Claviron facade exposes these wire contracts at
 `claviron::broadcast::protocol::pusher`. Select `broadcast` for the live service
 on the facade. The broadcast crate's own `pusher` feature enables an external
-HTTP upstream adapter; HTTP edge bindings select it internally.
+HTTP upstream adapter. Broadcast's optional Edge integration selects it for
+host-based exposure; Runner and direct HTTP consumers need no Edge feature.
+Neither this crate nor HTTP depends on Edge or the Broadcast service.

@@ -28,8 +28,8 @@ access-log = [
     "claviron-logging/pipeline",
 ]
 websocket = ["tcp", "claviron-http/websocket"]
-# Configured Pusher REST endpoints currently use an optional Rust router adapter.
-broadcast = ["axum", "dep:claviron-pusher", "claviron-pusher/http", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
+# Pure host declarations only; Broadcast owns its opt-in execution/session adapter.
+broadcast = ["dep:claviron-pusher"]
 php = ["dep:claviron-php"]
 lua = ["claviron-http/lua"]
 # Native Link dispatch to an application process over Orbit shared memory.
@@ -61,7 +61,6 @@ geoip = ["dep:claviron-geoip"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
-claviron-broadcast = { workspace = true, optional = true }
 claviron-db = { workspace = true, default-features = true, optional = true, features = ["server"] }
 claviron-files.workspace = true
 claviron-geoip = { workspace = true, optional = true }

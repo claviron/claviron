@@ -20,8 +20,29 @@ Pusher names identify wire compatibility, exposed through
 `claviron::broadcast::protocol::pusher`. The protocol crate owns signatures and
 message shapes; it does not own the service. This crate's optional `pusher`
 feature adds compatibility with an external Pusher HTTP upstream. The facade
-exposes only `broadcast`; an HTTP edge binding selects `pusher` internally. Ordinary native publication and Orbit
-sessions need neither an outbound HTTP client nor an additional listener.
+exposes only `broadcast`; its optional Edge integration selects `pusher` for
+external HTTP targets. Native publication and Orbit sessions need neither an
+outbound HTTP client nor an additional listener.
+
+## Optional Edge integration
+
+The `edge` feature is off by default. `edge.rs` registers the Broadcast
+BackendFactory and a Routable session contribution. `edge/rest.rs` prepares
+local publication routes or the external Pusher HTTP adapter. The factory
+selects `BeforeFiles`, retaining protocol endpoint precedence after shared
+admission and Rust routing. Nonmatching paths return their original unread body.
+
+H1 upgrades, H2 CONNECT and optional H3 WebTransport bindings share the existing
+service catalog, generation permits, origin checks and session authentication.
+Only selected host declarations expose them. Removed or more-specific masked
+routes retain their existing admission checks. Their pure regressions live in
+`tests/edge` and do not start the service or a listener.
+
+The facade enables this module only when both `edge` and `broadcast` are selected.
+`webtransport` weakly extends an already-selected Edge integration. Native
+publication, Pusher wire/HTTP APIs and Runner composition do not enable Edge.
+Edge retains only optional Pusher declaration types; it depends on no Broadcast
+service or execution adapter. HTTP does not depend on either upper layer.
 
 ## Ownership
 
@@ -104,8 +125,8 @@ opens a listener or spawns an unowned session task.
 - Orbit-backed publication fanout between serving workers;
 - cooperative service-stop close.
 
-Edge prepares the same exact `/app/{key}` bindings for H1/H2 and, when its
-`webtransport` capability is selected, H3. Host protocol and H2 CONNECT policy
+The optional Edge integration prepares exact `/app/{key}` bindings for H1/H2
+and, when `webtransport` is selected, H3. Host protocol and H2 CONNECT policy
 still control advertisement. Native entrances retain the same catalog and
 `BroadcastSession`; private/presence channel signatures, public subscriptions,
 client-event admission, socket exclusions and fleet publication do not change.

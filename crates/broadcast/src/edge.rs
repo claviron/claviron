@@ -1,11 +1,12 @@
 //! Native entrances to the same Broadcast session, prepared with the host.
-pub(crate) mod rest;
+mod rest;
 
 use std::sync::Arc;
 
+use crate::stream::FastWebSocketStream;
+use crate::{BroadcastService, BroadcastSession};
 use async_trait::async_trait;
-use claviron_broadcast::stream::FastWebSocketStream;
-use claviron_broadcast::{BroadcastService, BroadcastSession};
+use claviron_edge::Host;
 use claviron_http::session::SessionSpawner;
 use claviron_http::upgrade::H1UpgradeRoute;
 use claviron_http::{RouteBody, RouteResponse, empty_body, err_status};
@@ -13,21 +14,20 @@ use claviron_runtime::{
     AppState,
     registry::{Error, Result},
 };
-use claviron_types::Host;
 use http::{Request, StatusCode};
 
-use crate::config::HostConfig;
-use crate::pipeline::{
+use claviron_edge::HostConfig;
+use claviron_edge::pipeline::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectHandler,
     H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
 };
 #[cfg(feature = "webtransport")]
-use crate::pipeline::{
+use claviron_edge::pipeline::{
     H3WebTransportSession, WebTransportAccept, WebTransportHandler,
     WebTransportRegistry, WebTransportReject, WebTransportResult,
 };
 
-pub(super) fn append_routes(
+fn append_routes(
     state: &AppState,
     canonical: &Host,
     host: &HostConfig,
@@ -88,7 +88,7 @@ fn is_fleet_route(
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/broadcast.rs"]
+#[path = "../tests/edge.rs"]
 mod tests;
 
 struct BroadcastConnectHandler {
@@ -261,8 +261,7 @@ impl WebTransportHandler for BroadcastConnectHandler {
             stream = transport.accept_bi() => stream,
         };
         let Some(stream) = stream else { return Ok(()) };
-        let mut stream =
-            claviron_broadcast::stream::WebTransportMessageStream::new(stream);
+        let mut stream = crate::stream::WebTransportMessageStream::new(stream);
         if !session
             .authenticate_stream(
                 &ctx.host.to_string(),
@@ -279,5 +278,65 @@ impl WebTransportHandler for BroadcastConnectHandler {
             .map_err(|error| Error::recoverable(error.to_string()));
         drop(transport);
         result
+    }
+}
+
+/// Register host integration only when this application's Edge capability is selected.
+/// Runner publication and native sessions do not select this feature.
+pub fn register(state: &AppState) -> Result<()> {
+    let registry = state
+        .registry_ref()
+        .resolve::<claviron_edge::HostAppRegistry>()
+        .ok_or_else(|| {
+            Error::msg("Broadcast requires the Edge host registry")
+        })?;
+    registry.register_backend_factory(Arc::new(Factory))?;
+    claviron_edge::register_routable(
+        state,
+        Arc::new(Sessions { state: state.clone() }),
+    )
+}
+
+struct Factory;
+impl claviron_edge::pipeline::backend::BackendFactory for Factory {
+    fn name(&self) -> &'static str {
+        "broadcast"
+    }
+    fn placement(&self) -> claviron_edge::pipeline::backend::BackendPlacement {
+        claviron_edge::pipeline::backend::BackendPlacement::BeforeFiles
+    }
+    fn prepare(
+        &self,
+        context: &claviron_edge::pipeline::backend::BackendContext<'_>,
+    ) -> Result<Vec<Arc<dyn claviron_edge::pipeline::BackendHandler>>> {
+        Ok(rest::prepare(context.state, context.route).into_iter().collect())
+    }
+}
+
+struct Sessions {
+    state: AppState,
+}
+impl claviron_runtime::registry::Component<AppState> for Sessions {
+    type Deps = ();
+    fn name(&self) -> &str {
+        "BroadcastEdgeSessions"
+    }
+}
+impl claviron_edge::Routable for Sessions {
+    fn match_host(
+        &self,
+        _: &Host,
+        host: &HostConfig,
+    ) -> bool {
+        is_fleet(host) || host.routes.iter().any(|(_, route)| is_fleet(route))
+    }
+    fn h1_upgrades(
+        &self,
+        host: &Host,
+        config: Arc<HostConfig>,
+    ) -> Result<Vec<H1UpgradeRoute>> {
+        let mut routes = Vec::new();
+        append_routes(&self.state, host, &config, &mut routes)?;
+        Ok(routes)
     }
 }

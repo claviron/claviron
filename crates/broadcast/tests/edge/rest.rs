@@ -18,22 +18,6 @@ fn rest_namespaces_do_not_claim_unrelated_paths() {
         assert!(!publish.accepts(path), "{path}");
     }
     assert!(publish.accepts("/apps/example/events"));
-
-    for (path, accepted) in [
-        ("/app/example", true),
-        ("/apps/example", true),
-        ("/apps/example/events", true),
-        ("/apps/example/channels/one", true),
-        ("/app/", false),
-        ("/app/example/extra", false),
-        ("/apps/", false),
-        ("/apps/example/", false),
-        ("/application/example", false),
-        ("/assets/app.js", false),
-        ("app/example", false),
-    ] {
-        assert_eq!(Endpoints::Http.accepts(path), accepted, "{path}");
-    }
 }
 
 #[tokio::test]
@@ -43,13 +27,20 @@ async fn rest_claims_only_its_paths_and_never_reinterprets_a_handled_404() {
         endpoints: Endpoints::Publish(HashSet::from([
             "/apps/example/events".into()
         ])),
-        owner: RestOwner::Fleet(axum::Router::new().fallback({
-            let calls = calls.clone();
-            move |request: Request<axum::body::Body>| {
-                calls.fetch_add(1, Ordering::Relaxed);
-                async move { (StatusCode::NOT_FOUND, request.into_body()) }
-            }
-        })),
+        owner:
+            RestOwner::Fleet(
+                axum::Router::new()
+                    .fallback({
+                        let calls = calls.clone();
+                        move |request: Request<axum::body::Body>| {
+                            calls.fetch_add(1, Ordering::Relaxed);
+                            async move {
+                                (StatusCode::NOT_FOUND, request.into_body())
+                            }
+                        }
+                    })
+                    .into(),
+            ),
     };
     for (uri, handled) in
         [("/assets/app.js", false), ("/apps/example/events?x=1", true)]

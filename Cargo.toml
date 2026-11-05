@@ -99,6 +99,7 @@ supervisor = ["server", "dep:claviron-supervisor", "claviron-runner?/supervisor"
 # The supervised HTTP edge with native host routing and file serving.
 # Select `axum` separately for Rust Axum applications.
 edge = [
+    "claviron-broadcast?/edge",
     "claviron-lua?/edge",
     "claviron-php-embed?/edge",
     "claviron-php-fcgi?/edge",
@@ -138,9 +139,9 @@ resolver = ["dep:claviron-resolver"]
 resolver-hickory = ["resolver", "claviron-resolver/hickory"]
 # http connect extensions
 websocket = ["claviron-http/websocket", "claviron-edge?/websocket", "claviron-runner?/websocket", "claviron-lua?/websocket", "http"]
-webtransport = ["edge", "http3", "claviron-edge/webtransport", "claviron-lua?/webtransport"]
+webtransport = ["edge", "http3", "claviron-edge/webtransport", "claviron-lua?/webtransport", "claviron-broadcast?/webtransport"]
 # pusher and broadcast replacement for embeded apps
-broadcast = ["websocket", "dep:claviron-broadcast", "claviron-edge?/broadcast", "claviron-runner?/broadcast"]
+broadcast = ["websocket", "dep:claviron-broadcast", "claviron-runner?/broadcast"]
 
 # ── TLS / SSL ────────────────────────────────────────────────────────
 mtls = ["ssl"]

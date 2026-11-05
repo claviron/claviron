@@ -17,7 +17,7 @@ policy remain with application providers and frameworks.
 
 Route extensions prepare controls and interception independently of the Rust
 application adapter. Backend factories prepare execution owners after effective
-policy resolution. PHP Embed, FCGI, Lua and Upstream supply optional Edge adapters
+policy resolution. PHP Embed, FCGI, Lua, Upstream and Broadcast supply optional Edge adapters
 from their own crates; native engine/Runner use does not require Edge. Link
 remains native in Edge.
 

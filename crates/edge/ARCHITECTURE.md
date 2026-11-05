@@ -312,7 +312,7 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 | `php` | Shared PHP declarations only; execution engines supply Backend owners. |
 | `orbit` | Native Link dispatch. Upstream contributes through its own backend factory. |
 | `websocket`, `webtransport` | Native session bindings and combined runtime adapters. |
-| `broadcast` | Pusher REST and broadcast session composition. |
+| `broadcast` | Pure Pusher host declarations; Broadcast owns optional Edge execution/session adapters. |
 | `rate-limit`, `access-log` | Optional quota and access-record paths. |
 | `db`, `postgres` | Hosting alias hydration; PostgreSQL notification adapter. |
 | `metrics`, `geoip` | HTTP metrics and peer country lookup. |
@@ -375,8 +375,6 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`apps/other.rs`](src/pipeline/apps/other.rs) — Other host registration and re-exports of the shared HTTP handler contract.
 - [`connect.rs`](src/pipeline/connect.rs) — H2 CONNECT registry, explicit binding execution, authentication payload and session context.
 - [`wt.rs`](src/pipeline/wt.rs) — Native WebTransport handler/session API and exact/fallback registry.
-- [`apps/broadcast.rs`](src/pipeline/apps/broadcast.rs) — Broadcast H1/H2/H3 session bindings and session admission.
-- [`apps/broadcast/rest.rs`](src/pipeline/apps/broadcast/rest.rs) — Claim configured REST endpoints without wrapping unrelated requests.
 
 ### `pipeline/host/`
 
@@ -536,8 +534,6 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`apps/protocol.rs`](tests/pipeline/apps/protocol.rs) — Cold protocol selection, listener name/alias/default admission, inactive directives and plan isolation.
 - [`apps/listeners.rs`](tests/pipeline/apps/listeners.rs) — Explicit listener selection, static non-serving policy, interception and unread-body ownership.
 - [`apps/reply.rs`](tests/pipeline/apps/reply.rs) — Listener/prefix reply bounds, early responses, lazy frames and cancellation.
-- [`broadcast.rs`](tests/pipeline/broadcast.rs) — Selected broadcast route ownership.
-- [`broadcast/rest.rs`](tests/pipeline/broadcast/rest.rs) — REST endpoint claims and terminal responses.
 - [`host.rs`](tests/pipeline/host.rs) — Layer preparation, response scope, body ownership, wakeup and cancellation.
 - [`apps/warp.rs`](tests/pipeline/apps/warp.rs) — Warp rejection remains a terminal handled response.
 - [`quota.rs`](tests/pipeline/quota.rs) — Public quota registration shared by canonical names and aliases.

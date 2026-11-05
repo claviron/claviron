@@ -23,7 +23,8 @@ Every factory declares `BackendPlacement::BeforeFiles` or `AfterFiles`.
 Both slots follow Rust contributions and the terminal router; file fallback
 follows both. Factories run in registration order within their selected slot.
 Dispatch never calls the factory or decodes config. The facade registers Lua, PHP and Upstream
-in that order. Link remains Edge-native and precedes registered backends.
+in that order in AfterFiles. Broadcast/Pusher REST selects BeforeFiles.
+Link remains Edge-native and precedes the registered AfterFiles owners.
 
 `RouteExtension` is separate: conditions, request preparation and response
 hooks precede execution. Interception uses that route/layer boundary, rather

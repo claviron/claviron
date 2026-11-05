@@ -1,6 +1,8 @@
 mod admission;
 mod channels;
 mod config;
+#[cfg(feature = "edge")]
+pub mod edge;
 mod error;
 mod fleet;
 pub mod groups;

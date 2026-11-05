@@ -45,8 +45,6 @@ impl<S> AsMut<CorsState> for CorsExchange<S> {
 struct ScopePlan<'a> {
     applications: &'a [Arc<dyn HostHandler>],
     steps: Vec<Arc<dyn super::DispatchStep>>,
-    #[cfg(feature = "broadcast")]
-    broadcast: Option<Arc<dyn BackendHandler>>,
     before_files: Vec<Arc<dyn BackendHandler>>,
     backends: Vec<Arc<dyn BackendHandler>>,
     fallback: Option<Arc<dyn super::DispatchStep>>,
@@ -147,12 +145,6 @@ impl Compiler<'_> {
             .map(RedirectLayer::new);
         let steps =
             if redirect.is_none() { scope_steps(&config) } else { Vec::new() };
-        #[cfg(feature = "broadcast")]
-        let broadcast = if redirect.is_none() {
-            crate::pipeline::apps::broadcast::rest::prepare(self.state, &config)
-        } else {
-            None
-        };
         let registered =
             if accept_applications { self.applications } else { &[] };
         let selected = handler.filter(|_| accept_applications).map(|handler| {
@@ -184,8 +176,6 @@ impl Compiler<'_> {
         let scope = ScopePlan {
             applications,
             steps,
-            #[cfg(feature = "broadcast")]
-            broadcast,
             before_files,
             backends: plan.steps,
             fallback: plan.fallback,
@@ -391,8 +381,6 @@ impl Compiler<'_> {
             accept_applications,
             body,
             redirect,
-            #[cfg(feature = "broadcast")]
-            broadcast,
             ..
         } = scope;
         if let Some(body) = body {
@@ -424,12 +412,6 @@ impl Compiler<'_> {
             }
             builder
                 .layer(Backend::new(router.clone(), policy))
-                .map_err(|error| Error::msg(error.to_string()))?;
-        }
-        #[cfg(feature = "broadcast")]
-        if let Some(broadcast) = broadcast {
-            builder
-                .layer(Backend::new(broadcast, policy))
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
         for backend in before_files {

@@ -8,9 +8,8 @@ use claviron_pusher::{PusherAdapter, PusherTarget};
 use claviron_runtime::AppState;
 use http::Request;
 
-use crate::HostConfig;
-use crate::pipeline::host::ApplicationHandler;
-use crate::pipeline::host::{DispatchCall, DispatchStep};
+use claviron_edge::HostConfig;
+use claviron_edge::pipeline::{DispatchCall, DispatchStep};
 
 enum Endpoints {
     Publish(HashSet<String>),
@@ -24,26 +23,13 @@ impl Endpoints {
     ) -> bool {
         match self {
             Self::Publish(paths) => paths.contains(path),
-            Self::Http => {
-                let Some(path) = path.strip_prefix('/') else {
-                    return false;
-                };
-                let mut segments = path.split('/');
-                match (segments.next(), segments.next(), segments.next()) {
-                    (Some("app"), Some(key), None) => !key.is_empty(),
-                    (Some("apps"), Some(id), rest) if !id.is_empty() => rest
-                        .is_none_or(|first| {
-                            !first.is_empty() || segments.next().is_some()
-                        }),
-                    _ => false,
-                }
-            }
+            Self::Http => PusherAdapter::accepts_path(path),
         }
     }
 }
 
 enum RestOwner {
-    Fleet(axum::Router),
+    Fleet(claviron_http::RustRouter),
     Http(PusherAdapter),
 }
 
@@ -53,13 +39,7 @@ impl RestOwner {
         request: Request<RouteBody>,
     ) -> DispatchCall {
         match self {
-            Self::Fleet(owner) => {
-                let owner = owner.clone();
-                DispatchCall::new(async move {
-                    let response = owner.call(request).await;
-                    ServiceResult::Handled(response)
-                })
-            }
+            Self::Fleet(owner) => DispatchCall::response(owner.handle(request)),
             Self::Http(adapter) => {
                 let adapter = adapter.clone();
                 DispatchCall::new(async move {
@@ -76,11 +56,11 @@ struct Rest {
     owner: RestOwner,
 }
 
-impl crate::pipeline::host::BackendHandler for Rest {
-    fn contract(&self) -> crate::pipeline::BackendContract {
-        crate::pipeline::BackendContract {
-            identity: crate::pipeline::BackendIdentity::Request,
-            reply: crate::pipeline::BackendReply::Owner,
+impl claviron_edge::pipeline::host::BackendHandler for Rest {
+    fn contract(&self) -> claviron_edge::pipeline::BackendContract {
+        claviron_edge::pipeline::BackendContract {
+            identity: claviron_edge::pipeline::BackendIdentity::Request,
+            reply: claviron_edge::pipeline::BackendReply::Owner,
         }
     }
 }
@@ -100,13 +80,12 @@ impl DispatchStep for Rest {
 pub(crate) fn prepare(
     state: &AppState,
     host: &HostConfig,
-) -> Option<Arc<dyn crate::pipeline::host::BackendHandler>> {
+) -> Option<Arc<dyn claviron_edge::pipeline::host::BackendHandler>> {
     let config = host.broadcast_cfg()?;
     let (endpoints, owner) = match &config.target {
         PusherTarget::Fleet => {
-            let service = state
-                .registry_ref()
-                .resolve::<claviron_broadcast::BroadcastService>()?;
+            let service =
+                state.registry_ref().resolve::<crate::BroadcastService>()?;
             let paths = service
                 .applications()
                 .applications()
@@ -118,7 +97,7 @@ pub(crate) fn prepare(
             }
             (
                 Endpoints::Publish(paths),
-                RestOwner::Fleet(claviron_broadcast::pusher_routes(service)),
+                RestOwner::Fleet(crate::pusher_routes(service).into()),
             )
         }
         PusherTarget::Http(http) => (
@@ -130,5 +109,5 @@ pub(crate) fn prepare(
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/pipeline/broadcast/rest.rs"]
+#[path = "../../tests/edge/rest.rs"]
 mod tests;

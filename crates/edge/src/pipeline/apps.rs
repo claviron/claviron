@@ -7,9 +7,6 @@ pub mod warp;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 
-#[cfg(feature = "broadcast")]
-pub(crate) mod broadcast;
-
 use claviron_http::ext::HostKey;
 #[cfg(feature = "websocket")]
 use claviron_http::upgrade::{H1UpgradeRegistry, H1UpgradeRoute};
@@ -1061,22 +1058,8 @@ impl HostAppRegistry {
                 Arc::clone(&record.config),
                 None,
             )?;
-            #[cfg(feature = "websocket")]
-            let mut routable = routable;
-            #[cfg(feature = "websocket")]
-            #[cfg_attr(not(feature = "broadcast"), allow(unused_mut))]
-            let mut configured_upgrades = Vec::new();
             #[cfg(all(feature = "orbit", feature = "webtransport"))]
             super::link::webtransport::bind(state, canonical, &record.config)?;
-            #[cfg(feature = "broadcast")]
-            broadcast::append_routes(
-                state,
-                canonical,
-                &record.config,
-                &mut configured_upgrades,
-            )?;
-            #[cfg(feature = "websocket")]
-            routable.h1_upgrades.extend(configured_upgrades.iter().cloned());
             let binding = match custom_bindings.get(canonical).cloned() {
                 Some(binding) => {
                     if routable.app.is_some() {
@@ -1117,12 +1100,6 @@ impl HostAppRegistry {
                     record.config.clone(),
                     Some(protocol),
                 )?;
-                #[cfg(feature = "websocket")]
-                let mut contributions = contributions;
-                #[cfg(feature = "websocket")]
-                contributions
-                    .h1_upgrades
-                    .extend(configured_upgrades.iter().cloned());
                 let selected = if custom_bindings.contains_key(canonical) {
                     if contributions.app.is_some() {
                         return Err(Error::msg(format!(
