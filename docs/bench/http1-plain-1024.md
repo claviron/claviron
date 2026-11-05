@@ -58,44 +58,8 @@ processes that each own a listener and an executor. The comparison is between
 complete serving paths including that difference; it does not isolate
 Claviron's own work from the execution topology.
 
-### Where a response's serving CPU goes
-
-The same level, 16,384 outstanding requests, was profiled with kernel time
-included, one 30-second phase a server, at Claviron `9294517`. A bare `mio`
-host, a hand-written HTTP/1.1 loop with no Hyper and no Tokio, ran beside them
-as a floor. The µs figures are a share of the samples multiplied by that
-phase's CPU per response; the rows overlap and do not add up.
-
-| | Native Hyper | Claviron Other | Bare `mio` |
-| --- | ---: | ---: | ---: |
-| Serving CPU per response | 14.58 µs | 16.71 µs | 8.07 µs |
-| user / system | 4.84 / 9.74 | 6.37 / 10.34 | 0.99 / 7.08 |
-| Kernel, socket write path | 8.44 µs | 8.96 µs | not profiled |
-| of which packet filter and connection tracking | 2.51 µs | 2.68 µs | not profiled |
-| HTTP/1.1: parse, build, encode, frame | 1.76 µs | 1.97 µs | not profiled |
-| Allocation and destruction | 0.71 µs | 1.06 µs | not profiled |
-| Runtime: scheduler, wakers, timers, I/O driver | 0.12 µs | 0.12 µs | not profiled |
-| Claviron pipeline, host selection included | none | 0.47 µs | none |
-
-Two thirds of a response is kernel time, and nearly all of that is writing to
-the socket. On loopback the writer's system call also carries the peer's
-receive path and the machine's packet filter, which by itself is 16 to 17% of
-serving CPU here; that share is in every absolute figure of these reports and
-is the same for both servers. The bare host says the same from the other side:
-with almost no code of its own it still spends 7.1 µs a response in the
-kernel.
-
-What is left for user space is small. Hyper's HTTP/1.1 work is under 2 µs, the
-runtime's own operations about a tenth of one, and Claviron's pipeline about
-half of one. Claviron's addition over native Hyper, about 2 µs in these
-profiled phases, is spread over the write path, the shared HTTP code,
-allocation and copies rather than sitting in one place. A clean phase of the
-rebuilt Other measured 16.37 µs, against 16.31 µs in the series above.
-
-The bare host parses no real request, so its distance to Hyper is a ceiling on
-what a leaner server could save, not an estimate of it. Native Hyper's stacks
-were cut short of their outer frames and Other's recording lost 1.2% of its
-samples, so small differences between the two columns are not findings.
+The same level was later profiled with kernel time included, beside a bare
+`mio` host as a floor: [where a response's serving CPU goes](response-cpu.md).
 
 ## Follow-up with Claviron `20afbeb`
 

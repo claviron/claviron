@@ -71,6 +71,8 @@ policy. Keep benchmark exposure an explicit deployment decision.
 Measurements of complete serving paths, Claviron beside native Hyper, on one
 Linux machine that client and server share.
 
+- [Where a response's serving CPU goes](response-cpu.md): the budget of one
+  plain response, row by row, and where each row is decided.
 - [HTTP/1.1 plain text with 128 connections](http1-plain-128.md)
 - [HTTP/1.1 plain text with 1,024 connections](http1-plain-1024.md)
 - [HTTP/1.1 over TLS with 1,024 connections](http1-tls-1024.md)
