@@ -111,7 +111,12 @@ impl PhpBackend {
     }
 }
 
-impl crate::pipeline::host::BackendHandler for PhpBackend {}
+impl crate::pipeline::host::BackendHandler for PhpBackend {
+    // Reads the connection and policy from the request it is handed.
+    fn reads_identity(&self) -> bool {
+        true
+    }
+}
 
 impl DispatchStep for PhpBackend {
     fn call(

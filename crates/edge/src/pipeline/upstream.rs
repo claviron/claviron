@@ -49,7 +49,12 @@ impl UpstreamStage {
     }
 }
 
-impl crate::pipeline::host::BackendHandler for UpstreamStage {}
+impl crate::pipeline::host::BackendHandler for UpstreamStage {
+    // Reads the connection and policy from the request it is handed.
+    fn reads_identity(&self) -> bool {
+        true
+    }
+}
 
 impl DispatchStep for UpstreamStage {
     fn call(

@@ -87,7 +87,12 @@ impl DispatchStep for Arc<WebSocketStage> {
     }
 }
 
-impl crate::pipeline::host::BackendHandler for Arc<WebSocketStage> {}
+impl crate::pipeline::host::BackendHandler for Arc<WebSocketStage> {
+    // Reads the connection and policy from the request it is handed.
+    fn reads_identity(&self) -> bool {
+        true
+    }
+}
 
 impl<S> HostLayer<S> for Arc<WebSocketStage> {
     fn prepare(

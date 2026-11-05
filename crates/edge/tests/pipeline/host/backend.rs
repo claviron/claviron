@@ -38,7 +38,11 @@ impl DispatchStep for FileStep {
 }
 
 struct First;
-impl BackendHandler for First {}
+impl BackendHandler for First {
+    fn reads_identity(&self) -> bool {
+        true
+    }
+}
 impl DispatchStep for First {
     fn call(
         &self,
@@ -65,7 +69,11 @@ impl DispatchStep for First {
 }
 
 struct Last(Arc<ConnCtx>);
-impl BackendHandler for Last {}
+impl BackendHandler for Last {
+    fn reads_identity(&self) -> bool {
+        true
+    }
+}
 impl DispatchStep for Last {
     fn call(
         &self,
@@ -118,8 +126,49 @@ fn backend_identity_starts_after_native_file_steps_and_is_exported_only_once() {
     }
 }
 
+struct Untouched;
+impl BackendHandler for Untouched {}
+impl DispatchStep for Untouched {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchCall {
+        // Nothing is written for an owner that declares no identity.
+        assert!(request.extensions().is_empty());
+        DispatchCall::ready(ServiceResult::Handled(Response::new(
+            request.into_body(),
+        )))
+    }
+}
+
+#[test]
+fn an_owner_that_reads_no_identity_receives_the_request_untouched() {
+    let connection = connection();
+    let hostname = HostName(Arc::new("alias.test".parse().unwrap()));
+    let key = HostKey(Arc::new("app.test".parse().unwrap()));
+    let context = Some(
+        HostContext::new(&connection, RequestArrival::Established)
+            .with_host(&hostname, &key),
+    );
+    let mut builder = HostPipelineBuilder::<()>::new();
+    builder.layer(Backend::new(Untouched, HttpPolicy::unlimited())).unwrap();
+    let owner = builder.build().into_execution();
+    let request =
+        Request::builder().uri("/application").body(empty_body()).unwrap();
+    let response = owner
+        .handle_in(request, context)
+        .now_or_never()
+        .expect("synchronous owners are ready")
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
 struct Pending;
-impl BackendHandler for Pending {}
+impl BackendHandler for Pending {
+    fn reads_identity(&self) -> bool {
+        true
+    }
+}
 impl DispatchStep for Pending {
     fn call(
         &self,

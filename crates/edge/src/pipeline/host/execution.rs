@@ -33,7 +33,7 @@ impl HostExecution {
         let inner = match router {
             #[cfg(feature = "axum")]
             RustRouter::Axum(owner) => {
-                Execution::Axum(Arc::new(Backend::new(owner, policy)))
+                Execution::Axum(Arc::new(Backend::exporting(owner, policy)))
             }
             owner => Execution::Router(Arc::new(Backend::new(owner, policy))),
         };

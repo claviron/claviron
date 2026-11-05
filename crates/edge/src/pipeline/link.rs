@@ -108,7 +108,12 @@ impl LinkBackend {
     }
 }
 
-impl crate::pipeline::host::BackendHandler for LinkBackend {}
+impl crate::pipeline::host::BackendHandler for LinkBackend {
+    // Reads the connection and policy from the request it is handed.
+    fn reads_identity(&self) -> bool {
+        true
+    }
+}
 
 impl DispatchStep for LinkBackend {
     fn call(

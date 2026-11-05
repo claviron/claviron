@@ -13,23 +13,46 @@ use http::Request;
 /// Internal Static/TryFiles operations implement only `DispatchStep`.
 /// Register this owner through `Backend`, so its metadata contract is prepared
 /// with the host plan rather than rediscovered during request execution.
-pub trait BackendHandler: DispatchStep {}
+pub trait BackendHandler: DispatchStep {
+    /// Whether this owner reads the accepted connection, the host name or
+    /// the effective policy from the request's extensions.
+    ///
+    /// Read once while the host plan is prepared, never per request. An
+    /// owner that answers `false` is handed the request as it arrived:
+    /// nothing is written into it and no extension table is created for it.
+    fn reads_identity(&self) -> bool {
+        false
+    }
+}
 
 /// A selected request owner with its compiled scope metadata contract.
-/// The first Backend in a plan exports identity and effective policy; later
-/// Backend calls receive that same request metadata, including on Unhandled.
+/// The first Backend in a plan that reads identity has it exported with the
+/// effective policy; later Backend calls receive that same request metadata,
+/// including on Unhandled. A plan whose owners read none exports none.
 #[derive(Clone)]
 pub struct Backend<B> {
     pub(crate) owner: B,
-    pub(in crate::pipeline) identity: IdentityPolicy,
+    pub(in crate::pipeline) identity: Option<IdentityPolicy>,
 }
 
-impl<B> Backend<B> {
+impl<B: BackendHandler> Backend<B> {
     pub fn new(
         owner: B,
         policy: HttpPolicy,
     ) -> Self {
-        Self { owner, identity: IdentityPolicy::new(policy) }
+        let identity =
+            owner.reads_identity().then(|| IdentityPolicy::new(policy));
+        Self { owner, identity }
+    }
+}
+
+impl<B> Backend<B> {
+    /// An owner with no declaration of its own, which always reads identity.
+    pub(crate) fn exporting(
+        owner: B,
+        policy: HttpPolicy,
+    ) -> Self {
+        Self { owner, identity: Some(IdentityPolicy::new(policy)) }
     }
 
     pub(crate) fn prepare_request(
@@ -37,7 +60,9 @@ impl<B> Backend<B> {
         mut request: Request<RouteBody>,
         context: Option<super::HostContext<'_>>,
     ) -> Request<RouteBody> {
-        self.identity.inject(request.extensions_mut(), context);
+        if let Some(identity) = &self.identity {
+            identity.inject(request.extensions_mut(), context);
+        }
         request
     }
 }
@@ -47,7 +72,7 @@ impl<B: BackendHandler, S> HostLayer<S> for Backend<B> {
         self,
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
-        layer.identity = Some(self.identity.policy);
+        layer.identity = self.identity.map(|identity| identity.policy);
         layer.request(move |request| self.owner.call(request));
         Ok(())
     }
@@ -61,7 +86,11 @@ impl DispatchStep for RustRouter {
         DispatchCall::response(self.handle(request))
     }
 }
-impl BackendHandler for RustRouter {}
+impl BackendHandler for RustRouter {
+    fn reads_identity(&self) -> bool {
+        RustRouter::reads_identity(self)
+    }
+}
 
 impl DispatchStep for Arc<dyn HostHandler> {
     fn call(
@@ -74,7 +103,11 @@ impl DispatchStep for Arc<dyn HostHandler> {
         ))
     }
 }
-impl BackendHandler for Arc<dyn HostHandler> {}
+impl BackendHandler for Arc<dyn HostHandler> {
+    fn reads_identity(&self) -> bool {
+        HostHandler::reads_identity(self.as_ref())
+    }
+}
 
 impl DispatchStep for Arc<dyn BackendHandler> {
     fn call(
@@ -84,7 +117,11 @@ impl DispatchStep for Arc<dyn BackendHandler> {
         self.as_ref().call(request)
     }
 }
-impl BackendHandler for Arc<dyn BackendHandler> {}
+impl BackendHandler for Arc<dyn BackendHandler> {
+    fn reads_identity(&self) -> bool {
+        self.as_ref().reads_identity()
+    }
+}
 use crate::pipeline::layers::prepare_fallback;
 
 #[derive(Clone)]

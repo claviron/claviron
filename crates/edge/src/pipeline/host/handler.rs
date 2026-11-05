@@ -51,6 +51,15 @@ pub trait HostHandler: Send + Sync + 'static {
         &self,
         request: HostRequest,
     ) -> HostHandlerFuture;
+
+    /// Whether this application reads the accepted connection, the host name
+    /// or the effective policy from the request's extensions.
+    ///
+    /// Read once while the host plan is prepared. The default hands the
+    /// application the request as it arrived, with nothing written into it.
+    fn reads_identity(&self) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

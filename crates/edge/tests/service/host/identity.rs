@@ -40,6 +40,10 @@ fn check<B>(request: &Request<B>) {
 
 struct RustOwner;
 impl OtherHandler for RustOwner {
+    fn reads_identity(&self) -> bool {
+        true
+    }
+
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -53,6 +57,10 @@ impl OtherHandler for RustOwner {
 
 struct EmbeddedOwner;
 impl HostHandler for EmbeddedOwner {
+    fn reads_identity(&self) -> bool {
+        true
+    }
+
     fn call(
         &self,
         request: HostRequest,

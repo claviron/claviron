@@ -403,6 +403,10 @@ fn listener_plans_keep_full_policy_and_never_fall_back_to_unbound_execution() {
 
     struct Echo;
     impl OtherHandler for Echo {
+        fn reads_identity(&self) -> bool {
+            true
+        }
+
         fn call(
             &self,
             request: http::Request<RouteBody>,

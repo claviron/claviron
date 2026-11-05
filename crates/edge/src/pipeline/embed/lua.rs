@@ -86,7 +86,12 @@ impl LuaBackend {
     }
 }
 
-impl crate::pipeline::host::BackendHandler for LuaBackend {}
+impl crate::pipeline::host::BackendHandler for LuaBackend {
+    // Reads the connection and policy from the request it is handed.
+    fn reads_identity(&self) -> bool {
+        true
+    }
+}
 
 impl DispatchStep for LuaBackend {
     fn call(
