@@ -3,9 +3,9 @@
 //! Some of what a request needs is already decided when the handshake ends:
 //! who the peer is, which host was selected, what follows from the two. An
 //! accept layer does that work once, there, and leaves its result in the
-//! connection's [`ConnState`]. Every request of the connection then borrows
-//! it through `HostContext::conn_state`, with no lookup, lock or allocation
-//! of its own.
+//! connection's [`ConnState`](claviron_http::ext::ConnState). Every request
+//! of the connection then borrows it through `HostContext::conn_state`, with
+//! no lookup, lock or allocation of its own.
 //!
 //! Layers are registered before the first publication and selected per host
 //! and protocol family while the host table is prepared. A host no layer
@@ -19,9 +19,7 @@
 
 use std::sync::Arc;
 
-use claviron_http::ext::{
-    ConnCtx, ConnState, ConnStateBuilder, HostKey, HostName,
-};
+use claviron_http::ext::{ConnCtx, ConnStateBuilder, HostKey, HostName};
 use claviron_types::Host;
 
 use super::routable::matches_protocol;
@@ -171,12 +169,13 @@ impl HostAppRegistry {
 }
 
 /// Run a host's layers on one of its connections.
+#[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic", test))]
 pub(in crate::pipeline) fn accept(
     layers: Option<&AcceptLayers>,
     accepted: &Accepted<'_>,
-) -> ConnState {
+) -> claviron_http::ext::ConnState {
     let Some(layers) = layers else {
-        return ConnState::default();
+        return Default::default();
     };
     let mut state = ConnStateBuilder::default();
     for layer in layers.iter() {

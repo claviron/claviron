@@ -1,3 +1,4 @@
+#[cfg(feature = "php_embed")]
 use super::*;
 
 #[cfg(feature = "php_embed")]

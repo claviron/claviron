@@ -53,6 +53,8 @@ impl HostExecution {
 
     /// Prepare the values of one accepted connection of this host. Its facts
     /// must be complete; the result is frozen into them before any request.
+    /// Only a transport that completes a handshake has such a connection.
+    #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic", test))]
     pub(crate) fn accept(
         &self,
         accepted: &crate::pipeline::Accepted<'_>,
