@@ -7,21 +7,15 @@ use claviron_helpers::de::one_or_many;
 use claviron_runtime::registry::{Error, Result};
 use serde::Deserialize;
 
-#[derive(
-    Clone, Copy, Debug, Default, Eq, PartialEq, Deserialize, serde::Serialize,
-)]
+/// Who executes a PHP route. There is no default: a route names its runner,
+/// and which runners exist depends on what the build carries.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PhpRunner {
-    #[cfg(not(any(feature = "php_fcgi", feature = "php_embed")))]
-    #[default]
-    #[serde(skip)]
-    Unavailable,
     #[cfg(feature = "php_fcgi")]
     #[serde(alias = "fpm")]
-    #[default]
     Fcgi,
     #[cfg(feature = "php_embed")]
-    #[cfg_attr(not(feature = "php_fcgi"), default)]
     #[serde(alias = "embed")]
     Script,
     /// Named persistent HTTP application in the embedded runtime.
@@ -31,9 +25,7 @@ pub enum PhpRunner {
 
 impl PhpRunner {
     pub fn as_str(&self) -> &'static str {
-        match self {
-            #[cfg(not(any(feature = "php_fcgi", feature = "php_embed")))]
-            PhpRunner::Unavailable => "unavailable",
+        match *self {
             #[cfg(feature = "php_fcgi")]
             PhpRunner::Fcgi => "fcgi",
             #[cfg(feature = "php_embed")]
@@ -81,12 +73,12 @@ impl TryFrom<String> for PhpRunner {
 }
 
 /// PHP configuration - supports both single and multiple configs
-/// Single: php: { fpm: web, ... }
+/// Single: php: { runner: fcgi, fpm: web, ... }
 /// URL scopes belong to the enclosing host route.
 #[derive(Deserialize, Clone)]
 #[serde(remote = "Self", deny_unknown_fields)]
 pub struct PhpConfig {
-    #[serde(default)]
+    /// Required. No runner is assumed for a route that names none.
     pub runner: PhpRunner,
     /// Named pool from php.yaml applications. Only runner: application uses it;
     /// boot script, boot environment and capacity belong to that definition.

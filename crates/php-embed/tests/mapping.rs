@@ -10,7 +10,7 @@ async fn file_routes_embed_preserves_uri_and_pinned_entry_with_mapped_directory(
     std::fs::write(directory.path().join("index.php"), "<?php").unwrap();
     std::fs::write(directory.path().join("app.js"), "script").unwrap();
     let state = AppState::standalone("php-mapping", directory.path());
-    let template: PhpConfig = serde_yaml::from_str("{}").unwrap();
+    let template: PhpConfig = serde_yaml::from_str("runner: script").unwrap();
     let mut runtime = PhpRuntime::from_config(
         &state,
         &template,

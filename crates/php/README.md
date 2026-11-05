@@ -19,6 +19,8 @@ does not choose an engine on the application's behalf.
 | `runner: application` | php-embed named application pool | A persistent boot script using the explicit receive/respond protocol. |
 | `runner: fcgi` | [php-fcgi](../php-fcgi/README.md) gateway and external PHP-FPM | FPM owns PHP execution; Claviron owns the FastCGI client boundary. |
 
+`runner` is required. No engine is assumed for a route that names none.
+
 Script and persistent application execution use the same SAPI engine but have
 different application-state lifetimes. FastCGI is a different process boundary,
 not another name for embedded PHP. Both backends can coexist in one server with

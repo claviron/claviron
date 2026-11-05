@@ -24,7 +24,7 @@ fn cgi_scheme_follows_connection_and_rejects_client_overrides() {
     use claviron_php::PhpConfig;
     use claviron_runtime::AppState;
     let state = AppState::standalone("fcgi-scheme-test", ".");
-    let template: PhpConfig = serde_yaml::from_str("{}").unwrap();
+    let template: PhpConfig = serde_yaml::from_str("runner: fcgi").unwrap();
     let runtime =
         PhpRuntime::from_config(&state, &template, PathBuf::from("."), &[]);
     for tls in [false, true] {
@@ -85,7 +85,7 @@ async fn file_routes_fcgi_preserves_public_names_and_pinned_entry_mapping() {
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(directory.path().join("app.js"), "script").unwrap();
     let state = AppState::standalone("fcgi-mapping", directory.path());
-    let template: PhpConfig = serde_yaml::from_str("{}").unwrap();
+    let template: PhpConfig = serde_yaml::from_str("runner: fcgi").unwrap();
     let mut runtime = PhpRuntime::from_config(
         &state,
         &template,

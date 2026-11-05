@@ -66,12 +66,16 @@ with the admitted request, not in another PHP runtime copy.
 The facade's cold PHP composition prepares file mappings and runner order once.
 PHP Embed and FCGI expose optional `edge` modules supplying separate Backend
 owners. Requests do not select a runner enum or enter an extra PHP dispatcher.
-This shared contract crate has no Edge dependency; native PHP and Runner use
-remain independent of host routing.
+This shared contract crate has no Edge dependency, and Edge has none on it:
+a route's `php:` declaration is kept by Edge as written and decoded into
+`PhpConfig` by the facade's PHP backend when the host plan is prepared.
+Native PHP and Runner use remain independent of host routing.
 
-When neither backend feature is compiled, `PhpRunner::Unavailable` keeps the
-shared configuration contract constructible. It is skipped by serde and is not
-an executable runner.
+A route names its runner; `PhpRunner` has no default. The runners that exist
+are the ones the build carries, so a declaration that omits `runner`, or names
+one that is not compiled in, is refused when it is decoded. This crate is only
+built on behalf of an execution engine; with none compiled the selector has no
+value at all.
 
 ## `EXECUTION_IO: OPCACHE_OWNS_FRESHNESS`
 
