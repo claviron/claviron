@@ -21,9 +21,14 @@ pub(crate) fn service(
     Error = Infallible,
     Future: Send,
 > {
+    // One connection's service: its requests are admitted on its own task.
+    let accepted =
+        std::cell::RefCell::new(crate::service::AcceptedAuthority::default());
     hyper::service::service_fn(move |request| {
         use futures_util::future::{Either, ready};
-        if let Err(reason) = host.validate_authority(&request) {
+        if let Err(reason) =
+            host.validate_authority(&request, &mut accepted.borrow_mut())
+        {
             return Either::Left(ready(Ok(reason.into())));
         }
         Either::Right(dispatch(

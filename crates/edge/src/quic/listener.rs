@@ -330,6 +330,9 @@ impl H3Listener {
         // without an answer. The host's own narrowing is resolved per request
         // on `PreparedRequest`, so the handler no longer carries a number.
         let request_handler = H3RequestHandler::new(host_service.clone());
+        // This connection's last accepted authority fields; requests are
+        // admitted one at a time on this task.
+        let mut accepted = crate::service::AcceptedAuthority::default();
         let web_transport_enabled =
             deps.web_transport.has_host(&vctx.vhost_key.0);
         let quinn_conn = H3QuinnConnection::new(conn);
@@ -473,7 +476,9 @@ impl H3Listener {
                         }
                     };
 
-                    if let Err(reason) = host_service.validate_authority(&h3_head) {
+                    if let Err(reason) =
+                        host_service.validate_authority(&h3_head, &mut accepted)
+                    {
                         streams.spawn(async move {
                             send_status_response(&mut stream, reason.status()).await;
                             stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);

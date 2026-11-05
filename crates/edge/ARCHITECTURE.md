@@ -85,6 +85,13 @@ a different hostname returns 421. Plain H1 validates and resolves authority on
 each request; keep-alive does not pin it to the first host or require trusted
 forwarding. Listener eligibility is compiled before connection acceptance.
 
+Each connection keeps the authority fields of the last request it accepted:
+HTTP version, target scheme and authority, and the Host field. A request that
+repeats them is admitted without parsing the authority again, and on plain H1
+without selecting the host again when the publication is also the same. Any
+other request, including another spelling of the same name, goes through full
+validation, so the check itself is unchanged.
+
 Native Hyper H1 upgrade support is compiled with `websocket`. A WebSocket stage
 still requires registered endpoints, host `transport.h1.upgrade: true` and H1
 support in both the host and the listener. H2-only and QUIC plans omit it.
@@ -318,11 +325,11 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 ### `service/`
 
 - [`service.rs`](src/service.rs) — Transport handoff exports; no file loading or backend execution engine.
-- [`authority.rs`](src/service/authority.rs) — Validated cleartext authority and connection-local name identity reuse.
+- [`authority.rs`](src/service/authority.rs) — Validated cleartext authority and connection-local name identity reuse; borrowed access to the admitted request.
 - [`bindings.rs`](src/service/bindings.rs) — Pair live names with the captured TLS policy epoch.
 - [`extensions.rs`](src/service/extensions.rs) — VhostCtx and connection-time SNI selection/rejections.
 - [`host.rs`](src/service/host.rs) — HostService and native request handoff; no fixed Ingress/Identity/Access chain.
-- [`host/cache.rs`](src/service/host/cache.rs) — Cleartext metadata cache and current-publication owner selection.
+- [`host/cache.rs`](src/service/host/cache.rs) — Cleartext metadata cache, owner selection against the supplied publication, and reuse of the last admitted owner for a repeated authority on that same publication.
 - [`host/dispatch.rs`](src/service/host/dispatch.rs) — Execute the prepared host owner; retain the direct-call optimization only for a plan without preceding actions.
 - [`response.rs`](src/service/response.rs) — Typed early host replies, before native wire framing.
 
@@ -556,9 +563,9 @@ ownership and isolated state transitions without provider boot or live listeners
 
 ### `service/`
 
-- [`host/authority.rs`](tests/service/host/authority.rs) — Per-request SNI comparison, malformed/conflicting authority and unread body ownership.
+- [`host/authority.rs`](tests/service/host/authority.rs) — Per-request SNI comparison, malformed/conflicting authority, unread body ownership and repeats admitted only for the fields last accepted.
 - [`authority.rs`](tests/service/authority.rs) — Authority proofs and connection-local identity allocation reuse.
-- [`host.rs`](tests/service/host.rs) — Narrowed request limits, accepted facts, body mapping and deferred native dispatch.
+- [`host.rs`](tests/service/host.rs) — Narrowed request limits, accepted facts, body mapping, deferred native dispatch and cleartext repeats bound only on the same publication.
 - [`host/identity.rs`](tests/service/host/identity.rs) — Shared H1/H2/H3 metadata delivery to direct Rust routers and registered application handlers.
 
 ### `tcp/`

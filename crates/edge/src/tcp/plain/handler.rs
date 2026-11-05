@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::service::{CleartextHostCache, CleartextRequest};
 use claviron_http::ext::ConnCtx;
-use claviron_http::{RouteResponse, err_status};
+use claviron_http::{RouteResponse, ServiceResult, err_status};
 use futures_util::future::Either;
 use hyper::{Request, StatusCode};
 
@@ -53,10 +53,21 @@ impl H1Service {
         B: http_body::Body<Data = bytes::Bytes> + Send + 'static,
         B::Error: std::error::Error + Send + Sync + 'static,
     {
-        let request = CleartextRequest::new(request)
-            .map_err(|_| StatusCode::BAD_REQUEST)?;
         let table = &self.snapshot.hosts;
         let mut cache = self.host_cache.borrow_mut();
+        // A request that repeats the last admitted authority needs neither
+        // validation nor host selection again.
+        let request = match cache.repeated(request, table) {
+            ServiceResult::Handled(prepared) => {
+                drop(cache);
+                return Ok(Either::Left(crate::tcp::service::dispatch(
+                    prepared,
+                )));
+            }
+            ServiceResult::Unhandled(request) => request,
+        };
+        let request = CleartextRequest::new(request)
+            .map_err(|_| StatusCode::BAD_REQUEST)?;
         let Some(mut host) = cache.resolve(request.authority(), table) else {
             return Err(StatusCode::NOT_FOUND);
         };
@@ -73,6 +84,7 @@ impl H1Service {
             }));
         };
         let host = cache.bind(app, host);
+        cache.admit(request.request(), table, &host);
         drop(cache);
         Ok(Either::Left(crate::tcp::service::dispatch(
             host.request_cleartext(request),

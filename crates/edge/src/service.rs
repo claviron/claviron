@@ -8,7 +8,9 @@ mod response;
 pub use authority::resolve_request_authority;
 #[cfg(feature = "tcp")]
 pub(crate) use authority::{CleartextRequest, HostIdentityCache};
-pub use claviron_http::authority::{AuthorityError, RequestAuthority};
+pub use claviron_http::authority::{
+    AcceptedAuthority, AuthorityError, RequestAuthority,
+};
 pub use extensions::{
     HostRejection, VhostCtx, resolve_sni_for_listener, resolve_sni_from_table,
 };

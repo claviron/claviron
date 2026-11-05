@@ -59,6 +59,15 @@ pub struct VhostTable {
 }
 
 impl VhostTable {
+    /// Whether `other` is this same published set of host bindings, not
+    /// merely an equal one.
+    pub(crate) fn same_publication(
+        &self,
+        other: &Self,
+    ) -> bool {
+        Arc::ptr_eq(&self.inner, &other.inner)
+    }
+
     /// A cold-prepared dependency of this exact table publication.
     pub fn prepared<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.prepared.get(&std::any::TypeId::of::<T>())?.clone().downcast().ok()

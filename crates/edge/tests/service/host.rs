@@ -144,3 +144,50 @@ fn native_dispatch_calls_the_owner_only_when_polled() {
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(calls.load(Ordering::Relaxed), 1);
 }
+
+#[cfg(feature = "tcp")]
+#[test]
+fn cleartext_repeat_binds_only_the_same_authority_on_the_same_publication() {
+    use crate::loader::table::VhostTable;
+
+    let hosts = "app.test: {root: public}";
+    let table: VhostTable = serde_yaml::from_str(hosts).unwrap();
+    let owner = service("", RequestPolicy::unlimited(), None);
+    let request = |host: &str| {
+        Request::builder().header(http::header::HOST, host).body(()).unwrap()
+    };
+    let mut cache = CleartextHostCache::new(
+        owner.policy.connection.clone(),
+        owner.policy.http,
+    );
+    use claviron_http::ServiceResult::{Handled, Unhandled};
+    // Nothing admitted yet: the request is left for full admission.
+    assert!(matches!(
+        cache.repeated(request("app.test"), &table),
+        Unhandled(_)
+    ));
+
+    cache.admit(&request("app.test"), &table, &owner);
+    let Handled(repeated) = cache.repeated(request("app.test"), &table.clone())
+    else {
+        panic!("the same fields on the same publication repeat");
+    };
+    assert!(Arc::ptr_eq(
+        &repeated.host_key().0,
+        &owner.policy.host.vhost_key.0
+    ));
+
+    // Another host, another spelling and an equal but separate publication
+    // are all left for full admission.
+    let republished: VhostTable = serde_yaml::from_str(hosts).unwrap();
+    for (host, publication) in [
+        ("other.test", &table),
+        ("APP.test", &table),
+        ("app.test", &republished),
+    ] {
+        assert!(matches!(
+            cache.repeated(request(host), publication),
+            Unhandled(_)
+        ));
+    }
+}

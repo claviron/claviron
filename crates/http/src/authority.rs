@@ -2,7 +2,9 @@
 
 use claviron_types::Host;
 use http::uri::{Authority, Scheme};
-use http::{HeaderMap, Request, Uri, Version, header, request::Parts};
+use http::{
+    HeaderMap, HeaderValue, Request, Uri, Version, header, request::Parts,
+};
 
 /// The selected wire authority and its normalized host identity.
 ///
@@ -185,5 +187,101 @@ impl RequestAuthority {
         self.host == other.host
             && self.authority.port_u16().or(default_port)
                 == other.authority.port_u16().or(default_port)
+    }
+}
+
+/// The authority fields of the last request a connection accepted.
+///
+/// Validation reads only the HTTP version, the target's scheme and authority,
+/// and the Host field. A request that repeats all four validates to the same
+/// result, so a connection recognises it here without parsing the authority
+/// again. Another spelling, a second Host field or a different version is not
+/// a repeat and goes through full validation.
+///
+/// The bytes are copied into buffers this value keeps: a repeat allocates
+/// nothing and the accepted request's own storage is not retained.
+#[derive(Debug, Default)]
+pub struct AcceptedAuthority {
+    recorded: bool,
+    version: Version,
+    scheme: Option<Scheme>,
+    target: Kept,
+    host: Kept,
+}
+
+/// One optional field's bytes, in a buffer reused across requests.
+#[derive(Debug, Default)]
+struct Kept {
+    present: bool,
+    bytes: Vec<u8>,
+}
+
+impl Kept {
+    fn is(
+        &self,
+        field: Option<&[u8]>,
+    ) -> bool {
+        match field {
+            Some(bytes) => self.present && self.bytes == bytes,
+            None => !self.present,
+        }
+    }
+
+    fn keep(
+        &mut self,
+        field: Option<&[u8]>,
+    ) {
+        self.bytes.clear();
+        self.present = field.is_some();
+        if let Some(bytes) = field {
+            self.bytes.extend_from_slice(bytes);
+        }
+    }
+}
+
+/// The Host field when there is at most one; `None` when there are several.
+fn single_host(headers: &HeaderMap) -> Option<Option<&HeaderValue>> {
+    let mut values = headers.get_all(header::HOST).iter();
+    let first = values.next();
+    values.next().is_none().then_some(first)
+}
+
+impl AcceptedAuthority {
+    /// Whether `request` repeats the fields last recorded.
+    pub fn repeats<B>(
+        &self,
+        request: &Request<B>,
+    ) -> bool {
+        let uri = request.uri();
+        if !self.recorded
+            || self.version != request.version()
+            || self.scheme.as_ref() != uri.scheme()
+        {
+            return false;
+        }
+        let Some(host) = single_host(request.headers()) else {
+            return false;
+        };
+        self.target.is(uri.authority().map(|target| target.as_str().as_bytes()))
+            && self.host.is(host.map(HeaderValue::as_bytes))
+    }
+
+    /// Record the fields of a request that validation has just accepted.
+    pub fn record<B>(
+        &mut self,
+        request: &Request<B>,
+    ) {
+        let uri = request.uri();
+        // Several Host fields never validate; nothing is recorded for them.
+        let Some(host) = single_host(request.headers()) else {
+            self.recorded = false;
+            return;
+        };
+        self.version = request.version();
+        self.scheme = uri.scheme().cloned();
+        self.target
+            .keep(uri.authority().map(|target| target.as_str().as_bytes()));
+        self.host.keep(host.map(HeaderValue::as_bytes));
+        self.recorded = true;
     }
 }

@@ -1006,6 +1006,11 @@ including classic versus extended CONNECT. This primitive neither selects a
 vhost nor compares authority with TLS/SNI: those are separate host-admission
 policies. It is available without Axum and has no Hyper/H3 dependency.
 
+`authority::AcceptedAuthority` holds the fields validation reads from the last
+request a connection accepted. Validation is a function of those fields alone,
+so a caller may skip it for a request that repeats them. The value copies the
+bytes into buffers it keeps; it never decides acceptance itself.
+
 ### Edge Axum-bound layers
 
 #### CORS — three-policy with regex allowlist

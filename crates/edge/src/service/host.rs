@@ -88,11 +88,19 @@ impl HostService {
 
     /// Compare each TLS request with the host pinned by SNI. This borrows the
     /// native request before body adaptation or any host-pipeline action.
+    ///
+    /// `accepted` belongs to this connection. A request that repeats the
+    /// authority fields it last accepted names the same host and is admitted
+    /// without parsing them again; every other request is validated in full.
     #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
     pub(crate) fn validate_authority<B>(
         &self,
         request: &Request<B>,
+        accepted: &mut super::AcceptedAuthority,
     ) -> Result<(), RequestRejection> {
+        if accepted.repeats(request) {
+            return Ok(());
+        }
         let authority = super::RequestAuthority::from_request(request)
             .map_err(RequestRejection::InvalidAuthority)?;
         if authority.is_some_and(|authority| {
@@ -100,6 +108,7 @@ impl HostService {
         }) {
             return Err(RequestRejection::Misdirected);
         }
+        accepted.record(request);
         Ok(())
     }
 
