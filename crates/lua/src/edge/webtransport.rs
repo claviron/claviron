@@ -11,7 +11,7 @@ use claviron_runtime::{
 use claviron_types::Host;
 use http::StatusCode;
 
-use super::configured_route;
+use super::Endpoint;
 use claviron_edge::HostConfig;
 use claviron_edge::pipeline::{
     AnyAuthenticated, AuthContext, H3WebTransportSession, WebTransportAccept,
@@ -32,27 +32,23 @@ pub(crate) fn append_routes(
         .registry_ref()
         .resolve::<WebTransportRegistry>()
         .ok_or_else(|| Error::msg("Lua requires the WebTransport registry"))?;
-    for (prefix, route) in super::lua_routes(config) {
-        for socket in route.websockets() {
-            let path = super::mounted_websocket_path(prefix, &socket.path);
-            registry.bind_handler(
-                host.clone(),
-                path.clone(),
-                Arc::new(Handler {
-                    service: service.clone(),
-                    application: Arc::from(route.application.as_str()),
-                    path,
-                }),
-            )?;
-        }
+    let endpoints = super::socket_endpoints(config)
+        .map_err(|error| super::invalid(host, error))?;
+    for endpoint in endpoints {
+        registry.bind_handler(
+            host.clone(),
+            endpoint.path.clone(),
+            Arc::new(Handler { service: service.clone(), endpoint }),
+        )?;
     }
     Ok(())
 }
 
 struct Handler {
     service: Arc<LuaApplications>,
-    application: Arc<str>,
-    path: Arc<str>,
+    /// Prepared with the host; admission compares against it and decodes
+    /// nothing.
+    endpoint: Endpoint,
 }
 
 #[async_trait]
@@ -72,28 +68,27 @@ impl WebTransportHandler for Handler {
             ));
         }
         // Retained registry entries cannot revive removed or masked routes.
-        if ctx.path != self.path {
+        if *ctx.path != *self.endpoint.path
+            || !self.endpoint.still_declared(&ctx.host_config)
+        {
             return Err(WebTransportReject::new(StatusCode::NOT_FOUND));
         }
-        let route =
-            configured_route(&ctx.host_config, &ctx.path, &self.application)
-                .ok_or_else(|| {
-                    WebTransportReject::new(StatusCode::NOT_FOUND)
-                })?;
         // Native CONNECT and H1 upgrade share the same browser-origin boundary.
         if !super::origin::allows_origin(
-            route.origin,
+            self.endpoint.origin,
             &ctx.headers,
             &ctx.uri,
             &ctx.conn.scheme(),
         ) {
             return Err(WebTransportReject::forbidden());
         }
-        let app =
-            crate::webtransport::prepare(&self.service, &self.application)
-                .map_err(|_| {
-                    WebTransportReject::new(StatusCode::SERVICE_UNAVAILABLE)
-                })?;
+        let app = crate::webtransport::prepare(
+            &self.service,
+            &self.endpoint.application,
+        )
+        .map_err(|_| {
+            WebTransportReject::new(StatusCode::SERVICE_UNAVAILABLE)
+        })?;
         Ok(WebTransportAccept::authenticated(app))
     }
 

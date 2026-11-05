@@ -9,10 +9,6 @@ use claviron_http::config::cors::CorsConfig;
 pub use claviron_http::config::host::{
     DEFAULT_SERVER_HEADER, HostHeadersConfig,
 };
-#[cfg(feature = "lua")]
-pub use claviron_http::config::routes::JavaScriptWebSocketConfig;
-#[cfg(feature = "lua")]
-pub use claviron_http::config::routes::LuaRouteConfig;
 #[cfg(feature = "orbit")]
 pub use claviron_http::config::routes::OrbitRouteConfig;
 pub use claviron_http::config::routes::RouteRule;
@@ -152,8 +148,6 @@ impl HostConfig {
                     responses: ResponsePolicyOverride::default(),
                     cors: None,
                     headers: None,
-                    #[cfg(feature = "lua")]
-                    lua: None,
                     #[cfg(feature = "orbit")]
                     orbit: None,
                     #[cfg(feature = "broadcast")]

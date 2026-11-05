@@ -91,8 +91,6 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for RouteTable<T> {
 
 #[cfg(feature = "js")]
 pub mod javascript;
-#[cfg(feature = "lua")]
-pub mod lua;
 #[cfg(feature = "orbit")]
 pub mod orbit;
 pub mod rules;
@@ -101,8 +99,6 @@ pub mod websocket;
 
 #[cfg(feature = "js")]
 pub use javascript::JavaScriptRouteConfig;
-#[cfg(feature = "lua")]
-pub use lua::LuaRouteConfig;
 #[cfg(feature = "orbit")]
 pub use orbit::OrbitRouteConfig;
 pub use rules::RouteRule;

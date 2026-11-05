@@ -30,7 +30,6 @@ access-log = [
 websocket = ["tcp", "claviron-http/websocket"]
 # Pure host declarations only; Broadcast owns its opt-in execution/session adapter.
 broadcast = ["dep:claviron-pusher"]
-lua = ["claviron-http/lua"]
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
     "claviron-http/orbit",

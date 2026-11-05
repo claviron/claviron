@@ -3,7 +3,7 @@ use http::HeaderValue;
 
 #[test]
 fn route_origin_choice_applies_to_both_socket_transports() {
-    use claviron_http::config::routes::LuaRouteConfig;
+    use super::super::LuaRouteConfig;
 
     let target = "/socket".parse::<Uri>().unwrap();
     for (setting, policy) in [

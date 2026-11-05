@@ -4,6 +4,7 @@
 //! Socket ownership and admission remain with the native transport registries;
 //! their precedence does not follow the ordinary HTTP backend's position.
 
+mod config;
 #[cfg(any(feature = "websocket", feature = "webtransport"))]
 mod origin;
 #[cfg(feature = "websocket")]
@@ -14,13 +15,29 @@ mod webtransport;
 use std::sync::Arc;
 
 use crate::serve::{LuaApplicationAdapter, LuaApplications};
-use claviron_http::config::routes::LuaRouteConfig;
 use claviron_http::ext::PathPrefix;
 use claviron_http::policy::HttpPolicyOverride;
 use claviron_http::{RouteBody, ServiceResult};
 use http::Request;
 
 use claviron_edge::pipeline::{DispatchCall, DispatchStep};
+
+pub use config::{LuaRouteConfig, LuaSocketOriginPolicy};
+
+/// A scope's `lua:` directive as declared: one mapping or a list of them.
+/// The edge keeps it as written; this is where it is decoded. An absent or
+/// null directive declares nothing.
+fn declared(
+    scope: &claviron_edge::HostConfig
+) -> Result<Vec<LuaRouteConfig>, serde_yaml::Error> {
+    match scope.directive("lua") {
+        None | Some(serde_yaml::Value::Null) => Ok(Vec::new()),
+        Some(serde_yaml::Value::Sequence(items)) => {
+            items.iter().cloned().map(serde_yaml::from_value).collect()
+        }
+        Some(one) => Ok(vec![serde_yaml::from_value(one.clone())?]),
+    }
+}
 
 struct Mount {
     path: Option<PathPrefix>,
@@ -120,28 +137,83 @@ fn mounted_websocket_path(
     }
 }
 
+/// One socket endpoint as it was prepared. Its handler keeps this, so that
+/// admitting a socket interprets no configuration.
 #[cfg(any(feature = "websocket", feature = "webtransport"))]
-fn configured_route<'a>(
-    host: &'a claviron_edge::HostConfig,
-    path: &str,
-    application: &str,
-) -> Option<&'a LuaRouteConfig> {
-    let selected = host.routes.find(path).map(|route| &**route).unwrap_or(host);
-    selected.lua().iter().find(|route| {
-        route.application == application
-            && route.websockets().iter().any(|socket| {
-                mounted_websocket_path(
-                    selected
-                        .files
-                        .mapping
-                        .as_ref()
-                        .map(|mapping| mapping.prefix()),
-                    &socket.path,
-                )
-                .as_ref()
-                    == path
-            })
-    })
+#[derive(Clone)]
+struct Endpoint {
+    /// Where the endpoint is mounted on the host.
+    path: Arc<str>,
+    application: Arc<str>,
+    origin: LuaSocketOriginPolicy,
+    /// The directive the endpoint was decoded from, as its scope declared it.
+    source: Arc<serde_yaml::Value>,
+    /// The mount of the scope that declared it.
+    mount: Option<PathPrefix>,
+}
+
+#[cfg(any(feature = "websocket", feature = "webtransport"))]
+impl Endpoint {
+    /// Whether `host` still declares, for this endpoint's path, exactly what
+    /// the endpoint was prepared from.
+    ///
+    /// A registry that outlives a publication keeps a binding after its route
+    /// was removed, masked by a more specific route or given to another
+    /// application. Such an entry must not admit. A route that was only
+    /// edited has been prepared again by then, and its new binding replaced
+    /// this one.
+    fn still_declared(
+        &self,
+        host: &claviron_edge::HostConfig,
+    ) -> bool {
+        let selected =
+            host.routes.find(&self.path).map(|route| &**route).unwrap_or(host);
+        selected.directive("lua") == Some(&*self.source)
+            && selected.files.mapping.as_ref().map(|mapping| mapping.prefix())
+                == self.mount.as_ref()
+    }
+}
+
+/// Every socket endpoint the host's scopes declare, decoded once.
+#[cfg(any(feature = "websocket", feature = "webtransport"))]
+fn socket_endpoints(
+    host: &claviron_edge::HostConfig
+) -> Result<Vec<Endpoint>, serde_yaml::Error> {
+    let mut endpoints = Vec::new();
+    for (prefix, scope) in host.scopes() {
+        let Some(source) = scope.directive("lua") else {
+            continue;
+        };
+        let source = Arc::new(source.clone());
+        let mount = scope
+            .files
+            .mapping
+            .as_ref()
+            .map(|mapping| mapping.prefix().clone());
+        for route in declared(scope)? {
+            for socket in route.websockets() {
+                endpoints.push(Endpoint {
+                    path: mounted_websocket_path(prefix, &socket.path),
+                    application: Arc::from(route.application.as_str()),
+                    origin: route.origin,
+                    source: source.clone(),
+                    mount: mount.clone(),
+                });
+            }
+        }
+    }
+    Ok(endpoints)
+}
+
+/// The decode failure of a host's `lua:` directive, as a preparation error.
+#[cfg(any(feature = "websocket", feature = "webtransport"))]
+fn invalid(
+    host: &claviron_types::Host,
+    error: serde_yaml::Error,
+) -> claviron_runtime::registry::Error {
+    claviron_runtime::registry::Error::msg(format!(
+        "lua directive of host '{host}': {error}"
+    ))
 }
 
 #[cfg(all(test, feature = "websocket"))]
@@ -199,9 +271,15 @@ impl claviron_edge::pipeline::backend::BackendFactory for Factory {
             prefix: context.prefix,
         }
         .policy();
+        let routes = declared(context.route).map_err(|error| {
+            claviron_runtime::registry::Error::msg(format!(
+                "backend 'lua' at '{}': {error}",
+                context.prefix
+            ))
+        })?;
         Ok(LuaBackend::new(
             context.state.registry_ref().resolve::<LuaApplications>(),
-            context.route.lua(),
+            &routes,
             Some(context.prefix),
             policy,
         )
@@ -236,7 +314,9 @@ impl claviron_edge::Routable for Sessions {
         _: &claviron_types::Host,
         host: &claviron_edge::HostConfig,
     ) -> bool {
-        lua_routes(host).any(|(_, route)| !route.websockets().is_empty())
+        // A declaration that does not decode selects nothing here; the
+        // backend's own preparation of the same scope reports it.
+        socket_endpoints(host).is_ok_and(|endpoints| !endpoints.is_empty())
     }
     fn prepare_sessions(
         &self,
@@ -262,13 +342,4 @@ impl claviron_edge::Routable for Sessions {
         websocket::append_routes(&self.state, host, &config, &mut routes)?;
         Ok(routes)
     }
-}
-
-#[cfg(any(feature = "websocket", feature = "webtransport"))]
-fn lua_routes(
-    host: &claviron_edge::HostConfig
-) -> impl Iterator<Item = (Option<&PathPrefix>, &LuaRouteConfig)> {
-    host.scopes().flat_map(|(prefix, scope)| {
-        scope.lua().iter().map(move |route| (prefix, route))
-    })
 }

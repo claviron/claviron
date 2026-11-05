@@ -1,5 +1,8 @@
-use super::JavaScriptWebSocketConfig;
+//! The `lua:` route directive. The edge keeps a route's declaration as it was
+//! written; this crate owns its shape and decodes it when a host is prepared.
+
 use claviron_helpers::de::opt_one_or_many;
+use claviron_http::config::routes::JavaScriptWebSocketConfig;
 use serde::Deserialize;
 
 /// Browser-origin admission for both socket transports of a Lua route.

@@ -2,14 +2,13 @@
 
 use std::sync::Arc;
 
-use claviron_http::config::routes::lua::LuaSocketOriginPolicy;
 use claviron_runtime::{
     AppState,
     registry::{Error, Result},
 };
 use claviron_types::Host;
 
-use super::{configured_route, mounted_websocket_path, origin::allows_origin};
+use super::{Endpoint, LuaSocketOriginPolicy, origin::allows_origin};
 use claviron_edge::HostConfig;
 use claviron_edge::pipeline::{H1UpgradeHandler, H1UpgradeRoute};
 
@@ -27,27 +26,24 @@ pub(crate) fn append_routes(
     let h2_connect =
         state.registry_ref().resolve::<claviron_edge::H2ConnectRegistry>();
 
-    for (prefix, application) in super::lua_routes(host) {
-        for websocket in application.websockets() {
-            let path = mounted_websocket_path(prefix, &websocket.path);
-            let handler = Arc::new(WebSocketUpgrade {
-                origin: application.origin,
-                service: service.clone(),
-                application: Arc::from(application.application.as_str()),
-            });
-            routes.push(H1UpgradeRoute::handler(path.clone(), handler)?);
-            if let Some(registry) = h2_connect.as_ref() {
-                registry.bind_handler(
-                    canonical.clone(),
-                    path,
-                    Arc::new(LuaWebSocketConnectHandler {
-                        service: service.clone(),
-                        application: Arc::from(
-                            application.application.as_str(),
-                        ),
-                    }),
-                )?;
-            }
+    let endpoints = super::socket_endpoints(host)
+        .map_err(|error| super::invalid(canonical, error))?;
+    for endpoint in endpoints {
+        let handler = Arc::new(WebSocketUpgrade {
+            origin: endpoint.origin,
+            service: service.clone(),
+            application: endpoint.application.clone(),
+        });
+        routes.push(H1UpgradeRoute::handler(endpoint.path.clone(), handler)?);
+        if let Some(registry) = h2_connect.as_ref() {
+            registry.bind_handler(
+                canonical.clone(),
+                endpoint.path.clone(),
+                Arc::new(LuaWebSocketConnectHandler {
+                    service: service.clone(),
+                    endpoint,
+                }),
+            )?;
         }
     }
     Ok(())
@@ -56,7 +52,9 @@ pub(crate) fn append_routes(
 /// A Lua application's WebSocket over HTTP/2 extended CONNECT (RFC 8441).
 struct LuaWebSocketConnectHandler {
     service: Arc<crate::serve::LuaApplications>,
-    application: Arc<str>,
+    /// Prepared with the host; admission compares against it and decodes
+    /// nothing.
+    endpoint: Endpoint,
 }
 
 #[async_trait::async_trait]
@@ -70,15 +68,16 @@ impl claviron_edge::H2ConnectHandler for LuaWebSocketConnectHandler {
         _state: &AppState,
         ctx: &claviron_edge::AuthContext,
     ) -> claviron_edge::H2ConnectResult {
-        let route =
-            configured_route(&ctx.host_config, &ctx.path, &self.application)
-                .ok_or_else(|| {
-                    claviron_edge::H2ConnectReject::new(
-                        http::StatusCode::NOT_FOUND,
-                    )
-                })?;
+        // The registry keeps this binding after its route is gone.
+        if *ctx.path != *self.endpoint.path
+            || !self.endpoint.still_declared(&ctx.host_config)
+        {
+            return Err(claviron_edge::H2ConnectReject::new(
+                http::StatusCode::NOT_FOUND,
+            ));
+        }
         if !allows_origin(
-            route.origin,
+            self.endpoint.origin,
             &ctx.headers,
             &ctx.uri,
             &ctx.conn.scheme(),
@@ -93,13 +92,15 @@ impl claviron_edge::H2ConnectHandler for LuaWebSocketConnectHandler {
         if version != Some("13") {
             return Err(claviron_edge::H2ConnectReject::bad_request());
         }
-        let application =
-            crate::websocket::prepare(&self.service, &self.application)
-                .map_err(|_| {
-                    claviron_edge::H2ConnectReject::new(
-                        http::StatusCode::SERVICE_UNAVAILABLE,
-                    )
-                })?;
+        let application = crate::websocket::prepare(
+            &self.service,
+            &self.endpoint.application,
+        )
+        .map_err(|_| {
+            claviron_edge::H2ConnectReject::new(
+                http::StatusCode::SERVICE_UNAVAILABLE,
+            )
+        })?;
         Ok(claviron_edge::H2ConnectAccept::authenticated(application))
     }
 

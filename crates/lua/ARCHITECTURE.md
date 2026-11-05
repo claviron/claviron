@@ -30,10 +30,22 @@ HTTP action. The owner declares no identity export and execution-owned replies
 through the common Backend contract; it copies its scope's policy from the
 call's `HostContext`, and the route's own policy narrows that.
 
+`edge/config.rs` owns the `lua:` route directive: `LuaRouteConfig` and its
+Origin policy (`any`, the default, imposes no restriction; `same-origin` asks
+for strict browser-origin admission, enforced by the native acceptance
+handlers, not by Lua callbacks or HTTP CORS). Edge keeps a route's directive
+as it was written and knows nothing of its shape; this crate decodes it once,
+when a host is prepared, for the HTTP backend and for the socket bindings.
+
 `edge/websocket.rs` and `edge/webtransport.rs` own native session adapters;
 `edge/origin.rs` shares browser-origin validation. A cold Routable contribution
-prepares session bindings for matching hosts. Socket admission still checks the
-selected host declaration, including removed and more-specific masked routes.
+prepares session bindings for matching hosts. Each binding carries the
+endpoint it was prepared from, so admitting a socket decodes nothing. The H2
+CONNECT and WebTransport registries outlive a publication and keep a binding
+after its route is removed, masked by a more specific route or reassigned;
+admission therefore compares the selected host declaration with the one the
+binding was prepared from and refuses when they differ. An edited route has
+been prepared again by then and its new binding has replaced the old one.
 `Routable::prepare_sessions` and H1 upgrade preparation run before publication;
 there is no engine-specific registration call inside Edge.
 

@@ -1,6 +1,6 @@
 use claviron_http::ext::PathPrefix;
 
-use super::{configured_route, mounted_websocket_path};
+use super::{mounted_websocket_path, socket_endpoints};
 
 fn prefix(value: &str) -> PathPrefix {
     serde_yaml::from_str(value).unwrap()
@@ -11,9 +11,16 @@ fn native_socket_selection_rejects_removed_and_masked_lua_endpoints() {
     let host: claviron_edge::HostConfig = serde_yaml::from_str(
         "lua: {application: demo, websocket: {path: /socket}}\nroutes:\n  /socket: {static: {}}\n",
     ).unwrap();
-    assert!(configured_route(&host, "/socket", "demo").is_none());
+    // The root declares the endpoint, but a more specific route without Lua
+    // owns its path.
+    let endpoints = socket_endpoints(&host).unwrap();
+    let [declared] = endpoints.as_slice() else {
+        panic!("one declared endpoint");
+    };
+    assert_eq!(&*declared.path, "/socket");
+    assert!(!declared.still_declared(&host));
     let removed = claviron_edge::HostConfig::new("public");
-    assert!(configured_route(&removed, "/socket", "demo").is_none());
+    assert!(!declared.still_declared(&removed));
 }
 
 #[test]

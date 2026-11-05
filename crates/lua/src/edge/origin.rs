@@ -3,7 +3,7 @@
 //! HTTP CORS cannot widen an opted-in same-origin boundary. This is not client
 //! authentication: non-browser clients can supply their own Origin header.
 
-use claviron_http::config::routes::lua::LuaSocketOriginPolicy;
+use super::LuaSocketOriginPolicy;
 use http::uri::{Authority, Scheme};
 use http::{HeaderMap, Uri, header};
 

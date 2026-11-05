@@ -234,15 +234,13 @@ Its builder returns `None` when no provider contributes routes; consumers need
 not create an empty router or fallback service for an absent contribution.
 
 The application declarations under `config::routes` are gated by the HTTP
-crate's dependency-free `js`, `lua` and `orbit` features. The shared WebSocket
+crate's dependency-free `js` and `orbit` features. The shared WebSocket
 endpoint shape is available with either `js` or `lua`; generic `rules` remain
-unconditional. These gates expose data only, never execution engines. The
-facade and edge forward their corresponding capability selections.
+unconditional. These gates expose data only, never execution engines.
 
-`LuaRouteConfig.origin` is a pure declaration shared by the route's WS and WT
-endpoints: `any` (default) imposes no Origin restriction; `same-origin` requests
-strict browser-origin admission. Edge's native acceptance handlers enforce it,
-not Lua callbacks or HTTP CORS. HTTP owns no socket admission execution.
+The Lua route declaration is not here: `LuaRouteConfig` and its Origin policy
+belong to the Lua crate's `edge` module, which decodes a route's `lua:`
+directive itself. HTTP owns no socket admission execution.
 
 `config::statics::StaticConfig` separates the validated URL mount
 (`PathPrefix`) from the filesystem directory (`PathBuf`). Filesystem paths do
