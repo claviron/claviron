@@ -4,12 +4,14 @@ use crate::pipeline::host::compile::HostCompiler;
 use crate::pipeline::{
     HostHandler, HostHandlerFuture, HostRequest, RustRouter,
 };
-use claviron_http::ext::{
-    ClientAuthStatus, HostKey, HostName, RealIpExt, TlsInfo,
-};
+use claviron_http::ext::{ClientAuthStatus, TlsInfo};
 use futures_util::FutureExt;
 
+/// What an owner that is handed identity finds in its request.
+#[cfg(feature = "axum")]
 fn check<B>(request: &Request<B>) {
+    use claviron_http::ext::{HostKey, HostName, RealIpExt};
+
     let connection = request.extensions().get::<Arc<ConnCtx>>().unwrap();
     let host = request.extensions().get::<HostName>().unwrap();
     assert_eq!(host.0.to_string(), "alias.test");
@@ -40,15 +42,12 @@ fn check<B>(request: &Request<B>) {
 
 struct RustOwner;
 impl OtherHandler for RustOwner {
-    fn reads_identity(&self) -> bool {
-        true
-    }
-
     fn call(
         &self,
         request: Request<RouteBody>,
     ) -> RouteFuture {
-        check(&request);
+        // A Rust handler receives the request as it arrived.
+        assert!(request.extensions().is_empty());
         Box::pin(std::future::ready(Ok(http::Response::new(
             request.into_body(),
         ))))
@@ -57,16 +56,12 @@ impl OtherHandler for RustOwner {
 
 struct EmbeddedOwner;
 impl HostHandler for EmbeddedOwner {
-    fn reads_identity(&self) -> bool {
-        true
-    }
-
     fn call(
         &self,
         request: HostRequest,
     ) -> HostHandlerFuture {
         let request = request.into_request();
-        check(&request);
+        assert!(request.extensions().is_empty());
         Box::pin(std::future::ready(claviron_http::ServiceResult::Handled(
             http::Response::new(request.into_body()),
         )))
@@ -74,7 +69,8 @@ impl HostHandler for EmbeddedOwner {
 }
 
 #[test]
-fn native_handoff_exports_identity_to_rust_and_registered_application_owners() {
+fn native_handoff_leaves_rust_handlers_untouched_and_exports_identity_to_a_framework_router()
+ {
     for (protocol, tls, version) in [
         (HttpProtocol::H1, false, http::Version::HTTP_11),
         (HttpProtocol::H1, true, http::Version::HTTP_11),

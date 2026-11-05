@@ -138,14 +138,17 @@ NonServingPipeline and its `redirect_port`.
 `Backend<B>` is the request handoff contract for Rust routers/handlers,
 embedded runtimes, Upstream and Link. WebSocket and broadcast application calls
 use the same boundary. Protocol/provider filters run at boot/reload; host/scope
-selection and earlier policies run before handoff. An owner states at
-boot/reload whether it reads identity (`reads_identity` on `BackendHandler`,
-`HostHandler` and `OtherHandler`, `false` unless it says otherwise). The builder
-inserts Identity once, immediately before the first Backend that reads it. A
-plan whose owners read none inserts none: the request reaches its owner as it
-arrived and no extension map is created. Claviron's own backends (PHP, Lua,
-Link, Upstream, WebSocket, broadcast) read it. An Axum or Warp router has no
-declaration of its own and always receives it. Static, TryFiles and file
+selection and earlier policies run before handoff. A backend states at
+boot/reload whether it reads identity (`BackendHandler::reads_identity`,
+`false` unless it says otherwise). The builder inserts Identity once,
+immediately before the first Backend that reads it. A plan whose owners read
+none inserts none: the request reaches its owner as it arrived and no
+extension map is created. The configured backends that execute for a host
+(PHP, Lua, Link, Upstream, WebSocket, broadcast) read it. A Rust handler
+(`OtherHandler`, `HostHandler`) never receives it; a Rust owner that needs the
+accepted facts is a route extension and borrows them from `HostContext`, which
+writes nothing. An Axum or Warp router has no declaration of its own and
+always receives it. Static, TryFiles and file
 fallback remain native steps; requests answered there before any Backend create
 no identity extension map.
 

@@ -97,11 +97,13 @@ does not stop the shared runtime or unrelated work. Follow
 ## Request identity
 
 Identity is written into the request, which costs an extension map for every
-request, so it is exported only to an owner that reads it. An owner states
-that once, when the host plan is prepared: `reads_identity` on
-`BackendHandler`, `HostHandler` and `OtherHandler`, `false` unless the owner
-says otherwise. An Axum or Warp router has no declaration of its own and always
-receives identity.
+request, so it is exported only to a backend that reads it. A backend states
+that once, when the host plan is prepared: `BackendHandler::reads_identity`,
+`false` unless it says otherwise. The configured backends that execute for a
+host read it. A Rust handler (`OtherHandler`, `HostHandler`) receives the
+request as it arrived; a Rust owner that needs the accepted facts is a route
+extension and borrows them from `HostContext`. An Axum or Warp router has no
+declaration of its own and always receives identity.
 
 The builder places Identity immediately before the first Backend that reads
 it. It exports the existing `Arc<ConnCtx>`, selected `HostName` and effective

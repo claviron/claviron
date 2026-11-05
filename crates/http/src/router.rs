@@ -33,17 +33,6 @@ pub trait OtherHandler: Send + Sync + 'static {
         false
     }
 
-    /// Whether this handler reads the accepted connection, the host name or
-    /// the effective policy from the request's extensions.
-    ///
-    /// Read once while the host plan is prepared. The default hands the
-    /// handler the request as it arrived: nothing is written into it and no
-    /// extension table is created for it. A handler returning `true` finds
-    /// `Arc<ConnCtx>`, `HostName` and `HttpPolicy` among the extensions.
-    fn reads_identity(&self) -> bool {
-        false
-    }
-
     fn call(
         &self,
         req: Request<RouteBody>,
@@ -66,10 +55,6 @@ impl OtherService {
 
     pub fn times_its_head(&self) -> bool {
         self.handler.times_its_head()
-    }
-
-    pub fn reads_identity(&self) -> bool {
-        self.handler.reads_identity()
     }
 
     /// Transfer the request to the Rust handler without wrapping its future.
@@ -109,12 +94,12 @@ impl RustRouter {
     }
 
     /// Whether the router is handed the accepted connection, host name and
-    /// policy as request extensions. Another handler states it itself; a
-    /// framework router reads request extensions through its own extractors
-    /// and has no declaration of its own, so it always receives them.
+    /// policy as request extensions. Another handler receives the request as
+    /// it arrived, with nothing written into it. A framework router reads
+    /// request extensions through its own extractors and always receives them.
     pub fn reads_identity(&self) -> bool {
         match self {
-            Self::Other(service) => service.reads_identity(),
+            Self::Other(_) => false,
             #[cfg(feature = "warp")]
             Self::Warp(_) => true,
             #[cfg(feature = "axum")]

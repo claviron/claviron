@@ -42,6 +42,10 @@ pub type HostHandlerFuture =
 
 /// A prepared Rust host handler.
 ///
+/// The request arrives as the client sent it: no connection, host or policy
+/// value is written into it. An owner that needs the accepted facts is a
+/// route extension and borrows them from `HostContext`.
+///
 /// Return Handled even for an error response. Return Unhandled with the supplied
 /// capability to continue with the same unread body. Status codes never select
 /// another application. Runtime heterogeneous registration erases each active
@@ -51,15 +55,6 @@ pub trait HostHandler: Send + Sync + 'static {
         &self,
         request: HostRequest,
     ) -> HostHandlerFuture;
-
-    /// Whether this application reads the accepted connection, the host name
-    /// or the effective policy from the request's extensions.
-    ///
-    /// Read once while the host plan is prepared. The default hands the
-    /// application the request as it arrived, with nothing written into it.
-    fn reads_identity(&self) -> bool {
-        false
-    }
 }
 
 #[cfg(test)]

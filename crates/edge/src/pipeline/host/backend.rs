@@ -20,6 +20,8 @@ pub trait BackendHandler: DispatchStep {
     /// Read once while the host plan is prepared, never per request. An
     /// owner that answers `false` is handed the request as it arrived:
     /// nothing is written into it and no extension table is created for it.
+    /// The configured backends that execute for a host answer `true`; a
+    /// Rust application borrows the accepted facts from `HostContext`.
     fn reads_identity(&self) -> bool {
         false
     }
@@ -103,11 +105,7 @@ impl DispatchStep for Arc<dyn HostHandler> {
         ))
     }
 }
-impl BackendHandler for Arc<dyn HostHandler> {
-    fn reads_identity(&self) -> bool {
-        HostHandler::reads_identity(self.as_ref())
-    }
-}
+impl BackendHandler for Arc<dyn HostHandler> {}
 
 impl DispatchStep for Arc<dyn BackendHandler> {
     fn call(

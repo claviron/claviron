@@ -403,29 +403,15 @@ fn listener_plans_keep_full_policy_and_never_fall_back_to_unbound_execution() {
 
     struct Echo;
     impl OtherHandler for Echo {
-        fn reads_identity(&self) -> bool {
-            true
-        }
-
         fn call(
             &self,
             request: http::Request<RouteBody>,
         ) -> RouteFuture {
-            let buffered = request
-                .extensions()
-                .get::<claviron_http::policy::HttpPolicy>()
-                .unwrap()
-                .requests
-                .buffering
-                == claviron_http::policy::Buffering::BufferDefault;
-            let mut response = http::Response::new(request.into_body());
-            if buffered {
-                response.headers_mut().insert(
-                    "x-buffered",
-                    http::HeaderValue::from_static("yes"),
-                );
-            }
-            Box::pin(std::future::ready(Ok(response)))
+            // A Rust handler receives the request as it arrived.
+            assert!(request.extensions().is_empty());
+            Box::pin(std::future::ready(Ok(http::Response::new(
+                request.into_body(),
+            ))))
         }
     }
     let state = AppState::standalone("body-plans", ".");
@@ -554,12 +540,6 @@ listeners:
                 .now_or_never()
                 .unwrap();
             assert_eq!(reply.status(), status, "{listener}: {protocol:?}");
-            if status == StatusCode::OK {
-                assert_eq!(
-                    reply.headers().contains_key("x-buffered"),
-                    listener == "buffered"
-                );
-            }
             let bytes = reply
                 .into_body()
                 .collect()
