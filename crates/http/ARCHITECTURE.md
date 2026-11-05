@@ -159,6 +159,19 @@ Axum and Warp are explicit feature-gated variants; Other forwards the handler's
 existing future. `tests/router.rs` verifies future erasure and head-timing
 ownership.
 
+`OTHER_HANDLER: NO_EDGE_INPUT`
+
+An `OtherHandler` takes the request and returns the response. Nothing else
+reaches it: no accepted connection, host, policy or connection state is
+passed to it, and nothing is written into the request for it. This is a rule,
+not the current state of an unfinished API. It is what lets the handler be
+served from this crate's level directly, on a transport with no host pipeline
+in front of it, and what keeps one handler valid under both the runner and
+the edge. A change that hands an `OtherHandler` anything from the edge, by
+parameter, by option or by extension, closes that door and is not to be made.
+An owner that needs the accepted facts implements the edge's `BackendHandler`
+and borrows them from `HostContext`.
+
 `warp.rs` prepares filters without Warp's server. Its body adapter preserves
 exclusive polling, frames and trailers while satisfying Warp's `Sync` bound;
 it adds no mutex or body buffer. Warp rejections are terminal HTTP responses.

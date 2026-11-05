@@ -3,12 +3,28 @@ use std::sync::Arc;
 use crate::{RouteBody, RouteFuture};
 use http::Request;
 
-/// Low-level HTTP extension point without owning a listener.
+/// A Rust handler that takes a request and returns its response, and takes
+/// nothing else.
 ///
-/// The transport and host boundary hand over a request with an erased body
-/// and typed extensions. A Rust handler or alternative router owns the response
-/// and can use this contract
-/// without depending on the Axum router or middleware stack.
+/// It owns no listener and depends on no Axum router or middleware stack. A
+/// Rust handler or an alternative router implements it.
+///
+/// # Request in, response out
+///
+/// `OTHER_HANDLER: NO_EDGE_INPUT`
+///
+/// The request with its erased body is the whole input. No accepted
+/// connection, host, policy or connection state is passed to this contract,
+/// and nothing is written into the request on its behalf. That is deliberate
+/// and is to stay so: a handler that depends on nothing above the HTTP layer
+/// can be served from that layer directly, on a transport with no host
+/// pipeline in front of it, and the same handler runs unchanged under the
+/// runner and under the edge.
+///
+/// Do not add a context parameter, an identity option or an exported
+/// extension here, however small the convenience. An owner that needs the
+/// accepted facts is not an `OtherHandler`: it is a backend of the edge,
+/// which is lent them for the duration of its call.
 ///
 /// # Hot-path contract
 ///

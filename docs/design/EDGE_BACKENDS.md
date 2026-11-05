@@ -131,7 +131,9 @@ through the required `BackendHandler::contract` declaration.
 WebSocket and broadcast still read it from the request, where their own
 execution carries it further. A Rust handler (`OtherHandler`, `HostHandler`)
 receives the request as it arrived; a Rust owner that needs the accepted facts
-is a route extension and borrows them from `HostContext`. An Axum or Warp
+is a route extension and borrows them from `HostContext`. For `OtherHandler`
+that is fixed (`OTHER_HANDLER: NO_EDGE_INPUT`): it is never given anything of
+the edge's, so it can be served from the HTTP layer without one. An Axum or Warp
 router reads through extractors, has no declaration of its own and always
 receives identity.
 

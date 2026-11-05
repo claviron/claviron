@@ -173,7 +173,10 @@ take them there and export nothing. PHP, WebSocket and broadcast read identity
 from the request. A Rust handler
 (`OtherHandler`, `HostHandler`) never receives it; a Rust owner that needs the
 accepted facts is a route extension and borrows them from `HostContext`, which
-writes nothing. An Axum or Warp router has no declaration of its own and
+writes nothing. For `OtherHandler` this is a rule
+(`OTHER_HANDLER: NO_EDGE_INPUT`, in the HTTP crate's notes): the edge passes
+it the request and nothing of its own, so that the handler stays servable
+below the edge. An Axum or Warp router has no declaration of its own and
 always receives it. Static, TryFiles and file
 fallback remain native steps; requests answered there before any Backend create
 no identity extension map.
