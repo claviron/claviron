@@ -88,29 +88,6 @@ pub type RouteFuture = Pin<
     Box<dyn Future<Output = Result<Response<RouteBody>, Infallible>> + Send>,
 >;
 
-/// Captured request/response payload pair — used by recording / audit /
-/// playback layers (telemetry, request mirror, replay tests) that need
-/// the actual bytes plus the status.
-///
-/// **What:** owned `Bytes` for both directions plus the response status.
-///
-/// **Why:** when a layer needs to *observe* the exchange (not just route
-/// it), this is the minimal struct that captures what passed through.
-/// Bytes are pre-collected; do not pass streaming bodies here.
-///
-/// **Use when:** building telemetry / mirroring / replay middleware
-/// that needs both directions of a completed exchange.
-///
-/// **Don't use when:** you only need one side, or you're in a hot path
-/// where buffering both bodies would defeat backpressure. Prefer
-/// streaming bodies and emit observation events at frame boundaries.
-#[derive(Clone, Debug)]
-pub struct HttpExchange {
-    pub request_body: Bytes,
-    pub response_body: Bytes,
-    pub response_status: StatusCode,
-}
-
 /// Outcome of a probe-style service call: either the request was fully
 /// handled, or it wasn't and the caller should fall through.
 ///

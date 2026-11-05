@@ -90,8 +90,8 @@ generation. Configuration rejects unknown fields.
 ## Optional HTTP adapter
 
 The implementation's `http` feature adds `PusherAdapter`, an axum-free
-request/response adapter for external Pusher servers. `axum` adds its router
-binding. Neither is required merely to use wire types and signatures.
+request/response adapter for external Pusher servers. It is not required
+merely to use wire types and signatures.
 
 The adapter forwards `/app/{key}` upgrades and `/apps/{id}` REST paths,
 preserving the public path and query. It replaces untrusted forwarding facts

@@ -1,21 +1,29 @@
 //! `ResourceAdapter` — file-first wrapper around a user-registered handler.
 //!
 //! Probes `claviron-files` first (statics / try_files / SPA);
-//! on `Unhandled` falls through to the registered handler. HostService has
-//! already applied ACL, fixed-response and redirect policy before this adapter. The
-//! match runs HERE, not in the user's handler — the handler stays
-//! policy-free, only sees requests that the filesystem couldn't claim.
+//! on `Unhandled` falls through to the registered handler. The host pipeline
+//! has already applied its access, redirect and body policies before the
+//! application that calls this adapter; the adapter joins that pipeline from
+//! inside an application owner and skips none of it. The handler stays
+//! policy-free and only sees requests the filesystem did not claim.
 //!
 //! Handlers registered via this adapter are **GET-style only**: they
 //! receive a [`RequestContext`] (uri + headers + real_ip) — the body is
 //! deliberately not exposed because this adapter is intended for
 //! resource lookup (db-backed assets, computed responses, redirects).
 //! The adapter itself takes the native-pipeline body type
-//! (`Request<RouteBody>`) for uniform dispatch alongside FCGI / SAPI /
-//! Pusher, then drops the body before invoking the handler.
+//! (`Request<RouteBody>`) and drops the body before invoking the handler.
 //!
-//! For body-aware handlers (POST/PUT bodies parsed in user code), use
-//! `register_app_router` (axum pipeline) instead.
+//! For body-aware handlers (POST/PUT bodies parsed in user code), register a
+//! Rust router for the host instead.
+//!
+//! TODO: decide whether this belongs here. Rust code that adds a request
+//! owner to a host plan does so through `RouteExtension` in the edge
+//! (`crates/edge/src/pipeline/extension.rs`). A file-first handler for
+//! backend-supported resources is either something any edge should offer, in
+//! which case it becomes a prepared host step, or it is one application's
+//! composition, in which case that application supplies it as its own
+//! `RouteExtension` and this adapter leaves the library.
 
 use std::convert::Infallible;
 use std::future::Future;
@@ -38,8 +46,8 @@ use crate::site::FileSite;
 /// **GET-style resource lookup** (db-backed assets, computed responses,
 /// redirects from a router table, etc.).
 ///
-/// For POST/PUT handlers that need body parsing, use `register_app_router`
-/// (axum pipeline) instead.
+/// For POST/PUT handlers that need body parsing, register a Rust router for
+/// the host instead.
 #[async_trait]
 pub trait Handler: Send + Sync + 'static {
     async fn handle(

@@ -16,7 +16,7 @@ categories = ["web-programming::websocket", "network-programming", "asynchronous
 [features]
 default = []
 # Outbound HTTP compatibility for external Pusher servers.
-pusher = ["claviron-pusher/axum"]
+pusher = ["claviron-pusher/http"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────

@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
-use claviron_http::{
-    HttpExchange, RouteBody, RouteResponse, ServiceResult, empty_body,
-};
+use claviron_http::{RouteBody, RouteResponse, ServiceResult, empty_body};
 use claviron_php::PhpRuntime;
 use http::header::RETRY_AFTER;
 use http::{Request, Response, StatusCode};
-use tokio::sync::mpsc;
 
 use crate::PhpScriptService;
 use crate::engine::PhpSapiRequest;
@@ -16,7 +13,6 @@ pub async fn try_php_proxy(
     svc: Arc<PhpScriptService>,
     runtime: Arc<PhpRuntime>,
     req: Request<RouteBody>,
-    exchange_tx: Option<mpsc::Sender<HttpExchange>>,
 ) -> Result<ServiceResult<RouteResponse, Request<RouteBody>>, SapiGatewayError>
 {
     // path segment must be validated before  try_php_proxy
@@ -39,10 +35,8 @@ pub async fn try_php_proxy(
         return Ok(ServiceResult::Unhandled(req));
     };
 
-    let response = svc
-        .execute(runtime, sapi_req, req, exchange_tx)
-        .await
-        .unwrap_or_else(|err| {
+    let response =
+        svc.execute(runtime, sapi_req, req).await.unwrap_or_else(|err| {
             let status = err.status_code();
             tracing::warn!(
                 status = status.as_u16(),
@@ -58,7 +52,6 @@ pub async fn upstream_sapi_gateway(
     svc: Arc<PhpScriptService>,
     runtime: Arc<PhpRuntime>,
     req: Request<RouteBody>,
-    exchange_tx: Option<mpsc::Sender<HttpExchange>>,
 ) -> RouteResponse {
     let path = req.uri().path();
 
@@ -68,7 +61,7 @@ pub async fn upstream_sapi_gateway(
         return status_response(StatusCode::NOT_FOUND);
     }
 
-    match try_php_proxy(svc, runtime, req, exchange_tx).await {
+    match try_php_proxy(svc, runtime, req).await {
         Ok(ServiceResult::Handled(resp)) => resp,
         Ok(ServiceResult::Unhandled(_)) => {
             status_response(StatusCode::NOT_FOUND)

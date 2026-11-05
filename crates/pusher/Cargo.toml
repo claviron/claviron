@@ -24,7 +24,6 @@ http = [
     "dep:tokio",
     "dep:tracing",
 ]
-axum = ["http", "dep:axum", "claviron-http/axum"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
@@ -47,9 +46,6 @@ sha2.workspace = true
 http = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true, features = ["client", "http1"] }
 hyper-util = { workspace = true, optional = true, features = ["tokio"] }
-
-# ── Web framework (axum + tower) ────────────────────────────────────────
-axum = { workspace = true, optional = true }
 
 # ── Networking utilities ────────────────────────────────────────────────
 url = { workspace = true, features = ["serde"] }

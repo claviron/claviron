@@ -8,12 +8,12 @@ use claviron_app::{
     ApplicationId, ApplicationLifecycle, ApplicationName,
     ApplicationPoolStatus, ApplicationRuntime, ApplicationSnapshot,
 };
-use claviron_http::{HttpExchange, RouteBody, RouteResponse};
+use claviron_http::{RouteBody, RouteResponse};
 use claviron_php::PhpRuntime;
 use claviron_runtime::registry::{self, Component, Runnable, priority};
 use claviron_runtime::{AppState, RunContext, ServiceStartPolicy};
 use http::Request;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::Mutex;
 use tracing::info;
 
 use super::PhpEmbedRuntime;
@@ -113,9 +113,8 @@ impl PhpScriptService {
         runtime: Arc<PhpRuntime>,
         sapi_req: PhpSapiRequest,
         req: Request<RouteBody>,
-        exchange_tx: Option<mpsc::Sender<HttpExchange>>,
     ) -> Result<RouteResponse, SapiGatewayError> {
-        self.runtime.execute(runtime, sapi_req, req, exchange_tx).await
+        self.runtime.execute(runtime, sapi_req, req).await
     }
 
     pub fn pool_snapshot(&self) -> Option<SapiThreadPoolSnapshot> {

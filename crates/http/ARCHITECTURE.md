@@ -72,7 +72,7 @@ selector is exposed. Edge and runner own joining and execution.
    │  this crate                                                     │
    │                                                                 │
    │   ctx           RouteResponse, RouteBody, RouteFuture,          │
-   │                 HttpExchange, ServiceResult, body helpers       │
+   │                 ServiceResult, body helpers                     │
    │   error         HTTP Error / Result, public response metadata,  │
    │                 private diagnostic sources                      │
    │                                                                 │
@@ -616,29 +616,7 @@ might or might not handle a request returns `ServiceResult` rather
 than a magic sentinel response, and the caller branches without
 inspecting status codes or headers.
 
-### 3.2 HttpExchange — request/response capture
-
-```rust
-pub struct HttpExchange {
-    pub request_body:    Bytes,
-    pub response_body:   Bytes,
-    pub response_status: StatusCode,
-}
-```
-
-A small struct shipped through an optional `mpsc::Sender<HttpExchange>`
-when the embedder wants per-request audit, replay, or analysis. The
-struct is intentionally minimal: the request body, the response body,
-the status. Headers, trailers, and per-frame timing are not part of
-the canonical capture — the consumer that wants them defines its own
-type.
-
-Handlers that opt into capture take an `Option<mpsc::Sender<HttpExchange>>`,
-clone whatever bodies they have lying around, and `try_send` the
-struct on the way out. The audit consumer drains the channel on its
-own task, with whatever durability it chooses.
-
-### 3.3 RequestContext — borrowed view
+### 3.2 RequestContext — borrowed view
 
 ```rust
 pub struct RequestContext<'a> {
@@ -1267,7 +1245,7 @@ or native session ownership. Those arrive only through `server`.
 |------|----------:|------|
 | `lib.rs`                 |     | Primitive module declarations and public request/response re-exports. |
 | `listener.rs`            | — | Validated listener identity and transport/protocol types. |
-| `ctx.rs`                 |  61 | `RouteResponse` / `RouteBody` / `RouteFuture` aliases, `HttpExchange`, `ServiceResult`, `RequestContext`, body helpers, `into_axum_response`. |
+| `ctx.rs`                 |  61 | `RouteResponse` / `RouteBody` / `RouteFuture` aliases, `ServiceResult`, `RequestContext`, body helpers, `into_axum_response`. |
 | `forwarding.rs`          | 150 | Hop-by-hop cleanup, smuggling guards, and forwarded-header helpers for proxy adapters. |
 | `ext/conn.rs`            |  47 | `ConnCtx` — connection-level identity (peer + listener + real IP + country code). |
 | `ext/host.rs`            |  67 | `HostName`, `HostKey` — server-side vhost identity. |

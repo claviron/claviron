@@ -5,12 +5,11 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use claviron_app::environment::EnvironmentContext;
-use claviron_http::{HttpExchange, RouteBody, RouteResponse};
+use claviron_http::{RouteBody, RouteResponse};
 use claviron_php::PhpRuntime;
 use claviron_runtime::AppState;
 use claviron_runtime::registry::{self, Bootable, Component, ComponentOrder};
 use http::Request;
-use tokio::sync::mpsc;
 
 use crate::config::{
     PhpApplication, PhpEventConfig, PhpLaunchConfig, PhpManagementConfig,
@@ -603,7 +602,6 @@ impl PhpEmbedRuntime {
         runtime: Arc<PhpRuntime>,
         sapi_req: PhpSapiRequest,
         mut req: Request<RouteBody>,
-        exchange_tx: Option<mpsc::Sender<HttpExchange>>,
     ) -> Result<RouteResponse, SapiGatewayError> {
         let context = self.environments.get().ok_or_else(|| {
             SapiGatewayError::ServiceUnavailable(
@@ -636,7 +634,7 @@ impl PhpEmbedRuntime {
             })?;
         req.extensions_mut()
             .insert(crate::engine::context::RequestEnvironment(snapshot));
-        self.engine.execute(runtime, sapi_req, req, exchange_tx).await
+        self.engine.execute(runtime, sapi_req, req).await
     }
 
     /// Request-pool telemetry only; task executions do not consume its slots.

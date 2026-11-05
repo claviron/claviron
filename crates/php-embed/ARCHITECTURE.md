@@ -2066,8 +2066,8 @@ clone. Unhandled is decided before the body is polled or an engine job starts.
 
 Prefix selection belongs to the caller. No body buffering, transport adaptation,
 thread creation, timing policy or capacity maintenance is added by the adapter.
-Existing exchange_tx capture remains an explicit caller capability. A persistent
-application uses its separate PhpApplicationAdapter and does not enter this path.
+A persistent application uses its separate PhpApplicationAdapter and does not
+enter this path.
 
 ## 7. Status & remaining work
 

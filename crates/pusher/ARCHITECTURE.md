@@ -9,7 +9,7 @@ and redacted secrets; REST authentication/signing; client/server WebSocket and
 publication messages; and `PusherConfig`, which selects a local fleet service
 or an external HTTP target.
 
-The optional `http` and `axum` features provide the external upstream adapter.
+The optional `http` feature provides the external upstream adapter.
 A consumer that only runs the in-process service does not pay for an outbound
 HTTP stack.
 
@@ -76,8 +76,7 @@ the shared Claviron boundary, strips hop-by-hop response headers, and keeps an
 upgraded tunnel under listener session ownership. Connect, request, and idle
 timeouts have separate meanings.
 
-The optional `axum` binding and axum-free bypass adapter call the same
-implementation. Errors become HTTP responses rather than terminating the host
+The axum-free adapter is the one entry to that implementation. Errors become HTTP responses rather than terminating the host
 service.
 
 ## Invariants

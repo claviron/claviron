@@ -1,10 +1,9 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use claviron_http::{HttpExchange, RouteBody, RouteResponse, ServiceResult};
+use claviron_http::{RouteBody, RouteResponse, ServiceResult};
 use claviron_php::PhpRuntime;
 use http::Request;
-use tokio::sync::mpsc::Sender;
 
 use crate::routing::proxy::upstream_sapi_gateway;
 use crate::{PhpScriptService, SapiGatewayError};
@@ -14,7 +13,6 @@ use crate::{PhpScriptService, SapiGatewayError};
 pub struct PhpScriptAdapter {
     php: Arc<PhpScriptService>,
     runtime: Arc<PhpRuntime>,
-    exchange_tx: Option<Sender<HttpExchange>>,
 }
 
 impl PhpScriptAdapter {
@@ -22,15 +20,7 @@ impl PhpScriptAdapter {
         php: Arc<PhpScriptService>,
         host_cfg: Arc<PhpRuntime>,
     ) -> Self {
-        Self { php, runtime: host_cfg, exchange_tx: None }
-    }
-
-    pub fn with_exchange_tx(
-        mut self,
-        tx: Option<Sender<HttpExchange>>,
-    ) -> Self {
-        self.exchange_tx = tx;
-        self
+        Self { php, runtime: host_cfg }
     }
 
     pub async fn handle(
@@ -41,7 +31,6 @@ impl PhpScriptAdapter {
             Arc::clone(&self.php),
             Arc::clone(&self.runtime),
             req,
-            self.exchange_tx.clone(),
         )
         .await)
     }
@@ -58,12 +47,6 @@ impl PhpScriptAdapter {
         ServiceResult<RouteResponse, Request<RouteBody>>,
         SapiGatewayError,
     > {
-        crate::routing::proxy::try_php_proxy(
-            self.php,
-            self.runtime,
-            req,
-            self.exchange_tx,
-        )
-        .await
+        crate::routing::proxy::try_php_proxy(self.php, self.runtime, req).await
     }
 }

@@ -16,11 +16,6 @@ pub use protocol::{
     TriggerEventError, UnsubscribeRequest, subscription, unsubscribe,
 };
 
-#[cfg(feature = "axum")]
-pub fn pusher_routes(cfg: std::sync::Arc<PusherConfig>) -> axum::Router {
-    use crate::http::routes::http_pusher_router;
-    http_pusher_router(cfg)
-}
 pub use auth::{
     AuthenticationError, ChannelAuthorizationError, authenticate,
     authenticate_at, authentication_query, authentication_query_at,

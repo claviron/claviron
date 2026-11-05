@@ -34,9 +34,8 @@ pub mod watchdog;
 #[cfg(feature = "axum")]
 pub use bindings::{from_axum_response, into_axum_response};
 pub use ctx::{
-    HttpExchange, RequestContext, RouteBody, RouteBodyError, RouteFuture,
-    RouteResponse, ServiceResult, boxed_body, bytes_body, empty_body,
-    err_status,
+    RequestContext, RouteBody, RouteBodyError, RouteFuture, RouteResponse,
+    ServiceResult, boxed_body, bytes_body, empty_body, err_status,
 };
 /// Framework-neutral error and result types for HTTP handlers.
 pub use error::{Error, Result};

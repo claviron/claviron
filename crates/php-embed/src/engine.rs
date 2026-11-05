@@ -24,7 +24,7 @@ use std::time::Duration;
 use bytes::Bytes;
 use claviron_http::ext::ConnCtx;
 use claviron_http::policy::BodyNeed;
-use claviron_http::{HttpExchange, RouteBody, RouteResponse};
+use claviron_http::{RouteBody, RouteResponse};
 use claviron_php::PhpRuntime;
 use ext_php_rs::embed::EmbedError;
 use ext_php_rs::zend::ExecutorGlobals;
@@ -298,7 +298,6 @@ impl PhpSapiEngine {
         runtime: Arc<PhpRuntime>,
         sapi_req: PhpSapiRequest,
         req: Request<RouteBody>,
-        exchange_tx: Option<mpsc::Sender<HttpExchange>>,
     ) -> Result<RouteResponse, SapiGatewayError> {
         // INVARIANT `EXECUTION_IO: OPCACHE_OWNS_FRESHNESS` — canonical text in
         // `crates/claviron-php/ARCHITECTURE.md`. Deliberate: no pre-flight
@@ -331,10 +330,6 @@ impl PhpSapiEngine {
         // §3e). Holding a small reply to send it whole — and with it the
         // fatal-error rewrite to 500, which needs the reply still in hand —
         // is step 5b's sink.
-        // `exchange_tx` (audit middleware) is dropped — body bytes flow
-        // straight to the HTTP client and are never re-buffered. Same
-        // trade-off as the FCGI path.
-        let _ = exchange_tx;
         // Nobody, no pump: PHP still asks for its input when the request
         // ends, and a pump that has not run yet answers that with a 50 ms
         // sleep on the PHP thread. A body the policy takes whole is

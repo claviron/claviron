@@ -103,12 +103,7 @@ async fn run_drains_and_resumes_php_pool() {
         )
         .unwrap();
     let response = engine
-        .execute(
-            runtime(root.clone()),
-            sapi_request(&root),
-            http_request(),
-            None,
-        )
+        .execute(runtime(root.clone()), sapi_request(&root), http_request())
         .await
         .unwrap();
 
@@ -121,12 +116,7 @@ async fn run_drains_and_resumes_php_pool() {
     let stopped = engine.pool_snapshot().unwrap();
     assert_eq!(stopped.threads_current, 0);
     let rejected = engine
-        .execute(
-            runtime(root.clone()),
-            sapi_request(&root),
-            http_request(),
-            None,
-        )
+        .execute(runtime(root.clone()), sapi_request(&root), http_request())
         .await
         .unwrap_err();
     assert!(matches!(
@@ -155,12 +145,7 @@ async fn run_drains_and_resumes_php_pool() {
         )
         .unwrap();
     let restarted = engine
-        .execute(
-            runtime(root.clone()),
-            sapi_request(&root),
-            http_request(),
-            None,
-        )
+        .execute(runtime(root.clone()), sapi_request(&root), http_request())
         .await
         .unwrap();
     assert_eq!(restarted.status(), StatusCode::ACCEPTED);
@@ -266,7 +251,6 @@ fn request_scheme_isolated_process() {
                             runtime(root.path().to_path_buf()),
                             script,
                             req,
-                            None,
                         )
                         .await
                         .unwrap();

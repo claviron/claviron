@@ -98,7 +98,6 @@ pub async fn run_fixture(
                     .extension(claviron_http::policy::HttpPolicy::unlimited())
                     .body(claviron_http::empty_body())
                     .unwrap(),
-                None,
             )
             .await
             .unwrap();

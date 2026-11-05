@@ -22,11 +22,9 @@ What it adds beyond a vanilla FCGI client:
 - A **one-shot fallback** when no `pool:` block is configured —
   fresh dial per request. Useful for low-traffic operator scripts
   that don't deserve a warm pool but must remain serviceable.
-- A **bypass adapter** (`PhpFpmAdapter`) for hosts whose entire
-  business is "send this to PHP" — bypasses the axum router,
-  calls FPM directly, optionally captures `(request_body,
-  response_status, response_body)` triples for B2B / FW-secured
-  termination middleware via `tokio::sync::mpsc::Sender<HttpExchange>`.
+- A **native adapter** (`PhpFpmAdapter`), the entry a host plan calls
+  for a request its PHP prefix selected. It resolves the script and
+  calls FPM directly; an unclaimed request comes back unread.
 - A **periodic FPM `/status` scraper** (single source per FPM, runs
   on master + standalone) that publishes
   `claviron_fpm_*{pool=...}` gauges to Prometheus alongside the
@@ -796,10 +794,9 @@ not own or cap the connections.
 ## 7. PhpFpmAdapter
 
 This is the native entry for configured PHP hosts and explicitly composed
-handlers. It holds an Arc<PhpFcgiService>, Arc<PhpRuntime> and optional exchange
-capture sender. try_handle consumes that handle to move its existing references
-into dispatch; handle retains the existing terminal API. Prefix selection is
-external to try_handle and must occur before it is called.
+handlers. It holds an Arc<PhpFcgiService> and an Arc<PhpRuntime>. try_handle
+consumes that handle to move its existing references into dispatch. Prefix
+selection is external to try_handle and must occur before it is called.
 
 The adapter knows script/front-controller resolution and its runtime's existing
 try_files behavior. It does not own host ACL, redirects or explicit static mount
@@ -1006,7 +1003,7 @@ regression before the latency tail does.
 
 | File | Responsibility |
 |------|----------------|
-| `lib.rs` | `register()` providers; re-exports `PhpFcgiService`, `PhpFpmAdapter`, `build_fcgi_router` |
+| `lib.rs` | `register()` providers; re-exports `PhpFcgiService`, `PhpFpmAdapter` |
 | `service.rs` | `PhpFcgiService` (`Provider` + `Reloadable`) — owns the entries map, lazy `get_entry`, `resolve_entry`, executes buffered + streaming |
 | `config.rs` | `PhpServiceConfig` / `FpmClient` / `PoolConfig` — `fpm.yaml` shape + sizing knobs; strict records inside a permissive container |
 | `pool.rs` | `FcgiPool` — three-tier pool, replenisher, housekeeping, the stale-keepalive verdict and its purge, `PoolLease` |
@@ -1014,8 +1011,7 @@ regression before the latency tail does.
 | `ping.rs` | `ping_keepalive` — `/ping` → `pong` validator on the replenisher path |
 | `proxy.rs` | `try_fcgi_proxy` — script resolution + CGI params + mode resolution + dispatch |
 | `balancer.rs` | `pick_spacious_entry` — most-free-slots + RR tiebreak, one-shot as overflow |
-| `bindings.rs` | `fcgi_dispatch` axum middleware + `build_fcgi_router` |
-| `adapter.rs` | `PhpFpmAdapter` — bypass adapter (B2B / FW-secured / direct HttpExchange) |
+| `adapter.rs` | `PhpFpmAdapter` — native entry for a host plan's selected PHP prefix |
 | `metrics/fcgi/provider.rs` | `FcgiMetricsProvider` (per-worker pool capture + kind `215` publication) |
 | `metrics/fcgi/requests.rs` | FCGI request/stream atomics, RAII guards, snapshot, and Prometheus formatter |
 | `metrics/fcgi/store.rs` | FCGI local store, snapshots, merge rules, and Prometheus formatters |
@@ -1046,13 +1042,6 @@ Pool behaviour:
 
 Elsewhere:
 
-- **Streaming-path `HttpExchange` capture.** Today only buffered
-  dispatch fans out to `exchange_tx`; streaming bodies never land
-  in a `Bytes` we could clone. Two options worth a future pass:
-  a tee adapter that buffers a copy of the body bytes alongside
-  the streamed response (memory cost), or a hash + size pair
-  that captures shape without content (cheap; doesn't satisfy
-  audit consumers that need full payload).
 - **Per-pool `pm.status` cadence.** Today the scraper runs every
   pool at the same interval. Some FPMs are cheap to poll
   (Unix-socket localhost), some expensive (cross-zone TCP). A

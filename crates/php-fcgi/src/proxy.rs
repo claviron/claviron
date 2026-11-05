@@ -5,9 +5,7 @@ use std::time::Instant;
 use bytes::{Bytes, BytesMut};
 use claviron_http::ext::{ConnCtx, HostName, RealIpExt, TlsInfo};
 use claviron_http::policy::BodyNeed;
-use claviron_http::{
-    HttpExchange, RouteBody, RouteResponse, ServiceResult, empty_body,
-};
+use claviron_http::{RouteBody, RouteResponse, ServiceResult, empty_body};
 use claviron_php::PhpRuntime;
 use claviron_runtime::RunMode;
 use fastcgi_client::Params;
@@ -16,7 +14,6 @@ use futures_util::future::poll_fn;
 use http::request::Parts;
 use http::{HeaderMap, Method, Request, Response, StatusCode, Version, header};
 use http_body::Body as _;
-use tokio::sync::mpsc;
 use tokio_util::io::StreamReader;
 use tracing::{debug, error};
 
@@ -28,7 +25,6 @@ pub async fn try_fcgi_proxy(
     svc: Arc<PhpFcgiService>,
     runtime: Arc<PhpRuntime>,
     req: Request<RouteBody>,
-    exchange_tx: Option<mpsc::Sender<HttpExchange>>,
 ) -> Result<ServiceResult<RouteResponse, Request<RouteBody>>, GatewayError> {
     // path segment must be validated before  try_fcgi_proxy
     let path = req.uri().path();
@@ -90,15 +86,9 @@ pub async fn try_fcgi_proxy(
         return Ok(ServiceResult::Unhandled(req));
     }
 
-    let resp = execute_fcgi(
-        svc,
-        req,
-        runtime,
-        resolution.script_name,
-        script_file,
-        exchange_tx,
-    )
-    .await?;
+    let resp =
+        execute_fcgi(svc, req, runtime, resolution.script_name, script_file)
+            .await?;
     Ok(ServiceResult::Handled(resp))
 }
 
@@ -147,36 +137,12 @@ fn determine_script_name(
     None
 }
 
-pub async fn upstream_fcgi_gateway(
-    svc: Arc<PhpFcgiService>,
-    runtime: Arc<PhpRuntime>,
-    req: Request<RouteBody>,
-    exchange_tx: Option<mpsc::Sender<HttpExchange>>,
-) -> RouteResponse {
-    let path = req.uri().path();
-
-    if let Some(prefix) = &runtime.path
-        && !prefix.has_path_segment(path)
-    {
-        return status_response(StatusCode::NOT_FOUND);
-    }
-
-    match try_fcgi_proxy(svc, runtime, req, exchange_tx).await {
-        Ok(ServiceResult::Handled(resp)) => resp,
-        Ok(ServiceResult::Unhandled(_)) => {
-            status_response(StatusCode::NOT_FOUND)
-        }
-        Err(err) => status_response(err.status_code()),
-    }
-}
-
 async fn execute_fcgi(
     svc: Arc<PhpFcgiService>,
     req: Request<RouteBody>,
     runtime: Arc<PhpRuntime>,
     script_name: String,
     script_file: PathBuf,
-    exchange_tx: Option<mpsc::Sender<HttpExchange>>,
 ) -> Result<RouteResponse, GatewayError> {
     let (parts, body) = req.into_parts();
     let ctx =
@@ -187,13 +153,6 @@ async fn execute_fcgi(
     // the HTTP/3 listener's `quic.idle_timeout` is this lease's length.
     let started_at = Instant::now();
 
-    // TODO(audit): `exchange_tx` is dropped because the reply flows
-    // straight to the HTTP client and never lands in a `Bytes` we could
-    // capture; it did only on the buffered path, which is gone. It feeds
-    // the termination-middleware audit, a manual feature. When it is
-    // needed again, tee the mpsc body pump (one arm to the HTTP body, one
-    // to a collector).
-    let _ = exchange_tx;
     exec_streaming(svc, parts, body, &runtime, &ctx, started_at).await
 }
 

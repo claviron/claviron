@@ -21,7 +21,6 @@ rate-limit = ["claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/
 axum = [
     "dep:axum",
     "claviron-http/axum",
-    "claviron-pusher?/axum",
 ]
 upstream = ["dep:claviron-upstream"]
 # One access record per request, to the log channel logging.yaml names.
@@ -31,7 +30,7 @@ access-log = [
 ]
 websocket = ["tcp", "claviron-http/websocket", "claviron-lua?/websocket"]
 # Configured Pusher REST endpoints currently use an optional Rust router adapter.
-broadcast = ["axum", "dep:claviron-pusher", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
+broadcast = ["axum", "dep:claviron-pusher", "claviron-pusher/http", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
 php = ["dep:claviron-php"]
 php_fcgi = ["php", "dep:claviron-php-fcgi", "claviron-php?/php_fcgi"]
 php_embed = ["php", "dep:claviron-php-embed", "claviron-php?/php_embed"]

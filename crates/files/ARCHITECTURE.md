@@ -67,11 +67,9 @@ callers. Edge's native plan runs Routable, Static, TryFiles, then the configured
 backend; disabled probes install no step. Its residual FilesConfig excludes
 statics and TryFiles while retaining index/SPA fallback behind the backend.
 
-With the existing `axum` feature, `routing::build_router`, `routing::mount`
-and `routing::mount_selected` prepare the general fallback and explicit mounts
-inside this crate. They consume HTTP declarations, never HostConfig. The caller
-keeps their positions relative to application owners: general fallback behind
-them, explicit static mounts outside them. No cache or dispatch behavior changes.
+With the `axum` feature, `axum_static_mount_handler` serves explicitly
+configured static mounts as a middleware in front of a caller-owned router; the
+runner uses it. This crate builds no router of its own.
 Only this opt-in feature enables the HTTP crate's Axum conversion helpers.
 The ordinary dependency on claviron-http selects no Axum feature; Edge's
 Axum application capability no longer selects these file adapters implicitly.
@@ -345,9 +343,8 @@ then calls its GET-style Handler only for an unhandled request. UpstreamRouter
 retains its own explicit file composition. No Asset enum variant or implicit
 Bypass file pass exists.
 
-The optional axum feature preserves routing::build_router, routing::mount,
-routing::mount_selected and the body-converting middleware adapters. It also
-selects claviron-http/axum for those conversions. Native file serving selects
+The optional axum feature provides the static-mount middleware adapter and
+selects claviron-http/axum for its body conversion. Native file serving selects
 neither these adapters nor the HTTP Axum bindings. Applications choose the
 optional adapters explicitly; Edge's Axum application feature does not enable
 them on their behalf.
