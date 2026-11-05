@@ -29,7 +29,6 @@ access-log = [
 ]
 websocket = ["tcp", "claviron-http/websocket"]
 # Pure host declarations only; Broadcast owns its opt-in execution/session adapter.
-broadcast = ["dep:claviron-pusher"]
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
     "claviron-http/orbit",
@@ -67,7 +66,6 @@ claviron-hosting = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
 claviron-logging = { workspace = true, optional = true }
 claviron-orbit = { workspace = true, optional = true }
-claviron-pusher = { workspace = true, optional = true }
 claviron-runtime.workspace = true
 claviron-sys = { workspace = true, optional = true }
 claviron-tls.workspace = true

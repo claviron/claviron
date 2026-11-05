@@ -34,15 +34,21 @@ admission and Rust routing. Nonmatching paths return their original unread body.
 
 H1 upgrades, H2 CONNECT and optional H3 WebTransport bindings share the existing
 service catalog, generation permits, origin checks and session authentication.
-Only selected host declarations expose them. Removed or more-specific masked
-routes retain their existing admission checks. Their pure regressions live in
+Only selected host declarations expose them. Their pure regressions live in
 `tests/edge` and do not start the service or a listener.
+
+Edge keeps the `broadcast` directive, and its `pusher` spelling, as written.
+This module decodes it when the backend or a session binding is prepared. An H2
+CONNECT or WebTransport binding outlives the publication it was prepared from,
+so it carries that declaration and admits a session only while the scope
+selected for the path still declares the same value. A removed, changed or
+more-specifically masked route is refused without decoding anything.
 
 The facade enables this module only when both `edge` and `broadcast` are selected.
 `webtransport` weakly extends an already-selected Edge integration. Native
 publication, Pusher wire/HTTP APIs and Runner composition do not enable Edge.
-Edge retains only optional Pusher declaration types; it depends on no Broadcast
-service or execution adapter. HTTP does not depend on either upper layer.
+Edge depends on neither this crate nor the Pusher protocol crate and has no
+`broadcast` feature. HTTP does not depend on either upper layer.
 
 ## Ownership
 

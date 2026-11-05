@@ -58,6 +58,11 @@ fn append_routes(
         if !is_fleet_route(host, &path) {
             continue;
         }
+        // What the binding was prepared from, for its admission to compare.
+        let source = directive(selected(host, &path)).cloned().map(Arc::new);
+        let Some(source) = source else {
+            continue;
+        };
         routes.push(H1UpgradeRoute::handler(
             path.clone(),
             service.upgrade_handler(name.as_str()),
@@ -66,6 +71,7 @@ fn append_routes(
             service: service.clone(),
             application: Arc::from(name.as_str()),
             path: path.clone(),
+            source,
         });
         h2.bind_handler(canonical.clone(), path.clone(), handler.clone())?;
         #[cfg(feature = "webtransport")]
@@ -74,9 +80,40 @@ fn append_routes(
     Ok(())
 }
 
-fn is_fleet(host: &HostConfig) -> bool {
-    host.broadcast_cfg().is_some_and(|config| {
-        matches!(config.target, claviron_pusher::PusherTarget::Fleet)
+/// A scope's broadcast declaration as written. `pusher` is its other name;
+/// the edge refuses a scope that declares both.
+fn directive(scope: &HostConfig) -> Option<&serde_yaml::Value> {
+    scope.directive("broadcast").or_else(|| scope.directive("pusher"))
+}
+
+/// The declaration decoded. The edge keeps it as written and knows nothing
+/// of its shape; an absent or null declaration is none.
+fn declared(
+    source: Option<&serde_yaml::Value>
+) -> std::result::Result<Option<claviron_pusher::PusherConfig>, serde_yaml::Error>
+{
+    match source {
+        None | Some(serde_yaml::Value::Null) => Ok(None),
+        Some(source) => serde_yaml::from_value(source.clone()).map(Some),
+    }
+}
+
+/// The scope that owns `path`: its most specific route, or the host itself.
+fn selected<'a>(
+    host: &'a HostConfig,
+    path: &str,
+) -> &'a HostConfig {
+    host.routes.find(path).map(|route| route.as_ref()).unwrap_or(host)
+}
+
+/// Whether the scope targets this fleet. A declaration that does not decode
+/// selects nothing here; the backend's preparation of the same scope reports
+/// it.
+fn is_fleet(scope: &HostConfig) -> bool {
+    declared(directive(scope)).is_ok_and(|config| {
+        config.is_some_and(|config| {
+            matches!(config.target, claviron_pusher::PusherTarget::Fleet)
+        })
     })
 }
 
@@ -84,7 +121,17 @@ fn is_fleet_route(
     host: &HostConfig,
     path: &str,
 ) -> bool {
-    is_fleet(host.routes.find(path).map(|route| route.as_ref()).unwrap_or(host))
+    is_fleet(selected(host, path))
+}
+
+/// Whether the scope that owns `path` still declares exactly `source`, the
+/// declaration a binding was prepared from.
+fn still_declared(
+    host: &HostConfig,
+    path: &str,
+    source: &serde_yaml::Value,
+) -> bool {
+    directive(selected(host, path)) == Some(source)
 }
 
 #[cfg(test)]
@@ -95,6 +142,9 @@ struct BroadcastConnectHandler {
     service: Arc<BroadcastService>,
     application: Arc<str>,
     path: Arc<str>,
+    /// The fleet declaration this binding was prepared from, as its scope
+    /// wrote it. Admission compares against it and decodes nothing.
+    source: Arc<serde_yaml::Value>,
 }
 
 impl BroadcastConnectHandler {
@@ -103,8 +153,12 @@ impl BroadcastConnectHandler {
         ctx: &AuthContext,
     ) -> std::result::Result<BroadcastSession, StatusCode> {
         // A removed fleet binding must not be revived by a retained registry
-        // entry. Public/private/presence admission remains session-owned.
-        if ctx.path != self.path || !is_fleet_route(&ctx.host_config, &ctx.path)
+        // entry: the scope that owns the path must still declare what this
+        // binding was prepared from. An edited declaration has been prepared
+        // again by then, and its binding replaced this one.
+        // Public/private/presence admission remains session-owned.
+        if ctx.path != self.path
+            || !still_declared(&ctx.host_config, &ctx.path, &self.source)
         {
             return Err(StatusCode::NOT_FOUND);
         }
@@ -290,17 +344,20 @@ pub fn register(state: &AppState) -> Result<()> {
         .ok_or_else(|| {
             Error::msg("Broadcast requires the Edge host registry")
         })?;
-    registry.register_backend_factory(Arc::new(Factory))?;
+    // The declaration has two names; a scope uses one of them.
+    for name in ["broadcast", "pusher"] {
+        registry.register_backend_factory(Arc::new(Factory(name)))?;
+    }
     claviron_edge::register_routable(
         state,
         Arc::new(Sessions { state: state.clone() }),
     )
 }
 
-struct Factory;
+struct Factory(&'static str);
 impl claviron_edge::pipeline::backend::BackendFactory for Factory {
     fn name(&self) -> &'static str {
-        "broadcast"
+        self.0
     }
     fn placement(&self) -> claviron_edge::pipeline::backend::BackendPlacement {
         claviron_edge::pipeline::backend::BackendPlacement::BeforeFiles
@@ -309,7 +366,17 @@ impl claviron_edge::pipeline::backend::BackendFactory for Factory {
         &self,
         context: &claviron_edge::pipeline::backend::BackendContext<'_>,
     ) -> Result<Vec<Arc<dyn claviron_edge::pipeline::BackendHandler>>> {
-        Ok(rest::prepare(context.state, context.route).into_iter().collect())
+        let config =
+            declared(context.route.directive(self.0)).map_err(|error| {
+                Error::msg(format!(
+                    "backend '{}' at '{}': {error}",
+                    self.0, context.prefix
+                ))
+            })?;
+        Ok(config
+            .and_then(|config| rest::prepare(context.state, &config))
+            .into_iter()
+            .collect())
     }
 }
 

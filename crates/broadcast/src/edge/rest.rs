@@ -8,7 +8,6 @@ use claviron_pusher::{PusherAdapter, PusherTarget};
 use claviron_runtime::AppState;
 use http::Request;
 
-use claviron_edge::HostConfig;
 use claviron_edge::pipeline::{DispatchCall, DispatchStep};
 
 enum Endpoints {
@@ -80,9 +79,8 @@ impl DispatchStep for Rest {
 
 pub(crate) fn prepare(
     state: &AppState,
-    host: &HostConfig,
+    config: &claviron_pusher::PusherConfig,
 ) -> Option<Arc<dyn claviron_edge::pipeline::host::BackendHandler>> {
-    let config = host.broadcast_cfg()?;
     let (endpoints, owner) = match &config.target {
         PusherTarget::Fleet => {
             let service =

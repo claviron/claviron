@@ -23,8 +23,6 @@ use claviron_http::ext::PathPrefix;
 pub use claviron_http::policy::{
     HttpPolicyOverride, RequestPolicyOverride, ResponsePolicyOverride,
 };
-#[cfg(feature = "broadcast")]
-use claviron_pusher::PusherConfig;
 pub use claviron_tls::auth::{ClientAuthMode, ClientAuthPolicy};
 pub use claviron_tls::handshake::HandshakePolicy;
 use claviron_types::Aliases;
@@ -150,8 +148,6 @@ impl HostConfig {
                     headers: None,
                     #[cfg(feature = "orbit")]
                     orbit: None,
-                    #[cfg(feature = "broadcast")]
-                    broadcast: None,
                 },
                 listeners: None,
                 aliases: Aliases::default(),

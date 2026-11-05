@@ -2,8 +2,6 @@
 
 #[cfg(feature = "orbit")]
 use super::OrbitRouteConfig;
-#[cfg(feature = "broadcast")]
-use super::PusherConfig;
 #[cfg(feature = "rate-limit")]
 use super::quota;
 use super::{
@@ -37,9 +35,6 @@ pub struct RouteConfig {
         deserialize_with = "claviron_helpers::de::opt_one_or_many"
     )]
     pub(super) orbit: Option<Vec<super::OrbitRouteConfig>>,
-    #[cfg(feature = "broadcast")]
-    #[serde(alias = "pusher")]
-    pub(super) broadcast: Option<Arc<super::PusherConfig>>,
     /// Where this host's access records go: a channel `logging.yaml`
     /// declares, or `off` for none. Unwritten, `logging.yaml`'s own
     /// `access_log`. Several hosts may name one channel; each record carries
@@ -108,11 +103,6 @@ impl RouteConfig {
             return p.to_path_buf();
         }
         std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(p)
-    }
-
-    #[cfg(feature = "broadcast")]
-    pub fn broadcast_cfg(&self) -> Option<Arc<PusherConfig>> {
-        self.broadcast.clone()
     }
 
     /// This host's `access_log`, as written.
@@ -403,11 +393,10 @@ fn is_application_directive(name: &str) -> bool {
     )
 }
 
-// `upstream`, `php` and `lua` are application owners whose declarations the
-// edge keeps as written: their own backends decode them at preparation.
+// Only `orbit` is an application owner the edge executes itself. The others
+// are kept as written: their own backends decode them at preparation.
 fn is_builtin_directive(name: &str) -> bool {
-    (is_application_directive(name)
-        && !matches!(name, "upstream" | "php" | "lua"))
+    name == "orbit"
         || matches!(
             name,
             "root"
@@ -434,7 +423,6 @@ fn validate_feature(
 ) -> Result<(), String> {
     let supported = match name {
         "orbit" => cfg!(feature = "orbit"),
-        "broadcast" | "pusher" => cfg!(feature = "broadcast"),
         "rate_limit" => cfg!(feature = "rate-limit"),
         _ => true,
     };

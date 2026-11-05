@@ -325,7 +325,6 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 | `axum` | Rust router adapter. |
 | `orbit` | Native Link dispatch. Upstream contributes through its own backend factory. |
 | `websocket`, `webtransport` | Native session bindings and combined runtime adapters. |
-| `broadcast` | Pure Pusher host declarations; Broadcast owns optional Edge execution/session adapters. |
 | `rate-limit`, `access-log` | Optional quota and access-record paths. |
 | `db`, `postgres` | Hosting alias hydration; PostgreSQL notification adapter. |
 | `metrics`, `geoip` | HTTP metrics and peer country lookup. |
