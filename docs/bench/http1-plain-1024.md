@@ -13,6 +13,51 @@ SLA required at least 99.99% correct and complete responses within 100 ms. Each
 run ended at its first rejected phase. Listener backlog was 2,048 per socket
 and the soft file descriptor limit was 65,536.
 
+The sections below are three separate series, newest first. The newest one
+used a different load generator and is not a continuation of the two before
+it; its own section says why.
+
+## Series with Claviron `f838792` and `break` 0.2
+
+Native Hyper and Claviron Other were built from benchmark revision `ba34730`,
+with Continuo `0b075ba`, and measured on Linux 5.15. Native Hyper ran as one
+process on its default runtime of 40 threads; Other ran as 40 `current_thread`
+worker processes.
+
+The load generator changed, which is why these figures stand apart. `break`
+0.2 (revision `5dd25ec`) drives HTTP/1.1 from a readiness loop of its own and
+writes the requests admitted together in one write. It ran with eight declared
+worker threads, where the earlier series ran one client thread per CPU beside
+the server. Depth started at 8 and rose by 2 per connection every 30 seconds,
+to at most 40. At a depth above one the bytes on the wire are shaped
+differently from the earlier series, so no figure here is to be set against a
+figure there.
+
+| Target | Peak accepted responses/s | Outstanding at peak | Last accepted / first rejected target outstanding | Responses/s at 16,384 | Serving CPU µs/success at 16,384 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Native Hyper | 1,811,355 | 16,384 | 16,384 / 18,432 | 1,811,355 | 14.500 |
+| Claviron Other | 1,694,961 | 32,768 | 38,912 / 40,960 | 1,678,101 | 16.310 |
+
+At 16,384 target outstanding requests, the highest level both passed, Other
+used 1.810 µs more serving CPU per successful response (12.5%) and delivered
+7.4% fewer responses per second. Mean response times were 9.044 ms and
+9.761 ms. Serving CPU was 65.7% of the 40 CPUs for Hyper and 68.4% for Other,
+and the load generator took 14.0% and 12.1% of the CPU that client and server
+used together.
+
+The two servers differ more in how far they hold the SLA than in their rate.
+Hyper was rejected at 18,432 outstanding requests. Other passed every level up
+to 38,912, with its rate between 1.64 and 1.70 million responses per second
+from 14,336 upwards, and was rejected at 40,960, the last level of the plan.
+A rate that stays level while the depth rises is the machine being full, not a
+server limit being approached: client and server share the 40 CPUs, and every
+boundary here belongs to both.
+
+Hyper runs one process with a work-stealing runtime and Other runs forty
+processes that each own a listener and an executor. The comparison is between
+complete serving paths including that difference; it does not isolate
+Claviron's own work from the execution topology.
+
 ## Follow-up with Claviron `20afbeb`
 
 Native Hyper and Claviron Other were rebuilt from benchmark revision `ea1dc5b`

@@ -4,6 +4,13 @@ This November 2026 Linux loopback series compared Caddy 2.11.8 with Claviron
 Axum and Warp at Claviron revision `5b96b5b`. The machine had two Intel Xeon
 E5-2680 v2 processors and 40 logical CPUs. Client and server shared the machine.
 
+These figures have not been repeated with the later load generator. `break`
+0.1 ran one client thread per CPU beside the server, so the client's own
+threads took part in every boundary below. Read the table as a comparison
+between the four targets under one set of conditions, not as what any of them
+can serve; the [later 1,024-connection series](http1-plain-1024.md) shows how
+much the client's side of a shared machine decides.
+
 The [`break` load generator](https://crates.io/crates/break) used a custom Observer
 extension to record phase results and separate serving, supervisor, and client
 CPU time. Each target served the same 13-byte `Hello, World!` body on `GET /plain`

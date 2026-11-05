@@ -68,8 +68,25 @@ policy. Keep benchmark exposure an explicit deployment decision.
 
 ## Benchmark reports
 
-- [HTTP/1.1 plain-text benchmark with 128 connections](http1-plain-128.md)
-- [HTTP/1.1 plain-text benchmark with 1,024 connections](http1-plain-1024.md)
+Measurements of complete serving paths, Claviron beside native Hyper, on one
+Linux machine that client and server share.
+
+- [HTTP/1.1 plain text with 128 connections](http1-plain-128.md)
+- [HTTP/1.1 plain text with 1,024 connections](http1-plain-1024.md)
+- [HTTP/1.1 over TLS with 1,024 connections](http1-tls-1024.md)
+- [TLS connections: what establishing one costs](tls-connections-1024.md)
+- [HTTP/2 over TLS with 1,024 connections](http2-tls-1024.md)
+
+Three things hold for all of them:
+
+- **A boundary belongs to client and server together.** They run on the same
+  40 CPUs. The level at which the SLA breaks compares targets under the same
+  conditions; it is not a server's capacity.
+- **Serving CPU per response is the figure that travels.** It sums user and
+  system time of the serving processes and leaves out the supervisor and the
+  load generator, so it can be compared at any level both targets accept.
+- **The load generator matters.** Reports made with `break` 0.2 say so; their
+  figures are not comparable with earlier ones at a pipeline depth above one.
 
 ## Related crates
 
