@@ -44,6 +44,11 @@ Only declared or registered actions enter it. `HostLayer::prepare` may add
 nothing; the builder retains no runtime node for an empty layer. Requests execute
 the prepared actions without checking whether each capability is enabled.
 
+A scoped route layer prepares against the selected file view and effective HTTP
+policy. Inherited directives establish policy before local directives and
+provider layers. An exchange action can defer work on the same request's reply.
+Plans without exchange actions use the dispatch owner without reply-hook state.
+
 `Routable::match_protocol` and `HostBindingProvider::match_protocol` select
 `RouteProtocol::{Http, Https, Quic}` during preparation; their default accepts
 all. Existing host selectors and factories are unchanged. Restricted providers

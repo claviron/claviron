@@ -182,9 +182,17 @@ impl Compiler<'_> {
             redirect,
         };
         let mut extensions = HostPipelineBuilder::new();
-        for layer in self.layers.iter().chain(layers) {
+        let prepared_scope = crate::pipeline::extension::PreparedScope {
+            config: &config,
+            policy,
+            accepts_applications: accept_applications,
+        };
+        for layer in layers.iter().chain(self.layers) {
             extensions
-                .layer(layer.as_ref())
+                .layer(crate::pipeline::layers::ScopedExtension(
+                    layer.as_ref(),
+                    &prepared_scope,
+                ))
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
         let mut builder = HostPipelineBuilder::new();

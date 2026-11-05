@@ -15,6 +15,7 @@ mod deny;
 #[cfg(any(feature = "lua", feature = "php_embed", feature = "php_fcgi"))]
 mod embed;
 mod extension;
+pub(super) use extension::ScopedExtension;
 mod fallback;
 mod files;
 mod headers;

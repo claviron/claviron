@@ -9,8 +9,8 @@ use serde::de::DeserializeOwned;
 use std::sync::Arc;
 
 pub use super::host::{
-    HostHandler, HostHandlerFuture, HostHandlerResult, HostLayerBuilder,
-    HostRequest,
+    ExchangeAction, HostHandler, HostHandlerFuture, HostHandlerResult,
+    HostLayerBuilder, HostRequest, ReplyHooks,
 };
 use crate::HostConfig;
 pub use claviron_http::dispatch::{RouteCondition, RuleContext};
@@ -59,6 +59,14 @@ pub enum RouteEffect {
     Layer(Arc<dyn RouteLayer>),
 }
 
+/// The file view and effective HTTP policy selected for this route.
+pub struct PreparedScope<'a> {
+    pub config: &'a Arc<HostConfig>,
+    pub policy: claviron_http::policy::HttpPolicy,
+    /// Whether this plan runs Rust contributions for the selected route.
+    pub accepts_applications: bool,
+}
+
 /// Compile a declared route policy into native head/response actions.
 /// Called only at boot/reload. No Router, request or body is supplied here.
 pub trait RouteLayer: Send + Sync {
@@ -66,6 +74,14 @@ pub trait RouteLayer: Send + Sync {
         &self,
         layer: &mut HostLayerBuilder,
     ) -> crate::Result<()>;
+
+    fn prepare_scoped(
+        &self,
+        layer: &mut HostLayerBuilder,
+        _scope: &PreparedScope<'_>,
+    ) -> crate::Result<()> {
+        self.prepare(layer)
+    }
 }
 
 /// Provider-owned configuration codec, resolved while preparing a host.

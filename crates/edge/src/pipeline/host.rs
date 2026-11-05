@@ -41,6 +41,7 @@ pub use execution::HostExecution;
 pub use handler::{
     HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest,
 };
+pub use response::ReplyHooks;
 
 type HeadAction<S, R> =
     Box<dyn Fn(&mut RequestParts, &mut S) -> ControlFlow<R> + Send + Sync>;
@@ -62,6 +63,7 @@ enum Action<S, R> {
     Request(RequestAction),
     ContextRequest(Box<dyn ContextHandler>),
     AsyncHead(Box<dyn AsyncHeadAction<S>>),
+    Exchange(Box<dyn ExchangeAction>),
 }
 
 type ResponseAction<S> = Box<dyn Fn(&mut ResponseParts, &mut S) + Send + Sync>;
@@ -74,6 +76,21 @@ pub trait AsyncHeadAction<S>: Send + Sync {
         &'a self,
         head: &'a mut RequestParts,
         state: &'a mut S,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = ControlFlow<RouteResponse>>
+                + Send
+                + 'a,
+        >,
+    >;
+}
+
+/// Head admission that can retain work for the same request's response.
+pub trait ExchangeAction: Send + Sync {
+    fn call<'a>(
+        &'a self,
+        head: &'a mut RequestParts,
+        reply: &'a mut ReplyHooks,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<Output = ControlFlow<RouteResponse>>
@@ -110,6 +127,7 @@ pub struct HostPipeline<S = (), R = RouteResponse> {
     after: Box<[ResponseAction<S>]>,
     body: Box<[BodyAction<S>]>,
     complete: ReplyScope,
+    has_exchange: bool,
 }
 
 struct PreparedAction<S, R> {

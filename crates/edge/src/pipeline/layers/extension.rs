@@ -9,3 +9,17 @@ impl HostLayer for &dyn RouteLayer {
         RouteLayer::prepare(self, layer)
     }
 }
+
+pub(in crate::pipeline) struct ScopedExtension<'a>(
+    pub &'a dyn RouteLayer,
+    pub &'a crate::pipeline::extension::PreparedScope<'a>,
+);
+
+impl HostLayer for ScopedExtension<'_> {
+    fn prepare(
+        self,
+        layer: &mut HostLayerBuilder,
+    ) -> crate::Result<()> {
+        self.0.prepare_scoped(layer, self.1)
+    }
+}

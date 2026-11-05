@@ -643,3 +643,62 @@ fn dropping_early_reply_releases_state_without_running_response_actions() {
     drop(reply);
     assert_eq!(dropped.load(Ordering::Relaxed), 1);
 }
+
+struct Renewal;
+
+impl ExchangeAction for Renewal {
+    fn call<'a>(
+        &'a self,
+        head: &'a mut RequestParts,
+        reply: &'a mut ReplyHooks,
+    ) -> Pin<Box<dyn Future<Output = ControlFlow<RouteResponse>> + Send + 'a>>
+    {
+        if let Some(cookie) = head.headers.remove("x-renewed-cookie") {
+            reply.headers(move |headers| {
+                headers.append(http::header::SET_COOKIE, cookie);
+            });
+        }
+        Box::pin(std::future::ready(ControlFlow::Continue(())))
+    }
+}
+
+#[test]
+fn exchange_defers_only_this_requests_cookie_to_its_final_reply() {
+    let mut builder = HostPipelineBuilder::<()>::new();
+    builder
+        .layer(layer(|layer| {
+            layer.exchange(Renewal);
+            Ok(())
+        }))
+        .unwrap();
+    builder
+        .layer(layer(|layer| {
+            layer.before(|head, _| {
+                if head.uri.path() == "/rejected" {
+                    ControlFlow::Break(claviron_http::err_status(
+                        StatusCode::FORBIDDEN,
+                    ))
+                } else {
+                    ControlFlow::Continue(())
+                }
+            });
+            Ok(())
+        }))
+        .unwrap();
+    let plan = builder.build().into_execution();
+    let request = |path, cookie: Option<&str>| {
+        let mut request = Request::builder().uri(path);
+        if let Some(cookie) = cookie {
+            request = request.header("x-renewed-cookie", cookie);
+        }
+        request.body(empty_body()).unwrap()
+    };
+    let denied =
+        ready(plan.handle(request("/rejected", Some("session=example"))))
+            .unwrap();
+    assert_eq!(denied.status(), StatusCode::FORBIDDEN);
+    assert_eq!(denied.headers()[http::header::SET_COOKIE], "session=example");
+    let fallback = ready(plan.handle(request("/missing", None))).unwrap();
+    assert_eq!(fallback.status(), StatusCode::NOT_FOUND);
+    assert!(!fallback.headers().contains_key(http::header::SET_COOKIE));
+}

@@ -58,8 +58,19 @@ impl<S> HostLayerBuilder<S> {
         self
     }
 
+    /// Admit from the request head and optionally register response work.
+    pub fn exchange(
+        &mut self,
+        action: impl ExchangeAction + 'static,
+    ) -> &mut Self {
+        self.before.push(Action::Exchange(Box::new(action)));
+        self
+    }
+
     /// Transfer the request to one prepared asynchronous owner. Unhandled must
-    /// return that same request; a response status never means fallthrough.
+    /// return the request to the driver. An owner that explicitly inspected a
+    /// buffered payload must restore it before returning. A response status
+    /// never means fallthrough.
     /// A ready miss needs no future allocation. Only active work is erased by
     /// the owner's DispatchCall; this callback is allocated at preparation.
     pub fn request(
@@ -167,6 +178,7 @@ impl<S: 'static, R: 'static> HostPipelineBuilder<S, R> {
                             }),
                         ),
                         Action::Request(action) => Action::Request(action),
+                        Action::Exchange(action) => Action::Exchange(action),
                         Action::ContextRequest(action) => {
                             Action::ContextRequest(action)
                         }
@@ -280,11 +292,15 @@ impl<S, R> HostPipelineBuilder<S, R> {
             );
         }
         let complete = ReplyScope { after: after.len(), body: body.len() };
+        let has_exchange = before
+            .iter()
+            .any(|step| matches!(step.action, Action::Exchange(_)));
         HostPipeline {
             before: before.into_boxed_slice(),
             after: after.into_boxed_slice(),
             body: body.into_boxed_slice(),
             complete,
+            has_exchange,
         }
     }
 }

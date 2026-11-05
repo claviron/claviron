@@ -103,6 +103,12 @@ fn call_axum(
 impl<S: Default + Send + 'static> HostPipeline<S> {
     /// Retain this completed plan as the transport-independent host owner.
     pub fn into_execution(self) -> HostExecution {
-        HostExecution { inner: Execution::Pipeline(Arc::new(self)) }
+        use super::owner::CompiledPipeline;
+        let pipeline: Arc<dyn ContextHandler> = if self.has_exchange {
+            Arc::new(CompiledPipeline::<S, true>(self))
+        } else {
+            Arc::new(CompiledPipeline::<S, false>(self))
+        };
+        HostExecution { inner: Execution::Pipeline(pipeline) }
     }
 }

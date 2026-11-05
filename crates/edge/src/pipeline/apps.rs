@@ -574,7 +574,13 @@ impl HostAppRegistry {
         if !inherited_only {
             directives.extend(config.extensions.iter());
         }
-        for (name, value) in directives {
+        let (inherited, local): (Vec<_>, Vec<_>) =
+            directives.into_iter().partition(|(name, _)| {
+                codecs
+                    .get(name.as_str())
+                    .is_some_and(|codec| codec.inherit_from_host())
+            });
+        for (name, value) in inherited.into_iter().chain(local) {
             if !codecs.contains_key(name.as_str())
                 && inactive.contains(name.as_str())
             {
