@@ -242,3 +242,33 @@ async fn failed_reload_file_snapshot_keeps_serving_certificates() {
     assert!(Arc::ptr_eq(&old, &resolver.get_cert("serving.example").unwrap()));
     assert_eq!(resolver.count(), 1);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_missing_declaration_is_no_tls_and_an_empty_one_still_is() {
+    struct Directory(PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let directory = Directory(
+        std::env::temp_dir()
+            .join(format!("claviron-tls-absent-{}", std::process::id())),
+    );
+    std::fs::create_dir(&directory.0).unwrap();
+    let state = AppState::standalone("tls-absent-fixture", &directory.0);
+    let owner = CertificateProvider::new(&state);
+    state.config_reader().prepare_owners(&[&owner]).await.unwrap();
+    assert!(!declared(&state).unwrap());
+    assert!(matches!(
+        build_certificates(&state, &hosting(&state)).await,
+        Ok(None)
+    ));
+
+    // A file with nothing to load is a declaration that fails, never absence.
+    std::fs::write(directory.0.join("tls.yaml"), "certstore: {dir: .}\n")
+        .unwrap();
+    state.config_reader().prepare_owners(&[&owner]).await.unwrap();
+    assert!(declared(&state).unwrap());
+    assert!(build_certificates(&state, &hosting(&state)).await.is_err());
+}

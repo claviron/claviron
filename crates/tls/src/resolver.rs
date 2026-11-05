@@ -405,7 +405,10 @@ impl Bootable<AppState, (Arc<CertificateProvider>,)> for CertResolverProvider {
 
         use claviron_runtime::registry::Resolve;
         let hosting = HostingDeps::resolve(registry)?;
-        let certificates = build_certificates(state, &hosting).await?;
+        let Some(certificates) = build_certificates(state, &hosting).await?
+        else {
+            return Ok(());
+        };
         prepare_randomness().await?;
         let count = certificates.resolver.count();
         trace!(resolver = %format_args!("{:p}", Arc::as_ptr(&certificates.resolver)), process_id = std::process::id(), cert_count = count, "Shared TLS resolver registered");

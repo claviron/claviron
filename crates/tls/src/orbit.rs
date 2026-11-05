@@ -54,12 +54,24 @@ impl ManagedShmResources for FleetServerSessionsResources {
         PROVIDER_NAME
     }
 
+    /// Without a `tls.yaml` nothing here serves a handshake, so there are no
+    /// sessions to keep and no segment is created.
+    fn enabled(
+        &self,
+        state: &AppState,
+    ) -> bool {
+        // A declaration that cannot be read is `prepare`'s to report.
+        crate::provider::declared(state).unwrap_or(true)
+    }
+
     async fn prepare(
         &self,
         state: &AppState,
     ) -> runtime_registry::Result<()> {
-        let config =
-            crate::provider::load_tls_config(state).await.map_err(|error| {
+        let config = crate::provider::load_tls_config(state)
+            .await
+            .and_then(|config| config.ok_or_else(crate::provider::removed))
+            .map_err(|error| {
                 runtime_registry::Error::msg(format!(
                     "fleet TLS session config failed: {error}"
                 ))
@@ -79,13 +91,15 @@ impl ManagedShmResources for FleetServerSessionsResources {
         &self,
         state: &AppState,
     ) -> runtime_registry::Result<()> {
-        let sessions = self.sessions.load_full().ok_or_else(|| {
-            runtime_registry::Error::msg(
-                "fleet TLS session storage is not booted",
-            )
-        })?;
-        let config =
-            crate::provider::load_tls_config(state).await.map_err(|error| {
+        // Booted without a `tls.yaml`: there is no storage to retune, and
+        // the certificate source reports a file that appeared since.
+        let Some(sessions) = self.sessions.load_full() else {
+            return Ok(());
+        };
+        let config = crate::provider::load_tls_config(state)
+            .await
+            .and_then(|config| config.ok_or_else(crate::provider::removed))
+            .map_err(|error| {
                 runtime_registry::Error::msg(format!(
                     "fleet TLS session config reload failed: {error}"
                 ))

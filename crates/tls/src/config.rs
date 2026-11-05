@@ -42,6 +42,9 @@ pub struct TlsConfig {
 /// why the declaration and [`TlsConfig`] are two types.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct TlsConfigSource {
+    /// Never read from the file: set only by [`TlsConfigSource::absent`].
+    #[serde(skip)]
+    absent: bool,
     /// Omission and null both select the shared type crate's default YAML path.
     #[serde(default, alias = "cert_store")]
     certstore: Option<CertStoreConfig>,
@@ -61,6 +64,26 @@ pub struct TlsConfigSource {
     sessions: TlsSessionConfig,
     #[serde(default)]
     policy: crate::policy::TlsPolicy,
+}
+
+impl TlsConfigSource {
+    /// What stands in for a `tls.yaml` that does not exist: this process has
+    /// no certificate source, resolver or session storage. It is not the
+    /// empty file, which selects the default certstore and certificate.
+    pub(crate) fn absent() -> Self {
+        Self {
+            absent: true,
+            certstore: None,
+            default_cert: None,
+            sni_entries: Vec::new(),
+            sessions: TlsSessionConfig::default(),
+            policy: crate::policy::TlsPolicy::default(),
+        }
+    }
+
+    pub(crate) fn is_absent(&self) -> bool {
+        self.absent
+    }
 }
 
 impl TryFrom<TlsConfigSource> for TlsConfig {

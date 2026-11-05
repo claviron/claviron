@@ -258,6 +258,12 @@ that instance. A targeted reload prepares the current config source through
 Congif and applies only that listener and its inherited defaults. Execution
 changes take effect on the next start.
 
+`HttpsServer` and `H3Server` need the certificate source `tls.yaml` declares.
+Without the file a process has none (see the TLS crate's architecture), and a
+server with no declared listener asks for nothing: a plain-only configuration
+boots and reloads without it. A declared TLS or QUIC listener is refused by
+name in the server's `validate`, and in `refresh` when a reload would add one.
+
 VhostResolver retains weak listener preparation registrations. Its existing
 source publication stages every listener's affected host view before committing
 any snapshot; there is no per-listener watcher task. Certificate rotation uses

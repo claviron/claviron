@@ -21,17 +21,39 @@ pub type HostingDeps = (Option<Arc<claviron_hosting::HostingService>>,);
 #[cfg(not(feature = "db"))]
 pub type HostingDeps = ();
 
+/// Whether `tls.yaml` exists. Without it this process has no TLS of its own:
+/// no certificate source, no resolver and no session storage. What needs one
+/// says so at its own boundary.
+pub fn declared(state: &AppState) -> Result<bool, Error> {
+    state
+        .config_reader()
+        .snapshot::<CertificateProvider>()
+        .map(|source| !source.is_absent())
+        .map_err(|error| Error::Other(error.to_string()))
+}
+
+/// What a reload answers when the file it booted with is gone.
+pub(crate) fn removed() -> Error {
+    Error::Other(
+        "tls.yaml was removed; the running TLS state is kept until restart"
+            .into(),
+    )
+}
+
 /// The prepared `tls.yaml`, resolved: the certstore it names is loaded under
 /// a blocking boundary, so boot and reload share one path and the reader does
 /// no file IO. Congif prepared the declaration before boot and in the reload
-/// batch; nothing here opens the file.
+/// batch; nothing here opens the file. `None` when the file does not exist.
 pub(crate) async fn load_tls_config(
     state: &AppState
-) -> Result<TlsConfig, Error> {
+) -> Result<Option<TlsConfig>, Error> {
     let source = state
         .config_reader()
         .snapshot::<CertificateProvider>()
         .map_err(|error| Error::Other(error.to_string()))?;
+    if source.is_absent() {
+        return Ok(None);
+    }
     let cfg = tokio::task::spawn_blocking(move || {
         TlsConfig::try_from((*source).clone())
     })
@@ -44,7 +66,7 @@ pub(crate) async fn load_tls_config(
     // built the same way.
     crate::policy::configure(cfg.policy.clone())?;
 
-    Ok(cfg)
+    Ok(Some(cfg))
 }
 
 /// A declaration written inline, resolved the way `load_tls_config` resolves
@@ -233,11 +255,14 @@ pub fn create_tls_config(
     Ok(server_config)
 }
 
+/// `None` without a `tls.yaml`: there is nothing to resolve certificates from.
 pub async fn build_certificates(
     state: &AppState,
     hosting: &HostingDeps,
-) -> Result<Certificates, Error> {
-    let tls_cfg = load_tls_config(state).await?;
+) -> Result<Option<Certificates>, Error> {
+    let Some(tls_cfg) = load_tls_config(state).await? else {
+        return Ok(None);
+    };
     let authority = match state.registry_ref().resolve::<CertAuthority>() {
         Some(authority) => Some(authority),
         None => load_authority(hosting, &tls_cfg).await?,
@@ -254,14 +279,14 @@ pub async fn build_certificates(
     let default_cert =
         snapshot.default_cert().ok_or(Error::NoDefaultCert)?.clone();
 
-    Ok(Certificates {
+    Ok(Some(Certificates {
         resolver: Arc::new(CertResolver::new_owned(
             snapshot.cert_map,
             default_cert,
             snapshot.owners,
         )),
         authority,
-    })
+    }))
 }
 
 /// A reload receives no component dependencies, so it resolves the same
@@ -273,7 +298,7 @@ pub async fn reload_resolver_certs(
     use claviron_runtime::registry::Resolve;
 
     let hosting = HostingDeps::resolve(state.registry_ref())?;
-    let tls_cfg = load_tls_config(state).await?;
+    let tls_cfg = load_tls_config(state).await?.ok_or_else(removed)?;
     let default_source = tls_cfg.default_cert_entry().clone();
     #[allow(unused_mut)]
     let mut snapshot = load_file_snapshot(tls_cfg).await?;

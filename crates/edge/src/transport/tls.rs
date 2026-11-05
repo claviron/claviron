@@ -14,6 +14,24 @@ use rustls::ServerConfig;
 use crate::config::HostConfig;
 use crate::loader::table::VhostTable;
 
+/// A listener that serves TLS needs the certificate source `tls.yaml`
+/// declares, and without the file this process has none. `listeners` are the
+/// ones one TLS transport declares; with none there is nothing to require.
+pub(crate) fn require_certificates<'a>(
+    state: &claviron_runtime::AppState,
+    mut listeners: impl Iterator<Item = &'a claviron_http::ListenerId>,
+) -> Result<()> {
+    let Some(listener) = listeners.next() else {
+        return Ok(());
+    };
+    if claviron_tls::declared(state)? {
+        return Ok(());
+    }
+    Err(Error::msg(format!(
+        "listener '{listener}' serves TLS, but tls.yaml does not exist"
+    )))
+}
+
 /// A compiled handshake policy and the declaration used for cold reuse.
 #[derive(Clone)]
 pub(crate) struct TlsHost {

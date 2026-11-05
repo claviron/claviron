@@ -320,6 +320,26 @@ bytes once, under the blocking boundary. A process's first request initialises
 the library's entropy source and takes tens of milliseconds; paid at boot it
 does not fall inside the first handshake that process serves.
 
+### 4.2 Without `tls.yaml`
+
+A missing `tls.yaml` is not an error and not an empty declaration: it means
+this process has no TLS of its own. `CertificateProvider` answers the absent
+file through Congif's `absent_source`, registers no certificate store,
+authority or revocation snapshot, `CertResolverProvider` publishes no
+resolver, and the fleet session storage creates no segment. A plain-only
+deployment built with the `tls` feature therefore needs no TLS file and no
+certificate.
+
+What needs TLS says so where it is declared. A TLS or QUIC listener is refused
+by name in its server's `validate`, and a host with `client_auth.authority`
+is refused when its authority is resolved. An empty or partial file is still a
+declaration: it selects the default certstore and certificate and fails when
+they cannot be loaded.
+
+The decision is made at boot. A file that appears later is reported and needs
+a restart; a file that disappears fails that reload and the running TLS state
+is kept.
+
 ## 4b. CertAuthority — lending the CA we issue under
 
 `CertAuthority` contains public chains and optional issuer identity.
@@ -886,7 +906,8 @@ With the `orbit` feature, `orbit::FleetServerSessions` exposes a fleet-shared
 implementation of rustls' `StoresServerSessions`. It is not installed by
 `create_tls_config` itself. `FleetServerSessionsProvider` is the mandatory
 managed-SHM wrapper: after Orbit's `FleetProvider` it validates, opens, and
-publishes the single shared table handle used by TLS transports.
+publishes the single shared table handle used by TLS transports. Without a
+`tls.yaml` the resource set is not enabled and no segment exists.
 `sessions.cleanup_on_exit` remains a lifecycle-only setting and defaults to
 `true`, but cleanup now requires supervisor-owned activity evidence. With live
 or adopted workers, boot reuses the table and finalization preserves it. Only

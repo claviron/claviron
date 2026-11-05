@@ -420,6 +420,11 @@ impl Configurable for CertificateProvider {
     fn source(&self) -> ConfigFile {
         ConfigFile::yaml(&self.config_path)
     }
+    /// Without the file this process has no TLS of its own. A listener or a
+    /// host that needs it is refused where it is declared.
+    fn absent_source(&self) -> Option<TlsConfigSource> {
+        Some(TlsConfigSource::absent())
+    }
     async fn configure(
         &self,
         _: &TlsConfigSource,
@@ -442,11 +447,21 @@ impl ConfigObserver for CertificateProvider {
         let Some(store) =
             self.state.registry_ref().resolve::<CertificateStore>()
         else {
+            // Booted without the file. Listeners and session storage were
+            // decided then, so a file written later needs a restart.
+            if crate::provider::declared(&self.state)
+                .map_err(congif::Error::msg)?
+            {
+                tracing::warn!(
+                    "tls.yaml appeared after boot; restart to serve TLS"
+                );
+            }
             return Ok(());
         };
         let config = crate::provider::load_tls_config(&self.state)
             .await
-            .map_err(congif::Error::msg)?;
+            .map_err(congif::Error::msg)?
+            .ok_or_else(|| congif::Error::msg(crate::provider::removed()))?;
         // Prepare policy independently of SNI material. A source change must
         // reach every existing verifier through the same shared handle.
         store.files.store(Arc::new(config.certstore().clone()));
@@ -489,7 +504,11 @@ impl Bootable<AppState, HostingDeps> for CertificateProvider {
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
         crate::resolver::install_aws_crypto_provider();
-        let config = crate::provider::load_tls_config(state).await?;
+        let Some(config) = crate::provider::load_tls_config(state).await?
+        else {
+            tracing::debug!("tls.yaml is absent; no certificate source");
+            return Ok(());
+        };
         let store = Arc::new(CertificateStore::with_dependencies(
             config.certstore().clone(),
             hosting,

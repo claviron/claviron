@@ -118,6 +118,23 @@ impl H3Server {
         &self,
         config: &H3ServerConfig,
     ) -> Result<(), Error> {
+        // Nothing serves TLS here and nothing is about to: there is nothing
+        // to prepare, and without `tls.yaml` nothing to prepare it with.
+        if config.listeners.is_empty()
+            && self
+                .instances
+                .lock()
+                .expect("QUIC listener declarations poisoned")
+                .iter()
+                .next()
+                .is_none()
+        {
+            return Ok(());
+        }
+        crate::transport::tls::require_certificates(
+            &self.state,
+            config.listeners.keys(),
+        )?;
         let deps = self.resolve_deps(&self.state)?;
         deps.vhost_resolver.update_listener(|hosts| {
             let instances = self
@@ -279,6 +296,22 @@ impl Component<AppState> for H3Server {
 
     fn run_priority(&self) -> Option<u8> {
         Some(priority::LATE)
+    }
+
+    /// Declared listeners are refused here, by name, when the process has no
+    /// certificate source, before one of them would fail to find its resolver.
+    fn validate(
+        &self,
+        state: &AppState,
+    ) -> Result<(), Error> {
+        crate::transport::tls::require_certificates(
+            state,
+            self.instances
+                .lock()
+                .expect("QUIC listener declarations poisoned")
+                .iter()
+                .map(|instance| &instance.id),
+        )
     }
 
     fn as_configurable(&self) -> Option<&dyn congif::ConfigRegistration> {
