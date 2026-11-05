@@ -34,6 +34,7 @@ use serde::Deserialize;
 
 mod routing;
 pub use routing::RouteConfig;
+pub(crate) use routing::is_builtin_directive;
 #[cfg(feature = "rate-limit")]
 pub mod quota;
 #[cfg(feature = "rate-limit")]
@@ -47,7 +48,10 @@ pub struct HostConfig {
     fallback: Option<Arc<HostConfig>>,
     pub(crate) extensions:
         std::collections::BTreeMap<String, serde_yaml::Value>,
-    pub(crate) owns_handler: bool,
+    /// The static mounts here were taken from the closest declaring ancestor,
+    /// not declared on this scope. A scope with an application owner is
+    /// prepared without them.
+    pub(crate) statics_inherited: bool,
 }
 
 impl Deref for HostConfig {
@@ -159,7 +163,7 @@ impl HostConfig {
             entry_rules: Vec::new(),
             fallback: None,
             extensions: Default::default(),
-            owns_handler: false,
+            statics_inherited: false,
         }
     }
 

@@ -104,7 +104,7 @@ async fn static_wins_then_try_files_then_the_backend_receives_the_unread_body()
     ] {
         let counts = Arc::new(Counts::default());
         let mut builder = HostPipelineBuilder::new();
-        for step in scope_steps(&config) {
+        for step in scope_steps(&config, false) {
             builder.layer(step).unwrap();
         }
         let pipeline = builder.build();
@@ -138,7 +138,7 @@ async fn a_terminal_static_miss_cannot_fall_through_to_try_files() {
     config.files.try_files = true;
     let counts = Arc::new(Counts::default());
     let mut builder = HostPipelineBuilder::new();
-    for step in scope_steps(&config) {
+    for step in scope_steps(&config, false) {
         builder.layer(step).unwrap();
     }
     let pipeline = builder.build();
@@ -160,7 +160,7 @@ fn dynamic_names_reach_the_backend_without_filesystem_or_body_work() {
     config.files.try_files = true;
     let counts = Arc::new(Counts::default());
     let mut builder = HostPipelineBuilder::new();
-    for step in scope_steps(&config) {
+    for step in scope_steps(&config, false) {
         builder.layer(step).unwrap();
     }
     let pipeline = builder.build();

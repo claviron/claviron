@@ -512,6 +512,23 @@ impl HostAppRegistry {
         Ok(())
     }
 
+    /// The registered backends whose directive this scope declares, in
+    /// registration order. A null value declares nothing.
+    pub(crate) fn declared_backends(
+        &self,
+        scope: &HostConfig,
+    ) -> Vec<&'static str> {
+        self.backend_factories
+            .read()
+            .expect("backend factories lock poisoned")
+            .iter()
+            .map(|factory| factory.name())
+            .filter(|name| {
+                scope.directive(name).is_some_and(|value| !value.is_null())
+            })
+            .collect()
+    }
+
     pub(crate) fn resolve_backends(
         &self,
         context: &BackendContext<'_>,
@@ -609,20 +626,14 @@ impl HostAppRegistry {
                     inactive.insert(name);
                     continue;
                 }
-                if matches!(
-                    name,
-                    "php"
-                        | "js"
-                        | "javascript"
-                        | "lua"
-                        | "orbit"
-                        | "static"
-                        | "spa"
-                        | "upstream"
-                        | "pusher"
-                        | "broadcast"
-                ) || codecs.insert(name, codec).is_some()
-                {
+                // The edge decodes its own directives before any extension
+                // could see them.
+                if crate::config::is_builtin_directive(name) {
+                    return Err(Error::msg(format!(
+                        "route extension '{name}' names a directive the edge owns"
+                    )));
+                }
+                if codecs.insert(name, codec).is_some() {
                     return Err(Error::msg(format!(
                         "route extension '{name}' has multiple owners"
                     )));

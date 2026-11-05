@@ -206,18 +206,6 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
                 fallback.insert(key(name), value.clone());
             }
         }
-        let owner_names =
-            ["php", "lua", "orbit", "upstream", "broadcast", "pusher"];
-        if owner_names
-            .iter()
-            .filter(|name| source.contains_key(key(name)))
-            .count()
-            > 1
-        {
-            return Err(
-                "route '/' conflicts with the flat application owner".into()
-            );
-        }
     }
     let host_root: PathBuf = serde_yaml::from_value(
         source
@@ -246,7 +234,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
                 ));
             }
         };
-        let (mut extensions, owns_handler) = validate(prefix, &route)?;
+        let mut extensions = validate(prefix, &route)?;
         // Normalize the former rules wrapper into ordinary route directives.
         for (name, value) in conditions {
             let name = name.as_str().ok_or_else(|| {
@@ -288,8 +276,6 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
             leaf(route, Vec::new())?
         };
         config.extensions.extend(extensions);
-        config.owns_handler = owns_handler
-            || (prefix.as_str() == "/" && has_application(&source));
         config.files.mapping = Some(mapping);
         entries.push((prefix.clone(), Arc::new(config)));
         entry_rules.push(prefix.clone());
@@ -310,8 +296,9 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     for (prefix, config) in &mut entries {
         // Inherit only the closest declaring scope, never mounts owned by a
         // descendant or sibling route. Keep directory-group prefixes intact.
-        if !config.owns_handler
-            && config.statics.as_ref().is_none_or(Vec::is_empty)
+        // Whether this scope has an application owner is not known here; its
+        // preparation leaves inherited mounts out when it has one.
+        if config.statics.as_ref().is_none_or(Vec::is_empty)
             && let Some((_, mounts)) =
                 declared_mounts.iter().find(|(ancestor, _)| {
                     ancestor.has_path_segment(prefix.as_str())
@@ -348,6 +335,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
             }
             if !inherited.is_empty() {
                 config.files.statics = Some(inherited);
+                config.statics_inherited = true;
             }
         }
     }
@@ -359,9 +347,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     if !host.extensions.is_empty()
         && !entries.iter().any(|(prefix, _)| prefix.as_str() == "/")
     {
-        let owns_handler = has_application(&source);
-        let mut root = leaf(source, Vec::new())?;
-        root.owns_handler = owns_handler;
+        let root = leaf(source, Vec::new())?;
         host.entry_rules.push(PathPrefix::root());
         entries.push((PathPrefix::root(), Arc::new(root)));
     }
@@ -380,22 +366,11 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     Ok(host)
 }
 
-fn has_application(source: &Mapping) -> bool {
-    source
-        .keys()
-        .any(|name| name.as_str().is_some_and(is_application_directive))
-}
-
-fn is_application_directive(name: &str) -> bool {
-    matches!(
-        name,
-        "php" | "lua" | "orbit" | "upstream" | "broadcast" | "pusher"
-    )
-}
-
-// Only `orbit` is an application owner the edge executes itself. The others
-// are kept as written: their own backends decode them at preparation.
-fn is_builtin_directive(name: &str) -> bool {
+/// A directive the edge decodes and executes itself. Every other name is kept
+/// as written for whoever registered it: a backend or a route extension. The
+/// edge does not know those names, so what they mean, and whether a scope has
+/// one application owner, is settled when the scope is prepared.
+pub(crate) fn is_builtin_directive(name: &str) -> bool {
     name == "orbit"
         || matches!(
             name,
@@ -458,32 +433,23 @@ fn leaf(
         entry_rules,
         fallback: None,
         extensions,
-        owns_handler: false,
+        statics_inherited: false,
     })
 }
 
 fn validate(
     prefix: &PathPrefix,
     route: &Mapping,
-) -> Result<(std::collections::BTreeMap<String, Value>, bool), String> {
-    let mut owners = 0;
+) -> Result<std::collections::BTreeMap<String, Value>, String> {
     let mut extensions = std::collections::BTreeMap::new();
     for (name, value) in route {
         let name = name.as_str().ok_or("route directive must be a string")?;
-        if is_application_directive(name) {
-            owners += 1;
-        }
         if !is_builtin_directive(name) {
             extensions.insert(name.to_owned(), value.clone());
         }
         validate_feature(prefix, name)?;
     }
-    if owners > 1 {
-        return Err(format!(
-            "route '{prefix}' has more than one application owner"
-        ));
-    }
-    Ok((extensions, owners != 0))
+    Ok(extensions)
 }
 
 /// URL scope is owned by the routes key, never an individual feature.
@@ -496,7 +462,7 @@ fn validate_scope(
             "route '{prefix}' uses its key as the URL prefix; use directory for a disk mapping"
         ));
     }
-    for name in ["php", "lua", "orbit", "redirect"] {
+    for name in ["orbit", "redirect"] {
         let Some(value) = scope.get(key(name)) else {
             continue;
         };

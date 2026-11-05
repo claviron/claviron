@@ -129,6 +129,35 @@ struct Compiler<'a> {
 }
 
 impl Compiler<'_> {
+    /// Whether this scope declares an application owner: the edge's own Link
+    /// dispatch or a directive a registered backend claims. A scope has at
+    /// most one. The edge knows no backend by name, so this is the first place
+    /// the rule can be held.
+    fn application_owner(
+        &self,
+        config: &HostConfig,
+        prefix: &claviron_http::ext::PathPrefix,
+    ) -> Result<bool> {
+        let owners = self
+            .registry
+            .as_ref()
+            .map(|registry| registry.declared_backends(config))
+            .unwrap_or_default();
+        #[cfg(feature = "orbit")]
+        let owners = if config.orbit().is_empty() {
+            owners
+        } else {
+            [vec!["orbit"], owners].concat()
+        };
+        if owners.len() > 1 {
+            return Err(Error::msg(format!(
+                "route '{prefix}' declares more than one application owner: {}",
+                owners.join(", ")
+            )));
+        }
+        Ok(!owners.is_empty())
+    }
+
     fn scope(
         &self,
         config: Arc<HostConfig>,
@@ -143,8 +172,12 @@ impl Compiler<'_> {
             .setting_at(prefix, |scope| scope.redirect.as_ref())
             .and_then(|rules| rules.first())
             .map(RedirectLayer::new);
-        let steps =
-            if redirect.is_none() { scope_steps(&config) } else { Vec::new() };
+        let owned = self.application_owner(&config, prefix)?;
+        let steps = if redirect.is_none() {
+            scope_steps(&config, owned)
+        } else {
+            Vec::new()
+        };
         let registered =
             if accept_applications { self.applications } else { &[] };
         let selected = handler.filter(|_| accept_applications).map(|handler| {

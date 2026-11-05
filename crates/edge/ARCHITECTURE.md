@@ -315,6 +315,8 @@ Relative disk paths remain process-working-directory relative. Prefix mappings
 inherit the nearest declared `directory`; URL-derived dot segments are rejected.
 Policy-only children retain applicable static mounts and mount-relative rules
 unless they remap directories. Backend owners and TryFiles are not inherited.
+Configuration cannot tell an owner directive from another registered one, so it
+records a mount as inherited and preparation leaves it out of an owned scope.
 
 ## Features
 

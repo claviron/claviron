@@ -57,7 +57,8 @@ Host policy distinguishes several boundaries:
 
 Prefix-keyed `routes` select response owners and route directives. Normalization
 resolves `/` before child entries, regardless of map order, and rejects conflicting
-flat/root declarations or multiple application owners on one entry. The filesystem
+flat/root declarations. More than one application owner on one entry is rejected
+when the host is prepared, where the registered backends are known. The filesystem
 `root` belongs only to the host. Each route pairs its URL prefix with one disk
 directory: without `path`, URL components name directories below the host root;
 an explicit `path` selects another directory relative to that root, or an

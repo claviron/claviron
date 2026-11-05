@@ -26,6 +26,13 @@ Dispatch never calls the factory or decodes config. The facade registers Lua, PH
 in that order in AfterFiles. Broadcast/Pusher REST selects BeforeFiles.
 Link remains Edge-native and precedes the registered AfterFiles owners.
 
+Edge names no backend. Its configuration keeps every directive it does not
+execute itself as written, and a directive becomes an application owner by a
+factory being registered under its name. A scope declares at most one owner,
+Link included; because only the registry knows the names, that rule is held when
+the scope is prepared and the error names the owners it found. A directive no
+factory or route extension claims fails the same preparation.
+
 `RouteExtension` is separate: conditions, request preparation and response
 hooks precede execution. Interception uses that route/layer boundary, rather
 than becoming an Axum application. A directive has one registered owner.

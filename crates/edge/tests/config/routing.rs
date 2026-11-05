@@ -84,7 +84,6 @@ fn file_routes_directory_groups_keep_one_route_and_relative_policy_paths() {
     ).unwrap();
     assert_eq!(config.routes.iter().count(), 1);
     let route = config.routes.find("/frontend/assets/app.js").unwrap();
-    assert!(!route.owns_handler);
     assert!(route.extensions.is_empty());
     let mounts = route.statics.as_ref().unwrap();
     assert_eq!(mounts.len(), 2);
@@ -214,7 +213,6 @@ fn file_routes_flat_root_php_declarations_keep_scope_ownership() {
     // The declaration is kept as written for its backend to decode.
     assert_eq!(root.extensions.len(), 2);
     assert!(root.directive("php").is_some_and(|php| php.is_mapping()));
-    assert!(root.owns_handler);
     assert_eq!(root.index, ["index.php"]);
 }
 

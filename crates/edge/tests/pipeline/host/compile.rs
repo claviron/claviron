@@ -211,6 +211,103 @@ async fn backend_placement_preserves_explicit_precedence_with_static_files() {
     }
 }
 
+fn two_backends() -> AppState {
+    use crate::pipeline::backend::{BackendPlacement, factory};
+    let state = AppState::standalone("backend-owners", ".");
+    let registry = Arc::new(HostAppRegistry::default());
+    for name in ["first", "second"] {
+        registry
+            .register_backend_factory(factory::<bool, _>(
+                name,
+                BackendPlacement::AfterFiles,
+                |_, _| Ok(vec![Arc::new(RegisteredBackend)]),
+            ))
+            .unwrap();
+    }
+    state.registry_ref().insert(registry).unwrap();
+    state
+}
+
+/// The edge does not know a backend by name, so the one-owner rule is held
+/// where the registered backends are known, for flat and route declarations.
+#[test]
+fn a_scope_declaring_two_registered_owners_fails_at_preparation() {
+    let state = two_backends();
+    for (source, accepted) in [
+        ("routes: {'/api': {first: true, second: true}}\n", false),
+        ("first: true\nroutes: {'/': {second: true}}\n", false),
+        ("first: true\nroutes: {'/api': {second: true}}\n", true),
+        ("routes: {'/api': {first: true, second: null}}\n", true),
+    ] {
+        let config =
+            Arc::new(serde_yaml::from_str::<HostConfig>(source).unwrap());
+        let prepared =
+            HostCompiler { state: &state, http: None, protocol: None }.prepare(
+                &"example.test".parse().unwrap(),
+                config,
+                None,
+                &HostContributions::default(),
+                #[cfg(feature = "rate-limit")]
+                None,
+                #[cfg(feature = "websocket")]
+                None,
+            );
+        match prepared {
+            Ok(_) => assert!(accepted, "{source}"),
+            Err(error) => assert!(
+                !accepted
+                    && error.to_string().contains(
+                        "declares more than one application owner: first, second"
+                    ),
+                "{source}: {error}"
+            ),
+        }
+    }
+}
+
+/// An owner takes its scope whole: a mount the scope only inherited does not
+/// run in front of it. A policy-only child of the same mount keeps it.
+#[tokio::test]
+async fn an_owned_child_runs_without_the_static_mount_it_inherited() {
+    use http_body_util::BodyExt;
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(directory.path().join("files/app")).unwrap();
+    std::fs::write(directory.path().join("files/app/entry.txt"), "static")
+        .unwrap();
+    let state = two_backends();
+    for (child, expected) in
+        [("cors: disabled", "static"), ("first: true", "request")]
+    {
+        let config = serde_yaml::from_str::<HostConfig>(&format!(
+            "root: {}\nroutes:\n  /files:\n    static: {{}}\n  /files/app:\n    {child}\n",
+            serde_yaml::to_string(directory.path()).unwrap().trim(),
+        ))
+        .unwrap();
+        let owner = HostCompiler { state: &state, http: None, protocol: None }
+            .prepare(
+                &"example.test".parse().unwrap(),
+                Arc::new(config),
+                None,
+                &HostContributions::default(),
+                #[cfg(feature = "rate-limit")]
+                None,
+                #[cfg(feature = "websocket")]
+                None,
+            )
+            .unwrap();
+        let request = Request::builder()
+            .uri("/files/app/entry.txt")
+            .body(claviron_http::bytes_body(Bytes::from_static(b"request")))
+            .unwrap();
+        let response = owner.handle(request).await.unwrap();
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            expected,
+            "{child}"
+        );
+    }
+}
+
 #[cfg(feature = "access-log")]
 #[test]
 fn access_log_off_overrides_the_host_channel_and_inherits_into_children() {

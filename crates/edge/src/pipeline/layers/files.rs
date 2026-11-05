@@ -94,11 +94,18 @@ impl DispatchStep for TryFilesStage {
     }
 }
 
+/// `owned`: the scope declares an application owner. An owner takes its scope
+/// whole, so mounts the scope only inherited from an ancestor are left out;
+/// mounts it declares itself still run before the owner.
 pub(in crate::pipeline) fn scope_steps(
-    config: &HostConfig
+    config: &HostConfig,
+    owned: bool,
 ) -> Vec<Arc<dyn DispatchStep>> {
     let mut files = config.files.clone();
     files.root = config.root();
+    if owned && config.statics_inherited {
+        files.statics = None;
+    }
     let mut steps: Vec<Arc<dyn DispatchStep>> = Vec::new();
     for mount in files.statics.iter().flatten() {
         steps.push(Arc::new(StaticStage::new(
