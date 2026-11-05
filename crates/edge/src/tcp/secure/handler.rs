@@ -65,6 +65,37 @@ async fn host_retired(
     }
 }
 
+/// A prepared TLS listener's native handler for accepted TCP streams.
+/// The caller owns acceptance, connection capacity and session drain. Each
+/// stream keeps the native handshake, host selection, ALPN choice, HTTP
+/// driver and shutdown path.
+#[derive(Clone)]
+pub struct ConnectionHandler {
+    listener: Arc<HttpsListener>,
+    snapshot: Arc<ServerSnapshot>,
+}
+
+impl ConnectionHandler {
+    pub(super) fn new(
+        listener: Arc<HttpsListener>,
+        snapshot: Arc<ServerSnapshot>,
+    ) -> Self {
+        Self { listener, snapshot }
+    }
+
+    /// Serve one accepted stream until peer completion or its owned drain.
+    /// No provider boot, socket bind or new connection permit is performed.
+    pub fn serve(
+        self,
+        stream: TcpStream,
+        peer: SocketAddr,
+        scope: ConnectionScope,
+    ) -> impl Future<Output = ()> + Send {
+        let Self { listener, snapshot } = self;
+        listener.handle_connection(snapshot, stream, peer, scope)
+    }
+}
+
 impl HttpsListener {
     /// Decide HTTP protocol (H1/H2) using negotiated ALPN and per-host RequestPolicy
     fn decide_protocol(

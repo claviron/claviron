@@ -141,6 +141,47 @@ impl HttpsServer {
         Ok(())
     }
 
+    /// Prepare the native TLS handler without binding or booting a server.
+    /// The caller supplies what a booted server resolves from its registry;
+    /// accepted streams use the same handshake, request and drain path as
+    /// `serve`.
+    pub fn connection_handler(
+        &self,
+        config: &HttpsServerConfig,
+        listener: &ListenerId,
+        cert_resolver: Arc<CertResolver>,
+        vhosts: Arc<VhostResolver>,
+        tls_sessions: Arc<FleetServerSessions>,
+        revocations: Arc<Revocations>,
+    ) -> Result<super::ConnectionHandler, Error> {
+        let input = publication::select_listener(config, listener)?;
+        let hosts = Arc::new(publication::prepare_hosts(
+            &self.state,
+            &vhosts.snapshot(),
+            &input,
+            None,
+        )?);
+        let deps = Deps {
+            cert_resolver,
+            vhost_resolver: vhosts,
+            tls_sessions,
+            revocations,
+        };
+        let snapshot = build_snapshots(&input, &deps, hosts, None)?
+            .remove(listener)
+            .ok_or_else(|| {
+                Error::msg(format!("listener '{listener}' is not TLS TCP"))
+            })?;
+        let instance = Arc::new(HttpsListener {
+            id: listener.clone(),
+            name: format!("Listener:{listener}").into(),
+            state: self.state.clone(),
+            current: Arc::default(),
+            input: ArcSwap::from_pointee(input),
+        });
+        Ok(super::ConnectionHandler::new(instance, snapshot))
+    }
+
     pub async fn serve(
         self: Arc<Self>,
         deps: ServerDeps,

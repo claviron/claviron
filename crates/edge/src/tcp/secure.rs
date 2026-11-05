@@ -6,4 +6,5 @@ mod handler;
 mod server;
 mod tls;
 
+pub use handler::ConnectionHandler;
 pub use server::{HttpsServer, HttpsServerConfig};
