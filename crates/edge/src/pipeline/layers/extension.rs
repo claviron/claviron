@@ -1,7 +1,7 @@
 use super::{HostLayer, HostLayerBuilder};
 use crate::pipeline::extension::RouteLayer;
 
-impl HostLayer for &dyn RouteLayer {
+impl<L: RouteLayer + ?Sized> HostLayer for &L {
     fn prepare(
         self,
         layer: &mut HostLayerBuilder,

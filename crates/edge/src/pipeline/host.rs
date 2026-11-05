@@ -7,7 +7,7 @@
 //! Only reached layers decorate a response. Cancellation drops the current
 //! request/future and caller-owned state; the plan never reads or copies bodies.
 
-use std::ops::ControlFlow;
+use std::{num::NonZeroUsize, ops::ControlFlow};
 
 use claviron_http::{RouteBody, RouteResponse};
 use http::{
@@ -27,6 +27,7 @@ mod dispatch;
 mod execution;
 mod handler;
 mod owner;
+mod registration;
 mod request;
 mod response;
 
@@ -41,6 +42,8 @@ pub use execution::HostExecution;
 pub use handler::{
     HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest,
 };
+pub use registration::LayerContext;
+pub(in crate::pipeline) use registration::LayerRegistration;
 pub use response::ReplyHooks;
 
 type HeadAction<S, R> =
@@ -115,7 +118,10 @@ pub struct HostLayerBuilder<S = (), R = RouteResponse> {
 
 /// Collects prepared layers in declaration order. No runtime is constructed.
 pub struct HostPipelineBuilder<S = (), R = RouteResponse> {
-    layers: Vec<HostLayerBuilder<S, R>>,
+    before: Vec<PreparedAction<S, R>>,
+    after: Vec<ResponseAction<S>>,
+    body: Vec<BodyAction<S>>,
+    identity: Option<NonZeroUsize>,
 }
 
 /// Immutable prepared actions; retain this value with the host binding.
@@ -128,6 +134,7 @@ pub struct HostPipeline<S = (), R = RouteResponse> {
     body: Box<[BodyAction<S>]>,
     complete: ReplyScope,
     has_exchange: bool,
+    identity: Option<NonZeroUsize>,
 }
 
 struct PreparedAction<S, R> {

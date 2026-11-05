@@ -383,6 +383,8 @@ pub struct HostAppRegistry {
     non_serving_interception: RwLock<Option<Arc<NonServingFactory>>>,
     route_extensions: RwLock<Vec<Arc<dyn RouteExtension>>>,
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
+    pub(in crate::pipeline) layer_registrations:
+        RwLock<Vec<Arc<dyn super::host::LayerRegistration>>>,
     #[cfg(feature = "rate-limit")]
     quotas: RwLock<crate::pipeline::layers::QuotaRegistrations>,
 }

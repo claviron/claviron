@@ -107,8 +107,9 @@ pub(crate) struct HostCompileTarget<'a> {
 }
 
 struct Compiler<'a> {
-    #[cfg(feature = "access-log")]
     host: &'a Host,
+    listener: Option<&'a claviron_http::config::ListenerConfig>,
+    protocol: Option<RouteProtocol>,
     config: &'a HostConfig,
     policy: HttpPolicy,
     headers: Option<&'a claviron_http::config::host::HostHeadersConfig>,
@@ -116,7 +117,6 @@ struct Compiler<'a> {
     metrics: bool,
     #[cfg(feature = "rate-limit")]
     quotas: Option<&'a crate::pipeline::layers::HostQuotas>,
-    #[cfg(feature = "broadcast")]
     state: &'a AppState,
     router: Option<RustRouter>,
     applications: &'a [Arc<dyn HostHandler>],
@@ -187,7 +187,31 @@ impl Compiler<'_> {
             policy,
             accepts_applications: accept_applications,
         };
-        for layer in layers.iter().chain(self.layers) {
+        for layer in layers {
+            extensions
+                .layer(crate::pipeline::layers::ScopedExtension(
+                    layer.as_ref(),
+                    &prepared_scope,
+                ))
+                .map_err(|error| Error::msg(error.to_string()))?;
+        }
+        if let Some(registry) = &self.registry {
+            registry
+                .prepare_registered_layers(
+                    &super::LayerContext {
+                        state: self.state,
+                        host: self.host,
+                        host_config: self.config,
+                        prefix,
+                        protocol: self.protocol,
+                        listener: self.listener,
+                        scope: prepared_scope,
+                    },
+                    &mut extensions,
+                )
+                .map_err(|error| Error::msg(error.to_string()))?;
+        }
+        for layer in self.layers {
             extensions
                 .layer(crate::pipeline::layers::ScopedExtension(
                     layer.as_ref(),
@@ -450,8 +474,9 @@ impl HostCompiler<'_> {
         let protocol = listener.map(RouteProtocol::from).or(self.protocol);
         let state = self.state;
         let compiler = Compiler {
-            #[cfg(feature = "access-log")]
             host,
+            listener,
+            protocol,
             config: &config,
             policy,
             headers: self.http.map(|http| http.headers.as_ref()),
@@ -460,7 +485,6 @@ impl HostCompiler<'_> {
             router,
             #[cfg(feature = "rate-limit")]
             quotas,
-            #[cfg(feature = "broadcast")]
             state,
             applications: &contributions.applications,
             layers: &contributions.layers,

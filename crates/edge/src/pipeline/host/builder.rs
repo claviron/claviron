@@ -111,7 +111,12 @@ impl<S, R> HostLayerBuilder<S, R> {
 
 impl<S, R> Default for HostPipelineBuilder<S, R> {
     fn default() -> Self {
-        Self { layers: Vec::new() }
+        Self {
+            before: Vec::new(),
+            after: Vec::new(),
+            body: Vec::new(),
+            identity: None,
+        }
     }
 }
 
@@ -158,15 +163,13 @@ impl<S: 'static, R: 'static> HostPipelineBuilder<S, R> {
     where
         F: Fn(&mut T) -> &mut S + Copy + Send + Sync + 'static,
     {
-        let layers = self
-            .layers
-            .into_iter()
-            .map(|layer| HostLayerBuilder {
-                identity: layer.identity,
-                before: layer
-                    .before
-                    .into_iter()
-                    .map(|action| match action {
+        HostPipelineBuilder {
+            before: self
+                .before
+                .into_iter()
+                .map(|step| PreparedAction {
+                    scope: step.scope,
+                    action: match step.action {
                         Action::Head(action) => Action::Head(Box::new(
                             move |head, state: &mut T| {
                                 action(head, project(state))
@@ -188,41 +191,62 @@ impl<S: 'static, R: 'static> HostPipelineBuilder<S, R> {
                                 project,
                             }))
                         }
-                    })
-                    .collect(),
-                after: layer
-                    .after
-                    .into_iter()
-                    .map(|action| {
-                        Box::new(
-                            move |head: &mut ResponseParts, state: &mut T| {
-                                action(head, project(state))
-                            },
-                        ) as ResponseAction<T>
-                    })
-                    .collect(),
-                body: layer
-                    .body
-                    .into_iter()
-                    .map(|action| {
-                        Box::new(move |body: RouteBody, state: &mut T| {
-                            action(body, project(state))
-                        }) as BodyAction<T>
-                    })
-                    .collect(),
-            })
-            .collect();
-        HostPipelineBuilder { layers }
+                    },
+                })
+                .collect(),
+            after: self
+                .after
+                .into_iter()
+                .map(|action| {
+                    Box::new(move |head: &mut ResponseParts, state: &mut T| {
+                        action(head, project(state))
+                    }) as ResponseAction<T>
+                })
+                .collect(),
+            body: self
+                .body
+                .into_iter()
+                .map(|action| {
+                    Box::new(move |body: RouteBody, state: &mut T| {
+                        action(body, project(state))
+                    }) as BodyAction<T>
+                })
+                .collect(),
+            identity: self.identity,
+        }
     }
 }
 
 impl<S, R> HostPipelineBuilder<S, R> {
-    /// Append already prepared actions without rebuilding their owners.
-    pub(crate) fn append(
+    /// Move a builder or a compiled pipeline into this flat plan.
+    /// Request/response action order and reached reply scopes are preserved.
+    /// Both contributions share the same per-request state and reply type.
+    pub fn append(
         &mut self,
-        mut prepared: Self,
-    ) {
-        self.layers.append(&mut prepared.layers);
+        prepared: impl Into<Self>,
+    ) -> &mut Self {
+        let mut prepared = prepared.into();
+        if self.is_empty() {
+            *self = prepared;
+            return self;
+        }
+        let offset =
+            ReplyScope { after: self.after.len(), body: self.body.len() };
+        let identity = prepared.identity.map(NonZeroUsize::get);
+        for (index, mut step) in prepared.before.into_iter().enumerate() {
+            if identity == Some(index + 1) {
+                if self.identity.is_some() {
+                    continue;
+                }
+                self.identity = NonZeroUsize::new(self.before.len() + 1);
+            }
+            step.scope.after += offset.after;
+            step.scope.body += offset.body;
+            self.before.push(step);
+        }
+        self.after.append(&mut prepared.after);
+        self.body.append(&mut prepared.body);
+        self
     }
 
     #[cfg(feature = "rate-limit")]
@@ -230,11 +254,13 @@ impl<S, R> HostPipelineBuilder<S, R> {
         &mut self,
         layer: impl HostLayer<S, R>,
     ) -> crate::Result<()> {
-        let mut prepared = HostLayerBuilder::default();
-        layer.prepare(&mut prepared)?;
-        self.layers.insert(0, prepared);
+        let mut prefix = Self::new();
+        prefix.layer(layer)?;
+        prefix.append(std::mem::take(self));
+        *self = prefix;
         Ok(())
     }
+
     pub fn new() -> Self {
         Self::default()
     }
@@ -246,67 +272,79 @@ impl<S, R> HostPipelineBuilder<S, R> {
     ) -> crate::Result<&mut Self> {
         let mut prepared = HostLayerBuilder::default();
         layer.prepare(&mut prepared)?;
-        self.layers.push(prepared);
+        self.push_layer(prepared);
         Ok(self)
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
-        self.layers.iter().all(|layer| {
-            layer.before.is_empty()
-                && layer.after.is_empty()
-                && layer.body.is_empty()
-                && layer.identity.is_none()
-        })
+    fn push_layer(
+        &mut self,
+        mut layer: HostLayerBuilder<S, R>,
+    ) {
+        self.after.append(&mut layer.after);
+        self.body.append(&mut layer.body);
+        let scope =
+            ReplyScope { after: self.after.len(), body: self.body.len() };
+        if let Some(policy) = layer.identity
+            && self.identity.is_none()
+        {
+            self.identity = NonZeroUsize::new(self.before.len() + 1);
+            let policy = super::super::layers::IdentityPolicy::new(policy);
+            self.before.push(PreparedAction {
+                action: Action::ContextHead(Box::new(
+                    move |head, _, context| {
+                        policy.inject(&mut head.extensions, context);
+                        ControlFlow::Continue(())
+                    },
+                )),
+                scope,
+            });
+        }
+        self.before.extend(
+            layer
+                .before
+                .into_iter()
+                .map(|action| PreparedAction { action, scope }),
+        );
     }
 
-    /// Flatten active actions once. Empty/inactive layers leave no runtime node.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.before.is_empty() && self.after.is_empty() && self.body.is_empty()
+    }
+
+    /// Retain active actions without introducing runtime composition nodes.
     pub fn build(self) -> HostPipeline<S, R> {
-        let mut before = Vec::new();
-        let mut after = Vec::new();
-        let mut body = Vec::new();
-        let mut identity = false;
-        for layer in self.layers {
-            after.extend(layer.after);
-            body.extend(layer.body);
-            let scope = ReplyScope { after: after.len(), body: body.len() };
-            if let Some(policy) = layer.identity
-                && !identity
-            {
-                let policy = super::super::layers::IdentityPolicy::new(policy);
-                before.push(PreparedAction {
-                    action: Action::ContextHead(Box::new(
-                        move |head, _, context| {
-                            policy.inject(&mut head.extensions, context);
-                            ControlFlow::Continue(())
-                        },
-                    )),
-                    scope,
-                });
-                identity = true;
-            }
-            before.extend(
-                layer
-                    .before
-                    .into_iter()
-                    .map(|action| PreparedAction { action, scope }),
-            );
-        }
-        let complete = ReplyScope { after: after.len(), body: body.len() };
-        let has_exchange = before
+        let complete =
+            ReplyScope { after: self.after.len(), body: self.body.len() };
+        let has_exchange = self
+            .before
             .iter()
             .any(|step| matches!(step.action, Action::Exchange(_)));
         HostPipeline {
-            before: before.into_boxed_slice(),
-            after: after.into_boxed_slice(),
-            body: body.into_boxed_slice(),
+            before: self.before.into_boxed_slice(),
+            after: self.after.into_boxed_slice(),
+            body: self.body.into_boxed_slice(),
             complete,
             has_exchange,
+            identity: self.identity,
         }
     }
 }
 
 impl<S, R> From<HostLayerBuilder<S, R>> for HostPipelineBuilder<S, R> {
     fn from(layer: HostLayerBuilder<S, R>) -> Self {
-        Self { layers: vec![layer] }
+        let mut builder = Self::new();
+        builder.push_layer(layer);
+        builder
+    }
+}
+
+impl<S, R> From<HostPipeline<S, R>> for HostPipelineBuilder<S, R> {
+    fn from(pipeline: HostPipeline<S, R>) -> Self {
+        Self {
+            before: pipeline.before.into_vec(),
+            after: pipeline.after.into_vec(),
+            body: pipeline.body.into_vec(),
+            identity: pipeline.identity,
+        }
     }
 }

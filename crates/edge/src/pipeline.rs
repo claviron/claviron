@@ -30,7 +30,7 @@ pub use host::{
     ApplicationHandler, AsyncHeadAction, Backend, BackendHandler, DispatchCall,
     DispatchFuture, DispatchResult, DispatchStep, HostExecution, HostHandler,
     HostHandlerFuture, HostHandlerResult, HostLayerBuilder, HostPipeline,
-    HostPipelineBuilder, HostRequest,
+    HostPipelineBuilder, HostRequest, LayerContext,
 };
 #[cfg(feature = "websocket")]
 pub use layers::WebSocketStage;

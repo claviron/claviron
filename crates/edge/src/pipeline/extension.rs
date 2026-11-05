@@ -60,6 +60,7 @@ pub enum RouteEffect {
 }
 
 /// The file view and effective HTTP policy selected for this route.
+#[derive(Clone, Copy)]
 pub struct PreparedScope<'a> {
     pub config: &'a Arc<HostConfig>,
     pub policy: claviron_http::policy::HttpPolicy,
@@ -67,7 +68,8 @@ pub struct PreparedScope<'a> {
     pub accepts_applications: bool,
 }
 
-/// Compile a declared route policy into native head/response actions.
+/// Prepare shared request/response actions for a host scope, from code or a
+/// configuration directive.
 /// Called only at boot/reload. No Router, request or body is supplied here.
 pub trait RouteLayer: Send + Sync {
     fn prepare(

@@ -702,3 +702,6 @@ fn exchange_defers_only_this_requests_cookie_to_its_final_reply() {
     assert_eq!(fallback.status(), StatusCode::NOT_FOUND);
     assert!(!fallback.headers().contains_key(http::header::SET_COOKIE));
 }
+
+#[path = "host/composition.rs"]
+mod composition;
