@@ -1,8 +1,8 @@
 # HostPipeline
 
-`HostLayer` prepares one host action at boot/reload. `HostPipelineBuilder`
-flattens the selected actions into an immutable plan. An omitted or empty layer
-leaves no runtime entry. Active actions use indirect calls.
+`HostLayer` prepares request and response actions at boot/reload.
+`HostPipelineBuilder` builds one flat immutable plan from selected actions.
+An omitted or empty layer leaves no runtime entry. Active actions use indirect calls.
 
 ## Application first
 
@@ -22,13 +22,16 @@ policy remain with application providers and frameworks.
 
 ```mermaid
 flowchart LR
-    Config[Host and listener declarations] --> Builder[HostPipelineBuilder]
-    Rust[Rust registrations] --> Builder
-    Builder --> Plan[Only selected HostLayer actions]
-    Plan --> Head[Head checks and explicit waits]
-    Head --> Call[Request owners]
-    Call --> Reply[Reached response actions]
+    Config[Host and listener declarations] --> Scope[Select host / listener / prefix]
+    Rust[Rust registrations] --> Scope
+    Scope --> Builder[HostPipelineBuilder]
+    Prepared[Prepared builder or pipeline] -->|append: move actions| Builder
+    Builder --> Plan[Flat immutable HostPipeline]
 ```
+
+`RouteLayer::prepare_scoped` receives the selected file view, effective
+`HttpPolicy` and application eligibility through `PreparedScope`. These inputs
+are resolved during preparation, before request execution.
 
 | Layer | Work |
 | --- | --- |
@@ -40,7 +43,7 @@ flowchart LR
 | RequestBody / Reply | Declared streaming size and idle bounds. |
 | AccessLog | Record and response-body lifetime. |
 | RouteSelection | One prefix/condition selection; omitted for a single scope. |
-| RustRouter / HostHandler | Axum or Other, or a fallthrough Rust contribution. |
+| RustRouter / HostHandler | Axum, Warp or Other, or a fallthrough Rust contribution. |
 | Static / TryFiles / Embed / Upstream / Link | Prepared native request owners. |
 
 Listener/host eligibility is compiled before publication. Plain H1 selects its
@@ -73,6 +76,18 @@ backend dispatch. Plain `non_ssl: redirect` remains a separate listener policy.
 The selector receives the canonical host, its declaration and the listener
 protocol at boot/reload. The same layer may also be returned by a configured
 `RouteExtension`. Both enter the scope compiler before Rust router execution.
+
+```mermaid
+flowchart LR
+    Policy[Native admission and body bounds] --> Inherited[Inherited directive layers]
+    Inherited --> Local[Local directive layers]
+    Local --> Code[Direct code registrations]
+    Code --> Providers[Routable layers]
+    Providers --> Owners[Request owners]
+```
+
+The full conditional sequence is listed in
+[HostPipeline order](../../crates/edge/ARCHITECTURE.md#hostpipeline-order).
 
 ```rust
 use std::ops::ControlFlow;
@@ -115,16 +130,35 @@ eligibility and route-prefix selection remain with the host compiler.
 
 ## Execution and ownership
 
+```mermaid
+flowchart LR
+    Reply[Response: handled / early refusal / fallback] --> Hooks[Optional request-local ReplyHooks: reverse order]
+    Hooks --> Head[Reached response-head actions: reverse order]
+    Head --> Body[Reached response-body actions: reverse order]
+```
+
 - Head actions borrow request parts. They cannot access the body.
 - An asynchronous head action borrows its prepared owner and request state;
   the driver retains the untouched body while it waits.
-- A consuming action receives the request once. `Unhandled` returns that same
-  request and unread body. A handled status, including 404, ends dispatch.
-- Response hooks run in reverse order for entered layers only. A later layer
+- `HostHandler` may return `Unhandled` only with its unread `HostRequest`.
+  `apps::axum::application_if` selects from the head before handing over the body.
+- A low-level request action owns the request while running. Returning
+  `Unhandled` transfers it back; explicit buffering must restore all consumed
+  bytes, trailers and the remaining stream. A handled status, including 404,
+  ends dispatch.
+- `ExchangeAction` may retain request-local response work in `ReplyHooks`.
+  Registered hooks run once, in reverse order, before prepared response actions,
+  including on later refusal or fallback. An empty hook stack allocates nothing.
+- Prepared response actions run in reverse order for entered layers only. A later layer
   cannot decorate an earlier reply.
 - Cancellation drops the active future, request and state. Capacity remains
   in its declared state until reply-head completion or cancellation. Response
-  guards retain only the resources transferred to their bodies.
+  guards retain only the resources transferred to their bodies. Pending reply
+  hooks are dropped without being run.
+
+Production preparation selects an exchange-capable owner only when the plan
+contains an `ExchangeAction`. Other plans use the plain compiled owner without
+request-local reply-hook state.
 
 `HostExecution` is the published host owner for every transport. `RustRouter`
 selects an application-owned Axum/Warp router or an Other Rust handler/router
