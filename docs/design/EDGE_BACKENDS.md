@@ -88,6 +88,13 @@ pipeline. Unknown length does not mean empty input. Translate unsupported
 runtime input at the selected backend boundary, after the request is claimed.
 Header hooks and body guards must not collect a stream.
 
+`BackendContract` also declares reply lifetime. `BackendReply::Owner` leaves
+completion with the execution owner. `ExternalEventStream` supplies that
+owner's shutdown signal; the common dispatch boundary applies
+`EVENT_STREAM_ENDS_AT_SHUTDOWN` only to its actual SSE responses. Normal
+responses create no shutdown future or additional body wrapper. A backend's
+body retains its own lease/exchange cleanup, which runs when the body is dropped.
+
 Propagate request cancellation to the execution owner and release abandoned
 input/output resources. Work already accepted by a runtime remains owned until
 completion or its declared cancellation path; cancellation of one request
@@ -98,8 +105,9 @@ does not stop the shared runtime or unrelated work. Follow
 
 Identity is written into the request, which costs an extension map for every
 request, so it is exported only to a backend that reads it. A backend states
-that once, when the host plan is prepared: `BackendHandler::reads_identity`,
-`false` unless it says otherwise. The configured backends that execute for a
+that once, when the host plan is prepared, through the required
+`BackendHandler::contract` declaration. `BackendIdentity::None` preserves the
+request; `Request` exports metadata. The configured backends that execute for a
 host read it. A Rust handler (`OtherHandler`, `HostHandler`) receives the
 request as it arrived; a Rust owner that needs the accepted facts is a route
 extension and borrows them from `HostContext`. An Axum or Warp router has no

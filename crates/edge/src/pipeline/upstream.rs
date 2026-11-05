@@ -17,14 +17,16 @@ use super::host::{DispatchCall, DispatchStep};
 pub struct UpstreamStage {
     app: UpstreamApp,
     policy: UpstreamRequestPolicy,
+    shutdown: tokio_util::sync::CancellationToken,
 }
 
 impl UpstreamStage {
     pub fn new(
         app: UpstreamApp,
         policy: UpstreamRequestPolicy,
+        shutdown: tokio_util::sync::CancellationToken,
     ) -> Self {
-        Self { app, policy }
+        Self { app, policy, shutdown }
     }
 
     pub(crate) fn prepare(
@@ -45,14 +47,18 @@ impl UpstreamStage {
                 "host declares unknown upstream app/profile");
             return None;
         };
-        Some(Self::new(app, policy))
+        Some(Self::new(app, policy, state.shutdown_token()))
     }
 }
 
 impl crate::pipeline::host::BackendHandler for UpstreamStage {
-    // Reads the connection and policy from the request it is handed.
-    fn reads_identity(&self) -> bool {
-        true
+    fn contract(&self) -> crate::pipeline::BackendContract {
+        crate::pipeline::BackendContract {
+            identity: crate::pipeline::BackendIdentity::Request,
+            reply: crate::pipeline::BackendReply::ExternalEventStream(
+                self.shutdown.clone(),
+            ),
+        }
     }
 }
 

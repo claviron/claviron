@@ -17,9 +17,5 @@ pub async fn call_upstream_service(
     let mut scope = RequestScope::from_request(&req);
     scope.policy =
         UpstreamRequestPolicy { allow_h1_upgrade, allow_connect_protocol };
-    let shutdown = &service.inner.runtime.shutdown;
-    claviron_http::body::ends_at_shutdown(
-        service.handle_scoped(req, scope).await,
-        || shutdown.clone().cancelled_owned(),
-    )
+    service.handle_scoped(req, scope).await
 }

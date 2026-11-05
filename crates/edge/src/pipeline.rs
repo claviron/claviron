@@ -27,7 +27,8 @@ pub use connect::{
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
 };
 pub use host::{
-    ApplicationHandler, AsyncHeadAction, Backend, BackendHandler, DispatchCall,
+    ApplicationHandler, AsyncHeadAction, Backend, BackendContract,
+    BackendHandler, BackendIdentity, BackendReply, DispatchCall,
     DispatchFuture, DispatchResult, DispatchStep, HostExecution, HostHandler,
     HostHandlerFuture, HostHandlerResult, HostLayerBuilder, HostPipeline,
     HostPipelineBuilder, HostRequest, LayerContext,

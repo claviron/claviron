@@ -48,9 +48,6 @@ struct LinkRoute {
     path: Option<PathPrefix>,
     target: Option<TransportTarget>,
     requests: RequestPolicyOverride,
-    /// This worker's shutdown, at which an event stream ends its own side
-    /// ([`claviron_http::body::EndsAtShutdown`]).
-    shutdown: tokio_util::sync::CancellationToken,
 }
 
 /// Prepared segment-safe application mounts reached through Link.
@@ -59,6 +56,7 @@ struct LinkRoute {
 #[derive(Clone)]
 pub struct LinkBackend {
     routes: Arc<[LinkRoute]>,
+    shutdown: tokio_util::sync::CancellationToken,
 }
 
 impl LinkBackend {
@@ -81,7 +79,6 @@ impl LinkBackend {
                     route.application.clone().into(),
                 ),
                 requests,
-                shutdown: state.shutdown_token(),
             })
             .collect();
         // Preserve stable ascending mount insertion followed by LIFO dispatch.
@@ -92,7 +89,7 @@ impl LinkBackend {
             (Some(a), Some(b)) => a.as_str().len().cmp(&b.as_str().len()),
         });
         routes.reverse();
-        Some(Self { routes: routes.into() })
+        Some(Self { routes: routes.into(), shutdown: state.shutdown_token() })
     }
 
     fn select(
@@ -109,9 +106,13 @@ impl LinkBackend {
 }
 
 impl crate::pipeline::host::BackendHandler for LinkBackend {
-    // Reads the connection and policy from the request it is handed.
-    fn reads_identity(&self) -> bool {
-        true
+    fn contract(&self) -> crate::pipeline::BackendContract {
+        crate::pipeline::BackendContract {
+            identity: crate::pipeline::BackendIdentity::Request,
+            reply: crate::pipeline::BackendReply::ExternalEventStream(
+                self.shutdown.clone(),
+            ),
+        }
     }
 }
 
@@ -129,11 +130,8 @@ impl DispatchStep for LinkBackend {
             )));
         };
         let requests = route.requests;
-        let shutdown = route.shutdown.clone();
         DispatchCall::new(async move {
-            ServiceResult::Handled(
-                dispatch(target, requests, shutdown, request).await,
-            )
+            ServiceResult::Handled(dispatch(target, requests, request).await)
         })
     }
 }
@@ -141,7 +139,6 @@ impl DispatchStep for LinkBackend {
 async fn dispatch(
     target: TransportTarget,
     requests: RequestPolicyOverride,
-    shutdown: tokio_util::sync::CancellationToken,
     request: Request<RouteBody>,
 ) -> RouteResponse {
     let handshake = match websocket::Handshake::from_request(&request) {
@@ -296,13 +293,7 @@ async fn dispatch(
     ));
     let body = body::with_upload(body, upload);
     match response.body(body) {
-        // An event stream never ends on its own, so the drain would wait out
-        // its whole bound. The application process is not ours to stop, so
-        // the edge ends its side, as it does for an upstream origin; the
-        // application learns it as a client that left.
-        Ok(response) => claviron_http::body::ends_at_shutdown(response, || {
-            shutdown.cancelled_owned()
-        }),
+        Ok(response) => response,
         Err(error) => {
             tracing::debug!(correlation, "reply could not be rebuilt: {error}");
             gateway_failure()

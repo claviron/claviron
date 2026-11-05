@@ -34,7 +34,9 @@ Only reached layers shape a reply. Axum is an application adapter.
 
 [EDGE_BACKENDS](../../docs/design/EDGE_BACKENDS.md) defines the application-server
 boundary, policy ownership and body delivery rules for Rust applications, Embed,
-Upstream and Link.
+Upstream and Link. Every Backend declares identity export and response lifetime
+at preparation through `BackendContract`. The flat driver applies external SSE
+shutdown after a handled reply; it does not add another request future box.
 
 ## HostPipeline order
 
@@ -148,8 +150,8 @@ NonServingPipeline and its `redirect_port`.
 embedded runtimes, Upstream and Link. WebSocket and broadcast application calls
 use the same boundary. Protocol/provider filters run at boot/reload; host/scope
 selection and earlier policies run before handoff. A backend states at
-boot/reload whether it reads identity (`BackendHandler::reads_identity`,
-`false` unless it says otherwise). The builder inserts Identity once,
+boot/reload whether it reads identity through the required
+`BackendHandler::contract` declaration. The builder inserts Identity once,
 immediately before the first Backend that reads it. A plan whose owners read
 none inserts none: the request reaches its owner as it arrived and no
 extension map is created. The configured backends that execute for a host

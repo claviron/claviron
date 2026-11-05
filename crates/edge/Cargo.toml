@@ -40,7 +40,7 @@ orbit = [
     "claviron-http/orbit",
     "dep:claviron-orbit",
     "dep:percent-encoding",
-    "dep:tokio-util",
+    "tokio-util/io",
     # Edge owns the upgrade and protocol; Link carries whole messages.
     "claviron-http/websocket",
     "dep:fastwebsockets",
@@ -89,7 +89,7 @@ arc-swap.workspace = true
 async-trait.workspace = true
 futures-util.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
-tokio-util = { workspace = true, features = ["io", "rt"], optional = true }
+tokio-util = { workspace = true, features = ["rt"] }
 
 regex.workspace = true
 

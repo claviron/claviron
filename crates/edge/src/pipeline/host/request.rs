@@ -182,6 +182,27 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
                             }
                         }
                     }
+                    Action::ExternalRequest(action, shutdown) => {
+                        let decision =
+                            match action(Request::from_parts(head, body)) {
+                                DispatchCall::Ready(decision) => decision,
+                                DispatchCall::Pending(work) => work.await,
+                            };
+                        match decision {
+                            ServiceResult::Handled(response) => {
+                                let response =
+                                    claviron_http::body::ends_at_shutdown(
+                                        response,
+                                        || shutdown.clone().cancelled_owned(),
+                                    );
+                                break 'finish (response, step.scope);
+                            }
+                            ServiceResult::Unhandled(request) => {
+                                (head, body) = request.into_parts();
+                                continue;
+                            }
+                        }
+                    }
                 };
                 if let ControlFlow::Break(response) = decision {
                     break 'finish (response, step.scope);

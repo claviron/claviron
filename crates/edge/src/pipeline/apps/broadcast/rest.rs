@@ -77,9 +77,11 @@ struct Rest {
 }
 
 impl crate::pipeline::host::BackendHandler for Rest {
-    // Reads the connection and policy from the request it is handed.
-    fn reads_identity(&self) -> bool {
-        true
+    fn contract(&self) -> crate::pipeline::BackendContract {
+        crate::pipeline::BackendContract {
+            identity: crate::pipeline::BackendIdentity::Request,
+            reply: crate::pipeline::BackendReply::Owner,
+        }
     }
 }
 

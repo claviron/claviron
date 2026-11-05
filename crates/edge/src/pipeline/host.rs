@@ -32,7 +32,9 @@ mod request;
 mod response;
 
 pub use application::ApplicationHandler;
-pub use backend::{Backend, BackendHandler};
+pub use backend::{
+    Backend, BackendContract, BackendHandler, BackendIdentity, BackendReply,
+};
 pub(crate) use binding::HostPolicy;
 pub use context::{ContextFuture, ContextHandler, HostContext};
 pub use dispatch::{
@@ -64,6 +66,7 @@ enum Action<S, R> {
     Head(HeadAction<S, R>),
     ContextHead(ContextHeadAction<S, R>),
     Request(RequestAction),
+    ExternalRequest(RequestAction, tokio_util::sync::CancellationToken),
     ContextRequest(Box<dyn ContextHandler>),
     AsyncHead(Box<dyn AsyncHeadAction<S>>),
     Exchange(Box<dyn ExchangeAction>),

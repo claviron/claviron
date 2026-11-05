@@ -181,6 +181,9 @@ impl<S: 'static, R: 'static> HostPipelineBuilder<S, R> {
                             }),
                         ),
                         Action::Request(action) => Action::Request(action),
+                        Action::ExternalRequest(action, shutdown) => {
+                            Action::ExternalRequest(action, shutdown)
+                        }
                         Action::Exchange(action) => Action::Exchange(action),
                         Action::ContextRequest(action) => {
                             Action::ContextRequest(action)

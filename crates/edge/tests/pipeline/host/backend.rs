@@ -39,8 +39,11 @@ impl DispatchStep for FileStep {
 
 struct First;
 impl BackendHandler for First {
-    fn reads_identity(&self) -> bool {
-        true
+    fn contract(&self) -> crate::pipeline::BackendContract {
+        crate::pipeline::BackendContract {
+            identity: crate::pipeline::BackendIdentity::Request,
+            reply: crate::pipeline::BackendReply::Owner,
+        }
     }
 }
 impl DispatchStep for First {
@@ -70,8 +73,11 @@ impl DispatchStep for First {
 
 struct Last(Arc<ConnCtx>);
 impl BackendHandler for Last {
-    fn reads_identity(&self) -> bool {
-        true
+    fn contract(&self) -> crate::pipeline::BackendContract {
+        crate::pipeline::BackendContract {
+            identity: crate::pipeline::BackendIdentity::Request,
+            reply: crate::pipeline::BackendReply::Owner,
+        }
     }
 }
 impl DispatchStep for Last {
@@ -127,7 +133,14 @@ fn backend_identity_starts_after_native_file_steps_and_is_exported_only_once() {
 }
 
 struct Untouched;
-impl BackendHandler for Untouched {}
+impl BackendHandler for Untouched {
+    fn contract(&self) -> BackendContract {
+        BackendContract {
+            identity: BackendIdentity::None,
+            reply: BackendReply::Owner,
+        }
+    }
+}
 impl DispatchStep for Untouched {
     fn call(
         &self,
@@ -165,8 +178,11 @@ fn an_owner_that_reads_no_identity_receives_the_request_untouched() {
 
 struct Pending;
 impl BackendHandler for Pending {
-    fn reads_identity(&self) -> bool {
-        true
+    fn contract(&self) -> crate::pipeline::BackendContract {
+        crate::pipeline::BackendContract {
+            identity: crate::pipeline::BackendIdentity::Request,
+            reply: crate::pipeline::BackendReply::Owner,
+        }
     }
 }
 impl DispatchStep for Pending {
@@ -201,4 +217,90 @@ fn backend_identity_releases_its_connection_when_a_pending_call_is_cancelled() {
     assert_eq!(Arc::strong_count(&connection), baseline + 1);
     drop(answering);
     assert_eq!(Arc::strong_count(&connection), baseline);
+}
+
+struct External(tokio_util::sync::CancellationToken);
+
+impl BackendHandler for External {
+    fn contract(&self) -> BackendContract {
+        BackendContract {
+            identity: BackendIdentity::None,
+            reply: BackendReply::ExternalEventStream(self.0.clone()),
+        }
+    }
+}
+
+impl DispatchStep for External {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+    ) -> DispatchCall {
+        match request.uri().path() {
+            "/miss" => DispatchCall::ready(ServiceResult::Unhandled(request)),
+            "/finite" => DispatchCall::ready(ServiceResult::Handled(
+                Response::new(request.into_body()),
+            )),
+            _ => {
+                let response = Response::builder()
+                    .header(http::header::CONTENT_TYPE, "text/event-stream")
+                    .body(claviron_http::boxed_body(
+                        http_body_util::StreamBody::new(
+                            futures_util::stream::pending::<
+                                Result<
+                                    http_body::Frame<bytes::Bytes>,
+                                    std::convert::Infallible,
+                                >,
+                            >(),
+                        ),
+                    ))
+                    .unwrap();
+                DispatchCall::new(std::future::ready(ServiceResult::Handled(
+                    response,
+                )))
+            }
+        }
+    }
+}
+
+#[test]
+fn backend_handoff_ends_only_the_selected_external_event_stream() {
+    use http_body_util::BodyExt;
+    let shutdown = tokio_util::sync::CancellationToken::new();
+    let mut builder = HostPipelineBuilder::<()>::new();
+    builder
+        .layer(Backend::new(
+            External(shutdown.clone()),
+            HttpPolicy::unlimited(),
+        ))
+        .unwrap();
+    builder.layer(Backend::new(Untouched, HttpPolicy::unlimited())).unwrap();
+    let owner = builder.build().into_execution();
+    let mut response = owner
+        .handle(Request::new(empty_body()))
+        .now_or_never()
+        .unwrap()
+        .unwrap();
+    assert!(response.body_mut().frame().now_or_never().is_none());
+    shutdown.cancel();
+    assert!(response.body_mut().frame().now_or_never().unwrap().is_none());
+
+    // Cancellation cannot turn a finite reply or an unread miss into an SSE end.
+    for path in ["/finite", "/miss"] {
+        let bytes = bytes::Bytes::from_static(b"unchanged");
+        let pointer = bytes.as_ptr();
+        let request = Request::builder()
+            .uri(path)
+            .body(claviron_http::bytes_body(bytes))
+            .unwrap();
+        let mut response =
+            owner.handle(request).now_or_never().unwrap().unwrap();
+        let frame = response
+            .body_mut()
+            .frame()
+            .now_or_never()
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(frame.data_ref().unwrap().as_ptr(), pointer);
+    }
 }

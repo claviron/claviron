@@ -44,9 +44,9 @@ fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
             path: Some(serde_yaml::from_str("/api").unwrap()),
             target: None,
             requests: RequestPolicyOverride::default(),
-            shutdown: CancellationToken::new(),
         }]
         .into(),
+        shutdown: CancellationToken::new(),
     };
     for (path, handled) in
         [("/apiary", false), ("/elsewhere", false), ("/api/item", true)]

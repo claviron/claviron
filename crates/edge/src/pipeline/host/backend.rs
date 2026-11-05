@@ -14,17 +14,35 @@ use http::Request;
 /// Register this owner through `Backend`, so its metadata contract is prepared
 /// with the host plan rather than rediscovered during request execution.
 pub trait BackendHandler: DispatchStep {
-    /// Whether this owner reads the accepted connection, the host name or
-    /// the effective policy from the request's extensions.
-    ///
-    /// Read once while the host plan is prepared, never per request. An
-    /// owner that answers `false` is handed the request as it arrived:
-    /// nothing is written into it and no extension table is created for it.
-    /// The configured backends that execute for a host answer `true`; a
-    /// Rust application borrows the accepted facts from `HostContext`.
-    fn reads_identity(&self) -> bool {
-        false
-    }
+    /// Declared once during preparation. There is no implicit identity export
+    /// or response-lifetime policy for a newly registered backend.
+    fn contract(&self) -> BackendContract;
+}
+
+/// Request metadata exported at the application boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BackendIdentity {
+    /// Keep the request unchanged; native layers can borrow HostContext.
+    None,
+    /// Export the prepared policy, connection and selected hostname.
+    Request,
+}
+
+/// Who completes a streaming response when execution is draining.
+#[derive(Clone)]
+pub enum BackendReply {
+    /// The execution owner cooperatively completes its own output.
+    Owner,
+    /// End this edge's external SSE body on the supplied owner's shutdown.
+    /// Finite responses retain their normal completion and drain.
+    ExternalEventStream(tokio_util::sync::CancellationToken),
+}
+
+/// Mandatory cold declaration of the request and response handoff.
+#[derive(Clone)]
+pub struct BackendContract {
+    pub identity: BackendIdentity,
+    pub reply: BackendReply,
 }
 
 /// A selected request owner with its compiled scope metadata contract.
@@ -35,6 +53,7 @@ pub trait BackendHandler: DispatchStep {
 pub struct Backend<B> {
     pub(crate) owner: B,
     pub(in crate::pipeline) identity: Option<IdentityPolicy>,
+    reply: BackendReply,
 }
 
 impl<B: BackendHandler> Backend<B> {
@@ -42,9 +61,10 @@ impl<B: BackendHandler> Backend<B> {
         owner: B,
         policy: HttpPolicy,
     ) -> Self {
-        let identity =
-            owner.reads_identity().then(|| IdentityPolicy::new(policy));
-        Self { owner, identity }
+        let contract = owner.contract();
+        let identity = (contract.identity == BackendIdentity::Request)
+            .then(|| IdentityPolicy::new(policy));
+        Self { owner, identity, reply: contract.reply }
     }
 }
 
@@ -55,7 +75,11 @@ impl<B> Backend<B> {
         owner: B,
         policy: HttpPolicy,
     ) -> Self {
-        Self { owner, identity: Some(IdentityPolicy::new(policy)) }
+        Self {
+            owner,
+            identity: Some(IdentityPolicy::new(policy)),
+            reply: BackendReply::Owner,
+        }
     }
 
     pub(crate) fn prepare_request(
@@ -76,7 +100,13 @@ impl<B: BackendHandler, S> HostLayer<S> for Backend<B> {
         layer: &mut HostLayerBuilder<S>,
     ) -> crate::Result<()> {
         layer.identity = self.identity.map(|identity| identity.policy);
-        layer.request(move |request| self.owner.call(request));
+        let action = Box::new(move |request| self.owner.call(request));
+        layer.before.push(match self.reply {
+            BackendReply::Owner => super::Action::Request(action),
+            BackendReply::ExternalEventStream(shutdown) => {
+                super::Action::ExternalRequest(action, shutdown)
+            }
+        });
         Ok(())
     }
 }
@@ -90,8 +120,15 @@ impl DispatchStep for RustRouter {
     }
 }
 impl BackendHandler for RustRouter {
-    fn reads_identity(&self) -> bool {
-        RustRouter::reads_identity(self)
+    fn contract(&self) -> BackendContract {
+        BackendContract {
+            identity: if RustRouter::reads_identity(self) {
+                BackendIdentity::Request
+            } else {
+                BackendIdentity::None
+            },
+            reply: BackendReply::Owner,
+        }
     }
 }
 
@@ -106,7 +143,14 @@ impl DispatchStep for Arc<dyn HostHandler> {
         ))
     }
 }
-impl BackendHandler for Arc<dyn HostHandler> {}
+impl BackendHandler for Arc<dyn HostHandler> {
+    fn contract(&self) -> BackendContract {
+        BackendContract {
+            identity: BackendIdentity::None,
+            reply: BackendReply::Owner,
+        }
+    }
+}
 
 impl DispatchStep for Arc<dyn BackendHandler> {
     fn call(
@@ -117,8 +161,8 @@ impl DispatchStep for Arc<dyn BackendHandler> {
     }
 }
 impl BackendHandler for Arc<dyn BackendHandler> {
-    fn reads_identity(&self) -> bool {
-        self.as_ref().reads_identity()
+    fn contract(&self) -> BackendContract {
+        self.as_ref().contract()
     }
 }
 use crate::pipeline::layers::prepare_fallback;
