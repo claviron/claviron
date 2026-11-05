@@ -46,9 +46,9 @@ fn detects_target_role_and_issuer_independent_of_chain_order() {
                 .unwrap();
         assert_eq!(plan.kind, kind);
         assert_eq!(plan.issuer_id, Some(7));
-        assert_eq!(plan.common_name, "leaf.test");
-        assert!(plan.aliases.contains(&"leaf.test".into()));
-        assert!(plan.aliases.contains(&"alias.test".into()));
+        assert_eq!(plan.common_name.as_str(), "leaf.test");
+        assert!(plan.aliases.contains(&"leaf.test".parse().unwrap()));
+        assert!(plan.aliases.contains(&"alias.test".parse().unwrap()));
         assert!(plan.certs_der.starts_with(&leaf));
         let exported_key = private_key_to_pem(&plan.key_der).unwrap();
         let roundtrip =
@@ -85,7 +85,7 @@ fn ca_subjects_are_authority_names_not_host_aliases() {
     )
     .unwrap();
     let root = plan_import(&pem(&ca), key_pem.as_bytes(), &[]).unwrap();
-    assert_eq!(root.common_name, "Roma CA");
+    assert_eq!(root.common_name.as_str(), "Roma CA");
     assert!(root.aliases.is_empty());
     let issuers = [IssuerCandidate { id: 7, certs_der: root.certs_der }];
     let intermediate_key = generators::generate_ca_key().unwrap();
@@ -103,7 +103,7 @@ fn ca_subjects_are_authority_names_not_host_aliases() {
     let plan =
         plan_import(&intermediate, intermediate_pem.as_bytes(), &issuers)
             .unwrap();
-    assert_eq!(plan.common_name, "Roma Issuing CA");
+    assert_eq!(plan.common_name.as_str(), "Roma Issuing CA");
     assert_eq!(plan.issuer_id, Some(7));
     assert!(plan.aliases.is_empty());
     assert!(

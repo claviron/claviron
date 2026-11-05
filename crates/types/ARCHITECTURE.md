@@ -458,8 +458,9 @@ sequencing themselves:
 
 `sanitize_pem_content_to_der(content)` is the small helper that
 strips PEM armour (the BEGIN/END headers and the base64 wrap) and
-returns raw DER, falling back to the input bytes unchanged if PEM
-parsing fails.
+returns raw DER as a `Cow`: content that is not PEM is taken to be
+DER already and is lent back without a copy. The alias readers walk
+the extensions where the certificate or request holds them.
 
 `take_first_cert_from_der(der)` extracts the first certificate
 from a possibly-multi-cert DER blob — useful when the input is a
@@ -870,6 +871,8 @@ role, and verifies issuer signatures with x509-parser's aws-lc verification
 backend. It rejects ambiguous issuer matches, unrelated supplied certificates,
 cycles and CA path-length violations. It reorders and deduplicates the chain,
 returning target-first concatenated DER plus normalized PKCS#8 key bytes.
+The plan states the subject as a `CommonName` and the names as `Aliases`;
+a consumer turns them into text where it stores or prints them.
 An explicitly registered intermediate can terminate the available chain.
 This is import relationship validation, not a general RFC 5280 trust verifier:
 revocation and application trust policy remain outside this primitive.

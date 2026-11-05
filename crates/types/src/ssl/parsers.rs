@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::str::FromStr;
 
 use rustls::pki_types::CertificateDer;
@@ -13,11 +14,12 @@ use super::error::Error;
 use crate::{Aliases, Host};
 
 /// PEM files include BEGIN/END headers and base64 armor; this helper strips those and
-/// returns the raw DER bytes. If parsing as PEM fails, it returns the original bytes unchanged.
-pub fn sanitize_pem_content_to_der(content: &[u8]) -> Vec<u8> {
+/// returns the raw DER bytes. Content that is not PEM is taken to be DER already
+/// and is lent back as it is.
+pub fn sanitize_pem_content_to_der(content: &[u8]) -> Cow<'_, [u8]> {
     match parse_x509_pem(content) {
-        Ok((_, pem)) => pem.contents,
-        Err(_) => content.to_vec(),
+        Ok((_, pem)) => Cow::Owned(pem.contents),
+        Err(_) => Cow::Borrowed(content),
     }
 }
 
@@ -61,14 +63,9 @@ impl<'a> TryFrom<&'a X509Certificate<'a>> for Aliases {
     type Error = Error;
 
     fn try_from(cert: &'a X509Certificate<'a>) -> Result<Self, Self::Error> {
-        // Collect parsed extensions with the correct lifetime
-        let parsed_exts: Vec<ParsedExtension<'a>> = cert
-            .extensions()
-            .iter()
-            .map(|ext| ext.parsed_extension().clone())
-            .collect();
-
-        Aliases::from_extensions(&parsed_exts)
+        Aliases::from_extensions(
+            cert.extensions().iter().map(|ext| ext.parsed_extension()),
+        )
     }
 }
 
@@ -78,14 +75,9 @@ impl<'a> TryFrom<&'a X509CertificationRequest<'a>> for Aliases {
     fn try_from(
         csr: &'a X509CertificationRequest<'a>
     ) -> Result<Self, Self::Error> {
-        // Collect parsed extensions with the correct lifetime
-        let mut parsed_exts: Vec<ParsedExtension> = Vec::new();
-        if let Some(iter) = csr.requested_extensions() {
-            for ext in iter {
-                parsed_exts.push(ext.clone());
-            }
-        }
-        let mut aliases = Self::from_extensions(&parsed_exts)?;
+        let mut aliases = Self::from_extensions(
+            csr.requested_extensions().into_iter().flatten(),
+        )?;
         for attr in csr.certification_request_info.subject.iter_common_name() {
             let name = attr.as_str()?;
             let host = Host::from_str(name).map_err(Error::InvalidHostname)?;
@@ -104,8 +96,7 @@ impl Aliases {
     }
 
     pub fn from_csr_der(data: &[u8]) -> Result<Aliases, Error> {
-        let vec = data.to_vec();
-        let (_, csr) = X509CertificationRequest::from_der(&vec)
+        let (_, csr) = X509CertificationRequest::from_der(data)
             .map_err(|e| Error::Other(format!("DER parse error: {e}")))?;
         Self::try_from(&csr)
     }
@@ -117,9 +108,10 @@ impl Aliases {
 }
 
 impl Aliases {
-    /// Build alias list from a single parsed extension (typically a SAN).
-    pub fn from_extensions(
-        extensions: &[ParsedExtension]
+    /// Build the alias list from the subject alternative names among parsed
+    /// extensions, read where the certificate or request holds them.
+    pub fn from_extensions<'e, 'a: 'e>(
+        extensions: impl IntoIterator<Item = &'e ParsedExtension<'a>>
     ) -> Result<Aliases, Error> {
         let mut aliases = Aliases::new();
         for extension in extensions {

@@ -7,7 +7,7 @@ use x509_parser::certificate::X509Certificate;
 use x509_parser::extensions::ParsedExtension;
 use x509_parser::parse_x509_certificate;
 
-use super::{Aliases, CertificateKind, Error, Host, KeyString, generators};
+use super::{Aliases, CertificateKind, Error, Host, generators};
 
 /// Public material from an enabled, explicitly registered local DB issuer.
 pub struct IssuerCandidate {
@@ -18,8 +18,8 @@ pub struct IssuerCandidate {
 /// Validated material bound to a registered local issuer, or a self-signed root.
 /// Deliberately not Debug: this value owns a private key.
 pub struct ImportPlan {
-    pub common_name: String,
-    pub aliases: Vec<String>,
+    pub common_name: super::CommonName,
+    pub aliases: Aliases,
     pub kind: CertificateKind,
     pub issuer_id: Option<i32>,
     pub certs_der: Vec<u8>,
@@ -154,14 +154,13 @@ pub fn plan_import(
     };
     let (common_name, aliases) = if kind == CertificateKind::Ca {
         // A CA's subject is an authority identity, never a routing hostname.
-        let name = super::CommonName::try_from(cert.subject())?;
-        (name.into_string(), Vec::new())
+        (super::CommonName::try_from(cert.subject())?, Aliases::new())
     } else {
         let name = Host::try_from(&cert)?;
-        let common_name = name.key_string();
+        let common_name = super::CommonName::from(&name);
         let mut names = Aliases::try_from(&cert)?;
         names.push_unique(name);
-        (common_name, names.iter().map(KeyString::key_string).collect())
+        (common_name, names)
     };
     let self_signed = kind == CertificateKind::Ca
         && cert.subject() == cert.issuer()

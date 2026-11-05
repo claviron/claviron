@@ -60,7 +60,7 @@ pub fn revoke(
         ));
     }
     // The DER read above serves the signer too, whichever form came in.
-    let issuer = Issuer::from_ca_cert_der(&issuer_der.as_slice().into(), key)?;
+    let issuer = Issuer::from_ca_cert_der(&issuer_der.as_ref().into(), key)?;
     let mut preserved = String::new();
     let mut entries = BTreeMap::new();
     let mut number = vec![0];
