@@ -199,6 +199,7 @@ not duplicated as new Claviron constants.
 
 | Kind ID | Physical resource | Shape | Owning definition / Claviron binding |
 |---|---|---|---|
+| `185` | Fleet TLS server sessions v2: a claim on each set instead of a table lock, owner registrations held by kernel locks | Header + owner generations + set claims + slots | Orbitive `orbit-rustls` `SERVER_SESSION_STATE_KIND` after 0.5.5; `tls` [TLS_SESSION_STATE_KIND](../tls/src/orbit.rs) follows that constant |
 | `186` | Recoverable text cells v5 with two committed/staging banks, full-width revision and exact owner incarnations | Table + owner identities + per-owner slot pin rows | Orbitive `CELL_TEXT_KIND`; replaces `188`; owner-exit recovery completes pending wakes under exact kernel holds, without touching the last committed text |
 | `187` | Handle-pinned scalar cells v4 with a separate parking generation | Table + per-owner slot pin rows | Orbitive `CELL_STATE_KIND`; replaces `189`; logical release precedes physical reuse, cancellation changes the native park word without changing the value version |
 | `188` | Retired handle-pinned text cells v4 with a separate parking generation | Table + per-owner slot pin rows | Replaced by `186`; anonymous writer/seqlock publication has no owner-death recovery; retained objects are not migrated, reset or unlinked automatically |
@@ -244,7 +245,7 @@ not duplicated as new Claviron constants.
 | `228` | Authoritative lock state | Table | Orbitive `LOCK_STATE_KIND`; [lock binding](src/lock.rs) |
 | `229` | Lock transitions | Ring | Orbitive `LOCK_EVENT_RING_KIND`; [lock binding](src/lock.rs) |
 | `230` | Keyed signed counters | Table | Orbitive `COUNTER_STATE_KIND`; [CounterProvider binding](src/counter.rs) |
-| `231` | Fleet TLS server sessions | Table | `tls` [TLS_SESSION_STATE_KIND](../tls/src/orbit.rs) |
+| `231` | Fleet TLS server sessions v1 with one table-wide lock | Table | Orbitive `orbit-rustls` `SERVER_SESSION_STATE_KIND` through 0.5.5, which the `tls` binding names until the dependency moves past it; replaced by `185`, after which retained segments are not reset or unlinked automatically |
 | `232` | Retired controller-only runnable service snapshots | Ring, 512-byte payloads | Replaced by `191`; retained segments are not resized, reset or unlinked automatically |
 | `233` | Retired scalar cells v2 without handle pins | Table | Replaced by `189`; retained objects are not migrated, reset or unlinked automatically |
 | `234` | Application events | Ring | [APPLICATION_EVENT_RING_KIND](src/event.rs) / `ApplicationEventLayout` |
@@ -440,7 +441,7 @@ its index row.
 | `228` lock state | Reuse | Preserve | — | a dead holder's lease, until its TTL |
 | `229` lock transitions | Reuse | Preserve | — | cursor at the head |
 | `230` counters | Reuse | Preserve | — | values, on purpose, as for cells |
-| `231` TLS sessions | ResetWhenQuiescent{Reuse}, when `cleanup_on_exit` | UnlinkWhenQuiescent | — | nothing after a quiescent exit; otherwise sessions bounded by their TTL |
+| `185` TLS sessions (`231` through `orbit-rustls` 0.5.5) | ResetWhenQuiescent{Reuse}, when `cleanup_on_exit` | UnlinkWhenQuiescent | — | nothing after a quiescent exit; otherwise sessions bounded by their TTL |
 | `236`/`237` broadcast | Reuse | Preserve | — | cursor at the head |
 | `238` master generation | Reuse | Preserve | a new master publishes a higher generation | the head orders masters |
 | `239` presence | Reuse | Preserve | overwrite | a stale PID; liveness checks PID and start stamp |

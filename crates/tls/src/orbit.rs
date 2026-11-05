@@ -20,8 +20,8 @@ pub use orbitive::rustls::{
 
 const PROVIDER_NAME: &str = "FleetServerSessionsProvider";
 const RESOURCE_NAME: &str = "fleet-tls-session-table";
-// `orbit-rustls` owns this physical id but does not currently export it.
-const TLS_SESSION_STATE_KIND: u8 = 231;
+// `orbit-rustls` owns this physical id; the table's layout decides it.
+const TLS_SESSION_STATE_KIND: u8 = orbitive::rustls::SERVER_SESSION_STATE_KIND;
 
 /// Domain resource set behind the mandatory SHM lifecycle wrapper.
 pub struct FleetServerSessionsResources {
