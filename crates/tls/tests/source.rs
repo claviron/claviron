@@ -17,9 +17,10 @@ async fn source_reads_trust_and_identity_without_sni_or_default_certificate() {
         directory.path().display()
     ))
     .unwrap();
-    std::fs::create_dir_all(files.ca_dir("fixture")).unwrap();
-    std::fs::write(files.ca_cert_path("fixture"), &ca).unwrap();
-    let key_path = files.ca_key_path("fixture");
+    let fixture = "fixture".parse().unwrap();
+    std::fs::create_dir_all(files.ca_dir(fixture)).unwrap();
+    std::fs::write(files.ca_cert_path(fixture), &ca).unwrap();
+    let key_path = files.ca_key_path(fixture);
     let source = CertificateStore::new(files);
     let trust = source.authority().await.unwrap().unwrap();
     assert_eq!(trust.roots().len(), 1);

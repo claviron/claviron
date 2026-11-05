@@ -329,6 +329,23 @@ The structural difference from `Organization`: an issuer has a CN
 (the CA's common name); an organisation does not (CN is the
 end-entity's host).
 
+### 3.5 `Basename` — the store's own short name
+
+`Basename` is not an X.509 or DNS name. It is the short name an
+operator gives material kept in the file store, such as `default` or
+`example`, and its one job is to be joined to the store directory as
+a folder name. The rule is ours: one to eight letters `a` to `z`.
+That alphabet cannot spell a separator, a parent directory or a
+hidden file, so the join needs no further check, and the fixed size
+keeps the value inline and `Copy`.
+
+Two entry points state the two situations. `Basename::new` returns
+`None` for text that is not a basename: a configured name that is not
+one names something outside the file store, which is a lookup
+elsewhere and not an error. `TryFrom<&str>`, `TryFrom<String>` and
+`FromStr` return an error, for a command-line argument or a
+configuration key that must be a basename.
+
 ---
 
 ## 4. On-disk layout — `CertStore`
@@ -360,7 +377,12 @@ The store layout is conventional:
 Client generation and import share `CLIENT_CERT_FILENAME` (`client.crt`) and
 `CLIENT_KEY_FILENAME` (`client.key`) under `CLIENT_CERTS_DIRNAME` (`clients`).
 
-`authority: {local: example}` selects a CA by its store basename.
+CA folders are always named by a `Basename`. A server folder is named
+by a basename or by the certificate's host, a client folder by a
+basename or by the certificate's common name.
+
+`authority: {local: example}` selects a CA by its store basename; text
+that is not a basename is refused there.
 `authority: {cn: "Example CA"}` selects by certificate Common Name.
 
 `crl_path` optionally overrides the CRL file. `crl_path()` defaults to
@@ -759,6 +781,7 @@ host.
 | `aliases.rs`     | 148 | `Aliases` (newtype `Vec<Host>`), unique-push semantics, one-or-many serde, `domains()` borrowing iterator, conversions from `Sni` lists. |
 | `ssl.rs`         | small | Feature-gated SSL namespace and public re-exports. |
 | `ssl/algorithm.rs`   | 42 | Storage-neutral `Algorithm` enum, `FromStr`, `Display`, and serde. |
+| `ssl/basename.rs`    | 115 | `Basename`: the store's short folder name, one to eight letters, inline and `Copy`. |
 | `ssl/cn.rs`          | 110 | `CommonName`: validated subject name, borrowed read from a parsed name, conversions from hosts and into subject values. |
 | `ssl/organization.rs`| 95 | `Organization` subject fields, its read from a certificate and its write into a subject. |
 | `ssl/issuer.rs`      | 33 | `Issuer<'a>`: borrowed view of a certificate's issuer name. |
@@ -849,11 +872,13 @@ including spaces and case, and emits no routing aliases. Only leaf identities
 pass through the existing Host/SAN normalization. A CA's CN must be non-empty;
 it is never interpreted as a DNS name or installed as an SNI alias.
 `CertStore.authority` and TLS `default` share `CertificateSource`, using
-validated `CommonName`, not Host. A bare single-component name tries the
-file store first, then hosting only when the files are absent. `{cn: "Roma CA"}`
+validated `CommonName`, not Host. A bare name that is a `Basename` tries the
+file store first, then hosting only when the files are absent. A bare name
+that is not a basename is never joined to a path and is looked up in hosting
+only. `{local: roma}` selects the file store only, `{cn: "Roma CA"}`
 selects DB only; `{path: ca/roma/ca.crt}` selects a PEM file only. Paths resolve
 against the store directory; explicit `cert_path`/`key_path` pairs retain
-cwd-relative semantics. Mixed, empty, unknown and traversal selectors fail.
+cwd-relative semantics. Mixed, empty and unknown selectors fail.
 The default identity is `default`; it is not a routing hostname. SNI entries
 still use Host. A damaged or inaccessible file is never hidden by DB fallback.
 

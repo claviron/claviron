@@ -45,19 +45,23 @@ impl Snapshot {
         let certstore = cfg.certstore();
 
         match cfg.default_cert_entry() {
-            CertificateSource::Name(name) | CertificateSource::Local(name) => {
-                let dir = certstore.server_dir(name.as_str());
-                let cert_path = dir.join(FULLCHAIN_CERT_FILENAME);
-                let key_path = dir.join(PRIVKEY_FILENAME);
-                // Only absence of both files permits DB fallback. A broken or
-                // inaccessible pair is an operator error, not another source.
-                if matches!(
-                    cfg.default_cert_entry(),
-                    CertificateSource::Local(_)
-                ) || cert_path.try_exists()?
-                    || key_path.try_exists()?
-                {
-                    snap.load_default(&cert_path, &key_path)?;
+            source @ (CertificateSource::Name(_)
+            | CertificateSource::Local(_)) => {
+                // A bare name that is not a store folder name is in hosting
+                // only, so there is no file pair to look for.
+                if let Some(name) = source.basename() {
+                    let dir = certstore.server_dir(name.as_str());
+                    let cert_path = dir.join(FULLCHAIN_CERT_FILENAME);
+                    let key_path = dir.join(PRIVKEY_FILENAME);
+                    // Only absence of both files permits DB fallback. A broken
+                    // or inaccessible pair is an operator error, not another
+                    // source.
+                    if matches!(source, CertificateSource::Local(_))
+                        || cert_path.try_exists()?
+                        || key_path.try_exists()?
+                    {
+                        snap.load_default(&cert_path, &key_path)?;
+                    }
                 }
             }
             CertificateSource::Cn(_) => {}

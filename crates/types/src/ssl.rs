@@ -1,4 +1,5 @@
 mod algorithm;
+mod basename;
 pub mod certstore;
 mod cn;
 pub mod crl;
@@ -16,6 +17,7 @@ mod subject;
 pub mod transfer;
 
 pub use algorithm::Algorithm;
+pub use basename::Basename;
 pub use cn::CommonName;
 pub use error::{Error, Error as SSLError};
 pub use issuer::Issuer;

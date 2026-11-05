@@ -284,7 +284,8 @@ create an SNI map, register virtual hosts or bind a listener.
 - `identity(selection, kind)`: a server/client certificate and its own key;
 - `signer(authority)`: explicitly acquire the selected file or DB local-CA signing capability.
 
-Bare names retain file-first lookup. Explicit CNs select hosting; explicit paths
+A bare name that is a store basename retains file-first lookup; one that is
+not is in hosting only. Explicit CNs select hosting; explicit paths
 select files. Partial, invalid or inaccessible file material fails rather than
 falling through to a different source. A selected DB server identity must be
 enabled, have the requested kind and belong to the current server assignment.
@@ -757,11 +758,14 @@ binding. Raw map APIs retain pointer-group removal for unowned entries only.
 ## 8. Configuration
 
 `certstore.authority` and `default` use the same `CertificateSource`. A bare
-name uses files first (CA: `ca/<name>/ca.crt`; default: `servers/<name>/fullchain.pem`
-and `privkey.pem`), then hosting when required files are absent.
+name that is a store basename (one to eight letters `a` to `z`) uses files
+first (CA: `ca/<name>/ca.crt`; default: `servers/<name>/fullchain.pem`
+and `privkey.pem`), then hosting when required files are absent. Any other
+bare name is looked up in hosting only; a server folder named by its host is
+selected with `path`.
 Default omission or YAML null (`default:` / `default: null`) selects the name
 `default`; it does not disable the default certificate or bypass load errors.
-`{local: example}` selects a CertStore basename.
+`{local: example}` selects a CertStore basename and refuses other text.
 `{cn: "Example CA"}` selects the exact stored certificate Common Name in
 Hosting. `{path: ca.crt}` selects a certificate path. For a default
 certificate, `path` points to its full chain and the sibling `privkey.pem`.

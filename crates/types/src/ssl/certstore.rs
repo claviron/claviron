@@ -4,7 +4,7 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 
 use serde::Deserialize;
 
-use super::{CommonName, Organization};
+use super::{Basename, CommonName, Organization};
 use crate::{Host, KeyString};
 
 pub const SERVER_CERTS_DIRNAME: &str = "servers";
@@ -33,16 +33,29 @@ pub enum CertEntry {
     Paths(CertPaths),
 }
 
-/// CA and default identities are not DNS hostnames. Names try the file store
-/// first, then hosting; explicit local, CN and path declarations select one source.
+/// CA and default identities are not DNS hostnames. A bare name that is a
+/// [`Basename`] tries the file store first, then hosting; a bare name that is
+/// not one is in hosting only. Explicit local, CN and path declarations select
+/// one source.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash)]
 #[serde(try_from = "CertificateSourceDeclaration")]
 pub enum CertificateSource {
     Name(CommonName),
-    Local(CommonName),
+    Local(Basename),
     Cn(CommonName),
     Path(PathBuf),
     Paths(CertPaths),
+}
+
+impl CertificateSource {
+    /// The file store folder this source selects, when it selects one.
+    pub fn basename(&self) -> Option<Basename> {
+        match self {
+            Self::Name(name) => Basename::new(name.as_str()),
+            Self::Local(name) => Some(*name),
+            Self::Cn(_) | Self::Path(_) | Self::Paths(_) => None,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -56,7 +69,8 @@ enum CertificateSourceDeclaration {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceSelection {
-    local: Option<CommonName>,
+    /// Kept as written so a name that is not a basename is reported as one.
+    local: Option<String>,
     cn: Option<CommonName>,
     path: Option<PathBuf>,
 }
@@ -69,7 +83,6 @@ impl TryFrom<CertificateSourceDeclaration> for CertificateSource {
     ) -> Result<Self, Self::Error> {
         let source = match source {
             CertificateSourceDeclaration::Name(name) => {
-                validate_basename(&name)?;
                 return Ok(Self::Name(name));
             }
             CertificateSourceDeclaration::Paths(paths)
@@ -84,8 +97,7 @@ impl TryFrom<CertificateSourceDeclaration> for CertificateSource {
         };
         match (source.local, source.cn, source.path) {
             (Some(local), None, None) => {
-                validate_basename(&local)?;
-                Ok(Self::Local(local))
+                Basename::try_from(local).map(Self::Local)
             }
             (None, Some(cn), None) => Ok(Self::Cn(cn)),
             (None, None, Some(path)) if !path.as_os_str().is_empty() => {
@@ -96,18 +108,6 @@ impl TryFrom<CertificateSourceDeclaration> for CertificateSource {
                     .into())
             }
         }
-    }
-}
-
-fn validate_basename(name: &CommonName) -> Result<(), String> {
-    let mut components = Path::new(name.as_str()).components();
-    if matches!(components.next(), Some(std::path::Component::Normal(_)))
-        && components.next().is_none()
-        && !name.as_str().contains(['/', '\\'])
-    {
-        Ok(())
-    } else {
-        Err("certificate name must be a single store basename".into())
     }
 }
 
@@ -182,6 +182,8 @@ impl CertStore {
         &self.dir
     }
 
+    /// A client folder is named by a basename or by the certificate's
+    /// common name.
     pub fn client_dir(
         &self,
         cname: &str,
@@ -189,6 +191,7 @@ impl CertStore {
         self.dir().join(CLIENT_CERTS_DIRNAME).join(cname)
     }
 
+    /// A server folder is named by a basename or by the certificate's host.
     pub fn server_dir(
         &self,
         cname: &str,
@@ -198,7 +201,7 @@ impl CertStore {
 
     pub fn ca_dir(
         &self,
-        name: &str,
+        name: Basename,
     ) -> PathBuf {
         self.dir().join(CA_CERTS_DIR_NAME).join(name)
     }
@@ -235,27 +238,27 @@ impl CertStore {
 
     pub fn ca_cert_path(
         &self,
-        name: &str,
+        name: Basename,
     ) -> PathBuf {
         self.ca_dir(name).join(CA_CERT_FILENAME)
     }
 
     pub fn ca_key_path(
         &self,
-        name: &str,
+        name: Basename,
     ) -> PathBuf {
         self.ca_dir(name).join(CA_KEY_FILENAME)
     }
 
     pub fn authority_cert_path(&self) -> Option<PathBuf> {
-        match self.authority.as_ref() {
-            Some(AuthorityEntry::Cn(_)) => None,
-            Some(AuthorityEntry::Name(name) | AuthorityEntry::Local(name)) => {
-                Some(self.ca_cert_path(name.as_str()))
+        match self.authority.as_ref()? {
+            AuthorityEntry::Path(path) => Some(self.dir.join(path)),
+            AuthorityEntry::Paths(paths) => paths.cert_path.clone(),
+            source @ (AuthorityEntry::Name(_)
+            | AuthorityEntry::Local(_)
+            | AuthorityEntry::Cn(_)) => {
+                source.basename().map(|name| self.ca_cert_path(name))
             }
-            Some(AuthorityEntry::Path(path)) => Some(self.dir.join(path)),
-            Some(AuthorityEntry::Paths(paths)) => paths.cert_path.clone(),
-            None => None,
         }
     }
 }

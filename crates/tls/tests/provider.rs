@@ -48,11 +48,12 @@ async fn named_authority_preserves_ca_identity_without_relaxing_hosts() {
     assert!(
         parse_tls_config(yaml.replace("server.test", "Roma CA")).await.is_ok()
     );
-    assert!(
-        parse_tls_config(yaml.replace("server.test", "../escape"))
-            .await
-            .is_err()
-    );
+    // A bare name that is not a store basename never becomes a path, so
+    // there is nothing to refuse: it stays a name for hosting.
+    let escape = parse_tls_config(yaml.replace("server.test", "../escape"))
+        .await
+        .unwrap();
+    assert_eq!(escape.default_cert_entry().basename(), None);
     assert!(parse_tls_config(yaml.replace("'Roma CA'", "' '")).await.is_err());
     let pem = "certstore: {dir: certs, authority: {path: ca.pem}}\ndefault: server.test\n";
     let config = parse_tls_config(pem.to_owned()).await.unwrap();
@@ -153,7 +154,7 @@ async fn failed_reload_file_snapshot_keeps_serving_certificates() {
     )
     .unwrap();
     let server_dir = directory.0.join("servers/default");
-    let ca_dir = directory.0.join("ca/Fixture CA");
+    let ca_dir = directory.0.join("ca/fixture");
     std::fs::create_dir_all(&server_dir).unwrap();
     std::fs::create_dir_all(&ca_dir).unwrap();
     std::fs::write(server_dir.join(FULLCHAIN_CERT_FILENAME), &pem).unwrap();
@@ -161,7 +162,7 @@ async fn failed_reload_file_snapshot_keeps_serving_certificates() {
         .unwrap();
     std::fs::write(ca_dir.join(CA_CERT_FILENAME), &pem).unwrap();
     let yaml = format!(
-        "certstore: {{dir: {}, authority: 'Fixture CA'}}",
+        "certstore: {{dir: {}, authority: fixture}}",
         directory.0.display()
     );
     let config = parse_tls_config(yaml.clone()).await.unwrap();

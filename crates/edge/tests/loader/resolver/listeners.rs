@@ -127,8 +127,9 @@ async fn client_authority_survives_listener_publication_and_reload() {
     let files: CertStore =
         serde_yaml::from_str(&format!("dir: {}", directory.path().display()))
             .unwrap();
-    std::fs::create_dir_all(files.ca_dir("fixture")).unwrap();
-    let path = files.ca_cert_path("fixture");
+    let fixture = "fixture".parse().unwrap();
+    std::fs::create_dir_all(files.ca_dir(fixture)).unwrap();
+    let path = files.ca_cert_path(fixture);
     let write_ca = || {
         let key = generators::generate_ca_key().unwrap();
         let pem = generators::generate_ca_cert(

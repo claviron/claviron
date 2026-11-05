@@ -96,17 +96,19 @@ impl CertificateStore {
         selection: &CertificateSource,
     ) -> Result<CertAuthority, Error> {
         let path = match selection {
-            CertificateSource::Name(name) => {
-                let path = files.ca_cert_path(name.as_str());
-                if tokio::fs::try_exists(&path).await? {
-                    Some(path)
-                } else {
-                    None
+            CertificateSource::Name(_) => match selection.basename() {
+                Some(name) => {
+                    let path = files.ca_cert_path(name);
+                    if tokio::fs::try_exists(&path).await? {
+                        Some(path)
+                    } else {
+                        None
+                    }
                 }
-            }
-            CertificateSource::Local(name) => {
-                Some(files.ca_cert_path(name.as_str()))
-            }
+                // Not a store folder name: the name is in hosting only.
+                None => None,
+            },
+            CertificateSource::Local(name) => Some(files.ca_cert_path(*name)),
             CertificateSource::Cn(cn) => {
                 #[cfg(feature = "db")]
                 return CertAuthority::from_cn(
@@ -192,25 +194,31 @@ impl CertificateStore {
         }
         let files = self.files.load_full();
         let pair = match selection {
-            CertificateSource::Name(name) | CertificateSource::Local(name) => {
-                let dir = if kind == CertificateKind::Client {
-                    files.client_dir(name.as_str())
-                } else {
-                    files.server_dir(name.as_str())
-                };
-                let (cert, key) = if kind == CertificateKind::Client {
-                    (CLIENT_CERT_FILENAME, CLIENT_KEY_FILENAME)
-                } else {
-                    (FULLCHAIN_CERT_FILENAME, PRIVKEY_FILENAME)
-                };
-                let pair = (dir.join(cert), dir.join(key));
-                if matches!(selection, CertificateSource::Local(_))
-                    || tokio::fs::try_exists(&pair.0).await?
-                    || tokio::fs::try_exists(&pair.1).await?
-                {
-                    Some(pair)
-                } else {
-                    None
+            CertificateSource::Name(_) | CertificateSource::Local(_) => {
+                match selection.basename() {
+                    Some(name) => {
+                        let dir = if kind == CertificateKind::Client {
+                            files.client_dir(name.as_str())
+                        } else {
+                            files.server_dir(name.as_str())
+                        };
+                        let (cert, key) = if kind == CertificateKind::Client {
+                            (CLIENT_CERT_FILENAME, CLIENT_KEY_FILENAME)
+                        } else {
+                            (FULLCHAIN_CERT_FILENAME, PRIVKEY_FILENAME)
+                        };
+                        let pair = (dir.join(cert), dir.join(key));
+                        if matches!(selection, CertificateSource::Local(_))
+                            || tokio::fs::try_exists(&pair.0).await?
+                            || tokio::fs::try_exists(&pair.1).await?
+                        {
+                            Some(pair)
+                        } else {
+                            None
+                        }
+                    }
+                    // Not a store folder name: the name is in hosting only.
+                    None => None,
                 }
             }
             CertificateSource::Cn(_) => None,
@@ -343,27 +351,29 @@ impl CertificateStore {
             ));
         };
         let files = self.files.load_full();
-        let key_path = match files.authority_entry() {
-            Some(
-                CertificateSource::Name(name) | CertificateSource::Local(name),
-            ) if files.ca_cert_path(name.as_str()) == cert_path => {
-                files.ca_key_path(name.as_str())
-            }
-            Some(CertificateSource::Paths(paths))
-                if paths.cert_path().is_some_and(|path| path == cert_path) =>
-            {
-                paths.key_path().cloned().ok_or_else(|| {
-                    Error::Other(
-                        "file authority signing requires key_path".into(),
-                    )
-                })?
-            }
-            _ => {
-                return Err(Error::Other(
-                    "selected file authority has no signing source".into(),
-                ));
-            }
-        };
+        let source = files.authority_entry();
+        let key_path =
+            match (source.and_then(CertificateSource::basename), source) {
+                (Some(name), _) if files.ca_cert_path(name) == cert_path => {
+                    files.ca_key_path(name)
+                }
+                (_, Some(CertificateSource::Paths(paths)))
+                    if paths
+                        .cert_path()
+                        .is_some_and(|path| path == cert_path) =>
+                {
+                    paths.key_path().cloned().ok_or_else(|| {
+                        Error::Other(
+                            "file authority signing requires key_path".into(),
+                        )
+                    })?
+                }
+                _ => {
+                    return Err(Error::Other(
+                        "selected file authority has no signing source".into(),
+                    ));
+                }
+            };
         let authority = authority.clone();
         tokio::task::spawn_blocking(move || {
             CertSigner::from_file(authority, &key_path)
