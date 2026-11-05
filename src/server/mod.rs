@@ -7,6 +7,9 @@
 //! one declared in the facade, forwarded, and declared again beside the same
 //! optional dependency.
 
+#[cfg(all(feature = "edge", any(feature = "php_embed", feature = "php_fcgi")))]
+mod backends;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 

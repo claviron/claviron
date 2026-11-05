@@ -22,9 +22,8 @@ What it adds beyond a vanilla FCGI client:
 - A **one-shot fallback** when no `pool:` block is configured —
   fresh dial per request. Useful for low-traffic operator scripts
   that don't deserve a warm pool but must remain serviceable.
-- A **native adapter** (`PhpFpmAdapter`), the entry a host plan calls
-  for a request its PHP prefix selected. It resolves the script and
-  calls FPM directly; an unclaimed request comes back unread.
+- An opt-in **Edge backend** that receives a prepared PHP runtime, resolves
+  its script and calls FPM. An unclaimed request comes back unread.
 - A **periodic FPM `/status` scraper** (single source per FPM, runs
   on master + standalone) that publishes
   `claviron_fpm_*{pool=...}` gauges to Prometheus alongside the
@@ -39,18 +38,15 @@ unused entries. First request to a pool name materialises it.
 
 ## 1. Position in the request pipeline
 
-Host admission -> Rust Application -> Static -> TryFiles -> prepared PHP owner
--> PhpFpmAdapter -> native script resolution -> FPM connection/lease -> reply.
-The existing host compiler temporarily bridges this native owner until the
-remaining host adapters migrate; the FCGI crate itself has no Axum dependency,
-feature or router binding.
+Host admission -> Rust Application -> Static -> TryFiles -> prepared FCGI Backend
+-> script resolution -> FPM connection/lease -> reply.
 
-PhpFpmAdapter::try_handle(self, request) receives a caller-selected runtime.
-Script-resolution Unhandled returns the same unread Request<RouteBody> before
-connection acquisition. Handled responses retain the existing execution,
-streaming, retry, capture, cancellation and pool-lease behavior. Prefix ordering
-and the choice among runner types belong to Edge's cold Embed preparation.
-The terminal handle(&self, request) retains 404 on prefix/resolution misses.
+`edge::prepare` supplies one native Backend owner behind the `edge` feature.
+The facade composes selected PHP engines in declaration order. The common Edge
+handoff exports identity and applies external SSE shutdown; the FPM body retains
+lease ownership. Script-resolution misses return the original unread body before
+connection acquisition. There is no public standalone HTTP adapter or Axum binding.
+The pool/service layer remains independent of Edge.
 
 ## 2. Configuration sources
 
@@ -791,17 +787,15 @@ not own or cap the connections.
 
 ---
 
-## 7. PhpFpmAdapter
+## 7. Edge backend
 
-This is the native entry for configured PHP hosts and explicitly composed
-handlers. It holds an Arc<PhpFcgiService> and an Arc<PhpRuntime>. try_handle
-consumes that handle to move its existing references into dispatch. Prefix
-selection is external to try_handle and must occur before it is called.
+`edge.rs` owns `prepare` and the native BackendHandler implementation. The
+prepared owner captures the selected runtime and service once, and declares
+`BackendIdentity::Request` plus external event-stream shutdown. It does not
+select a runner, repeat Static/TryFiles or implement another response drain.
+The private `proxy` module performs HTTP/CGI translation; execution, retries,
+streaming and connection reuse remain owned by the service and its response pump.
 
-The adapter knows script/front-controller resolution and its runtime's existing
-try_files behavior. It does not own host ACL, redirects or explicit static mount
-selection. Those remain native host/file steps ahead of PHP. It neither creates
-Axum layers nor changes the engine's pooling, fallback or timing policy.
 
 ## 8. SAPI vs FCGI — risk matrix for the operator
 
@@ -1003,7 +997,7 @@ regression before the latency tail does.
 
 | File | Responsibility |
 |------|----------------|
-| `lib.rs` | `register()` providers; re-exports `PhpFcgiService`, `PhpFpmAdapter` |
+| `lib.rs` | `register()` providers; exposes `PhpFcgiService` and optional Edge integration |
 | `service.rs` | `PhpFcgiService` (`Provider` + `Reloadable`) — owns the entries map, lazy `get_entry`, `resolve_entry`, executes buffered + streaming |
 | `config.rs` | `PhpServiceConfig` / `FpmClient` / `PoolConfig` — `fpm.yaml` shape + sizing knobs; strict records inside a permissive container |
 | `pool.rs` | `FcgiPool` — three-tier pool, replenisher, housekeeping, the stale-keepalive verdict and its purge, `PoolLease` |
@@ -1011,7 +1005,7 @@ regression before the latency tail does.
 | `ping.rs` | `ping_keepalive` — `/ping` → `pong` validator on the replenisher path |
 | `proxy.rs` | `try_fcgi_proxy` — script resolution + CGI params + mode resolution + dispatch |
 | `balancer.rs` | `pick_spacious_entry` — most-free-slots + RR tiebreak, one-shot as overflow |
-| `adapter.rs` | `PhpFpmAdapter` — native entry for a host plan's selected PHP prefix |
+| `edge.rs` | Optional Backend preparation and FPM handoff |
 | `metrics/fcgi/provider.rs` | `FcgiMetricsProvider` (per-worker pool capture + kind `215` publication) |
 | `metrics/fcgi/requests.rs` | FCGI request/stream atomics, RAII guards, snapshot, and Prometheus formatter |
 | `metrics/fcgi/store.rs` | FCGI local store, snapshots, merge rules, and Prometheus formatters |

@@ -32,11 +32,11 @@ The supplied request context must include trusted connection/host/client facts
 and an effective `HttpPolicy`. A missing policy is an execution error, not
 unlimited admission.
 
-`PhpFpmAdapter` is the native entry. Its consuming `try_handle` returns an unread
-request on script-resolution fallthrough; terminal `handle` retains 404 on a
-miss. Edge prepares mount selection separately. The crate has no Axum binding
-or dependency; native entry still requires the caller's HTTP admission and
-host policy.
+The optional `edge` module prepares the native Backend owner. The facade's
+`php_fcgi` feature selects this integration and Edge automatically. Unclaimed
+script resolution returns the same unread request; a selected execution owns its
+response and FPM lease. External SSE shutdown is applied by the shared Backend
+handoff, while finite responses keep their ordinary drain behavior.
 
 ## Pool ownership and balancing
 

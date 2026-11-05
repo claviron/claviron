@@ -181,9 +181,28 @@ async fn an_empty_child_scope_does_not_inherit_the_root_file_probe() {
     assert_eq!(drops.load(Ordering::Relaxed), 1);
 }
 
-#[cfg(feature = "php_embed")]
+struct UnavailableBackend;
+impl super::super::BackendHandler for UnavailableBackend {
+    fn contract(&self) -> super::super::BackendContract {
+        RegisteredBackend.contract()
+    }
+}
+impl super::super::DispatchStep for UnavailableBackend {
+    fn call(
+        &self,
+        request: Request<claviron_http::RouteBody>,
+    ) -> super::super::DispatchCall {
+        drop(request);
+        super::super::DispatchCall::ready(
+            claviron_http::ServiceResult::Handled(claviron_http::err_status(
+                http::StatusCode::SERVICE_UNAVAILABLE,
+            )),
+        )
+    }
+}
+
 #[tokio::test]
-async fn try_files_precedes_a_declared_php_application_without_starting_php() {
+async fn try_files_precedes_a_registered_backend() {
     use http::StatusCode;
     use http_body_util::BodyExt;
 
@@ -195,11 +214,25 @@ async fn try_files_precedes_a_declared_php_application_without_starting_php() {
     )
     .unwrap();
     let config: HostConfig = serde_yaml::from_str(&format!(
-        "root: {}\nroutes:\n  /live:\n    try_files: true\n    php: {{runner: application, application: example}}\n",
+        "root: {}\nroutes:\n  /live:\n    try_files: true\n    execute: true\n",
         serde_yaml::to_string(directory.path()).unwrap().trim(),
-    )).unwrap();
-    let state = AppState::standalone("native-php-files", directory.path());
-    // No PHP service is registered: a selected application answers 503.
+    ))
+    .unwrap();
+    let state = AppState::standalone("native-backend-files", directory.path());
+    let registry = Arc::new(HostAppRegistry::default());
+    registry
+        .register_backend_factory(crate::pipeline::backend::factory::<bool, _>(
+            "execute",
+            |_, enabled| {
+                Ok(if enabled {
+                    vec![Arc::new(UnavailableBackend)]
+                } else {
+                    Vec::new()
+                })
+            },
+        ))
+        .unwrap();
+    state.registry_ref().insert(registry).unwrap();
     let owner = HostCompiler { state: &state, http: None, protocol: None }
         .prepare(
             &"example.test".parse().unwrap(),

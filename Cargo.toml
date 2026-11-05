@@ -99,6 +99,8 @@ supervisor = ["server", "dep:claviron-supervisor", "claviron-runner?/supervisor"
 # The supervised HTTP edge with native host routing and file serving.
 # Select `axum` separately for Rust Axum applications.
 edge = [
+    "claviron-php-embed?/edge",
+    "claviron-php-fcgi?/edge",
     "supervisor",
     "http",
     "files",
@@ -154,9 +156,9 @@ redis = ["claviron-cache?/redis", "dep:redis"]
 
 # ── Apps / services ──────────────────────────────────────────────────
 php = ["dep:claviron-php", "claviron-edge?/php"]
-php_fcgi = ["php", "dep:claviron-php-fcgi", "claviron-php/php_fcgi", "claviron-edge/php_fcgi"]
+php_fcgi = ["php", "edge", "dep:claviron-php-fcgi", "claviron-php/php_fcgi"]
 # A PHP application server need not carry edge dispatch or virtual hosts.
-php_embed = ["php", "dep:claviron-php-embed", "claviron-php/php_embed", "claviron-edge?/php_embed"]
+php_embed = ["php", "dep:claviron-php-embed", "claviron-php/php_embed"]
 # ── Hosting / domains ────────────────────────────────────────────────
 # DB-managed vhost aliases and TLS certificates. This is an operational
 # hosting mode, not the generic ability to open a database connection.

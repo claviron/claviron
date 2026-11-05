@@ -31,8 +31,6 @@ websocket = ["tcp", "claviron-http/websocket", "claviron-lua?/websocket"]
 # Configured Pusher REST endpoints currently use an optional Rust router adapter.
 broadcast = ["axum", "dep:claviron-pusher", "claviron-pusher/http", "websocket", "dep:claviron-broadcast", "claviron-broadcast/pusher"]
 php = ["dep:claviron-php"]
-php_fcgi = ["php", "dep:claviron-php-fcgi", "claviron-php?/php_fcgi"]
-php_embed = ["php", "dep:claviron-php-embed", "claviron-php?/php_embed"]
 lua = ["dep:claviron-lua", "claviron-http/lua"]
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
@@ -74,8 +72,6 @@ claviron-logging = { workspace = true, optional = true }
 claviron-lua = { workspace = true, optional = true, features = ["app"] }
 claviron-orbit = { workspace = true, optional = true }
 claviron-php = { workspace = true, optional = true }
-claviron-php-embed = { workspace = true, optional = true }
-claviron-php-fcgi = { workspace = true, optional = true }
 claviron-pusher = { workspace = true, optional = true }
 claviron-runtime.workspace = true
 claviron-sys = { workspace = true, optional = true }

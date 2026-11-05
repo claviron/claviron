@@ -14,12 +14,14 @@ keywords = ["php", "fastcgi", "php-fpm", "gateway", "async"]
 categories = ["web-programming::http-server", "network-programming", "asynchronous"]
 
 [features]
+edge = ["dep:claviron-edge", "claviron-edge/php"]
 default = []
 metrics = ["claviron-runtime/metrics", "dep:serde_json", "orbitive/metrics"]
 tasks = ["dep:claviron-tasks", "dep:futures"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
+claviron-edge = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
 claviron-orbit.workspace = true

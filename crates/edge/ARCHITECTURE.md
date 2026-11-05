@@ -310,7 +310,7 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 | `http3`, `quic` | H3 contracts; native Quinn/H3 driver. |
 | `axum` | Rust router adapter. |
 | `lua` | Native Lua backend. |
-| `php`, `php_embed`, `php_fcgi` | PHP declarations; Embed or FastCGI adapters. |
+| `php` | Shared PHP declarations only; execution engines supply Backend owners. |
 | `orbit` | Native Link dispatch. Upstream contributes through its own backend factory. |
 | `websocket`, `webtransport` | Native session bindings and combined runtime adapters. |
 | `broadcast` | Pusher REST and broadcast session composition. |
@@ -423,7 +423,7 @@ and their preparation paths:
 | `Backend<B>` | Effective-policy handoff to a prepared backend. |
 | `RustRouter`, `Arc<dyn HostHandler>` | Through `Backend`; their own HostLayer implementations support explicit builder use. |
 | `StaticStage`, `TryFilesStage`, `Arc<dyn DispatchStep>` | Native file/fallback steps; the Arc adapter installs their consuming calls. |
-| `LinkBackend`, `LuaBackend`, `PhpBackend`, `UpstreamStage` | Configured owners through `Backend`; typed HostLayer adapters support explicit builder use. |
+| `LinkBackend`, `LuaBackend` and registered Backend owners | Configured owners through `Backend`; typed HostLayer adapters support explicit builder use. |
 | `Arc<WebSocketStage>` | Registered H1 endpoints through `Backend`, gated by host and listener capabilities. |
 | `RedirectLayer` | First effective custom redirect, after contributions and before the terminal router. |
 
@@ -462,10 +462,6 @@ and their preparation paths:
 - [`lua/origin.rs`](src/pipeline/embed/lua/origin.rs) — Shared socket-origin checks against admitted authority and transport scheme.
 - [`lua/websocket.rs`](src/pipeline/embed/lua/websocket.rs) — Lua H1 upgrades and H2 CONNECT from flat/scoped declarations.
 - [`lua/webtransport.rs`](src/pipeline/embed/lua/webtransport.rs) — Lua native H3 session admission and stream handoff.
-- [`php.rs`](src/pipeline/embed/php.rs) — Resolve PHP mappings and prepare runner-specific mount owners.
-- [`php/app.rs`](src/pipeline/embed/php/app.rs) — Persistent application handle; unavailable selected applications own their 503.
-- [`php/script.rs`](src/pipeline/embed/php/script.rs) — Script resolver handoff; an unclaimed request retains its body.
-- [`php/fcgi.rs`](src/pipeline/embed/php/fcgi.rs) — FastCGI resolver handoff through the native PHP adapter.
 
 ### `pipeline/link/`
 
@@ -560,7 +556,6 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`embed/lua/origin.rs`](tests/pipeline/embed/lua/origin.rs) — Origin ambiguity, requested aliases/ports and accepted scheme.
 - [`embed/lua/socket_path.rs`](tests/pipeline/embed/lua/socket_path.rs) — Mounted endpoint paths and removed/masked socket ownership.
 - [`embed/lua/webtransport.rs`](tests/pipeline/embed/lua/webtransport.rs) — H3 endpoint ownership and effective origin policy.
-- [`embed/php.rs`](tests/pipeline/embed/php.rs) — Runner selection and file mapping without starting PHP.
 
 ### `pipeline/host/`
 

@@ -176,11 +176,6 @@ impl BackendPlan {
             )
             .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>),
         );
-        #[cfg(any(feature = "php_embed", feature = "php_fcgi"))]
-        let steps = steps.chain(
-            crate::pipeline::embed::php::PhpBackend::new(state, config)
-                .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>),
-        );
         Self {
             steps: steps.collect(),
             fallback: prepare_fallback(state, config),

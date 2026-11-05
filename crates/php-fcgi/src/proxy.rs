@@ -505,9 +505,7 @@ async fn exec_streaming(
         dst.append(k.clone(), v.clone());
     }
 
-    Ok(claviron_http::body::ends_at_shutdown(res, || {
-        svc.shutdown_token().cancelled_owned()
-    }))
+    Ok(res)
 }
 
 fn status_response(status: StatusCode) -> RouteResponse {

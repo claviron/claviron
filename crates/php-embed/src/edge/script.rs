@@ -1,18 +1,19 @@
 use super::*;
-use claviron_php_embed::{PhpScriptAdapter, PhpScriptService};
+use crate::{PhpScriptAdapter, PhpScriptService};
 
 struct Script(PhpScriptAdapter);
 
 pub(super) fn prepare(
     state: &AppState,
     runtime: Arc<PhpRuntime>,
-) -> Option<Arc<dyn DispatchStep>> {
+) -> Result<Arc<dyn BackendHandler>> {
     let Some(service) = state.registry_ref().resolve::<PhpScriptService>()
     else {
-        tracing::error!("PhpScriptService not registered");
-        return None;
+        return Err(claviron_runtime::registry::Error::msg(
+            "PhpScriptService is not registered",
+        ));
     };
-    Some(Arc::new(Script(PhpScriptAdapter::new(service, runtime))))
+    Ok(Arc::new(Script(PhpScriptAdapter::new(service, runtime))))
 }
 
 impl DispatchStep for Script {
@@ -36,5 +37,14 @@ impl DispatchStep for Script {
                 )),
             }
         })
+    }
+}
+
+impl BackendHandler for Script {
+    fn contract(&self) -> BackendContract {
+        BackendContract {
+            identity: BackendIdentity::Request,
+            reply: BackendReply::Owner,
+        }
     }
 }

@@ -1,22 +1,22 @@
 use claviron_runtime::AppState;
 
-// Native adapters consume a caller-selected runtime; the engine stays host-free.
-pub mod adapter;
 mod balancer;
 pub mod config;
 pub(crate) mod connection;
+#[cfg(feature = "edge")]
+pub mod edge;
 pub(crate) mod error;
 pub(crate) mod events;
 #[cfg(feature = "metrics")]
 pub(crate) mod metrics;
 pub(crate) mod ping;
 pub(crate) mod pool;
-pub(crate) mod proxy;
+#[cfg(feature = "edge")]
+mod proxy;
 pub mod service;
 #[cfg(feature = "tasks")]
 mod tasks;
 
-pub use adapter::PhpFpmAdapter;
 pub use error::GatewayError;
 pub use service::PhpFcgiService;
 

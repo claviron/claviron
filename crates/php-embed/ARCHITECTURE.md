@@ -11,6 +11,16 @@ remains `claviron-php-embed`; source paths and PHP namespaces are unchanged.
 Consumers must refresh their Composer lockfile and installed package metadata
 when adopting the renamed package; no old-name package alias is provided.
 
+## Optional Edge integration
+
+The `edge` feature adds native `prepare_script` and `prepare_application`
+entry points. Both receive a prepared `PhpRuntime` and supply Backend owners
+that declare identity export and execution-owned response completion. Common
+request policy and outgoing body bounds remain in HostPipeline. The facade
+composes PHP runner selection before publishing the host plan; there is no
+request-time PHP runner dispatcher. Native engine and Runner consumers do not
+select this feature or depend on Edge.
+
 ## Native SQLite bridge
 
 The `sqlite` feature exposes named SQLx pools through `claviron_sqlite_*`
@@ -674,9 +684,9 @@ module-global isolation: all three models still inhabit the same process SAPI.
 ### 4.1 Native request entry
 
 PhpScriptAdapter and PhpApplicationAdapter consume Request<RouteBody> directly.
-The engine no longer has an Axum feature, binding, Next or extractor. Edge's
-pipeline/embed/php.rs prepares prefix order and runner-specific call objects;
-its Script and Application futures are separate. A host without a PHP owner
+The adapters require no Axum binding, Next or extractor. The facade prepares
+prefix order and the optional `edge` module supplies runner-specific Backend
+owners. Script and Application retain separate futures. A host without a PHP owner
 installs no PHP step.
 
 Script's consuming try_handle calls the unchanged script resolver. Unhandled

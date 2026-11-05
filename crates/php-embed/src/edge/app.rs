@@ -1,12 +1,12 @@
 use super::*;
-use claviron_php_embed::{PhpApplicationAdapter, PhpApplicationService};
+use crate::{PhpApplicationAdapter, PhpApplicationService};
 
 struct Application(PhpApplicationAdapter);
 
 pub(super) fn prepare(
     state: &AppState,
     runtime: PhpRuntime,
-) -> Arc<dyn DispatchStep> {
+) -> Arc<dyn BackendHandler> {
     let adapter = runtime.application.as_ref().and_then(|name| {
         let service = state.registry_ref().resolve::<PhpApplicationService>()?;
         let adapter = match PhpApplicationAdapter::new(service, name).environment(state, &runtime) {
@@ -39,5 +39,14 @@ impl DispatchStep for Application {
                 Err(never) => match never {},
             }
         })
+    }
+}
+
+impl BackendHandler for Application {
+    fn contract(&self) -> BackendContract {
+        BackendContract {
+            identity: BackendIdentity::Request,
+            reply: BackendReply::Owner,
+        }
     }
 }

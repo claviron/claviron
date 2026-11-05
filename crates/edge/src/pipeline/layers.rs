@@ -12,7 +12,7 @@ mod body;
 mod call;
 mod cors;
 mod deny;
-#[cfg(any(feature = "lua", feature = "php_embed", feature = "php_fcgi"))]
+#[cfg(feature = "lua")]
 mod embed;
 mod extension;
 pub(super) use extension::ScopedExtension;

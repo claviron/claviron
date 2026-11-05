@@ -313,12 +313,12 @@ application adapter. A matching unavailable application returns 503; it never
 falls through to another backend. Nonmatching mounts retain the original body.
 Lua dispatch requires no Axum middleware, extractor or `Next`.
 
-`embed::php::PhpBackend` prepares distinct Script, Application and FCGI owners
-from resolved runtimes. Runner selection happens only at boot/reload. A
-persistent application calls its prepared application handle without script
-resolution; a matching unavailable application returns 503. Script/FCGI
-resolution may yield the original unread request. PHP engines and shared
-contracts no longer supply Axum bindings.
+PHP engines expose optional native Edge backend modules. The facade prepares
+the common file mapping and runner order, then installs Script, Application or
+FCGI owners directly into the host plan. Persistent applications keep their
+prepared handle and selected-unavailable 503 behavior. Script/FPM resolution
+may yield an unread request. Edge retains shared PHP declarations, not execution
+engine dependencies or a PHP-specific request dispatcher.
 
 Upstream registers its own `BackendFactory` through its opt-in `edge` module.
 Edge retains no Upstream service dependency or special dispatch adapter.

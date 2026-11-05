@@ -1,3 +1,5 @@
+#[cfg(feature = "edge")]
+pub mod edge;
 use claviron_runtime::AppState;
 
 #[cfg(feature = "auth")]

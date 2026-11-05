@@ -63,11 +63,11 @@ Document-directory overrides belong to the enclosing route `directory`, not PhpC
 document mapping in `PhpRuntime` at boot/reload. Effective HTTP policy travels
 with the admitted request, not in another PHP runtime copy.
 
-Native mount preparation belongs to Edge's pipeline/embed/php.rs. This shared
-contract crate has no Axum feature, dependency or routing builder. The host
-prepares distinct Script, Application and FCGI call objects once; requests do
-not match a runner enum or carry another runner's future state. Execution and
-body delivery remain with the selected engine.
+The facade's cold PHP composition prepares file mappings and runner order once.
+PHP Embed and FCGI expose optional `edge` modules supplying separate Backend
+owners. Requests do not select a runner enum or enter an extra PHP dispatcher.
+This shared contract crate has no Edge dependency; native PHP and Runner use
+remain independent of host routing.
 
 When neither backend feature is compiled, `PhpRunner::Unavailable` keeps the
 shared configuration contract constructible. It is skipped by serde and is not

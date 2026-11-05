@@ -224,7 +224,7 @@ fn file_routes_static_declarations_preserve_upstream_owners() {
 }
 
 #[test]
-#[cfg(feature = "php_embed")]
+#[cfg(feature = "php")]
 fn file_routes_flat_root_php_remains_a_builtin_owner() {
     let config: HostConfig = serde_yaml::from_str(
         "root: .\nindex: [index.php]\nphp:\n  runner: script\n  entry_script: index.php\najax_only: true\n",

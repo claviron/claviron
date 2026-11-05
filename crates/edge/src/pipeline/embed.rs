@@ -11,5 +11,3 @@
 
 #[cfg(feature = "lua")]
 pub mod lua;
-#[cfg(any(feature = "php_embed", feature = "php_fcgi"))]
-pub mod php;
