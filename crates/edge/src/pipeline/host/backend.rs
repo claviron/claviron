@@ -50,6 +50,7 @@ impl<B: BackendHandler> Backend<B> {
 
 impl<B> Backend<B> {
     /// An owner with no declaration of its own, which always reads identity.
+    #[cfg(feature = "axum")]
     pub(crate) fn exporting(
         owner: B,
         policy: HttpPolicy,
