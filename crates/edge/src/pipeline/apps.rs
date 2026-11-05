@@ -23,6 +23,9 @@ use tracing::error;
 use crate::VhostResolver;
 use crate::config::HostConfig;
 use crate::pipeline::InterceptsNonServing;
+use crate::pipeline::backend::{
+    BackendContext, BackendFactory, BackendHandler,
+};
 use crate::pipeline::host::{HostExecution, HostHandler};
 use crate::pipeline::routable::Routable;
 use crate::pipeline::routable::{
@@ -382,6 +385,7 @@ pub struct HostAppRegistry {
     routables: RwLock<Vec<Arc<dyn Routable>>>,
     non_serving_interception: RwLock<Option<Arc<NonServingFactory>>>,
     route_extensions: RwLock<Vec<Arc<dyn RouteExtension>>>,
+    backend_factories: RwLock<Vec<Arc<dyn BackendFactory>>>,
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
     pub(in crate::pipeline) layer_registrations:
         RwLock<Vec<Arc<dyn super::host::LayerRegistration>>>,
@@ -452,6 +456,18 @@ impl HostAppRegistry {
         &self,
         extension: Arc<dyn RouteExtension>,
     ) -> Result<()> {
+        if self
+            .backend_factories
+            .read()
+            .expect("backend factories lock poisoned")
+            .iter()
+            .any(|factory| factory.name() == extension.name())
+        {
+            return Err(Error::msg(format!(
+                "directive '{}' already belongs to a backend",
+                extension.name()
+            )));
+        }
         let mut extensions = self
             .route_extensions
             .write()
@@ -465,6 +481,66 @@ impl HostAppRegistry {
         }
         extensions.push(extension);
         Ok(())
+    }
+
+    /// Register a configured execution owner independently of route hooks.
+    /// Factories are consulted only while preparing matching host scopes.
+    pub fn register_backend_factory(
+        &self,
+        factory: Arc<dyn BackendFactory>,
+    ) -> Result<()> {
+        if self
+            .route_extensions
+            .read()
+            .expect("route extensions lock poisoned")
+            .iter()
+            .any(|extension| extension.name() == factory.name())
+        {
+            return Err(Error::msg(format!(
+                "directive '{}' already belongs to a route extension",
+                factory.name()
+            )));
+        }
+        let mut factories = self
+            .backend_factories
+            .write()
+            .expect("backend factories lock poisoned");
+        if factories.iter().any(|existing| existing.name() == factory.name()) {
+            return Err(Error::msg(format!(
+                "backend '{}' is already registered",
+                factory.name()
+            )));
+        }
+        factories.push(factory);
+        Ok(())
+    }
+
+    pub(crate) fn resolve_backends(
+        &self,
+        context: &BackendContext<'_>,
+    ) -> Result<Vec<Arc<dyn BackendHandler>>> {
+        let factories = self
+            .backend_factories
+            .read()
+            .expect("backend factories lock poisoned");
+        if factories
+            .iter()
+            .filter(|factory| {
+                context.route.extensions.contains_key(factory.name())
+            })
+            .count()
+            > 1
+        {
+            return Err(Error::msg(format!(
+                "route '{}' declares multiple backends",
+                context.prefix
+            )));
+        }
+        let mut owners = Vec::new();
+        for factory in factories.iter() {
+            owners.extend(factory.prepare(context)?);
+        }
+        Ok(owners)
     }
 
     /// Register a provider-shaped route contributor.
@@ -560,6 +636,20 @@ impl HostAppRegistry {
                 }
             }
         }
+        let backend_names: HashSet<_> = self
+            .backend_factories
+            .read()
+            .expect("backend factories lock poisoned")
+            .iter()
+            .map(|factory| factory.name())
+            .collect();
+        if let Some(name) =
+            codecs.keys().find(|name| backend_names.contains(**name))
+        {
+            return Err(Error::msg(format!(
+                "directive '{name}' has both a route extension and backend owner"
+            )));
+        }
         let config = context.route;
         let mut handler = None;
         let mut conditions = Vec::new();
@@ -583,6 +673,9 @@ impl HostAppRegistry {
                     .is_some_and(|codec| codec.inherit_from_host())
             });
         for (name, value) in inherited.into_iter().chain(local) {
+            if backend_names.contains(name.as_str()) {
+                continue;
+            }
             if !codecs.contains_key(name.as_str())
                 && inactive.contains(name.as_str())
             {

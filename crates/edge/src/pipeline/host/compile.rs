@@ -133,7 +133,7 @@ impl Compiler<'_> {
     fn scope(
         &self,
         config: Arc<HostConfig>,
-        plan: BackendPlan,
+        mut plan: BackendPlan,
         accept_applications: bool,
         handler: Option<&Arc<dyn HostHandler>>,
         layers: &[Arc<dyn RouteLayer>],
@@ -161,6 +161,22 @@ impl Compiler<'_> {
         });
         let applications = selected.as_deref().unwrap_or(registered);
         let policy = self.config.policy_at(prefix, self.policy);
+        if redirect.is_none()
+            && let Some(registry) = &self.registry
+        {
+            plan.steps.extend(registry.resolve_backends(
+                &crate::pipeline::backend::BackendContext {
+                    state: self.state,
+                    host: self.host,
+                    host_config: self.config,
+                    route: &config,
+                    prefix,
+                    policy,
+                    protocol: self.protocol,
+                    listener: self.listener,
+                },
+            )?);
+        }
         let scope = ScopePlan {
             applications,
             steps,

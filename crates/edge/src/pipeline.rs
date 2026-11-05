@@ -1,4 +1,5 @@
 pub mod apps;
+pub mod backend;
 mod connect;
 pub mod embed;
 pub mod extension;

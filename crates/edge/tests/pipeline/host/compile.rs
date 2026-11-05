@@ -20,6 +20,91 @@ mod headers;
 #[path = "compile/redirect.rs"]
 mod redirect;
 
+struct RegisteredBackend;
+
+impl super::super::BackendHandler for RegisteredBackend {
+    fn contract(&self) -> super::super::BackendContract {
+        super::super::BackendContract {
+            identity: super::super::BackendIdentity::None,
+            reply: super::super::BackendReply::Owner,
+        }
+    }
+}
+
+impl super::super::DispatchStep for RegisteredBackend {
+    fn call(
+        &self,
+        request: Request<claviron_http::RouteBody>,
+    ) -> super::super::DispatchCall {
+        assert!(request.extensions().is_empty());
+        super::super::DispatchCall::ready(
+            claviron_http::ServiceResult::Handled(http::Response::new(
+                request.into_body(),
+            )),
+        )
+    }
+}
+
+#[test]
+fn backend_factories_resolve_only_during_preparation_and_preserve_body_ownership()
+ {
+    use futures_util::FutureExt;
+    use http_body_util::BodyExt;
+    let state = AppState::standalone("backend-contract", ".");
+    let registry = Arc::new(HostAppRegistry::default());
+    let preparations = Arc::new(AtomicUsize::new(0));
+    let count = preparations.clone();
+    registry
+        .register_backend_factory(crate::pipeline::backend::factory::<bool, _>(
+            "execute",
+            move |context, enabled| {
+                assert_eq!(context.policy, HttpPolicy::unlimited());
+                count.fetch_add(1, Ordering::Relaxed);
+                Ok(if enabled {
+                    vec![Arc::new(RegisteredBackend)]
+                } else {
+                    Vec::new()
+                })
+            },
+        ))
+        .unwrap();
+    state.registry_ref().insert(registry).unwrap();
+    let config =
+        Arc::new(serde_yaml::from_str::<HostConfig>("execute: true").unwrap());
+    let owner = HostCompiler { state: &state, http: None, protocol: None }
+        .prepare(
+            &"example.test".parse().unwrap(),
+            config,
+            None,
+            &HostContributions::default(),
+            #[cfg(feature = "rate-limit")]
+            None,
+            #[cfg(feature = "websocket")]
+            None,
+        )
+        .unwrap();
+    let prepared = preparations.load(Ordering::Relaxed);
+    assert!(prepared > 0);
+    for _ in 0..2 {
+        let bytes = Bytes::from_static(b"original request");
+        let pointer = bytes.as_ptr();
+        let mut response = owner
+            .handle(Request::new(claviron_http::bytes_body(bytes)))
+            .now_or_never()
+            .unwrap()
+            .unwrap();
+        let frame = response
+            .body_mut()
+            .frame()
+            .now_or_never()
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(frame.data_ref().unwrap().as_ptr(), pointer);
+    }
+    assert_eq!(preparations.load(Ordering::Relaxed), prepared);
+}
+
 #[cfg(feature = "access-log")]
 #[test]
 fn access_log_off_overrides_the_host_channel_and_inherits_into_children() {

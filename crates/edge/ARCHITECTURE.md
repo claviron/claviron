@@ -37,6 +37,9 @@ boundary, policy ownership and body delivery rules for Rust applications, Embed,
 Upstream and Link. Every Backend declares identity export and response lifetime
 at preparation through `BackendContract`. The flat driver applies external SSE
 shutdown after a handled reply; it does not add another request future box.
+`pipeline/backend.rs` owns the separate `BackendFactory` configuration contract.
+Factories prepare execution owners after policy resolution. Route extensions
+prepare controls/hooks; configured Backends execute after Static/TryFiles.
 
 ## HostPipeline order
 

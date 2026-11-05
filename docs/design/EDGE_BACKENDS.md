@@ -16,6 +16,16 @@ application metadata export.
 
 ## HostPipeline registration
 
+`BackendFactory` compiles a backend directive into execution owners. Its
+`BackendContext` contains the resolved file view, listener protocol and final
+HTTP policy. Register factories on `HostAppRegistry` before host preparation.
+Returned owners enter the configured backend slot, after Static/TryFiles and
+before file fallback; dispatch never calls the factory or decodes config.
+
+`RouteExtension` is separate: conditions, request preparation and response
+hooks precede execution. Interception uses that route/layer boundary, rather
+than becoming an Axum application. A directive has one registered owner.
+
 - Select host, path and protocol eligibility before preparing the corresponding
   backend handle. Install only effective actions; an absent or empty capability
   leaves no pipeline entry, request state or enabled check.
