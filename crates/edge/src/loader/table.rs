@@ -61,6 +61,7 @@ pub struct VhostTable {
 impl VhostTable {
     /// Whether `other` is this same published set of host bindings, not
     /// merely an equal one.
+    #[cfg(feature = "tcp")]
     pub(crate) fn same_publication(
         &self,
         other: &Self,
