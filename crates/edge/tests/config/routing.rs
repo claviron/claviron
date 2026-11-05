@@ -207,9 +207,9 @@ fn file_routes_static_declarations_preserve_upstream_owners() {
 
 #[test]
 #[cfg(feature = "php")]
-fn file_routes_flat_root_php_remains_a_builtin_owner() {
+fn file_routes_flat_root_php_declarations_keep_scope_ownership() {
     let config: HostConfig = serde_yaml::from_str(
-        "root: .\nindex: [index.php]\nphp:\n  runner: script\n  entry_script: index.php\najax_only: true\n",
+        "root: .\nindex: [index.php]\nphp:\n  entry_script: index.php\najax_only: true\n",
     ).unwrap();
     let root = config.routes.find("/").unwrap();
     assert_eq!(root.extensions.len(), 1);
@@ -247,23 +247,6 @@ fn upstream_declarations_remain_for_backend_preparation() {
             scope.extensions.get("upstream").and_then(serde_yaml::Value::as_str)
                 == Some("example")
         }));
-    }
-}
-
-#[test]
-fn disabled_upstream_is_rejected_in_flat_and_scoped_declarations() {
-    for source in [
-        "root: public\nupstream: example\n",
-        "root: public\nupstream: example\nroutes: {ajax_only: true}\n",
-        "root: public\nroutes: {'/': {upstream: example}}\n",
-        "root: public\nroutes: {'/api': {upstream: example}}\n",
-    ] {
-        let error = serde_yaml::from_str::<HostConfig>(source)
-            .err()
-            .expect("unavailable upstream must not become an unbound owner");
-        let message = error.to_string();
-        assert!(message.contains("directive 'upstream'"), "{message}");
-        assert!(message.contains("is not enabled"), "{message}");
     }
 }
 

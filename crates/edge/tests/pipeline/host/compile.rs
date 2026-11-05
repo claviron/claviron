@@ -22,6 +22,39 @@ mod redirect;
 
 struct RegisteredBackend;
 
+#[test]
+fn unregistered_backend_directives_fail_during_host_preparation() {
+    let state = AppState::standalone("unregistered-backend", ".");
+    state.registry_ref().insert(Arc::new(HostAppRegistry::default())).unwrap();
+    for source in [
+        "upstream: example\n",
+        "routes: {'/': {upstream: example}}\n",
+        "routes: {'/api': {upstream: example}}\n",
+    ] {
+        let config =
+            Arc::new(serde_yaml::from_str::<HostConfig>(source).unwrap());
+        let error = HostCompiler { state: &state, http: None, protocol: None }
+            .prepare(
+                &"example.test".parse().unwrap(),
+                config,
+                None,
+                &HostContributions::default(),
+                #[cfg(feature = "rate-limit")]
+                None,
+                #[cfg(feature = "websocket")]
+                None,
+            )
+            .err()
+            .expect(
+                "a configured backend requires a registered preparation owner",
+            );
+        assert!(
+            error.to_string().contains("unresolved route directive 'upstream'"),
+            "{error}"
+        );
+    }
+}
+
 impl super::super::BackendHandler for RegisteredBackend {
     fn contract(&self) -> super::super::BackendContract {
         super::super::BackendContract {
