@@ -179,6 +179,9 @@ impl claviron_edge::pipeline::backend::BackendFactory for Factory {
     fn name(&self) -> &'static str {
         "lua"
     }
+    fn placement(&self) -> claviron_edge::pipeline::backend::BackendPlacement {
+        claviron_edge::pipeline::backend::BackendPlacement::AfterFiles
+    }
     fn prepare(
         &self,
         context: &claviron_edge::pipeline::backend::BackendContext<'_>,

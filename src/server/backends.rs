@@ -4,7 +4,7 @@ use claviron_edge::{
     HostConfig,
     pipeline::{
         BackendHandler, HostAppRegistry,
-        backend::{BackendContext, BackendFactory},
+        backend::{BackendContext, BackendFactory, BackendPlacement},
     },
 };
 use claviron_php::{PhpRunner, PhpRuntime};
@@ -26,6 +26,9 @@ struct PhpFactory;
 impl BackendFactory for PhpFactory {
     fn name(&self) -> &'static str {
         "php"
+    }
+    fn placement(&self) -> BackendPlacement {
+        BackendPlacement::AfterFiles
     }
     fn prepare(
         &self,

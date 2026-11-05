@@ -9,7 +9,7 @@ use claviron_http::{RouteBody, ServiceResult, err_status};
 use claviron_runtime::AppState;
 use http::{Request, StatusCode};
 
-use claviron_edge::pipeline::backend::factory;
+use claviron_edge::pipeline::backend::{BackendPlacement, factory};
 use claviron_edge::pipeline::{
     BackendContract, BackendHandler, BackendIdentity, BackendReply,
     DispatchCall, DispatchStep, HostAppRegistry,
@@ -25,6 +25,7 @@ pub fn register(state: &AppState) -> Result<()> {
         })?;
     registry.register_backend_factory(factory::<HostUpstreamConfig, _>(
         "upstream",
+        BackendPlacement::AfterFiles,
         |context, config| {
             let provider = context
                 .state

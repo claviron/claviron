@@ -23,9 +23,7 @@ use tracing::error;
 use crate::VhostResolver;
 use crate::config::HostConfig;
 use crate::pipeline::InterceptsNonServing;
-use crate::pipeline::backend::{
-    BackendContext, BackendFactory, BackendHandler,
-};
+use crate::pipeline::backend::{BackendContext, BackendFactory};
 use crate::pipeline::host::{HostExecution, HostHandler};
 use crate::pipeline::routable::Routable;
 use crate::pipeline::routable::{
@@ -518,15 +516,23 @@ impl HostAppRegistry {
     pub(crate) fn resolve_backends(
         &self,
         context: &BackendContext<'_>,
-    ) -> Result<Vec<Arc<dyn BackendHandler>>> {
+    ) -> Result<super::backend::PreparedBackends> {
         let factories = self
             .backend_factories
             .read()
             .expect("backend factories lock poisoned")
             .clone();
-        let mut owners = Vec::new();
+        let mut owners = super::backend::PreparedBackends::default();
         for factory in factories.iter() {
-            owners.extend(factory.prepare(context)?);
+            let prepared = factory.prepare(context)?;
+            match factory.placement() {
+                super::backend::BackendPlacement::BeforeFiles => {
+                    owners.before_files.extend(prepared)
+                }
+                super::backend::BackendPlacement::AfterFiles => {
+                    owners.after_files.extend(prepared)
+                }
+            }
         }
         Ok(owners)
     }

@@ -47,6 +47,7 @@ struct ScopePlan<'a> {
     steps: Vec<Arc<dyn super::DispatchStep>>,
     #[cfg(feature = "broadcast")]
     broadcast: Option<Arc<dyn BackendHandler>>,
+    before_files: Vec<Arc<dyn BackendHandler>>,
     backends: Vec<Arc<dyn BackendHandler>>,
     fallback: Option<Arc<dyn super::DispatchStep>>,
     policy: HttpPolicy,
@@ -161,10 +162,11 @@ impl Compiler<'_> {
         });
         let applications = selected.as_deref().unwrap_or(registered);
         let policy = self.config.policy_at(prefix, self.policy);
+        let mut before_files = Vec::new();
         if redirect.is_none()
             && let Some(registry) = &self.registry
         {
-            plan.steps.extend(registry.resolve_backends(
+            let prepared = registry.resolve_backends(
                 &crate::pipeline::backend::BackendContext {
                     state: self.state,
                     host: self.host,
@@ -175,13 +177,16 @@ impl Compiler<'_> {
                     protocol: self.protocol,
                     listener: self.listener,
                 },
-            )?);
+            )?;
+            before_files = prepared.before_files;
+            plan.steps.extend(prepared.after_files);
         }
         let scope = ScopePlan {
             applications,
             steps,
             #[cfg(feature = "broadcast")]
             broadcast,
+            before_files,
             backends: plan.steps,
             fallback: plan.fallback,
             policy,
@@ -379,6 +384,7 @@ impl Compiler<'_> {
         let ScopePlan {
             applications,
             steps,
+            before_files,
             backends,
             fallback,
             policy,
@@ -424,6 +430,11 @@ impl Compiler<'_> {
         if let Some(broadcast) = broadcast {
             builder
                 .layer(Backend::new(broadcast, policy))
+                .map_err(|error| Error::msg(error.to_string()))?;
+        }
+        for backend in before_files {
+            builder
+                .layer(Backend::new(backend, policy))
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
         for step in steps {

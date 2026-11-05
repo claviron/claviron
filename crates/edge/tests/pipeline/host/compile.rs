@@ -57,6 +57,7 @@ fn backend_factories_resolve_only_during_preparation_and_preserve_body_ownership
     registry
         .register_backend_factory(crate::pipeline::backend::factory::<bool, _>(
             "execute",
+            crate::pipeline::backend::BackendPlacement::AfterFiles,
             move |context, enabled| {
                 assert_eq!(context.policy, HttpPolicy::unlimited());
                 count.fetch_add(1, Ordering::Relaxed);
@@ -119,6 +120,61 @@ fn backend_factories_resolve_only_during_preparation_and_preserve_body_ownership
             .unwrap();
     }
     assert_eq!(preparations.load(Ordering::Relaxed), prepared);
+}
+
+#[tokio::test]
+async fn backend_placement_preserves_explicit_precedence_with_static_files() {
+    use crate::pipeline::backend::{BackendPlacement, factory};
+    use http_body_util::BodyExt;
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(directory.path().join("entry.txt"), "static").unwrap();
+    for (placement, expected) in [
+        (BackendPlacement::BeforeFiles, "request"),
+        (BackendPlacement::AfterFiles, "static"),
+    ] {
+        let state = AppState::standalone("backend-placement", directory.path());
+        let registry = Arc::new(HostAppRegistry::default());
+        registry
+            .register_backend_factory(factory::<bool, _>(
+                "execute",
+                placement,
+                |_, enabled| {
+                    Ok(if enabled {
+                        vec![Arc::new(RegisteredBackend)]
+                    } else {
+                        Vec::new()
+                    })
+                },
+            ))
+            .unwrap();
+        state.registry_ref().insert(registry).unwrap();
+        let config = serde_yaml::from_str::<HostConfig>(&format!(
+            "root: {}\nstatic: {{}}\nexecute: true\n",
+            serde_yaml::to_string(directory.path()).unwrap().trim(),
+        ))
+        .unwrap();
+        let owner = HostCompiler { state: &state, http: None, protocol: None }
+            .prepare(
+                &"example.test".parse().unwrap(),
+                Arc::new(config),
+                None,
+                &HostContributions::default(),
+                #[cfg(feature = "rate-limit")]
+                None,
+                #[cfg(feature = "websocket")]
+                None,
+            )
+            .unwrap();
+        let request = Request::builder()
+            .uri("/entry.txt")
+            .body(claviron_http::bytes_body(Bytes::from_static(b"request")))
+            .unwrap();
+        let response = owner.handle(request).await.unwrap();
+        assert_eq!(
+            response.into_body().collect().await.unwrap().to_bytes(),
+            expected
+        );
+    }
 }
 
 #[cfg(feature = "access-log")]
@@ -239,6 +295,7 @@ async fn try_files_precedes_a_registered_backend() {
     registry
         .register_backend_factory(crate::pipeline::backend::factory::<bool, _>(
             "execute",
+            crate::pipeline::backend::BackendPlacement::AfterFiles,
             |_, enabled| {
                 Ok(if enabled {
                     vec![Arc::new(UnavailableBackend)]

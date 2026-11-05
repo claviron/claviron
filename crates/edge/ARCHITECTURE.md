@@ -38,8 +38,8 @@ Upstream and Link. Every Backend declares identity export and response lifetime
 at preparation through `BackendContract`. The flat driver applies external SSE
 shutdown after a handled reply; it does not add another request future box.
 `pipeline/backend.rs` owns the separate `BackendFactory` configuration contract.
-Factories prepare execution owners after policy resolution. Route extensions
-prepare controls/hooks; configured Backends execute after Static/TryFiles.
+Factories prepare execution owners after policy resolution and explicitly
+select BeforeFiles or AfterFiles. Route extensions prepare controls/hooks.
 
 ## HostPipeline order
 
@@ -140,7 +140,7 @@ registration. No layer is installed unconditionally.
 | 12 | Rust contributions and scope handler | Matching Routables or a handler directive. |
 | 13 | Custom redirect | Effective host/prefix `redirect`; terminal after contributions, before the Rust router. |
 | 14 | RustRouter | An explicit Axum/Warp/Other binding. |
-| 15 | Broadcast REST → Static → TryFiles | Configured broadcast endpoints, static mounts, enabled TryFiles. |
+| 15 | Pre-file Backends → Static → TryFiles | Configured owners explicitly placed before files, static mounts, enabled TryFiles. |
 | 16 | Link → registered Backends | Configured declarations; factories prepare owners in registration order. |
 | 17 | Index/SPA file fallback | An index or SPA declaration. |
 

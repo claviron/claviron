@@ -19,9 +19,10 @@ application metadata export.
 `BackendFactory` compiles a backend directive into execution owners. Its
 `BackendContext` contains the resolved file view, listener protocol and final
 HTTP policy. Register factories on `HostAppRegistry` before host preparation.
-Factories run in registration order. Returned owners enter the configured
-backend slot, after Static/TryFiles and before file fallback; dispatch never
-calls the factory or decodes config. The facade registers Lua, PHP and Upstream
+Every factory declares `BackendPlacement::BeforeFiles` or `AfterFiles`.
+Both slots follow Rust contributions and the terminal router; file fallback
+follows both. Factories run in registration order within their selected slot.
+Dispatch never calls the factory or decodes config. The facade registers Lua, PHP and Upstream
 in that order. Link remains Edge-native and precedes registered backends.
 
 `RouteExtension` is separate: conditions, request preparation and response

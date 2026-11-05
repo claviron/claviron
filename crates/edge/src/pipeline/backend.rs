@@ -64,11 +64,25 @@ pub struct BackendContext<'a> {
     pub listener: Option<&'a ListenerConfig>,
 }
 
+/// Backend position within an admitted scope, after Rust contributions/router.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BackendPlacement {
+    BeforeFiles,
+    AfterFiles,
+}
+
+#[derive(Default)]
+pub(crate) struct PreparedBackends {
+    pub(crate) before_files: Vec<Arc<dyn BackendHandler>>,
+    pub(crate) after_files: Vec<Arc<dyn BackendHandler>>,
+}
+
 /// Compile one backend directive into its ordered execution owners.
-/// Files and TryFiles precede these owners; native file fallback follows them.
+/// Placement is declared at preparation; native file fallback follows both slots.
 /// An inactive declaration returns no owners and installs no request action.
 pub trait BackendFactory: Send + Sync {
     fn name(&self) -> &'static str;
+    fn placement(&self) -> BackendPlacement;
     fn prepare(
         &self,
         context: &BackendContext<'_>,
@@ -79,6 +93,7 @@ pub trait BackendFactory: Send + Sync {
 /// An absent or null directive prepares no owner.
 pub fn factory<C, F>(
     name: &'static str,
+    placement: BackendPlacement,
     prepare: F,
 ) -> Arc<dyn BackendFactory>
 where
@@ -90,6 +105,7 @@ where
 {
     Arc::new(TypedFactory {
         name,
+        placement,
         prepare,
         config: std::marker::PhantomData::<fn() -> C>,
     })
@@ -97,6 +113,7 @@ where
 
 struct TypedFactory<C, F> {
     name: &'static str,
+    placement: BackendPlacement,
     prepare: F,
     config: std::marker::PhantomData<fn() -> C>,
 }
@@ -110,6 +127,9 @@ where
 {
     fn name(&self) -> &'static str {
         self.name
+    }
+    fn placement(&self) -> BackendPlacement {
+        self.placement
     }
     fn prepare(
         &self,
