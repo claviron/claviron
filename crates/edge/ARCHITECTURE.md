@@ -324,7 +324,6 @@ unless they remap directories. Backend owners and TryFiles are not inherited.
 | `http3`, `quic` | H3 contracts; native Quinn/H3 driver. |
 | `axum` | Rust router adapter. |
 | `lua` | Shared Lua route declarations; the Lua crate supplies execution/session adapters. |
-| `php` | Shared PHP declarations only; execution engines supply Backend owners. |
 | `orbit` | Native Link dispatch. Upstream contributes through its own backend factory. |
 | `websocket`, `webtransport` | Native session bindings and combined runtime adapters. |
 | `broadcast` | Pure Pusher host declarations; Broadcast owns optional Edge execution/session adapters. |

@@ -13,7 +13,8 @@ fn file_routes_php_preparation_uses_the_same_mapping_as_files() {
         claviron_runtime::AppState::standalone("php-mapping", directory.path());
     for (prefix, disk) in [("/admin", "mapped"), ("/plain", "plain")] {
         let route = config.routes.find(prefix).unwrap();
-        let runtime = prepare_runtimes(&state, route).pop().unwrap();
+        let declared = declarations(route).unwrap();
+        let runtime = prepare_runtimes(&state, route, &declared).pop().unwrap();
         assert_eq!(runtime.dir, directory.path().join(disk));
         assert_eq!(
             runtime.dir,

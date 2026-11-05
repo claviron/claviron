@@ -27,8 +27,6 @@ use claviron_http::ext::PathPrefix;
 pub use claviron_http::policy::{
     HttpPolicyOverride, RequestPolicyOverride, ResponsePolicyOverride,
 };
-#[cfg(feature = "php")]
-use claviron_php::PhpConfig;
 #[cfg(feature = "broadcast")]
 use claviron_pusher::PusherConfig;
 pub use claviron_tls::auth::{ClientAuthMode, ClientAuthPolicy};
@@ -154,8 +152,6 @@ impl HostConfig {
                     responses: ResponsePolicyOverride::default(),
                     cors: None,
                     headers: None,
-                    #[cfg(feature = "php")]
-                    php: None,
                     #[cfg(feature = "lua")]
                     lua: None,
                     #[cfg(feature = "orbit")]

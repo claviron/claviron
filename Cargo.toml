@@ -157,7 +157,7 @@ sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite", "claviron-php-embed?/sqlite
 redis = ["claviron-cache?/redis", "dep:redis"]
 
 # ── Apps / services ──────────────────────────────────────────────────
-php = ["dep:claviron-php", "claviron-edge?/php"]
+php = ["dep:claviron-php"]
 php_fcgi = ["php", "edge", "dep:claviron-php-fcgi", "claviron-php/php_fcgi"]
 # A PHP application server need not carry edge dispatch or virtual hosts.
 php_embed = ["php", "dep:claviron-php-embed", "claviron-php/php_embed"]

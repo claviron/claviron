@@ -23,7 +23,7 @@ build = "build.rs"
 autotests = false
 
 [features]
-edge = ["dep:claviron-edge", "claviron-edge/php"]
+edge = ["dep:claviron-edge"]
 default = ["opcache-intercept"]
 # APCu hooks are opt-in; OPcache propagation stays enabled for persistent
 # applications and multi-worker execution. Neither feature is facade-forwarded.

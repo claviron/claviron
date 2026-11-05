@@ -7,7 +7,7 @@ use claviron_edge::{
         backend::{BackendContext, BackendFactory, BackendPlacement},
     },
 };
-use claviron_php::{PhpRunner, PhpRuntime};
+use claviron_php::{PhpConfig, PhpRunner, PhpRuntime};
 use claviron_runtime::{
     AppState,
     registry::{Error, Result},
@@ -34,9 +34,15 @@ impl BackendFactory for PhpFactory {
         &self,
         context: &BackendContext<'_>,
     ) -> Result<Vec<Arc<dyn BackendHandler>>> {
+        let declared = declarations(context.route).map_err(|error| {
+            Error::msg(format!(
+                "backend 'php' at '{}': {error}",
+                context.prefix
+            ))
+        })?;
         // Every declaration in this scope shares its resolved prefix. Retain
         // last-declared precedence without another runtime mount dispatcher.
-        prepare_runtimes(context.state, context.route)
+        prepare_runtimes(context.state, context.route, &declared)
             .into_iter()
             .rev()
             .map(|runtime| match runtime.php_runner {
@@ -61,13 +67,28 @@ impl BackendFactory for PhpFactory {
     }
 }
 
+/// The route's `php:` directive as declared: one mapping or a list of them.
+/// The edge keeps it as written; this is where it is decoded and validated.
+/// An absent or null directive declares nothing.
+fn declarations(
+    route: &HostConfig
+) -> std::result::Result<Vec<PhpConfig>, serde_yaml::Error> {
+    match route.directive("php") {
+        None | Some(serde_yaml::Value::Null) => Ok(Vec::new()),
+        Some(serde_yaml::Value::Sequence(items)) => {
+            items.iter().cloned().map(serde_yaml::from_value).collect()
+        }
+        Some(one) => Ok(vec![serde_yaml::from_value(one.clone())?]),
+    }
+}
+
 // Resolve route mappings and PHP defaults before selecting runner owners.
 fn prepare_runtimes(
     state: &AppState,
     config: &HostConfig,
+    declared: &[PhpConfig],
 ) -> Vec<PhpRuntime> {
-    config
-        .php()
+    declared
         .iter()
         .map(|template| {
             let mut runtime = PhpRuntime::from_config(

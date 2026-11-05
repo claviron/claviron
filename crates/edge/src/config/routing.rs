@@ -4,8 +4,6 @@
 use super::LuaRouteConfig;
 #[cfg(feature = "orbit")]
 use super::OrbitRouteConfig;
-#[cfg(feature = "php")]
-use super::PhpConfig;
 #[cfg(feature = "broadcast")]
 use super::PusherConfig;
 #[cfg(feature = "rate-limit")]
@@ -35,12 +33,6 @@ mod statics;
 pub struct RouteConfig {
     #[serde(flatten)]
     pub files: claviron_http::config::files::FilesConfig,
-    #[cfg(feature = "php")]
-    #[serde(
-        default,
-        deserialize_with = "claviron_helpers::de::opt_one_or_many"
-    )]
-    pub(super) php: Option<Vec<super::PhpConfig>>,
     #[cfg(feature = "lua")]
     #[serde(
         default,
@@ -134,11 +126,6 @@ impl RouteConfig {
     /// This host's `access_log`, as written.
     pub fn access_log(&self) -> Option<&str> {
         self.access_log.as_deref()
-    }
-
-    #[cfg(feature = "php")]
-    pub fn php(&self) -> &[PhpConfig] {
-        self.php.as_deref().unwrap_or(&[])
     }
 
     #[cfg(feature = "lua")]
@@ -429,8 +416,10 @@ fn is_application_directive(name: &str) -> bool {
     )
 }
 
+// `upstream` and `php` are application owners whose declarations the edge
+// keeps as written: their own backends decode them at preparation.
 fn is_builtin_directive(name: &str) -> bool {
-    (is_application_directive(name) && name != "upstream")
+    (is_application_directive(name) && !matches!(name, "upstream" | "php"))
         || matches!(
             name,
             "root"
@@ -456,7 +445,6 @@ fn validate_feature(
     name: &str,
 ) -> Result<(), String> {
     let supported = match name {
-        "php" => cfg!(feature = "php"),
         "lua" => cfg!(feature = "lua"),
         "orbit" => cfg!(feature = "orbit"),
         "broadcast" | "pusher" => cfg!(feature = "broadcast"),

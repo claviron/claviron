@@ -206,15 +206,15 @@ fn file_routes_static_declarations_preserve_upstream_owners() {
 }
 
 #[test]
-#[cfg(feature = "php")]
 fn file_routes_flat_root_php_declarations_keep_scope_ownership() {
     let config: HostConfig = serde_yaml::from_str(
-        "root: .\nindex: [index.php]\nphp:\n  entry_script: index.php\najax_only: true\n",
+        "root: .\nindex: [index.php]\nphp:\n  runner: script\n  entry_script: index.php\najax_only: true\n",
     ).unwrap();
     let root = config.routes.find("/").unwrap();
-    assert_eq!(root.extensions.len(), 1);
+    // The declaration is kept as written for its backend to decode.
+    assert_eq!(root.extensions.len(), 2);
+    assert!(root.directive("php").is_some_and(|php| php.is_mapping()));
     assert!(root.owns_handler);
-    assert_eq!(root.php.as_ref().unwrap().len(), 1);
     assert_eq!(root.index, ["index.php"]);
 }
 
