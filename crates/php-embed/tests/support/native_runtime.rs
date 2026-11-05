@@ -84,7 +84,6 @@ pub async fn run_fixture(
         let request = PhpSapiRequest {
             script_name: "/index.php".to_owned(),
             script_file: script.clone(),
-            document_root: root.path().to_path_buf(),
             document_uri: "/index.php".to_owned(),
             request_uri: "/index.php".to_owned(),
             query_string: String::new(),

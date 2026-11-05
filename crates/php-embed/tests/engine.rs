@@ -44,7 +44,6 @@ fn sapi_request(root: &std::path::Path) -> PhpSapiRequest {
     PhpSapiRequest {
         script_name: "/index.php".to_string(),
         script_file: root.join("index.php"),
-        document_root: root.to_path_buf(),
         document_uri: "/index.php".to_string(),
         request_uri: "/index.php".to_string(),
         query_string: String::new(),
@@ -224,6 +223,7 @@ fn request_scheme_isolated_process() {
                         )
                         .header("x-forwarded-proto", "spoofed")
                         .header("forwarded", "proto=spoofed")
+                        .header("x-sample-name", "sample")
                         .body(claviron_http::empty_body())
                         .unwrap();
                     if let Some(tls) = tls {
@@ -260,12 +260,22 @@ fn request_scheme_isolated_process() {
                         .await
                         .unwrap()
                         .to_bytes();
+                    // Scheme facts, then the connection's addresses, the
+                    // body length, the script and a forwarded header.
+                    let connection = "127.0.0.1|1234|127.0.0.1|8080";
                     let expected = match tls {
-                        Some(true) => "https|on|https|-|NONE|/index.php?q=%2F",
-                        Some(false) => "http|off|http|-|-|/index.php?q=%2F",
-                        None => "-|-|-|-|-|/index.php?q=%2F",
-                    };
-                    assert_eq!(body.as_ref(), expected.as_bytes());
+                        Some(true) => format!(
+                            "https|on|https|-|NONE|/index.php?q=%2F|{connection}"
+                        ),
+                        Some(false) => format!(
+                            "http|off|http|-|-|/index.php?q=%2F|{connection}"
+                        ),
+                        None => "-|-|-|-|-|/index.php?q=%2F|-|-|-|-".to_owned(),
+                    } + "|0|/index.php|sample";
+                    assert_eq!(
+                        String::from_utf8_lossy(&body),
+                        expected.as_str()
+                    );
                 }
                 assert!(engine.drain(None).await);
             })

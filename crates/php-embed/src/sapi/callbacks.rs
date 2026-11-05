@@ -8,6 +8,7 @@
 //! [`crate::engine`]) which carries the per-request state (runtime,
 //! parts, body, output sink, env overlay).
 
+use std::borrow::Cow;
 use std::cell::Cell;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::sync::OnceLock;
@@ -626,11 +627,13 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
         Version::HTTP_3 => "HTTP/3",
         _ => "HTTP/1.1",
     };
-    let php_self = format!(
-        "{}{}",
-        request.sapi_req.script_name,
-        request.sapi_req.path_info.as_deref().unwrap_or_default()
-    );
+    // Without extra path the script name is PHP_SELF as it stands.
+    let php_self: Cow<'_, str> = match request.sapi_req.path_info.as_deref() {
+        Some(path_info) if !path_info.is_empty() => {
+            Cow::Owned(format!("{}{path_info}", request.sapi_req.script_name))
+        }
+        _ => Cow::Borrowed(&request.sapi_req.script_name),
+    };
 
     // SNI-resolved hostname injected by the vhost middleware
     // (`VhostCtx::hostname` → `HostName` extension). Same source the
@@ -645,7 +648,7 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
 
     unsafe {
         // PHP / SAPI identity
-        register_variable(PHP_SELF, php_self, vars);
+        register_variable(PHP_SELF, php_self.as_bytes(), vars);
         if let Some(scoped) = scoped {
             register_variable_cstr(SERVER_SOFTWARE, &scoped.software, vars);
         } else {
@@ -660,7 +663,7 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
         // Document / script paths
         register_variable(
             DOCUMENT_ROOT,
-            request.sapi_req.document_root.to_string_lossy().as_bytes(),
+            runtime.dir.to_string_lossy().as_bytes(),
             vars,
         );
         register_variable(
@@ -724,18 +727,14 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
         // Network identity (from per-conn ConnCtx; empty when running outside
         // a listener context, e.g. unit tests with no extension)
         if let Some(conn) = request.conn_ctx.as_ref() {
-            register_variable(SERVER_ADDR, conn.local_ip.to_string(), vars);
-            register_variable(SERVER_PORT, conn.local_port.to_string(), vars);
+            register_variable(SERVER_ADDR, Text::of(conn.local_ip), vars);
+            register_variable(SERVER_PORT, Text::of(conn.local_port), vars);
             let remote_ip =
                 claviron_http::ext::request_real_ip(&request.parts.extensions)
                     .unwrap_or_else(|| conn.remote.ip());
-            register_variable(REMOTE_ADDR, remote_ip.to_string(), vars);
-            register_variable(
-                REMOTE_PORT,
-                conn.remote.port().to_string(),
-                vars,
-            );
-            register_variable(c"HTTP_VIA", conn.remote.ip().to_string(), vars);
+            register_variable(REMOTE_ADDR, Text::of(remote_ip), vars);
+            register_variable(REMOTE_PORT, Text::of(conn.remote.port()), vars);
+            register_variable(c"HTTP_VIA", Text::of(conn.remote.ip()), vars);
             if let Some(cc) = conn.country_code.as_deref() {
                 register_variable(c"CLIENT_COUNTRY", cc, vars);
             }
@@ -754,10 +753,9 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
         }
         register_variable(
             c"CONTENT_LENGTH",
-            request
-                .request_body
-                .content_length(&request.parts.headers)
-                .to_string(),
+            Text::of(
+                request.request_body.content_length(&request.parts.headers),
+            ),
             vars,
         );
 
@@ -770,11 +768,14 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
         }
     }
 
+    // One buffer carries every variable name of this pass.
+    let mut names = NameBuffer::default();
+
     // Typed environment supplied by the route's application owner.
     for (key, value) in context.environment() {
-        if let Ok(name) = CString::new(key.as_str()) {
+        if let Some(name) = names.plain(key) {
             unsafe {
-                register_variable(name.as_c_str(), value.as_str(), vars);
+                register_variable(name, value.as_str(), vars);
             }
         }
     }
@@ -802,11 +803,11 @@ extern "C" fn register_server_variables(vars: *mut Zval) {
         let Ok(value) = value.to_str() else {
             continue;
         };
-        let Some(cgi_name) = cgi_header_name(name) else {
+        let Some(cgi_name) = names.header(name) else {
             continue;
         };
         unsafe {
-            register_variable(cgi_name.as_c_str(), value, vars);
+            register_variable(cgi_name, value, vars);
         }
     }
 
@@ -897,16 +898,87 @@ fn run_identifier(run_mode: RunMode) -> String {
     }
 }
 
-fn cgi_header_name(name: &HeaderName) -> Option<CString> {
-    let raw = name.as_str().as_bytes();
-    let mut cgi_name = Vec::with_capacity(b"HTTP_".len() + raw.len());
-    cgi_name.extend_from_slice(b"HTTP_");
-    for byte in raw {
-        cgi_name.push(match byte {
-            b'a'..=b'z' => byte - 32,
-            b'-' => b'_',
-            _ => *byte,
-        });
+/// The NUL-terminated name PHP registers a variable under, built in one
+/// buffer that is reused for every name of a registration pass. A name with
+/// an interior NUL cannot be a C string and yields `None`.
+#[derive(Default)]
+struct NameBuffer(Vec<u8>);
+
+impl NameBuffer {
+    /// The name as it is written.
+    fn plain(
+        &mut self,
+        name: &str,
+    ) -> Option<&CStr> {
+        self.0.clear();
+        self.0.extend_from_slice(name.as_bytes());
+        self.terminated()
     }
-    CString::new(cgi_name).ok()
+
+    /// The CGI form of a request header: `HTTP_` and the header name in upper
+    /// case with `_` for `-`.
+    fn header(
+        &mut self,
+        name: &HeaderName,
+    ) -> Option<&CStr> {
+        self.0.clear();
+        self.0.extend_from_slice(b"HTTP_");
+        self.0.extend(name.as_str().bytes().map(|byte| match byte {
+            b'-' => b'_',
+            byte => byte.to_ascii_uppercase(),
+        }));
+        self.terminated()
+    }
+
+    fn terminated(&mut self) -> Option<&CStr> {
+        self.0.push(0);
+        CStr::from_bytes_with_nul(&self.0).ok()
+    }
+}
+
+/// The text of an address or an integer, written in place. PHP copies the
+/// value it is handed, so the text never needs an allocation of its own.
+struct Text {
+    bytes: [u8; Self::CAPACITY],
+    length: usize,
+}
+
+impl Text {
+    /// The longest value written here is an IPv6 address, at 45 bytes.
+    const CAPACITY: usize = 48;
+
+    fn of(value: impl TextValue) -> Self {
+        use std::fmt::Write;
+        let mut text = Self { bytes: [0; Self::CAPACITY], length: 0 };
+        let written = write!(text, "{value}");
+        debug_assert!(written.is_ok(), "an address or integer fits");
+        text
+    }
+}
+
+/// The values whose text is known to fit a [`Text`].
+trait TextValue: std::fmt::Display {}
+impl TextValue for std::net::IpAddr {}
+impl TextValue for u16 {}
+impl TextValue for i64 {}
+
+impl std::fmt::Write for Text {
+    fn write_str(
+        &mut self,
+        text: &str,
+    ) -> std::fmt::Result {
+        let end = self.length + text.len();
+        self.bytes
+            .get_mut(self.length..end)
+            .ok_or(std::fmt::Error)?
+            .copy_from_slice(text.as_bytes());
+        self.length = end;
+        Ok(())
+    }
+}
+
+impl AsRef<[u8]> for Text {
+    fn as_ref(&self) -> &[u8] {
+        &self.bytes[..self.length]
+    }
 }

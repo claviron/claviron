@@ -139,7 +139,6 @@ static SAPI: OnceLock<Result<Arc<ClavironSapi>, String>> = OnceLock::new();
 pub struct PhpSapiRequest {
     pub script_name: String,
     pub script_file: std::path::PathBuf,
-    pub document_root: std::path::PathBuf,
     pub document_uri: String,
     pub request_uri: String,
     pub query_string: String,
@@ -420,10 +419,7 @@ impl PhpSapiEngine {
         };
         let mut response = Response::new(body_from_receiver(body_rx));
         *response.status_mut() = status;
-        let dst = response.headers_mut();
-        for (name, value) in headers.iter() {
-            dst.append(name.clone(), value.clone());
-        }
+        *response.headers_mut() = headers;
         Ok(response)
     }
 }
@@ -474,9 +470,12 @@ pub(crate) fn run_php_on_thread(
     }
 
     let output = Arc::new(Mutex::new(CapturedResponse::default()));
+    // The context owns the request description; only the script path is
+    // needed beside it, to name what PHP runs.
+    let script = sapi_req.script_file.clone();
     let context = ClavironContext::new(
         runtime,
-        sapi_req.clone(),
+        sapi_req,
         parts,
         conn_ctx,
         request_body,
@@ -484,7 +483,6 @@ pub(crate) fn run_php_on_thread(
         body_sink,
     );
 
-    let script = sapi_req.script_file.clone();
     reset_php_request_error_flag();
 
     // One script execution is one request here, so the budget belongs around
@@ -524,14 +522,11 @@ pub(crate) fn run_php_on_thread(
     }
     let logged_php_error = php_request_logged_error();
 
-    let mut captured = output
-        .lock()
-        .map_err(|_| {
-            SapiGatewayError::Internal(
-                "php sapi output lock poisoned".to_string(),
-            )
-        })?
-        .clone();
+    // The execution is over and nothing reads this reply again: take it,
+    // headers and held body, instead of copying them.
+    let mut captured = std::mem::take(&mut *output.lock().map_err(|_| {
+        SapiGatewayError::Internal("php sapi output lock poisoned".to_string())
+    })?);
 
     match exec_result {
         Ok(()) if logged_php_error => {

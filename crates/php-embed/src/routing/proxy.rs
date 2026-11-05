@@ -16,21 +16,23 @@ pub async fn try_php_proxy(
 ) -> Result<ServiceResult<RouteResponse, Request<RouteBody>>, SapiGatewayError>
 {
     // path segment must be validated before  try_php_proxy
-    let path = req.uri().path().to_string();
-    let query_string = req.uri().query().unwrap_or("").to_string();
+    // A URI clone shares the request's bytes; the path and query are read
+    // from it without holding the request across the awaits below.
+    let uri = req.uri().clone();
+    let path = uri.path();
+    let query_string = uri.query().unwrap_or("");
 
     if runtime.try_files
         && let Some(ext) =
-            std::path::Path::new(&path).extension().and_then(|e| e.to_str())
+            std::path::Path::new(path).extension().and_then(|e| e.to_str())
         && !ext.eq_ignore_ascii_case("php")
         && (!runtime.allows_entry_extension(ext)
-            || try_files_candidate_exists(&runtime, &path).await?)
+            || try_files_candidate_exists(&runtime, path).await?)
     {
         return Ok(ServiceResult::Unhandled(req));
     }
 
-    let Some(sapi_req) =
-        resolve_request(&runtime, &path, &query_string).await?
+    let Some(sapi_req) = resolve_request(&runtime, path, query_string).await?
     else {
         return Ok(ServiceResult::Unhandled(req));
     };
@@ -161,7 +163,6 @@ async fn resolve_request(
     Ok(Some(PhpSapiRequest {
         script_name,
         script_file,
-        document_root: runtime.dir.clone(),
         document_uri,
         request_uri,
         query_string: effective_query_string,
@@ -252,8 +253,9 @@ fn entry_script_path_info(
     path: &str,
     script_name: &str,
 ) -> Option<String> {
-    let prefix = format!("{}/", script_name.trim_end_matches('/'));
-    path.strip_prefix(&prefix).map(|rest| format!("/{rest}"))
+    path.strip_prefix(script_name.trim_end_matches('/'))?
+        .strip_prefix('/')
+        .map(|rest| format!("/{rest}"))
 }
 
 /// Split a path of the form `/.../foo.php/extra` into `("/.../foo.php",
