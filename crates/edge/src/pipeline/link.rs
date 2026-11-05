@@ -300,10 +300,9 @@ async fn dispatch(
         // its whole bound. The application process is not ours to stop, so
         // the edge ends its side, as it does for an upstream origin; the
         // application learns it as a client that left.
-        Ok(response) => claviron_http::body::ends_at_shutdown(
-            response,
-            shutdown.cancelled_owned(),
-        ),
+        Ok(response) => claviron_http::body::ends_at_shutdown(response, || {
+            shutdown.cancelled_owned()
+        }),
         Err(error) => {
             tracing::debug!(correlation, "reply could not be rebuilt: {error}");
             gateway_failure()

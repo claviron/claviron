@@ -160,3 +160,102 @@ fn a_size_guard_never_admits_later_bytes_after_an_overrun() {
         );
     }
 }
+
+#[test]
+fn ordinary_replies_do_not_construct_shutdown_state() {
+    use futures_util::FutureExt;
+    let bytes = Bytes::from_static(b"ordinary reply");
+    let pointer = bytes.as_ptr();
+    let response = http::Response::new(crate::bytes_body(bytes));
+    let constructed = std::cell::Cell::new(false);
+    let mut response = super::ends_at_shutdown(response, || {
+        constructed.set(true);
+        std::future::pending::<()>()
+    });
+    assert!(!constructed.get());
+    let frame =
+        response.body_mut().frame().now_or_never().unwrap().unwrap().unwrap();
+    assert_eq!(frame.data_ref().unwrap().as_ptr(), pointer);
+}
+
+#[test]
+fn event_stream_shutdown_releases_its_body_before_the_wrapper_is_dropped() {
+    use http_body::{Body, Frame, SizeHint};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::task::{Context, Poll, Waker};
+
+    struct Retained(Arc<AtomicBool>);
+    impl Drop for Retained {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::Relaxed);
+        }
+    }
+    impl Body for Retained {
+        type Data = Bytes;
+        type Error = Infallible;
+        fn poll_frame(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut Context<'_>,
+        ) -> Poll<Option<Result<Frame<Bytes>, Infallible>>> {
+            Poll::Pending
+        }
+        fn size_hint(&self) -> SizeHint {
+            SizeHint::with_exact(16)
+        }
+    }
+
+    let dropped = Arc::new(AtomicBool::new(false));
+    let (shutdown, cancelled) = tokio::sync::oneshot::channel();
+    let response = http::Response::builder()
+        .header(http::header::CONTENT_TYPE, "text/event-stream")
+        .body(crate::boxed_body(Retained(dropped.clone())))
+        .unwrap();
+    let mut response = super::ends_at_shutdown(response, || async {
+        let _ = cancelled.await;
+    });
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(
+        std::pin::Pin::new(response.body_mut())
+            .poll_frame(&mut context)
+            .is_pending()
+    );
+    assert!(!dropped.load(Ordering::Relaxed));
+    shutdown.send(()).unwrap();
+    assert!(matches!(
+        std::pin::Pin::new(response.body_mut()).poll_frame(&mut context),
+        Poll::Ready(None)
+    ));
+    assert!(dropped.load(Ordering::Relaxed));
+    assert!(response.body().is_end_stream());
+    assert_eq!(response.body().size_hint().exact(), Some(0));
+}
+
+#[test]
+fn event_stream_wrapper_preserves_frames_and_trailers() {
+    use futures_util::FutureExt;
+    use http_body::Frame;
+    let bytes = Bytes::from_static(b"data: original\n\n");
+    let pointer = bytes.as_ptr();
+    let mut trailers = HeaderMap::new();
+    trailers.insert("x-finished", "yes".parse().unwrap());
+    let frames = futures_util::stream::iter([
+        Ok::<_, Infallible>(Frame::data(bytes)),
+        Ok(Frame::trailers(trailers.clone())),
+    ]);
+    let response = http::Response::builder()
+        .header(http::header::CONTENT_TYPE, "text/event-stream; charset=utf-8")
+        .body(crate::boxed_body(StreamBody::new(frames)))
+        .unwrap();
+    let mut response =
+        super::ends_at_shutdown(response, std::future::pending::<()>);
+    let frame =
+        response.body_mut().frame().now_or_never().unwrap().unwrap().unwrap();
+    assert_eq!(frame.data_ref().unwrap().as_ptr(), pointer);
+    let frame =
+        response.body_mut().frame().now_or_never().unwrap().unwrap().unwrap();
+    assert_eq!(frame.trailers_ref(), Some(&trailers));
+    assert!(response.body_mut().frame().now_or_never().unwrap().is_none());
+}

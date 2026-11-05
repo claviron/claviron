@@ -836,6 +836,12 @@ protocol framing validation remains in the H3 driver. Declared over-limit
 Content-Length is rejected before body polling; streamed overruns surface
 BodyLimit to the consumer. `guard_reply` reuses the same guard mechanics.
 
+`ends_at_shutdown` applies the explicit `EVENT_STREAM_ENDS_AT_SHUTDOWN`
+contract to external event streams. It constructs shutdown state only after
+the response declares `text/event-stream`, stores that future inline in one
+body wrapper, and drops the underlying body as soon as shutdown is observed.
+Finite replies retain their original body and ordinary drain ownership.
+
 
 Host selection and Edge exchange policy do not belong in this primitive crate.
 Reusable ACL/CORS data lives under HTTP config; Edge owns host declarations,

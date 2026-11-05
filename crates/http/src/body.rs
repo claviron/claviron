@@ -387,95 +387,84 @@ pub fn guard_reply(
     guard_body(body, limit, gap)
 }
 
-/// A reply that ends when the process begins to shut down.
-///
-/// `NO_IMPLICIT_TERMINATION: EVENT_STREAM_ENDS_AT_SHUTDOWN`.
-///
-/// # Why this exists
-///
-/// A graceful shutdown waits for the requests already running: that is the
-/// priority, and every reply that ends on its own gets it. The backend says
-/// when a reply is over — FastCGI's `END_REQUEST`, an origin's end of body —
-/// over TCP or a Unix socket, whatever protocol the client speaks, so even
-/// behind an HTTP/3 client the edge knows at once. The drain is bounded by
-/// declared values: the listener's `graceful_timeout`, an upstream profile's
-/// `lifecycle.drain_timeout`, HTTP/3's `quic.idle_timeout` for a client that
-/// died unseen.
-///
-/// A server-sent event stream is the reply that never ends on its own. It
-/// has no completion to wait for, so a drain that waits for it waits out its
-/// whole bound, on every worker that holds one, at every restart. Where the
-/// execution is ours it hears the cancellation and ends itself (embedded
-/// PHP's `claviron_is_cancelled()`); where it runs outside us — FastCGI's
-/// FPM, an upstream origin — nothing can ask it to stop. So the edge ends its
-/// own side: the body ends cleanly, the client's `EventSource` reconnects to
-/// a worker that is serving, and the backend learns what it learns from any
-/// client that left (FPM's connection or the origin stream is released).
-///
-/// That is a termination nobody declared, which the workspace rule
-/// forbids; this tag is where it is owned. It is not a drain policy for
-/// other replies: only `text/event-stream`, read once from the reply's head
-/// by [`ends_at_shutdown`].
-pub struct EndsAtShutdown {
-    body: crate::RouteBody,
-    shutdown: Pin<Box<dyn Future<Output = ()> + Send>>,
-    ended: bool,
-}
-
-impl EndsAtShutdown {
-    pub fn new(
-        body: crate::RouteBody,
-        shutdown: impl Future<Output = ()> + Send + 'static,
-    ) -> Self {
-        Self { body, shutdown: Box::pin(shutdown), ended: false }
+pin_project! {
+    /// An external event stream whose body is released on its owner's shutdown.
+    ///
+    /// `NO_IMPLICIT_TERMINATION: EVENT_STREAM_ENDS_AT_SHUTDOWN`.
+    /// Only external `text/event-stream` replies opt into this policy through
+    /// [`ends_at_shutdown`]. Finite replies drain normally; embedded execution
+    /// observes its own cancellation. Dropping the body releases only this
+    /// exchange's resources, never the external application process.
+    pub struct EndsAtShutdown<F> {
+        body: Option<crate::RouteBody>,
+        #[pin]
+        shutdown: F,
     }
 }
 
-impl Body for EndsAtShutdown {
+impl<F: Future<Output = ()>> EndsAtShutdown<F> {
+    pub fn new(
+        body: crate::RouteBody,
+        shutdown: F,
+    ) -> Self {
+        Self { body: Some(body), shutdown }
+    }
+}
+
+impl<F: Future<Output = ()>> Body for EndsAtShutdown<F> {
     type Data = Bytes;
     type Error = crate::RouteBodyError;
 
     fn poll_frame(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         context: &mut Context<'_>,
     ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        if self.ended {
+        let this = self.project();
+        let Some(body) = this.body.as_mut() else {
             return Poll::Ready(None);
-        }
-        if self.shutdown.as_mut().poll(context).is_ready() {
-            self.ended = true;
+        };
+        if this.shutdown.poll(context).is_ready() {
+            this.body.take();
             tracing::info!(
                 "NO_IMPLICIT_TERMINATION: EVENT_STREAM_ENDS_AT_SHUTDOWN"
             );
             return Poll::Ready(None);
         }
-        Pin::new(&mut self.body).poll_frame(context)
+        let frame = Pin::new(body).poll_frame(context);
+        if matches!(frame, Poll::Ready(None | Some(Err(_)))) {
+            this.body.take();
+        }
+        frame
     }
 
     fn is_end_stream(&self) -> bool {
-        self.ended || self.body.is_end_stream()
+        self.body.as_ref().is_none_or(Body::is_end_stream)
     }
 
     fn size_hint(&self) -> SizeHint {
-        self.body.size_hint()
+        self.body
+            .as_ref()
+            .map_or_else(|| SizeHint::with_exact(0), Body::size_hint)
     }
 }
 
 /// Wrap a reply in [`EndsAtShutdown`] if its head says it is an event
-/// stream; any other reply is returned as it is, to be waited for.
-pub fn ends_at_shutdown(
+/// stream; any other reply is returned unchanged. The shutdown future is
+/// constructed only for an event stream and stays inline in its body wrapper.
+pub fn ends_at_shutdown<F: Future<Output = ()> + Send + 'static>(
     response: crate::RouteResponse,
-    shutdown: impl Future<Output = ()> + Send + 'static,
+    shutdown: impl FnOnce() -> F,
 ) -> crate::RouteResponse {
     let event_stream = response
         .headers()
         .get(http::header::CONTENT_TYPE)
         .is_some_and(|value| crate::policy::is_event_stream(value.as_bytes()));
-    if !event_stream {
+    if !event_stream || response.body().is_end_stream() {
         return response;
     }
-    response
-        .map(|body| crate::RouteBody::new(EndsAtShutdown::new(body, shutdown)))
+    response.map(|body| {
+        crate::RouteBody::new(EndsAtShutdown::new(body, shutdown()))
+    })
 }
 
 /// Hand a reply back as its policy says: held — to be sent whole with its
