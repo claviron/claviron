@@ -1,3 +1,4 @@
+pub mod accept;
 pub mod apps;
 pub mod backend;
 mod connect;
@@ -12,6 +13,7 @@ pub mod routing;
 #[cfg(feature = "webtransport")]
 mod wt;
 
+pub use accept::{AcceptLayer, Accepted};
 pub use apps::{HostAppRegistry, HostAppResolver, HostAppSnapshot, RustRouter};
 #[cfg(feature = "websocket")]
 pub use claviron_http::upgrade::{

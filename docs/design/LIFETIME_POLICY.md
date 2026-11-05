@@ -42,6 +42,51 @@ and maintain usable resources instead of treating every operation as a fresh
 setup. It also appears in [managed cells](ORBIT_CELL.md), where declaration and
 binding are separate from value operations.
 
+## A concrete example: connection state
+
+Some of what a request needs is settled when the handshake ends: who the peer
+is, which host was selected, and whatever follows from the two. Deriving it
+again for every request, or looking it up in a shared table by connection,
+spends request time on a connection-time answer.
+
+An accept layer does that work once. It is registered before the first
+publication and selected per host at boot and reload. When a connection of a
+selected host is accepted and its facts are complete, the layer receives them
+and puts its typed result into the connection's `ConnState`. Every request of
+that connection borrows the result through `HostContext::conn_state`: no
+lock, no lookup, no allocation, nothing written into the request.
+
+```rust
+registry.register_accept_layer(
+    |host, _config, _protocol| host == &management,
+    |accepted: &Accepted<'_>, state: &mut ConnStateBuilder| {
+        if let Some(peer) = verified_peer(accepted.connection) {
+            state.insert(Session::new(peer));
+        }
+    },
+);
+
+// Later, for each request of that connection:
+let session = context.conn_state().get::<Session>();
+```
+
+The cost sits where the use is. A build that registers no layer pays one
+empty registration list at boot. A host no layer selected carries none, so
+accepting its connections runs nothing and allocates nothing. A selected
+host's connection pays its layers once, however many requests follow.
+
+What the edge provides is the moment and the place. What a layer derives and
+keeps is its own business; the state is keyed by the layer's own types and
+read only by code that names them.
+
+Two limits follow from where the evidence is. The state is written at
+acceptance and never afterwards, so it holds what is true of the whole
+connection; what changes per request stays with the request, and what belongs
+to one WebTransport, CONNECT or WebSocket session stays with that session's
+owner. And a layer runs when the host is known, which is after a TLS or QUIC
+handshake. A cleartext connection names its host per request and may name
+another next time, so nothing host-bound is prepared for it.
+
 ## Keep checks at the lifetime of their evidence
 
 Preparation is not permission to skip request authority, live access policy,
@@ -67,6 +112,7 @@ its inputs are known, and how is a later change published safely?**
 
 - [Host snapshots, preparation and unchanged-host reuse](../../crates/edge/src/pipeline/apps.rs).
 - [TLS policy preparation](../../crates/edge/src/tcp/secure/tls.rs).
+- [Accept layers and connection state](../../crates/edge/src/pipeline/accept.rs).
 - [Request-time admission](../../crates/edge/src/service/host.rs).
 - [Managed cell binding and operations](../../crates/orbit/src/cell/orbital.rs).
 

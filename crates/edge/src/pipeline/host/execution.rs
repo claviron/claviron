@@ -15,6 +15,9 @@ use crate::pipeline::RustRouter;
 #[derive(Clone)]
 pub struct HostExecution {
     inner: Execution,
+    /// What this host's connections prepare at acceptance; `None` when no
+    /// accept layer selected the host.
+    accept: Option<crate::pipeline::accept::AcceptLayers>,
 }
 
 #[derive(Clone)]
@@ -37,7 +40,24 @@ impl HostExecution {
             }
             owner => Execution::Router(Arc::new(Backend::new(owner, policy))),
         };
-        Self { inner }
+        Self { inner, accept: None }
+    }
+
+    pub(in crate::pipeline) fn with_accept(
+        mut self,
+        layers: Option<crate::pipeline::accept::AcceptLayers>,
+    ) -> Self {
+        self.accept = layers;
+        self
+    }
+
+    /// Prepare the values of one accepted connection of this host. Its facts
+    /// must be complete; the result is frozen into them before any request.
+    pub(crate) fn accept(
+        &self,
+        accepted: &crate::pipeline::Accepted<'_>,
+    ) -> claviron_http::ext::ConnState {
+        crate::pipeline::accept::accept(self.accept.as_ref(), accepted)
     }
 
     pub(crate) fn kind(&self) -> &'static str {
@@ -109,6 +129,6 @@ impl<S: Default + Send + 'static> HostPipeline<S> {
         } else {
             Arc::new(CompiledPipeline::<S, false>(self))
         };
-        HostExecution { inner: Execution::Pipeline(pipeline) }
+        HostExecution { inner: Execution::Pipeline(pipeline), accept: None }
     }
 }

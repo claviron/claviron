@@ -37,3 +37,20 @@ fn scheme_follows_tls_facts_not_port_or_application_protocol() {
     });
     assert_eq!(ctx.scheme(), http::uri::Scheme::HTTPS);
 }
+
+#[test]
+fn connection_values_are_one_per_type_and_nothing_prepared_holds_nothing() {
+    assert!(ConnStateBuilder::default().build().is_empty());
+
+    let mut values = ConnStateBuilder::default();
+    assert_eq!(values.insert(7_u16), None);
+    assert_eq!(values.insert("peer"), None);
+    // A second value of a type replaces the first and hands it back.
+    assert_eq!(values.insert(9_u16), Some(7));
+    let state = values.build();
+    assert_eq!(state.get::<u16>(), Some(&9));
+    assert_eq!(state.get::<&str>(), Some(&"peer"));
+    assert_eq!(state.get::<u32>(), None);
+    // A copy of the facts reads the same values.
+    assert_eq!(state.clone().get::<u16>(), Some(&9));
+}

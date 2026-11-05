@@ -303,7 +303,7 @@ impl H3Listener {
             }
         };
 
-        let conn_ctx = Arc::new(ConnCtx {
+        let mut conn_ctx = ConnCtx {
             state: Default::default(),
             listener: snapshot.listener.id.clone(),
             proto: Some(H3),
@@ -313,7 +313,16 @@ impl H3Listener {
             real_ip: None,
             country_code: country_code_for(remote),
             tls: Some(h3_tls_info(&conn, handshake_data.as_deref())),
+        };
+        // The facts are complete; what the host prepares from them is frozen
+        // into the connection before its first request.
+        conn_ctx.state = app.accept(&crate::pipeline::Accepted {
+            connection: &conn_ctx,
+            hostname: &vctx.hostname,
+            host: &vctx.vhost_key,
+            config: &vctx.vhost_config,
         });
+        let conn_ctx = Arc::new(conn_ctx);
 
         let host_service = HostService::new(
             app,

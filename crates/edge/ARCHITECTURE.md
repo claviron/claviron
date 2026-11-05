@@ -123,6 +123,16 @@ registration. No layer is installed unconditionally.
 `ConnCtx` belongs to the accepted connection. Native actions borrow it through
 `HostContext` without populating request extensions.
 
+Work whose inputs are complete at acceptance is done there, once. An
+`AcceptLayer` registered with `HostAppRegistry::register_accept_layer` is
+selected per host and protocol family when the host table is prepared and
+kept with that host's execution. After the TLS or QUIC handshake, with the
+protocol decided and before the first request, the transport runs the selected
+layers over the complete facts and freezes what they prepared into
+`ConnCtx.state`. Requests read it through `HostContext::conn_state`. A host
+with no selected layer runs and allocates nothing at acceptance. Cleartext
+connections have no host until a request names one and run no layer.
+
 | Order | Entry | Selected by |
 | --- | --- | --- |
 | 0 | HTTP metrics | `metrics` feature and an explicit `http.yaml` metrics block. Counts through the response head or cancellation on every serving listener. |
@@ -366,6 +376,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 ### `pipeline/`
 
 - [`pipeline.rs`](src/pipeline.rs) — Public native composition contracts and optional adapter exports.
+- [`accept.rs`](src/pipeline/accept.rs) — AcceptLayer registration, per-host selection and the once-per-connection preparation of `ConnState`.
 - [`apps.rs`](src/pipeline/apps.rs) — Retained factories, directives and per-host application snapshot preparation/reuse.
 - [`routable.rs`](src/pipeline/routable.rs) — Provider-owned contributions, native layers and exclusive host bindings.
 - [`non_serving.rs`](src/pipeline/non_serving.rs) — Fixed plain redirect/reject flow and the optional single request interceptor.

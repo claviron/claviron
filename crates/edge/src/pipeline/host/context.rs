@@ -56,6 +56,11 @@ impl<'a> HostContext<'a> {
         self.host.map(|(hostname, _)| hostname)
     }
 
+    /// What was prepared for this connection while it was accepted.
+    pub fn conn_state(&self) -> &'a claviron_http::ext::ConnState {
+        &self.connection.state
+    }
+
     /// The effective policy of the backend's scope. Absent before a backend
     /// is reached.
     pub fn policy(&self) -> Option<&'a HttpPolicy> {

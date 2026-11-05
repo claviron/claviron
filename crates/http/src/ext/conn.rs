@@ -1,5 +1,6 @@
+use std::any::{Any, TypeId};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use claviron_tls::Proto;
 use rustls::{CipherSuite, ProtocolVersion};
@@ -66,34 +67,80 @@ impl TlsInfo {
     }
 }
 
-/// Typed state owned by one accepted connection and shared by its requests.
-/// Cloning retains that connection's state; a new connection starts empty.
+/// Values prepared while a connection was accepted and read by its requests.
+///
+/// Work whose inputs are complete at acceptance (the handshake's peer, the
+/// selected host) is done once there and its result kept here, instead of
+/// being repeated or looked up for every request. The values are written
+/// before the first request and never afterwards, so reading takes no lock.
+/// A connection nothing was prepared for holds nothing and allocates nothing.
+///
+/// Keys are Rust types, never client-supplied names. Cloning shares the same
+/// values: a copy of the facts made for one request reads what the connection
+/// holds.
 #[derive(Clone, Default)]
-pub struct ConnectionState(Arc<Mutex<http::Extensions>>);
+pub struct ConnState(Option<Arc<[Value]>>);
 
-impl ConnectionState {
-    /// Construct one value per type, without holding the lock across async work.
-    /// Keys are Rust types, never client-supplied names or identifiers.
-    pub fn get_or_insert_with<T: Send + Sync + 'static>(
-        &self,
-        create: impl FnOnce() -> T,
-    ) -> Arc<T> {
-        let mut values = self.0.lock().expect("connection state poisoned");
-        if let Some(value) = values.get::<Arc<T>>() {
-            return Arc::clone(value);
-        }
-        let value = Arc::new(create());
-        values.insert(Arc::clone(&value));
-        value
+struct Value {
+    id: TypeId,
+    value: Box<dyn Any + Send + Sync>,
+}
+
+impl ConnState {
+    /// The value of this type, if one was prepared for the connection.
+    pub fn get<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        let id = TypeId::of::<T>();
+        self.0
+            .as_deref()?
+            .iter()
+            .find(|entry| entry.id == id)
+            .and_then(|entry| entry.value.downcast_ref())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_none()
     }
 }
 
-/// Connection facts and connection-owned state.
+/// Collects one connection's state while it is being accepted.
+#[derive(Default)]
+pub struct ConnStateBuilder(Vec<Value>);
+
+impl ConnStateBuilder {
+    /// Keep one value of this type for the connection. A second value of the
+    /// same type replaces the first, which is returned.
+    pub fn insert<T: Send + Sync + 'static>(
+        &mut self,
+        value: T,
+    ) -> Option<T> {
+        let id = TypeId::of::<T>();
+        let value: Box<dyn Any + Send + Sync> = Box::new(value);
+        match self.0.iter_mut().find(|entry| entry.id == id) {
+            Some(entry) => {
+                let previous = std::mem::replace(&mut entry.value, value);
+                let previous: Box<dyn Any> = previous;
+                previous.downcast().ok().map(|previous| *previous)
+            }
+            None => {
+                self.0.push(Value { id, value });
+                None
+            }
+        }
+    }
+
+    /// Freeze what was collected. Nothing collected allocates nothing.
+    pub fn build(self) -> ConnState {
+        ConnState((!self.0.is_empty()).then(|| self.0.into()))
+    }
+}
+
+/// Connection facts and the values prepared at its acceptance.
 /// Vhost/SNI resolution is handled separately and passed via VhostCtx
 #[derive(Clone)]
 pub struct ConnCtx {
-    /// Shared even when a request clones the facts to resolve forwarding.
-    pub state: ConnectionState,
+    /// Prepared once while the connection was accepted; shared even when a
+    /// request clones the facts to resolve forwarding.
+    pub state: ConnState,
     /// Named listener that accepted this connection; never inferred from an IP.
     pub listener: crate::ListenerId,
     /// Application protocol selected for this connection.

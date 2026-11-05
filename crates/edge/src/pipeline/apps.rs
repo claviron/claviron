@@ -384,6 +384,8 @@ pub struct HostAppRegistry {
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
     pub(in crate::pipeline) layer_registrations:
         RwLock<Vec<Arc<dyn super::host::LayerRegistration>>>,
+    pub(in crate::pipeline) accept_registrations:
+        RwLock<Vec<Arc<super::accept::AcceptRegistration>>>,
     #[cfg(feature = "rate-limit")]
     quotas: RwLock<crate::pipeline::layers::QuotaRegistrations>,
 }
@@ -1135,6 +1137,13 @@ impl HostAppRegistry {
                 #[cfg(feature = "rate-limit")]
                 snapshot.quotas.get(canonical).and_then(Option::as_deref),
             )?;
+            let (app, listener_plans) = self.with_accept_layers(
+                canonical,
+                &record.config,
+                (http.as_deref(), compiler.protocol),
+                app,
+                listener_plans,
+            );
 
             snapshot.configs.insert(canonical.clone(), record.config.clone());
             for host in table.host_keys_for_canonical(canonical) {

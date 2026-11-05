@@ -18,6 +18,9 @@ mod protocol;
 #[path = "apps/listeners.rs"]
 mod listeners;
 
+#[path = "apps/accept.rs"]
+mod accept;
+
 #[cfg(any(feature = "tcp", feature = "quic"))]
 #[path = "apps/reply.rs"]
 mod reply;

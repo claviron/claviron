@@ -643,7 +643,7 @@ extension types; the listener crates and middleware install them.
 
 ```rust
 pub struct ConnCtx {
-    pub state:        ConnectionState,
+    pub state:        ConnState,
     pub listener:     ListenerId,
     pub proto:        Option<Proto>,
     pub remote:       SocketAddr,
@@ -685,11 +685,15 @@ The structure is `Clone`; request forwarding does not require a structure clone.
 `request_real_ip` reads `RealIpExt` first, then accepted connection facts. GeoIP
 describes the directly connected peer and is not recomputed from forwarding.
 
-`ConnectionState` retains typed consumer-owned state for that accepted connection.
-Its clones share one store, including request copies made for forwarded IP
-resolution. Consumers initialize a type once with `get_or_insert_with`; the
-short synchronous lock never spans async work. A new accepted connection gets
-an empty state. HTTP owns no application actor or authentication policy.
+`ConnState` holds what was prepared for that connection while it was accepted:
+typed values, one per Rust type, collected in a `ConnStateBuilder` and frozen
+before the first request. Nothing is added afterwards, so reading takes no
+lock; `get::<T>()` borrows. Its clones share the same values, including
+request copies made for forwarded IP resolution. A connection nothing was
+prepared for holds nothing and allocates nothing. Who prepares, and when, is
+the accepting transport's matter
+([LIFETIME_POLICY](../../docs/design/LIFETIME_POLICY.md)); HTTP owns no
+application actor or authentication policy.
 
 `ConnCtx::scheme()` returns the typed `http::uri::Scheme` from physical
 transport facts: TLS metadata present means HTTPS, absent means HTTP. Port

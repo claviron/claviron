@@ -80,6 +80,14 @@ impl TlsHostConnection {
             .take()
             .ok_or(ConnectionError::ApplicationUnavailable)?;
         ctx.proto = Some(proto);
+        // The facts are complete; what the host prepares from them is frozen
+        // into the connection before its first request.
+        ctx.state = app.accept(&crate::pipeline::Accepted {
+            connection: &ctx,
+            hostname: &vctx.hostname,
+            host: &vctx.vhost_key,
+            config: &vctx.vhost_config,
+        });
         Ok(HostService::new(app, Arc::new(ctx), vctx, listener.policy()))
     }
 
