@@ -45,20 +45,20 @@ mod plain {
     use http::{HeaderValue, Request, StatusCode};
 
     /// Listener-owned concrete flow. Host data is an input, never a built chain.
-    pub(crate) struct NonServingPipeline {
+    pub struct NonServingPipeline {
         redirect_port: NonZeroU16,
         interception: Option<Arc<dyn InterceptsNonServing>>,
     }
 
     impl NonServingPipeline {
-        pub(crate) fn new(
+        pub fn new(
             redirect_port: NonZeroU16,
             interception: Option<Arc<dyn InterceptsNonServing>>,
         ) -> Self {
             Self { redirect_port, interception }
         }
 
-        pub(crate) async fn call<B>(
+        pub async fn call<B>(
             &self,
             request: Request<B>,
             host: VhostCtx,
@@ -141,4 +141,4 @@ mod plain {
 }
 
 #[cfg(feature = "tcp")]
-pub(crate) use plain::NonServingPipeline;
+pub use plain::NonServingPipeline;

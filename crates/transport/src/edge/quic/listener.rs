@@ -2,13 +2,13 @@
 //! Each accepted connection retains its named group snapshot through TLS,
 //! host resolution and dispatch. Request body adaptation remains in `request`.
 
-use claviron_transport::quic::drain;
+use crate::quic::drain;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::transport::{HostService, RequestArrival};
 use bytes::Bytes;
+use claviron_edge::transport::{HostService, RequestArrival};
 use claviron_http::config::ListenerSettings;
 use claviron_http::ext::{ClientAuthStatus, ConnCtx, TlsInfo};
 #[cfg(feature = "metrics")]
@@ -31,10 +31,10 @@ use rustls::pki_types::CertificateDer;
 use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
-use crate::quic::request::{
+use crate::edge::quic::request::{
     H3RequestHandler, check_early_data, send_status_response,
 };
-use crate::quic::server::{H3Listener, ServerSnapshot};
+use crate::edge::quic::server::{H3Listener, ServerSnapshot};
 
 enum StreamCompletion {
     Request,
@@ -56,7 +56,7 @@ impl H3Listener {
     pub(super) async fn serve_groups(
         &self,
         initial: Arc<ServerSnapshot>,
-        deps: Arc<crate::quic::server::Deps>,
+        deps: Arc<crate::edge::quic::server::Deps>,
         context: RunContext,
     ) -> Result<()> {
         let mut endpoints = Vec::new();
@@ -97,7 +97,7 @@ impl H3Listener {
         initial: Arc<ServerSnapshot>,
         endpoints: Vec<Endpoint>,
         context: &RunContext,
-        deps: Arc<crate::quic::server::Deps>,
+        deps: Arc<crate::edge::quic::server::Deps>,
     ) {
         let listener = &initial.listener;
         let gate = Gate::new(
@@ -195,8 +195,8 @@ impl H3Listener {
     /// Snapshot, dependencies and bound address are captured at admission.
     async fn handle_connection(
         state: claviron_runtime::AppState,
-        deps: Arc<crate::quic::server::Deps>,
-        accepted: crate::quic::tls::AcceptedQuic,
+        deps: Arc<crate::edge::quic::server::Deps>,
+        accepted: crate::edge::quic::tls::AcceptedQuic,
         permit: Permit,
         local_addr: SocketAddr,
         snapshot: Arc<ServerSnapshot>,
@@ -231,14 +231,14 @@ impl H3Listener {
 
     async fn accept_streams(
         state: claviron_runtime::AppState,
-        deps: Arc<crate::quic::server::Deps>,
-        accepted: crate::quic::tls::AcceptedQuic,
+        deps: Arc<crate::edge::quic::server::Deps>,
+        accepted: crate::edge::quic::tls::AcceptedQuic,
         permit: &Arc<Permit>,
         local_addr: SocketAddr,
         snapshot: Arc<ServerSnapshot>,
         streams: &mut JoinSet<StreamCompletion>,
     ) {
-        use crate::quic::wt::{
+        use crate::edge::quic::wt::{
             H3Connection, SessionStreams, authorize_web_transport,
             is_web_transport_connect, serve_web_transport,
         };
@@ -261,7 +261,7 @@ impl H3Listener {
             .as_ref()
             .and_then(|hd| hd.server_name.as_deref().map(Arc::<str>::from));
 
-        let vctx = match crate::transport::resolve_sni_for_listener(
+        let vctx = match claviron_edge::transport::resolve_sni_for_listener(
             &accepted.hosts,
             server_name.as_deref(),
             &snapshot.listener.id,
@@ -316,12 +316,12 @@ impl H3Listener {
         };
         // The facts are complete; what the host prepares from them is frozen
         // into the connection before its first request.
-        conn_ctx.state = app.accept(&crate::pipeline::Accepted {
-            connection: &conn_ctx,
-            hostname: &vctx.hostname,
-            host: &vctx.vhost_key,
-            config: &vctx.vhost_config,
-        });
+        conn_ctx.state = app.accept(&claviron_edge::pipeline::Accepted::new(
+            &conn_ctx,
+            &vctx.hostname,
+            &vctx.vhost_key,
+            &vctx.vhost_config,
+        ));
         let conn_ctx = Arc::new(conn_ctx);
 
         let host_service = HostService::new(
@@ -337,7 +337,8 @@ impl H3Listener {
         let request_handler = H3RequestHandler::new(host_service.clone());
         // This connection's last accepted authority fields; requests are
         // admitted one at a time on this task.
-        let mut accepted = crate::service::AcceptedAuthority::default();
+        let mut accepted =
+            claviron_edge::transport::AcceptedAuthority::default();
         let web_transport_enabled =
             deps.web_transport.has_host(&vctx.vhost_key.0);
         let quinn_conn = H3QuinnConnection::new(conn);
@@ -350,7 +351,7 @@ impl H3Listener {
         let early_data = if settings.quic.enable_early_data {
             vctx.vhost_config.transport.h3.early_data
         } else {
-            crate::config::EarlyDataPolicy::DenyAll
+            claviron_edge::config::EarlyDataPolicy::DenyAll
         };
         h3_builder.max_field_section_size(settings.quic.max_field_section_size);
         let Some(input_capacity) = std::num::NonZeroUsize::new(
@@ -447,7 +448,7 @@ impl H3Listener {
                     }
                 }
                 Some(authorized) = authorizing.next(), if !authorizing.is_empty() => {
-                    let authorized: Option<crate::quic::wt::AuthorizedSession> = authorized;
+                    let authorized: Option<crate::edge::quic::wt::AuthorizedSession> = authorized;
                     if let Some(authorized) = authorized {
                         let id = authorized.id();
                         // Register before sending 200: the peer may immediately
@@ -463,7 +464,7 @@ impl H3Listener {
                 Some(resolved) = resolving.next(), if !resolving.is_empty() => {
                     let (h3_head, mut stream): (
                         http::Request<()>,
-                        crate::quic::request::H3RequestStream<H3QuinnConnection>
+                        crate::edge::quic::request::H3RequestStream<H3QuinnConnection>
                     ) = match resolved {
                         Ok(AcceptedBi::Request(request, stream)) => (request, stream),
                         Ok(AcceptedBi::BidiStream(id, stream)) => {
@@ -629,5 +630,5 @@ fn h3_tls_info(
 }
 
 fn country_code_for(remote: SocketAddr) -> Option<Arc<str>> {
-    claviron_transport::geo::country_code(remote.ip())
+    crate::geo::country_code(remote.ip())
 }

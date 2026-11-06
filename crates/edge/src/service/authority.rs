@@ -14,27 +14,27 @@ use crate::loader::table::VhostTable;
 /// A validated cleartext authority bound to its unchanged request.
 /// Only shared access is exposed until host admission consumes the proof.
 #[cfg(feature = "tcp")]
-pub(crate) struct CleartextRequest<B> {
+pub struct CleartextRequest<B> {
     request: Request<B>,
     authority: RequestAuthority,
 }
 
 #[cfg(feature = "tcp")]
 impl<B> CleartextRequest<B> {
-    pub(crate) fn new(request: Request<B>) -> Result<Self, AuthorityError> {
+    pub fn new(request: Request<B>) -> Result<Self, AuthorityError> {
         let authority = RequestAuthority::from_cleartext(&request)?;
         Ok(Self { request, authority })
     }
 
-    pub(crate) fn authority(&self) -> &RequestAuthority {
+    pub fn authority(&self) -> &RequestAuthority {
         &self.authority
     }
 
-    pub(crate) fn request(&self) -> &Request<B> {
+    pub fn request(&self) -> &Request<B> {
         &self.request
     }
 
-    pub(crate) fn into_parts(self) -> (Request<B>, RequestAuthority) {
+    pub fn into_parts(self) -> (Request<B>, RequestAuthority) {
         (self.request, self.authority)
     }
 }
@@ -44,14 +44,14 @@ impl<B> CleartextRequest<B> {
 /// records a failed host lookup.
 #[cfg(feature = "tcp")]
 #[derive(Default)]
-pub(crate) struct HostIdentityCache {
+pub struct HostIdentityCache {
     hostname: Option<HostName>,
     vhost_key: Option<HostKey>,
 }
 
 #[cfg(feature = "tcp")]
 impl HostIdentityCache {
-    pub(crate) fn resolve(
+    pub fn resolve(
         &mut self,
         authority: &RequestAuthority,
         table: &VhostTable,

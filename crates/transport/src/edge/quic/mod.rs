@@ -14,7 +14,7 @@
 //! or the axum-free native dispatch chain. There is no sidecar proxy between QUIC and
 //! the application pipeline.
 
-use claviron_transport::quic::error;
+use crate::quic::error;
 
 mod listener;
 mod server;

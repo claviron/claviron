@@ -1,8 +1,10 @@
-use crate::pipeline::{
+use bytes::Bytes;
+use claviron_edge::pipeline::{
     H3WebTransportBiStream, H3WebTransportSession, WebTransportHandler,
 };
-use crate::transport::{AnyAuthenticated, AuthContext, WebTransportBinding};
-use bytes::Bytes;
+use claviron_edge::transport::{
+    AnyAuthenticated, AuthContext, WebTransportBinding,
+};
 use claviron_runtime::AppState;
 use h3::ext::Protocol;
 use h3::quic;
@@ -11,9 +13,9 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error};
 
-use crate::quic::request::send_status_response;
+use crate::edge::quic::request::send_status_response;
 
-pub(super) use claviron_transport::quic::wt::streams::SessionStreams;
+pub(super) use crate::quic::wt::streams::SessionStreams;
 
 pub(super) type H3Connection =
     WebTransportConnection<h3_quinn::Connection, Bytes>;

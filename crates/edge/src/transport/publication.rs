@@ -9,11 +9,11 @@ use claviron_runtime::registry::{Error, Result};
 
 use super::{HostAppRegistry, VhostResolver, VhostTable};
 
-pub(crate) type PreparedListener = Box<dyn FnOnce() + Send>;
+pub type PreparedListener = Box<dyn FnOnce() + Send>;
 
 /// One named instance prepares against the same declaration publication.
 /// This contract runs only at start/reload or a host-source publication.
-pub(crate) trait ListenerPublication: Send + Sync {
+pub trait ListenerPublication: Send + Sync {
     fn listener_id(&self) -> &ListenerId;
 
     #[cfg(all(feature = "tcp", feature = "tls"))]
@@ -34,7 +34,7 @@ pub(crate) trait ListenerPublication: Send + Sync {
 
 /// Preserve owner-aware environment expansion and validate the entire source;
 /// only the addressed listener and its inherited defaults become its input.
-pub(crate) async fn read_listener(
+pub async fn read_listener(
     state: &AppState,
     id: &ListenerId,
 ) -> Result<HttpSnapshot> {
@@ -50,7 +50,7 @@ pub(crate) async fn read_listener(
     select_listener(&input, id)
 }
 
-pub(crate) fn select_listener(
+pub fn select_listener(
     input: &HttpSnapshot,
     id: &ListenerId,
 ) -> Result<HttpSnapshot> {
@@ -62,7 +62,7 @@ pub(crate) fn select_listener(
     Ok(selected)
 }
 
-pub(crate) fn prepare_hosts(
+pub fn prepare_hosts(
     state: &AppState,
     hosts: &VhostTable,
     input: &HttpSnapshot,
@@ -75,7 +75,7 @@ pub(crate) fn prepare_hosts(
     apps.prepare_listener(state, hosts, input, previous)
 }
 
-pub(crate) fn resolver(state: &AppState) -> Result<Arc<VhostResolver>> {
+pub fn resolver(state: &AppState) -> Result<Arc<VhostResolver>> {
     state
         .registry_ref()
         .resolve::<VhostResolver>()
@@ -84,9 +84,7 @@ pub(crate) fn resolver(state: &AppState) -> Result<Arc<VhostResolver>> {
 
 /// Bind and admission geometry, shared across transport factories. Prepared
 /// request/TLS snapshots belong to the listener instances, not this catalog.
-pub(crate) struct ListenerBinding(
-    pub(crate) Arc<claviron_http::config::ListenerConfig>,
-);
+pub struct ListenerBinding(pub Arc<claviron_http::config::ListenerConfig>);
 impl claviron_http::listener::ListenerSnapshot for ListenerBinding {
     fn listener_id(&self) -> &ListenerId {
         &self.0.id

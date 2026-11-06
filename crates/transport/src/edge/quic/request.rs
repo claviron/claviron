@@ -4,9 +4,9 @@
 use std::pin::Pin;
 
 use super::error::{log_stream_error, request_interrupted};
-use crate::config::EarlyDataPolicy;
-use crate::transport::{HostService, RequestArrival, RequestRejection};
 use bytes::{Buf, Bytes};
+use claviron_edge::config::EarlyDataPolicy;
+use claviron_edge::transport::{HostService, RequestArrival, RequestRejection};
 use claviron_http::boxed_body;
 use futures_util::future::poll_fn;
 use futures_util::stream::try_unfold;
@@ -377,5 +377,5 @@ fn unsupported_websocket_connect(request: &Request<()>) -> bool {
 }
 
 #[cfg(test)]
-#[path = "../../tests/quic/request.rs"]
+#[path = "../../../tests/edge/quic/request.rs"]
 mod tests;

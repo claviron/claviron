@@ -1,6 +1,6 @@
 //! The host a TLS connection was accepted for, as the transport sees it.
 //!
-//! The handshake and the HTTP driver are `claviron_transport::tcp::secure`.
+//! The handshake and the HTTP driver are `crate::tcp::secure`.
 //! This is what Edge adds: the SNI host captured with its TLS policy, its
 //! protocol policy, its retirement and the handoff to its prepared execution.
 
@@ -8,7 +8,8 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use crate::transport::{
+use crate::tcp::secure::SecureHost;
+use claviron_edge::transport::{
     HostBinding, HostRejection, HostService, VhostCtx, VhostResolver,
 };
 use claviron_http::config::ListenerConfig;
@@ -17,13 +18,12 @@ use claviron_http::ext::ConnCtx;
 use claviron_http::session::ConnectionScope;
 use claviron_runtime::AppState;
 use claviron_tls::Proto;
-use claviron_transport::tcp::secure::SecureHost;
 use tokio::net::TcpStream;
 use tracing::info;
 
 use super::error::ConnectionError;
 use super::server::ServerSnapshot;
-use crate::tcp::service::HostRequests;
+use crate::edge::tcp::service::HostRequests;
 
 /// A prepared TLS listener's native handler for accepted TCP streams.
 /// The caller owns acceptance, connection capacity and session drain. Each
@@ -47,12 +47,7 @@ impl ConnectionHandler {
         peer: SocketAddr,
         scope: ConnectionScope,
     ) -> impl Future<Output = ()> + Send {
-        claviron_transport::tcp::secure::serve(
-            stream,
-            peer,
-            self.snapshot,
-            scope,
-        )
+        crate::tcp::secure::serve(stream, peer, self.snapshot, scope)
     }
 }
 
@@ -144,12 +139,12 @@ impl SecureHost for SelectedHost {
             .ok_or(ConnectionError::ApplicationUnavailable)?;
         // The facts are complete; what the host prepares from them is frozen
         // into the connection before its first request.
-        facts.state = app.accept(&crate::pipeline::Accepted {
-            connection: &facts,
-            hostname: &vctx.hostname,
-            host: &vctx.vhost_key,
-            config: &vctx.vhost_config,
-        });
+        facts.state = app.accept(&claviron_edge::pipeline::Accepted::new(
+            &facts,
+            &vctx.hostname,
+            &vctx.vhost_key,
+            &vctx.vhost_config,
+        ));
         Ok(HostRequests::new(HostService::new(
             app,
             Arc::new(facts),

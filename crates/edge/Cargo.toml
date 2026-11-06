@@ -27,7 +27,7 @@ access-log = [
     "dep:claviron-logging",
     "claviron-logging/pipeline",
 ]
-websocket = ["tcp", "claviron-http/websocket", "claviron-transport/websocket"]
+websocket = ["tcp", "claviron-http/websocket"]
 # Pure host declarations only; Broadcast owns its opt-in execution/session adapter.
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
@@ -43,25 +43,15 @@ orbit = [
 # Weak forwarding must not select Lua for unrelated WebSocket users.
 db = ["dep:claviron-db", "dep:claviron-hosting", "claviron-hosting/server"]
 postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
-metrics = ["axum", "claviron-http/metrics", "claviron-transport?/metrics"]
+metrics = ["axum", "claviron-http/metrics"]
 http3 = ["claviron-http/http3"]
-webtransport = [
-    "http3", "dep:h3-quinn", "dep:h3-webtransport",
-    "dep:claviron-transport", "claviron-transport/webtransport",
-]
-# Native drivers are opt-in; host declarations alone open no sockets.
-tcp = [
-    "claviron-types/ssl", "dep:claviron-sys", "dep:socket2", "dep:hyper", "dep:hyper-util",
-    "dep:claviron-transport", "claviron-transport/tcp",
-]
-tls = ["dep:rustls", "dep:tokio-rustls", "claviron-transport?/tls"]
-# Preserve the native H3 driver's existing WebTransport binding contract.
-quic = [
-    "http3", "webtransport", "claviron-types/ssl", "dep:claviron-sys",
-    "dep:h3", "dep:quinn", "dep:quinn-deferred-config", "dep:rustls",
-    "dep:claviron-transport", "claviron-transport/quic", "claviron-transport/webtransport",
-]
-geoip = ["claviron-transport?/geoip"]
+webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport"]
+# What a transport's native drivers need from host selection. The drivers
+# themselves live in claviron-transport; these open no sockets.
+tcp = ["claviron-types/ssl", "dep:hyper", "dep:hyper-util"]
+tls = ["dep:rustls"]
+# The H3 driver always offers WebTransport sessions to the hosts that bind them.
+quic = ["http3", "webtransport", "claviron-types/ssl"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
@@ -73,9 +63,7 @@ claviron-http = { workspace = true, features = ["server"] }
 claviron-logging = { workspace = true, optional = true }
 claviron-orbit = { workspace = true, optional = true }
 claviron-runtime.workspace = true
-claviron-sys = { workspace = true, optional = true }
 claviron-tls.workspace = true
-claviron-transport = { workspace = true, optional = true }
 claviron-types.workspace = true
 
 # ── Async runtime & primitives ──────────────────────────────────────────
@@ -107,10 +95,6 @@ tower = { workspace = true, features = ["util"] }
 
 # ── TLS / certificates ──────────────────────────────────────────────────
 rustls = { workspace = true, optional = true, features = ["std"] }
-tokio-rustls = { workspace = true, optional = true }
-
-# ── System / OS bindings ────────────────────────────────────────────────
-socket2 = { workspace = true, optional = true }
 
 # ── Networking utilities ────────────────────────────────────────────────
 ipnet = { workspace = true, features = ["serde"] }
@@ -123,12 +107,8 @@ tracing.workspace = true
 bytes.workspace = true
 
 # ── HTTP/3 (QUIC) ───────────────────────────────────────────────────────
-h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, features = ["datagram"], optional = true }
 h3-webtransport = { workspace = true, optional = true }
-quinn = { workspace = true, optional = true, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
-# Select each host's QUIC TLS configuration from its ClientHello SNI.
-quinn-deferred-config = { workspace = true, optional = true, features = ["rustls-aws-lc-rs"] }
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────

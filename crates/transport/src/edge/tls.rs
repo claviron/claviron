@@ -11,8 +11,8 @@ use claviron_tls::{CertAuthority, CertResolver};
 use claviron_types::Host;
 use rustls::ServerConfig;
 
-use crate::config::HostConfig;
-use crate::loader::table::VhostTable;
+use claviron_edge::config::HostConfig;
+use claviron_edge::transport::VhostTable;
 
 /// A listener that serves TLS needs the certificate source `tls.yaml`
 /// declares, and without the file this process has none. `listeners` are the
@@ -65,16 +65,11 @@ pub(crate) fn client_authority<'a>(
     else {
         return Ok(None);
     };
-    table
-        .authorities
-        .as_ref()
-        .and_then(|prepared| prepared.get(source))
-        .map(Some)
-        .ok_or_else(|| {
-            Error::msg(format!(
-                "TLS host {host}: client authority was not prepared"
-            ))
-        })
+    table.client_authority(source).map(Some).ok_or_else(|| {
+        Error::msg(format!(
+            "TLS host {host}: client authority was not prepared"
+        ))
+    })
 }
 
 pub(crate) fn create_host_auth_config(

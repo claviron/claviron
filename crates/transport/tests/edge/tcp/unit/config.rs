@@ -1,12 +1,12 @@
-use crate::tcp::plain::HttpServerConfig;
+use crate::edge::tcp::plain::HttpServerConfig;
 #[cfg(feature = "tls")]
-use crate::tcp::secure::HttpsServerConfig;
+use crate::edge::tcp::secure::HttpsServerConfig;
 
 #[test]
 fn sibling_transport_changes_do_not_invalidate_cleartext() {
     let source = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/tcp/fixtures/listeners.yaml"
+        "/tests/edge/tcp/fixtures/listeners.yaml"
     ))
     .unwrap();
     let original = serde_yaml::from_str::<HttpServerConfig>(&source);
@@ -35,7 +35,7 @@ fn sibling_transport_changes_do_not_invalidate_cleartext() {
 fn sibling_transport_changes_do_not_invalidate_tls() {
     let source = std::fs::read_to_string(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/tests/tcp/fixtures/listeners.yaml"
+        "/tests/edge/tcp/fixtures/listeners.yaml"
     ))
     .unwrap();
     let original = serde_yaml::from_str::<HttpsServerConfig>(&source).unwrap();

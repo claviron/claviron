@@ -4,7 +4,7 @@ name = "claviron-transport"
 version.workspace = true
 publish.workspace = true
 edition.workspace = true
-description = "Socket acceptance and HTTP/1.1, HTTP/2 and HTTP/3 connection driving for Claviron, independent of host selection"
+description = "Socket acceptance and HTTP/1.1, HTTP/2 and HTTP/3 connection driving for Claviron, host-free or serving claviron-edge"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
@@ -15,27 +15,38 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 
 [features]
 default = []
+# Serve Edge's virtual hosts. The only feature that brings Edge in; each
+# driver below asks Edge for its side of that driver when both are selected.
+edge = ["dep:claviron-edge", "dep:async-trait", "dep:serde", "dep:claviron-types"]
 # TCP bind, admission and drain; Hyper HTTP/1.1 settings and socket I/O.
-tcp = ["dep:claviron-sys", "dep:hyper", "dep:hyper-util", "dep:socket2"]
+tcp = [
+    "dep:claviron-sys", "dep:hyper", "dep:hyper-util", "dep:socket2",
+    "claviron-edge?/tcp",
+]
 # TLS accept, ALPN selection and HTTP/2 over TCP.
 tls = [
     "tcp", "dep:claviron-tls", "dep:claviron-types", "claviron-types/ssl",
-    "dep:tokio-rustls",
+    "dep:rustls", "dep:tokio-rustls", "claviron-edge?/tls",
 ]
 # HTTP/3 stream and connection handling over QUIC. The H3 error variants this
 # reads are public only with the WebTransport crate selected, so the two go
 # together.
-quic = ["dep:h3", "dep:h3-webtransport"]
-# Application-facing WebTransport sessions over the Quinn driver.
-webtransport = ["quic", "dep:h3-quinn"]
+quic = [
+    "dep:h3", "dep:h3-webtransport", "dep:h3-quinn", "dep:quinn",
+    "dep:quinn-deferred-config", "dep:rustls", "dep:claviron-sys",
+    "dep:claviron-tls", "dep:claviron-types", "claviron-types/ssl",
+    "claviron-edge?/quic",
+]
+webtransport = ["quic", "claviron-edge?/webtransport"]
 # Fill a connection's country from the peer address.
 geoip = ["dep:claviron-geoip"]
 # Let an HTTP/1.1 connection be upgraded.
-websocket = ["tcp"]
+websocket = ["tcp", "claviron-edge?/websocket"]
 # Count accepted and open connections per listener.
 metrics = ["claviron-http/metrics"]
 
 [dependencies]
+claviron-edge = { workspace = true, optional = true }
 claviron-geoip = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
 claviron-runtime.workspace = true
@@ -44,11 +55,15 @@ claviron-tls = { workspace = true, optional = true }
 claviron-types = { workspace = true, optional = true }
 
 arc-swap.workspace = true
+async-trait = { workspace = true, optional = true }
 bytes.workspace = true
+http.workspace = true
+http-body.workspace = true
 futures-util.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, optional = true, features = ["http1", "http2", "server"] }
 hyper-util = { workspace = true, optional = true, features = ["tokio"] }
+serde = { workspace = true, optional = true, features = ["derive"] }
 socket2 = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
@@ -57,10 +72,12 @@ tokio-rustls = { workspace = true, optional = true }
 
 h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, features = ["datagram"], optional = true }
+quinn = { workspace = true, optional = true, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
+quinn-deferred-config = { workspace = true, optional = true, features = ["rustls-aws-lc-rs"] }
+rustls = { workspace = true, optional = true, features = ["std"] }
 h3-webtransport = { workspace = true, optional = true }
 
 [dev-dependencies]
-http.workspace = true
 rcgen.workspace = true
 serde_yaml.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }

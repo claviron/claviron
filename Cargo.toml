@@ -109,6 +109,10 @@ edge = [
     "claviron-http/server",
     "dep:claviron-edge",
     "claviron-edge/tcp",
+    # The listeners that serve Edge's hosts live in the transport.
+    "dep:claviron-transport",
+    "claviron-transport/edge",
+    "claviron-transport/tcp",
 ]
 
 # Static assets can be served by an application without virtual hosts or edge dispatch.
@@ -121,6 +125,7 @@ metrics = [
     "claviron-runtime/metrics",
     "claviron-supervisor?/metrics",
     "claviron-edge?/metrics",
+    "claviron-transport?/metrics",
     "claviron-http?/metrics",
     "claviron-upstream?/metrics",
     "claviron-files?/metrics",
@@ -130,7 +135,10 @@ metrics = [
 ]
 ffi = ["dep:claviron-ffi"]
 # ── Protocols ────────────────────────────────────────────────────────
-http3 = ["tls", "claviron-edge/quic", "dep:quinn", "dep:quinn-deferred-config"]
+http3 = [
+    "tls", "claviron-edge/quic", "dep:quinn", "dep:quinn-deferred-config",
+    "dep:claviron-transport", "claviron-transport/edge", "claviron-transport/quic",
+]
 # DNS origins are always available; the application binds the resolver
 # (`dyn ResolverFactory`, e.g. `resolver-hickory`). A hostname origin with no
 # bound resolver is a boot error.
@@ -138,15 +146,15 @@ upstream = ["edge", "dep:claviron-upstream", "claviron-upstream/edge", "resolver
 resolver = ["dep:claviron-resolver"]
 resolver-hickory = ["resolver", "claviron-resolver/hickory"]
 # http connect extensions
-websocket = ["claviron-http/websocket", "claviron-edge?/websocket", "claviron-runner?/websocket", "claviron-lua?/websocket", "http"]
-webtransport = ["edge", "http3", "claviron-edge/webtransport", "claviron-lua?/webtransport", "claviron-broadcast?/webtransport"]
+websocket = ["claviron-http/websocket", "claviron-edge?/websocket", "claviron-transport?/websocket", "claviron-runner?/websocket", "claviron-lua?/websocket", "http"]
+webtransport = ["edge", "http3", "claviron-edge/webtransport", "claviron-transport/webtransport", "claviron-lua?/webtransport", "claviron-broadcast?/webtransport"]
 # pusher and broadcast replacement for embeded apps
 broadcast = ["websocket", "dep:claviron-broadcast", "claviron-runner?/broadcast"]
 
 # ── TLS / SSL ────────────────────────────────────────────────────────
 mtls = ["ssl"]
 ssl = ["dep:claviron-types", "claviron-types/ssl"]
-tls = ["ssl", "dep:claviron-tls", "claviron-edge?/tls", "claviron-runner?/tls"]
+tls = ["ssl", "dep:claviron-tls", "claviron-edge?/tls", "claviron-transport?/tls", "claviron-runner?/tls"]
 
 # ── Data ─────────────────────────────────────────────────────────────
 cache = ["dep:claviron-cache", "claviron-cache/axum", "claviron-http?/cache", "claviron-files?/cache", "claviron-php-embed?/cache"]
@@ -167,7 +175,7 @@ php_embed = ["php", "dep:claviron-php-embed", "claviron-php/php_embed"]
 hosting = ["tls", "db", "dep:claviron-hosting", "claviron-edge?/db"]
 
 # ── Misc ─────────────────────────────────────────────────────────────
-geoip = ["dep:claviron-geoip", "claviron-edge?/geoip"]
+geoip = ["dep:claviron-geoip", "claviron-transport?/geoip"]
 tasks = ["dep:claviron-tasks", "dep:tokio-util", "claviron-lua?/tasks", "claviron-files?/tasks", "claviron-php-fcgi?/tasks", "claviron-php-embed?/tasks"]
 sys = ["dep:claviron-sys"]
 
@@ -198,6 +206,7 @@ claviron-supervisor = { workspace = true, optional = true }
 claviron-sys = { workspace = true, optional = true }
 claviron-tasks = { workspace = true, optional = true }
 claviron-tls = { workspace = true, optional = true }
+claviron-transport = { workspace = true, optional = true }
 claviron-types = { workspace = true, optional = true }
 claviron-upstream = { workspace = true, optional = true }
 

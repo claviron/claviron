@@ -6,7 +6,7 @@
 //! QUIC/H3 belongs to the sibling `quic` module, not to this transport.
 
 // Acceptance and connection driving know no host and live in the transport.
-pub(crate) use claviron_transport::tcp::listener;
+pub(crate) use crate::tcp::listener;
 
 pub mod plain;
 #[cfg(feature = "tls")]
@@ -14,7 +14,7 @@ pub mod secure;
 mod service;
 
 #[cfg(test)]
-#[path = "../../tests/tcp/unit/config.rs"]
+#[path = "../../../tests/edge/tcp/unit/config.rs"]
 mod config_tests;
 
 pub use plain::HttpServer;

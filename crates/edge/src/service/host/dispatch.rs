@@ -47,7 +47,7 @@ impl PreparedRequest<RouteBody> {
     /// Keep host execution inline through the TCP service boundary.
     /// A direct Axum future is erased without enlarging other host plans.
     #[cfg(all(feature = "tcp", feature = "axum"))]
-    pub(crate) fn into_tcp_future(
+    pub fn into_tcp_future(
         self
     ) -> Either<
         RouteFuture,
@@ -70,7 +70,7 @@ impl PreparedRequest<RouteBody> {
     /// A native-only build retains the same inline transport future without
     /// compiling an Axum alternative or introducing another future box.
     #[cfg(all(feature = "tcp", not(feature = "axum")))]
-    pub(crate) fn into_tcp_future(
+    pub fn into_tcp_future(
         self
     ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send {
         let (execution, request, connection, arrival) = self.into_dispatch();

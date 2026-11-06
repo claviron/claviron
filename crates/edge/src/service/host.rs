@@ -21,7 +21,7 @@ mod dispatch;
 #[cfg(feature = "tcp")]
 mod cache;
 #[cfg(feature = "tcp")]
-pub(crate) use cache::CleartextHostCache;
+pub use cache::CleartextHostCache;
 
 /// A fact supplied by the native transport, never by a request header.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -93,7 +93,7 @@ impl HostService {
     /// authority fields it last accepted names the same host and is admitted
     /// without parsing them again; every other request is validated in full.
     #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
-    pub(crate) fn validate_authority<B>(
+    pub fn validate_authority<B>(
         &self,
         request: &Request<B>,
         accepted: &mut super::AcceptedAuthority,
@@ -123,7 +123,7 @@ impl HostService {
     }
 
     #[cfg(feature = "tcp")]
-    pub(crate) fn request_cleartext<B>(
+    pub fn request_cleartext<B>(
         self,
         request: CleartextRequest<B>,
     ) -> PreparedRequest<B> {

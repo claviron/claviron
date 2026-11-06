@@ -5,7 +5,7 @@ use claviron_http::ServiceResult;
 
 /// One connection's last immutable host policy. Application selection remains
 /// request-local; this cache owns no request, body or backend.
-pub(crate) struct CleartextHostCache {
+pub struct CleartextHostCache {
     identity: HostIdentityCache,
     current: Option<Arc<HostPolicy>>,
     connection: Arc<ConnCtx>,
@@ -22,10 +22,10 @@ struct Admitted {
 }
 
 impl CleartextHostCache {
-    pub(crate) fn connection(&self) -> &Arc<ConnCtx> {
+    pub fn connection(&self) -> &Arc<ConnCtx> {
         &self.connection
     }
-    pub(crate) fn new(
+    pub fn new(
         connection: Arc<ConnCtx>,
         listener: HttpPolicy,
     ) -> Self {
@@ -46,7 +46,7 @@ impl CleartextHostCache {
     /// another publication leaves the request unhandled for full admission,
     /// which is what keeps a connection from being pinned to its first host
     /// or to a replaced binding.
-    pub(crate) fn repeated<B>(
+    pub fn repeated<B>(
         &self,
         request: Request<B>,
         table: &VhostTable,
@@ -68,7 +68,7 @@ impl CleartextHostCache {
     }
 
     /// Remember a request full admission has just bound to `service`.
-    pub(crate) fn admit<B>(
+    pub fn admit<B>(
         &mut self,
         request: &Request<B>,
         table: &VhostTable,
@@ -87,7 +87,7 @@ impl CleartextHostCache {
         });
     }
 
-    pub(crate) fn resolve(
+    pub fn resolve(
         &mut self,
         authority: &RequestAuthority,
         table: &VhostTable,
@@ -105,7 +105,7 @@ impl CleartextHostCache {
         host
     }
 
-    pub(crate) fn bind(
+    pub fn bind(
         &mut self,
         app: HostExecution,
         mut host: VhostCtx,

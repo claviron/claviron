@@ -1,34 +1,22 @@
 //! What a transport driver is allowed to see of this crate.
 //!
-//! A transport — Edge's `tcp` or `quic` module — has to resolve a host
-//! before it can route to one: the TLS handshake picks a certificate by SNI,
-//! and the request's authority is checked against what that handshake agreed,
-//! both of them before any router exists. So the transports import from here,
-//! and that direction is right.
+//! The drivers live in `claviron-transport`. Its `edge` module borrows this
+//! crate: it has to resolve a host before it can serve one — the TLS handshake
+//! picks a configuration by SNI, and a request's authority is checked against
+//! what that handshake agreed, both before any router exists.
 //!
-//! How far in they reached was not. The TCP and QUIC drivers both
-//! imported `claviron_edge::loader::table::VhostTable` — three levels into a
-//! neighbour's loader, a module whose job is reading YAML. Nothing stopped the
-//! next transport from importing the snapshot writer beside it or the config
-//! parser below it, and nothing would have failed if it had.
-//!
-//! This module is the whole of what a transport may use. `loader` and
-//! `service` are crate-private so that it is enforced rather than described:
-//! widening the port is still one `pub use` line, but it is a line written on
-//! purpose in a file named for the boundary, rather than a deeper path that
-//! reads like an ordinary import in review. `pipeline` stays public because it
-//! is the *other* door — what an application author builds a `Routable` or a
-//! Other handler against — and a transport reaches its handful of names from
-//! here so that it still has one import path rather than three.
+//! This module is the whole of what that crate may use. `loader` and `service`
+//! stay crate-private so the boundary is enforced rather than described:
+//! widening the port is one `pub use` line, written on purpose in a file named
+//! for the boundary. `pipeline` stays public because it is the *other* door —
+//! what an application author builds a `Routable` or an Other handler against.
 //!
 //! `HostExecution` is the compiled host owner seen by transports. Rust routers
 //! and native backends are prepared inside that host execution, never selected
 //! by a transport as an alternative to the host plan.
 
 #[cfg(any(feature = "tcp", feature = "quic"))]
-pub(crate) use claviron_transport::instances;
-#[cfg(any(feature = "tcp", feature = "quic"))]
-pub(crate) mod publication;
+pub mod publication;
 
 /// A single host's configuration, read by the TLS layer for its certificate
 /// and protocol policy.
@@ -48,6 +36,10 @@ pub use crate::pipeline::{
 };
 #[cfg(feature = "webtransport")]
 pub use crate::pipeline::{WebTransportBinding, WebTransportRegistry};
+/// A cleartext connection's host selection and the authority a connection has
+/// already accepted, for the drivers that admit requests one at a time.
+#[cfg(feature = "tcp")]
+pub use crate::service::{CleartextHostCache, CleartextRequest};
 /// Turning an accepted connection and a received request into a host's
 /// response — the transport's actual reason for depending on this crate.
 pub use crate::service::{
@@ -55,5 +47,5 @@ pub use crate::service::{
     RequestAuthority, RequestRejection, VhostCtx, resolve_request_authority,
     resolve_sni_for_listener, resolve_sni_from_table,
 };
-#[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
-pub(crate) mod tls;
+#[cfg(any(feature = "tcp", feature = "quic"))]
+pub use claviron_http::authority::AcceptedAuthority;

@@ -5,13 +5,13 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use crate::transport::instances::ListenerInstances;
-use crate::transport::publication::{
-    self, ListenerPublication, PreparedListener,
-};
-use crate::transport::{VhostResolver, VhostTable};
+use crate::instances::ListenerInstances;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use async_trait::async_trait;
+use claviron_edge::transport::publication::{
+    self, ListenerPublication, PreparedListener,
+};
+use claviron_edge::transport::{VhostResolver, VhostTable};
 use claviron_http::ListenerId;
 use claviron_http::config::{
     H1Config, HttpSnapshot, ListenerCapabilities, ListenerConfig,
@@ -39,14 +39,14 @@ pub(super) struct ServerSnapshot {
     pub(super) tcp: TcpConfig,
     pub(super) h1: H1Config,
     pub(super) hosts: Arc<VhostTable>,
-    pub(super) non_serving: crate::pipeline::NonServingPipeline,
+    pub(super) non_serving: claviron_edge::pipeline::NonServingPipeline,
 }
-impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
+impl crate::edge::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
     fn listener(&self) -> &ListenerConfig {
         &self.listener
     }
 }
-impl claviron_transport::tcp::plain::Cleartext for ServerSnapshot {
+impl crate::tcp::plain::Cleartext for ServerSnapshot {
     type Requests = super::handler::H1Service;
 
     fn tcp(&self) -> &TcpConfig {
@@ -105,7 +105,7 @@ impl HttpServer {
                 if config.listeners.contains_key(&instance.id) {
                     let input =
                         publication::select_listener(config, &instance.id)
-                            .map_err(crate::Error::other)?;
+                            .map_err(claviron_edge::Error::other)?;
                     prepared.push((
                         instance.clone(),
                         input.clone(),
@@ -207,10 +207,10 @@ pub(super) fn build_snapshots(
                 tcp: config.tcp.clone(),
                 h1: config.h1.clone(),
                 hosts: hosts.clone(),
-                non_serving: crate::pipeline::NonServingPipeline::new(
+                non_serving: claviron_edge::pipeline::NonServingPipeline::new(
                     *redirect_port,
                     hosts
-                        .prepared::<crate::pipeline::HostAppSnapshot>()
+                        .prepared::<claviron_edge::pipeline::HostAppSnapshot>()
                         .and_then(|apps| apps.non_serving_interception()),
                 ),
             }),
@@ -356,7 +356,7 @@ impl HttpListener {
         hosts: &VhostTable,
         input: &HttpSnapshot,
         refresh_factories: bool,
-    ) -> crate::Result<PreparedListener> {
+    ) -> claviron_edge::Result<PreparedListener> {
         let previous =
             if refresh_factories { None } else { self.current.load_full() };
         let hosts = Arc::new(
@@ -366,19 +366,19 @@ impl HttpListener {
                 input,
                 previous.as_ref().map(|old| old.hosts.as_ref()),
             )
-            .map_err(crate::Error::other)?,
+            .map_err(claviron_edge::Error::other)?,
         );
         let snapshot = build_snapshots(input, hosts)
-            .map_err(crate::Error::other)?
+            .map_err(claviron_edge::Error::other)?
             .remove(&self.id)
             .ok_or_else(|| {
-                crate::Error::other(format!(
+                claviron_edge::Error::other(format!(
                     "listener '{}' is not cleartext TCP",
                     self.id
                 ))
             })?;
         publication::resolver(&self.state)
-            .map_err(crate::Error::other)?
+            .map_err(claviron_edge::Error::other)?
             .validate_listener_binding(snapshot.listener.clone())?;
         let current = self.current.clone();
         Ok(Box::new(move || current.store(Some(snapshot))))
@@ -393,7 +393,7 @@ impl ListenerPublication for HttpListener {
         &self,
         hosts: &VhostTable,
         refresh_factories: bool,
-    ) -> crate::Result<PreparedListener> {
+    ) -> claviron_edge::Result<PreparedListener> {
         self.prepare_input(hosts, &self.input.load(), refresh_factories)
     }
 }
@@ -435,11 +435,11 @@ impl Runnable<AppState, (Arc<VhostResolver>,)> for HttpListener {
             let input = self.input.load();
             let listener =
                 input.listeners.get(&self.id).cloned().ok_or_else(|| {
-                    crate::Error::other("HTTP listener not configured")
+                    claviron_edge::Error::other("HTTP listener not configured")
                 })?;
             vhosts.start_listener_binding(listener)
         })?;
-        crate::tcp::listener::serve(
+        crate::edge::tcp::listener::serve(
             &self.current,
             self.current.load_full().expect("HTTP listener prepared"),
             &context,

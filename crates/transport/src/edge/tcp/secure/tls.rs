@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
-use crate::transport::tls::{
-    TlsHost, client_authority, create_host_auth_config,
+use crate::edge::tls::{TlsHost, client_authority, create_host_auth_config};
+use claviron_edge::transport::{
+    VhostCtx, VhostTable, resolve_sni_for_listener,
 };
-use crate::transport::{VhostCtx, VhostTable, resolve_sni_for_listener};
 use claviron_http::ListenerId;
 use claviron_http::config::{ListenerConfig, TcpListenerConfig};
 use claviron_runtime::registry::Error;
@@ -168,7 +168,7 @@ impl TlsAccept {
 
 fn allowed_protocols(
     tcp: &TcpListenerConfig,
-    host: &crate::transport::HostConfig,
+    host: &claviron_edge::transport::HostConfig,
 ) -> Vec<claviron_tls::Proto> {
     // The listener bounds capabilities, but an explicit host list owns ALPN
     // preference. Preserve omission separately from an explicit empty list.
@@ -185,5 +185,5 @@ fn allowed_protocols(
 }
 
 #[cfg(test)]
-#[path = "../../../tests/tcp/unit/tls.rs"]
+#[path = "../../../../tests/edge/tcp/unit/tls.rs"]
 mod tests;

@@ -9,8 +9,9 @@ HTTP host selection, native dispatch and optional TCP/QUIC drivers.
 - `service` binds an accepted transport/request to a ready host plan.
 - `pipeline` prepares host actions and request owners. Axum is a Rust application
   adapter; files, Embed, Upstream and Link use native dispatch.
-- `tcp` and `quic` own wire framing, native body adaptation, accepted connections
-  and sessions. Engine execution belongs to the corresponding runtime crate.
+- Wire framing, native body adaptation, accepted connections and sessions belong
+  to `claviron-transport`, which borrows this crate; this crate opens no socket.
+  Engine execution belongs to the corresponding runtime crate.
 
 ```mermaid
 flowchart TD
@@ -322,14 +323,14 @@ records a mount as inherited and preparation leaves it out of an owned scope.
 
 | Feature | Enables |
 | --- | --- |
-| `tcp`, `tls` | Native cleartext H1; optional TLS H1/H2. |
-| `http3`, `quic` | H3 contracts; native Quinn/H3 driver. |
+| `tcp`, `tls` | Host-selection support for the transport's cleartext H1 and TLS H1/H2 drivers. |
+| `http3`, `quic` | H3 contracts; host-selection support for the transport's Quinn/H3 driver. |
 | `axum` | Rust router adapter. |
 | `orbit` | Native Link dispatch. Upstream contributes through its own backend factory. |
 | `websocket`, `webtransport` | Native session bindings and combined runtime adapters. |
 | `rate-limit`, `access-log` | Optional quota and access-record paths. |
 | `db`, `postgres` | Hosting alias hydration; PostgreSQL notification adapter. |
-| `metrics`, `geoip` | HTTP metrics and peer country lookup. |
+| `metrics` | HTTP metrics. |
 
 Features compile capabilities; declarations and registration select what runs.
 Transport snapshots retain wire/listener settings. New policy execution uses
@@ -344,7 +345,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`provider.rs`](src/provider.rs) — Congif HTTP configuration owner; validate capabilities and atomically publish HttpSnapshot.
 - [`log`](src/log.rs) — Optional access-record producer; retained metadata, response progress and body/drop accounting.
 - [`listener.rs`](src/listener.rs) — Hosting alias notifications and atomic candidate updates; PostgreSQL NOTIFY or hosting events.
-- [`transport.rs`](src/transport.rs) — Public transport-facing re-exports; loader and service remain internal.
+- [`transport.rs`](src/transport.rs) — What `claviron-transport` may use of this crate: host selection, request handoff and connection-level handlers; loader and service stay internal behind it.
 - [`transport/publication.rs`](src/transport/publication.rs) — Listener input selection, host compilation, weak publication contract and shared bind geometry.
 
 ### `config/`
@@ -474,38 +475,13 @@ and their preparation paths:
 - [`websocket.rs`](src/pipeline/link/websocket.rs) — H1/H2 wire acceptance and bounded Link message relay.
 - [`webtransport.rs`](src/pipeline/link/webtransport.rs) — Route-selected H3 sessions and independently owned bidi Link exchanges.
 
-### `tcp/`
+### Native drivers
 
-Socket acceptance, socket I/O, protocol settings and body adaptation come from
-[`claviron-transport`](../transport/ARCHITECTURE.md); what is listed here resolves a host.
-
-- [`mod.rs`](src/tcp/mod.rs) — TCP module exports and native fixture inclusion.
-- [`service.rs`](src/tcp/service.rs) — Thin Hyper service and body representation adaptation.
-
-### `tcp/plain/`
-
-- [`plain.rs`](src/tcp/plain.rs) — Cleartext H1 driver exports.
-- [`server.rs`](src/tcp/plain/server.rs) — HttpServer configuration, snapshots and named listener registration; `connection_handler` prepares a typed listener without binding or provider boot.
-- [`conn.rs`](src/tcp/plain/conn.rs) — Public `ConnectionHandler` for caller-accepted streams; the connection itself is driven by `claviron_transport::tcp::plain`.
-- [`handler.rs`](src/tcp/plain/handler.rs) — Cleartext authority selection and native host handoff.
-- [`error.rs`](src/tcp/plain/error.rs) — Cleartext driver errors.
-
-### `tcp/secure/`
-
-- [`secure.rs`](src/tcp/secure.rs) — TLS H1/H2 driver exports.
-- [`server.rs`](src/tcp/secure/server.rs) — HttpsServer configuration owner, named listener lifetimes and TLS policy preparation.
-- [`tls.rs`](src/tcp/secure/tls.rs) — Per-host TLS configuration, ALPN intersection and TLS policy epochs; selects configuration and host from a server name. The handshake itself is the transport's.
-- [`conn.rs`](src/tcp/secure/conn.rs) — The SNI host as the transport's `SecureHost`: listener admission, protocol policy, retirement and the application binding; public `ConnectionHandler` for caller-accepted streams.
-- [`error.rs`](src/tcp/secure/error.rs) — Why a selected host refuses an accepted connection.
-
-### `quic/`
-
-- [`mod.rs`](src/quic/mod.rs) — Native H3 driver exports.
-- [`server`](src/quic/server.rs) — H3 configuration owner, environment binding, snapshots and named listener lifetimes.
-- [`tls.rs`](src/quic/tls.rs) — Deferred SNI authentication and coherent host/TLS selector views.
-- [`listener.rs`](src/quic/listener.rs) — Endpoint groups, connection capacity, concurrent request/session stream driving.
-- [`request.rs`](src/quic/request.rs) — H3 replay/framing checks, lazy frame/trailer adaptation and response IO.
-- [`wt.rs`](src/quic/wt.rs) — Authorize and hand native WebTransport sessions to applications.
+The TCP and QUIC drivers and their listener owners are not in this crate. They
+live in [`claviron-transport`](../transport/ARCHITECTURE.md), whose `edge`
+module borrows this crate through [`transport.rs`](src/transport.rs). The `tcp`,
+`tls` and `quic` features here compile only the host-selection support those
+drivers call.
 
 ## `tests/`
 
@@ -581,12 +557,3 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`host.rs`](tests/service/host.rs) — Narrowed request limits, accepted facts, body mapping, deferred native dispatch and cleartext repeats bound only on the same publication.
 - [`host/identity.rs`](tests/service/host/identity.rs) — Shared H1/H2/H3 metadata delivery to direct Rust routers and registered application handlers.
 
-### `tcp/`
-
-- [`fixtures/listeners.yaml`](tests/tcp/fixtures/listeners.yaml) — Reserved loopback listener configuration.
-- [`unit/config.rs`](tests/tcp/unit/config.rs) — Sibling transport changes do not invalidate unrelated inputs.
-- [`unit/tls.rs`](tests/tcp/unit/tls.rs) — Configured host ALPN selection without opening connections.
-
-### `quic/`
-
-- [`request.rs`](tests/quic/request.rs) — Protocol framing rejection and transport interruptions, independent of body policy.

@@ -2,13 +2,20 @@
 
 ## Boundary
 
-This crate accepts connections and drives HTTP over them. It does not select a
-host, read host configuration, compile routes or know a backend. Its inputs are
-listener settings from `claviron-http` and a service to hand requests to.
+This crate accepts connections and drives HTTP over them. Connection first:
+what a listener serves is decided here, by how it is configured and composed,
+not by which crate an application started from.
 
-The dependency points one way: `claviron-edge` depends on this crate. Nothing
-here may name an Edge type. What only Edge needs is expressed as a contract
-declared here and implemented there.
+Without the `edge` feature it selects no host, reads no host configuration,
+compiles no route and knows no backend. Its inputs are listener settings from
+`claviron-http` and a service to hand requests to.
+
+With the `edge` feature it borrows `claviron-edge`. Edge owns its hosts,
+pipelines and registries and opens no socket; the [`edge`](src/edge/mod.rs)
+module prepares a listener's snapshot from the host table Edge publishes and
+gives each connection to the host Edge selects for it. That module is the only
+place an Edge type is named. The dependency points one way: Edge never depends
+on this crate.
 
 `claviron-http` remains the domain: listener and protocol configuration,
 connection facts (`ConnCtx`), request policy and the body types.
@@ -37,7 +44,26 @@ connection facts (`ConnCtx`), request policy and the body types.
 - [`error.rs`](src/quic/error.rs) — Normal closure and interrupted-stream classification.
 - [`drain.rs`](src/quic/drain.rs) — Join connection-owned children on completion, explicit force or panic.
 - [`wt/streams.rs`](src/quic/wt/streams.rs) — Bounded per-session input; a saturated session never blocks the shared driver.
-- [`wt/session.rs`](src/quic/wt/session.rs) — One application-facing WebTransport session and its routed bidi input; classification of a stream whose session has ended.
+
+### `edge/` (feature `edge`)
+
+- [`mod.rs`](src/edge/mod.rs) — The one module that names Edge types.
+- [`tls.rs`](src/edge/tls.rs) — A host's TLS configuration: client authentication from its declared authority, and whether a retained configuration still matches.
+- [`tcp/mod.rs`](src/edge/tcp/mod.rs) — TCP listener owner exports.
+- [`tcp/service.rs`](src/edge/tcp/service.rs) — One TLS connection's requests: authority admission against the handshake, then the bound host.
+- [`tcp/plain/server.rs`](src/edge/tcp/plain/server.rs) — `HttpServer`: configuration, snapshots against the published host table and named listener lifetimes.
+- [`tcp/plain/handler.rs`](src/edge/tcp/plain/handler.rs) — Cleartext authority selection and host handoff, as this crate's `Requests`.
+- [`tcp/plain/conn.rs`](src/edge/tcp/plain/conn.rs) — Public `ConnectionHandler` for caller-accepted streams.
+- [`tcp/plain/error.rs`](src/edge/tcp/plain/error.rs) — Cleartext driver errors.
+- [`tcp/secure/server.rs`](src/edge/tcp/secure/server.rs) — `HttpsServer`: configuration owner, named listener lifetimes and TLS policy preparation.
+- [`tcp/secure/tls.rs`](src/edge/tcp/secure/tls.rs) — Per-host TLS configuration, ALPN intersection and TLS policy epochs; selects configuration and host from a server name.
+- [`tcp/secure/conn.rs`](src/edge/tcp/secure/conn.rs) — The SNI host as `SecureHost`: listener admission, protocol policy, retirement and the application binding; public `ConnectionHandler`.
+- [`tcp/secure/error.rs`](src/edge/tcp/secure/error.rs) — Why a selected host refuses an accepted connection.
+- [`quic/server.rs`](src/edge/quic/server.rs) — `H3Server`: configuration owner, snapshots and named listener lifetimes.
+- [`quic/tls.rs`](src/edge/quic/tls.rs) — Deferred SNI authentication and coherent host/TLS selector views.
+- [`quic/listener.rs`](src/edge/quic/listener.rs) — Endpoint groups, connection capacity, concurrent request/session stream driving.
+- [`quic/request.rs`](src/edge/quic/request.rs) — H3 replay/framing checks, lazy frame/trailer adaptation and response IO.
+- [`quic/wt.rs`](src/edge/quic/wt.rs) — Authorize and hand native WebTransport sessions to the handlers Edge's registry binds.
 
 ## The contract with a host selector
 
@@ -62,18 +88,20 @@ the ALPN list, session storage — and who owns the connection is what `select`
 decides. A listener with many certificates and one owner is therefore still a
 `Single`.
 
-Edge implements both with its virtual-host table. `Single` implements both
+The `edge` module implements both with Edge's virtual-host table. `Single` implements both
 with one handler: it selects nothing, applies no request policy, attaches
 nothing to the request and never retires a connection.
 
-## Still in `claviron-edge`
+## What is not host-free yet
 
-The TCP drivers are here; their listener owners (`HttpServer`, `HttpsServer`)
-are not, because they publish against Edge's host table and prepare each
-host's TLS configuration. The HTTP/3 owner, listener and request adaptation
-also still live in Edge, together with the registries that decide who may
-accept a WebTransport or H2 CONNECT session for a host and path. Who may accept
-a WebTransport or H2 CONNECT session for a host and path stays an Edge registry.
+HTTP/1.1 and HTTP/2 over TCP run without Edge. HTTP/3 does not: its listener,
+request adaptation and WebTransport handoff are written against Edge's types
+and live under `edge/quic`. Their host-free parts (closure, drain, session
+stream routing) are already in `quic/`.
+
+The listener owners (`HttpServer`, `HttpsServer`, `H3Server`) also live under
+`edge/`, because they publish against Edge's host table. A host-free listener
+is composed today from `tcp::listener::serve` and a `Single` snapshot.
 
 ## Tests
 

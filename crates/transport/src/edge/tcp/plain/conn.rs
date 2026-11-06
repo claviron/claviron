@@ -1,6 +1,6 @@
 //! The cleartext listener's handler for streams accepted elsewhere.
 //!
-//! Driving the connection is `claviron_transport::tcp::plain`; what this
+//! Driving the connection is `crate::tcp::plain`; what this
 //! driver adds is in `handler.rs`: selecting a host from each request's
 //! authority.
 
@@ -34,11 +34,6 @@ impl ConnectionHandler {
         peer: SocketAddr,
         scope: ConnectionScope,
     ) -> impl Future<Output = ()> + Send {
-        claviron_transport::tcp::plain::serve(
-            stream,
-            peer,
-            self.snapshot,
-            scope,
-        )
+        crate::tcp::plain::serve(stream, peer, self.snapshot, scope)
     }
 }

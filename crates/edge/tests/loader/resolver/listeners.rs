@@ -157,10 +157,8 @@ async fn client_authority_survives_listener_publication_and_reload() {
     let host: Host = "example.test".parse().unwrap();
     let selected = |table: &VhostTable| {
         let declaration = table.canonical_config(&host).unwrap();
-        crate::transport::tls::client_authority(table, &host, &declaration)
-            .unwrap()
-            .unwrap()
-            .clone()
+        let source = declaration.tls.client_auth.authority.as_ref().unwrap();
+        table.client_authority(source).unwrap().clone()
     };
 
     let mut table = candidate();

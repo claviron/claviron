@@ -41,6 +41,20 @@ pub struct Accepted<'a> {
     pub config: &'a HostConfig,
 }
 
+impl<'a> Accepted<'a> {
+    /// The facts a transport completed for one connection. A fact added later
+    /// is given a default here, so a transport that cannot supply it keeps
+    /// compiling.
+    pub fn new(
+        connection: &'a ConnCtx,
+        hostname: &'a HostName,
+        host: &'a HostKey,
+        config: &'a HostConfig,
+    ) -> Self {
+        Self { connection, hostname, host, config }
+    }
+}
+
 /// Prepares connection-scoped values, once, at acceptance.
 ///
 /// It decides nothing about the connection: it cannot refuse it or delay it.

@@ -3,21 +3,21 @@
 use std::convert::Infallible;
 use std::future::Future;
 
-use crate::transport::PreparedRequest;
+use claviron_edge::transport::PreparedRequest;
 #[cfg(feature = "tls")]
-use crate::transport::{HostService, RequestArrival};
+use claviron_edge::transport::{HostService, RequestArrival};
 use claviron_http::RouteResponse;
 #[cfg(feature = "tls")]
 use hyper::body::Incoming;
 
-use claviron_transport::tcp::body;
+use crate::tcp::body;
 
 /// One TLS connection's requests: admitted on its own task against the
 /// authority its handshake agreed, then handed to the bound host.
 #[cfg(feature = "tls")]
 pub(crate) struct HostRequests {
     host: HostService,
-    accepted: std::cell::RefCell<crate::service::AcceptedAuthority>,
+    accepted: std::cell::RefCell<claviron_edge::transport::AcceptedAuthority>,
 }
 
 #[cfg(feature = "tls")]
@@ -28,7 +28,7 @@ impl HostRequests {
 }
 
 #[cfg(feature = "tls")]
-impl claviron_transport::tcp::Requests for HostRequests {
+impl crate::tcp::Requests for HostRequests {
     fn call(
         &self,
         request: http::Request<Incoming>,

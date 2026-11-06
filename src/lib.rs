@@ -68,6 +68,10 @@ pub use claviron_sys as sys;
 pub use claviron_tasks as tasks;
 #[cfg(feature = "tls")]
 pub use claviron_tls as tls;
+/// Socket acceptance and HTTP connection driving. Its `edge` module holds the
+/// listeners that serve Edge's virtual hosts.
+#[cfg(feature = "edge")]
+pub use claviron_transport as transport;
 #[cfg(feature = "ssl")]
 pub use claviron_types::ssl;
 #[cfg(feature = "upstream")]

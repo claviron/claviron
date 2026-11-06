@@ -129,7 +129,7 @@ pub enum Owner {
 }
 
 pub struct Connection {
-    pub handler: claviron::edge::tcp::plain::ConnectionHandler,
+    pub handler: claviron::transport::edge::tcp::plain::ConnectionHandler,
     pub listener: Arc<claviron::http::config::ListenerConfig>,
 }
 
@@ -170,7 +170,7 @@ fn publish(
 /// Publish registered applications with their host table before accepting IO.
 /// Only cold preparation is supplied here; request handling is the native driver.
 pub fn connection(owner: Owner) -> Connection {
-    use claviron::edge::tcp::plain::{HttpServer, HttpServerConfig};
+    use claviron::transport::edge::tcp::plain::{HttpServer, HttpServerConfig};
 
     let hosts = Hosts::http1();
     let state = publish(owner, include_str!("fixtures/http1.yaml"));
@@ -186,7 +186,7 @@ pub fn connection(owner: Owner) -> Connection {
 
 #[cfg(feature = "tls")]
 pub struct SecureConnection {
-    pub handler: claviron::edge::tcp::secure::ConnectionHandler,
+    pub handler: claviron::transport::edge::tcp::secure::ConnectionHandler,
     pub listener: Arc<claviron::http::config::ListenerConfig>,
     /// The fleet session table the listener requires. The caller unlinks it
     /// once every connection has finished.
@@ -201,8 +201,10 @@ pub fn secure_connection(
     owner: Owner,
     certificate: Arc<rustls::sign::CertifiedKey>,
 ) -> SecureConnection {
-    use claviron::edge::tcp::secure::{HttpsServer, HttpsServerConfig};
     use claviron::tls::orbit::FleetServerSessions;
+    use claviron::transport::edge::tcp::secure::{
+        HttpsServer, HttpsServerConfig,
+    };
 
     let hosts = Hosts::http1_tls();
     let state = publish(owner, include_str!("fixtures/http1-tls.yaml"));

@@ -1,10 +1,8 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use crate::transport::VhostTable;
-use crate::transport::tls::{
-    TlsHost, client_authority, create_host_auth_config,
-};
+use crate::edge::tls::{TlsHost, client_authority, create_host_auth_config};
+use claviron_edge::transport::VhostTable;
 use claviron_http::ListenerId;
 use claviron_http::config::QuicConfig;
 use claviron_runtime::registry::{Error, Result};
@@ -58,7 +56,7 @@ const QUIC_INITIAL_SUITE_MISSING: &str = concat!(
 
 impl H3TlsAccept {
     pub(crate) fn build(
-        deps: &crate::quic::server::Deps,
+        deps: &crate::edge::quic::server::Deps,
         cfg: &QuicConfig,
         listener: &ListenerId,
         hosts: Arc<VhostTable>,

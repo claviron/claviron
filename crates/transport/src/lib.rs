@@ -1,12 +1,16 @@
-//! Socket acceptance and HTTP connection driving, without host selection.
+//! Socket acceptance and HTTP connection driving.
 //!
 //! A transport accepts a connection, drives its protocol and hands each
-//! request to a service. Which host a connection belongs to, and what that
-//! host does with a request, is decided by whoever supplies the service: an
-//! edge resolves a virtual host, a single application supplies itself.
+//! request to a service. What that service is belongs to how the listener is
+//! composed, not to which crate an application started from: one handler for
+//! everything, or the virtual hosts of `claviron-edge`.
 //!
-//! This crate knows no virtual host, route or backend.
+//! Without the `edge` feature this crate knows no virtual host, route or
+//! backend. With it, the [`edge`] module borrows Edge and is the only place an
+//! Edge type is named.
 
+#[cfg(feature = "edge")]
+pub mod edge;
 pub mod geo;
 pub mod instances;
 #[cfg(feature = "quic")]

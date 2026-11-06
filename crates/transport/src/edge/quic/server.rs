@@ -5,14 +5,16 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use crate::transport::VhostTable;
-use crate::transport::instances::ListenerInstances;
-use crate::transport::publication::{
-    self, ListenerPublication, PreparedListener,
-};
-use crate::transport::{HostAppResolver, VhostResolver, WebTransportRegistry};
+use crate::instances::ListenerInstances;
 use arc_swap::{ArcSwap, ArcSwapOption};
 use async_trait::async_trait;
+use claviron_edge::transport::VhostTable;
+use claviron_edge::transport::publication::{
+    self, ListenerPublication, PreparedListener,
+};
+use claviron_edge::transport::{
+    HostAppResolver, VhostResolver, WebTransportRegistry,
+};
 use claviron_http::ListenerId;
 use claviron_http::config::{
     HttpSnapshot, ListenerCapabilities, ListenerConfig, ListenerSettings,
@@ -30,7 +32,7 @@ use claviron_tls::resolver::CertResolver;
 use claviron_tls::revocation::Revocations;
 use tracing::info;
 
-use crate::quic::tls::H3TlsAccept;
+use crate::edge::quic::tls::H3TlsAccept;
 
 /// Per-snapshot view: every request handler reads the same Arc, so reloads
 /// stay coherent across in-flight QUIC streams.
@@ -131,7 +133,7 @@ impl H3Server {
         {
             return Ok(());
         }
-        crate::transport::tls::require_certificates(
+        crate::edge::tls::require_certificates(
             &self.state,
             config.listeners.keys(),
         )?;
@@ -146,7 +148,7 @@ impl H3Server {
                 if config.listeners.contains_key(&instance.id) {
                     let input =
                         publication::select_listener(config, &instance.id)
-                            .map_err(crate::Error::other)?;
+                            .map_err(claviron_edge::Error::other)?;
                     prepared.push((
                         instance.clone(),
                         input.clone(),
@@ -304,7 +306,7 @@ impl Component<AppState> for H3Server {
         &self,
         state: &AppState,
     ) -> Result<(), Error> {
-        crate::transport::tls::require_certificates(
+        crate::edge::tls::require_certificates(
             state,
             self.instances
                 .lock()
@@ -401,7 +403,7 @@ impl H3Listener {
         input: &HttpSnapshot,
         deps: &Deps,
         refresh_factories: bool,
-    ) -> crate::Result<PreparedListener> {
+    ) -> claviron_edge::Result<PreparedListener> {
         let previous =
             if refresh_factories { None } else { self.current.load_full() };
         let hosts = Arc::new(
@@ -411,19 +413,19 @@ impl H3Listener {
                 input,
                 previous.as_ref().map(|old| old.tls_accept.hosts()),
             )
-            .map_err(crate::Error::other)?,
+            .map_err(claviron_edge::Error::other)?,
         );
         let snapshot = build_snapshots(input, deps, hosts, previous.as_deref())
-            .map_err(crate::Error::other)?
+            .map_err(claviron_edge::Error::other)?
             .remove(&self.id)
             .ok_or_else(|| {
-                crate::Error::other(format!(
+                claviron_edge::Error::other(format!(
                     "listener '{}' is not QUIC",
                     self.id
                 ))
             })?;
         publication::resolver(&self.state)
-            .map_err(crate::Error::other)?
+            .map_err(claviron_edge::Error::other)?
             .validate_listener_binding(snapshot.listener.clone())?;
         let current = self.current.clone();
         Ok(Box::new(move || current.store(Some(snapshot))))
@@ -438,12 +440,12 @@ impl ListenerPublication for H3Listener {
         &self,
         hosts: &VhostTable,
         refresh_factories: bool,
-    ) -> crate::Result<PreparedListener> {
+    ) -> claviron_edge::Result<PreparedListener> {
         let deps = Deps::bind(
             ServerDeps::resolve(self.state.registry_ref())
-                .map_err(crate::Error::other)?,
+                .map_err(claviron_edge::Error::other)?,
         )
-        .map_err(crate::Error::other)?;
+        .map_err(claviron_edge::Error::other)?;
         self.prepare_input(hosts, &self.input.load(), &deps, refresh_factories)
     }
 }
@@ -488,7 +490,11 @@ impl Runnable<AppState, ServerDeps> for H3Listener {
                 let input = self.input.load();
                 let listener =
                     input.listeners.get(&self.id).cloned().ok_or_else(
-                        || crate::Error::other("QUIC listener not configured"),
+                        || {
+                            claviron_edge::Error::other(
+                                "QUIC listener not configured",
+                            )
+                        },
                     )?;
                 deps.vhost_resolver.start_listener_binding(listener)
             })?;

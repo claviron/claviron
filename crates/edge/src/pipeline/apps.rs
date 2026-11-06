@@ -78,7 +78,7 @@ impl ListenerHostPlan {
 
 impl HostAppSnapshot {
     #[cfg(feature = "tcp")]
-    pub(crate) fn non_serving_interception(
+    pub fn non_serving_interception(
         &self
     ) -> Option<Arc<dyn InterceptsNonServing>> {
         self.non_serving_interception.clone()
@@ -881,7 +881,7 @@ impl HostAppRegistry {
     }
 
     #[cfg(any(feature = "tcp", feature = "quic"))]
-    pub(crate) fn prepare_listener(
+    pub fn prepare_listener(
         &self,
         state: &AppState,
         table: &crate::loader::table::VhostTable,

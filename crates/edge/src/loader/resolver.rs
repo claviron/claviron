@@ -182,7 +182,7 @@ impl VhostResolver {
         Ok(committed)
     }
     #[cfg(any(feature = "tcp", feature = "quic"))]
-    pub(crate) fn validate_listener_binding(
+    pub fn validate_listener_binding(
         &self,
         listener: Arc<claviron_http::config::ListenerConfig>,
     ) -> crate::Result<()> {
@@ -194,7 +194,7 @@ impl VhostResolver {
     }
 
     #[cfg(any(feature = "tcp", feature = "quic"))]
-    pub(crate) fn start_listener_binding(
+    pub fn start_listener_binding(
         &self,
         listener: Arc<claviron_http::config::ListenerConfig>,
     ) -> crate::Result<
@@ -212,7 +212,7 @@ impl VhostResolver {
 
     /// Serialize a listener's preparation and commit with host-source updates.
     #[cfg(any(feature = "tcp", feature = "quic"))]
-    pub(crate) fn update_listener<R>(
+    pub fn update_listener<R>(
         &self,
         update: impl FnOnce(&VhostTable) -> crate::Result<R>,
     ) -> crate::Result<R> {
@@ -224,7 +224,7 @@ impl VhostResolver {
 
     /// Retain only a weak registration: an instance owns its input and lifetime.
     #[cfg(any(feature = "tcp", feature = "quic"))]
-    pub(crate) fn register_listener<R>(
+    pub fn register_listener<R>(
         &self,
         listener: Arc<dyn crate::transport::publication::ListenerPublication>,
         start: impl FnOnce() -> crate::Result<R>,

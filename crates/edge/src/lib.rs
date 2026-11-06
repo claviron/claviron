@@ -1,10 +1,11 @@
-//! HTTP edge composition with independently selected native transport drivers.
+//! Protocol-independent host admission, routing and application dispatch.
 //!
 //! Transport drivers hand accepted connection and request facts to this crate.
 //! It owns host admission and prepares native file/backend dispatch, with
-//! optional Rust application adapters and native session bindings. The `tcp`
-//! and `quic` modules retain separate HTTP/1.1, HTTP/2,
-//! and HTTP/3 wire mechanics and connection ownership.
+//! optional Rust application adapters and native session bindings. It opens no
+//! socket: the HTTP/1.1, HTTP/2 and HTTP/3 wire mechanics and connection
+//! ownership live in `claviron-transport`, which borrows this crate through
+//! [`transport`].
 
 pub mod config;
 #[cfg(feature = "access-log")]
@@ -240,8 +241,3 @@ pub use pipeline::{
     WebTransportBinding, WebTransportHandler, WebTransportRegistry,
     WebTransportReject, WebTransportResult, webtransport_session_ended,
 };
-
-#[cfg(feature = "quic")]
-pub mod quic;
-#[cfg(feature = "tcp")]
-pub mod tcp;

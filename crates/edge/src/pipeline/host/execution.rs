@@ -55,7 +55,7 @@ impl HostExecution {
     /// must be complete; the result is frozen into them before any request.
     /// Only a transport that completes a handshake has such a connection.
     #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic", test))]
-    pub(crate) fn accept(
+    pub fn accept(
         &self,
         accepted: &crate::pipeline::Accepted<'_>,
     ) -> claviron_http::ext::ConnState {

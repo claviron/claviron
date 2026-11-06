@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::transport::HostRejection;
+use claviron_edge::transport::HostRejection;
 
 /// Why the selected host refused a connection the handshake had accepted.
 #[derive(Debug)]

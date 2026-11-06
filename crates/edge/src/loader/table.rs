@@ -59,10 +59,19 @@ pub struct VhostTable {
 }
 
 impl VhostTable {
+    /// The client certificate authority prepared for `source`, when this
+    /// publication prepared one.
+    pub fn client_authority(
+        &self,
+        source: &claviron_types::ssl::certstore::AuthorityEntry,
+    ) -> Option<&Arc<claviron_tls::CertAuthority>> {
+        self.authorities.as_deref()?.get(source)
+    }
+
     /// Whether `other` is this same published set of host bindings, not
     /// merely an equal one.
     #[cfg(feature = "tcp")]
-    pub(crate) fn same_publication(
+    pub fn same_publication(
         &self,
         other: &Self,
     ) -> bool {
@@ -197,7 +206,7 @@ impl VhostTable {
 
     /// Select config and application from the same published name binding.
     /// Default fallback is identical to declaration-only resolution.
-    pub(crate) fn resolve_application_on(
+    pub fn resolve_application_on(
         &self,
         host: &Host,
         listener: Option<&claviron_http::ListenerId>,
@@ -302,7 +311,7 @@ impl VhostTable {
     /// Cold TLS preparation uses the same admitted hosts as request dispatch.
     /// Aliases resolve through this table rather than a second name registry.
     #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
-    pub(crate) fn listener_entries<'a>(
+    pub fn listener_entries<'a>(
         &'a self,
         listener: &'a claviron_http::ListenerId,
     ) -> impl Iterator<Item = (&'a Host, &'a Arc<VhostRecord>)> {
@@ -337,7 +346,7 @@ impl VhostTable {
             .collect()
     }
 
-    pub(crate) fn record(
+    pub fn record(
         &self,
         key: &Host,
     ) -> Option<&Arc<VhostRecord>> {

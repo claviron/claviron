@@ -5,7 +5,7 @@ use std::convert::Infallible;
 use std::future::{Future, ready};
 use std::sync::Arc;
 
-use crate::service::{CleartextHostCache, CleartextRequest};
+use claviron_edge::transport::{CleartextHostCache, CleartextRequest};
 use claviron_http::ext::ConnCtx;
 use claviron_http::{RouteResponse, ServiceResult, err_status};
 use futures_util::future::Either;
@@ -43,7 +43,7 @@ impl H1Service {
     }
 }
 
-impl claviron_transport::tcp::plain::Requests for H1Service {
+impl crate::tcp::plain::Requests for H1Service {
     fn call(
         &self,
         request: Request<hyper::body::Incoming>,
@@ -72,7 +72,7 @@ impl H1Service {
         let request = match cache.repeated(request, table) {
             ServiceResult::Handled(prepared) => {
                 drop(cache);
-                return Ok(Either::Left(crate::tcp::service::dispatch(
+                return Ok(Either::Left(crate::edge::tcp::service::dispatch(
                     prepared,
                 )));
             }
@@ -98,7 +98,7 @@ impl H1Service {
         let host = cache.bind(app, host);
         cache.admit(request.request(), table, &host);
         drop(cache);
-        Ok(Either::Left(crate::tcp::service::dispatch(
+        Ok(Either::Left(crate::edge::tcp::service::dispatch(
             host.request_cleartext(request),
         )))
     }
