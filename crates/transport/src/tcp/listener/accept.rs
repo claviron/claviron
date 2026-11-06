@@ -193,5 +193,5 @@ impl<A: AcceptSource> Stream for SocketAccept<A> {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/tcp/unit/accept.rs"]
+#[path = "../../../tests/tcp/accept.rs"]
 mod tests;

@@ -390,6 +390,7 @@ members = [
     "crates/sys",
     "crates/tasks",
     "crates/tls",
+    "crates/transport",
     "crates/types",
     "crates/upstream",
 ]
@@ -443,6 +444,7 @@ claviron-supervisor = { version = "0.2.0-alpha.24", path = "crates/supervisor" }
 claviron-sys = { version = "0.2.0-alpha.24", path = "crates/sys" }
 claviron-tasks = { version = "0.2.0-alpha.24", path = "crates/tasks" }
 claviron-tls = { version = "0.2.0-alpha.24", path = "crates/tls", default-features = false }
+claviron-transport = { version = "0.2.0-alpha.24", path = "crates/transport" }
 claviron-types = { version = "0.2.0-alpha.24", path = "crates/types", default-features = false }
 claviron-upstream = { version = "0.2.0-alpha.24", path = "crates/upstream" }
 # ── Async runtime & primitives ───────────────────────────────────────

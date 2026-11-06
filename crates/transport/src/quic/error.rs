@@ -17,12 +17,12 @@ fn normal_peer_close(error: &ConnectionErrorIncoming) -> bool {
     }
 }
 
-pub(super) fn normal_connection_close(error: &ConnectionError) -> bool {
+pub fn normal_connection_close(error: &ConnectionError) -> bool {
     error.is_h3_no_error()
         || matches!(error, ConnectionError::Remote(remote, ..) if normal_peer_close(remote))
 }
 
-pub(super) fn log_stream_error(
+pub fn log_stream_error(
     error: &StreamError,
     operation: &str,
 ) {
@@ -40,7 +40,7 @@ pub(super) fn log_stream_error(
 }
 
 /// A closed connection or a peer-reset request is not malformed HTTP input.
-pub(super) fn request_interrupted(error: &StreamError) -> bool {
+pub fn request_interrupted(error: &StreamError) -> bool {
     matches!(
         error,
         StreamError::ConnectionError(..) | StreamError::RemoteTerminate { .. }

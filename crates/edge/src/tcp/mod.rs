@@ -5,11 +5,11 @@
 //! Congif configuration catalog and generation-scoped connection gates.
 //! QUIC/H3 belongs to the sibling `quic` module, not to this transport.
 
-mod geo;
-mod io;
-mod listener;
+// Socket acceptance, I/O and protocol settings know no host.
+pub(crate) use claviron_transport::geo;
+pub(crate) use claviron_transport::tcp::{io, listener, protocol};
+
 pub mod plain;
-mod protocol;
 #[cfg(feature = "tls")]
 pub mod secure;
 mod service;

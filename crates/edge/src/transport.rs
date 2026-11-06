@@ -26,7 +26,7 @@
 //! by a transport as an alternative to the host plan.
 
 #[cfg(any(feature = "tcp", feature = "quic"))]
-pub(crate) mod instances;
+pub(crate) use claviron_transport::instances;
 #[cfg(any(feature = "tcp", feature = "quic"))]
 pub(crate) mod publication;
 

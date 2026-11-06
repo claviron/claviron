@@ -9,7 +9,7 @@ use std::net::IpAddr;
 
 /// Resolves a peer address to a country, or `None` when this build has no
 /// database to ask.
-pub(crate) fn country_code(ip: IpAddr) -> Option<std::sync::Arc<str>> {
+pub fn country_code(ip: IpAddr) -> Option<std::sync::Arc<str>> {
     #[cfg(feature = "geoip")]
     {
         Some(claviron_geoip::geoip_lookup(ip))

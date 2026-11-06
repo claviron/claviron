@@ -10,7 +10,7 @@ use claviron_http::RouteResponse;
 #[cfg(feature = "tls")]
 use hyper::body::Incoming;
 
-mod body;
+use claviron_transport::tcp::body;
 
 #[cfg(feature = "tls")]
 pub(crate) fn service(

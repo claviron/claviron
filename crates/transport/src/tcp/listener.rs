@@ -20,11 +20,11 @@ use tracing::{debug, error, info, warn};
 mod accept;
 use accept::{AcceptSource, SocketAccept};
 
-pub(crate) trait TcpListenerSnapshot {
+pub trait TcpListenerSnapshot {
     fn listener(&self) -> &ListenerConfig;
 }
 
-pub(crate) async fn serve<S, F, Fut>(
+pub async fn serve<S, F, Fut>(
     snapshots: &ArcSwapOption<S>,
     initial: Arc<S>,
     context: &RunContext,

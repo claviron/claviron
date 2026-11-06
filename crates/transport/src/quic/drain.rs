@@ -9,13 +9,13 @@ use futures_util::FutureExt;
 use tokio::task::JoinSet;
 use tracing::{debug, error};
 
-pub(super) enum DriverExit {
+pub enum DriverExit {
     Complete,
     Forced,
     Panicked,
 }
 
-pub(super) async fn drive(
+pub async fn drive(
     driver: impl Future<Output = ()>,
     permit: &Permit,
 ) -> DriverExit {
@@ -34,7 +34,7 @@ pub(super) async fn drive(
     }
 }
 
-pub(super) async fn finish<T: 'static>(
+pub async fn finish<T: 'static>(
     mut streams: JoinSet<T>,
     permit: &Permit,
     exit: DriverExit,
@@ -63,5 +63,5 @@ async fn join<T: 'static>(streams: &mut JoinSet<T>) {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/quic/listener/drain.rs"]
+#[path = "../../tests/quic/drain.rs"]
 mod tests;

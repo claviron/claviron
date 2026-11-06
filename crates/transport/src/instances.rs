@@ -4,7 +4,7 @@ use std::sync::{Arc, Weak};
 use claviron_http::ListenerId;
 
 /// Cold declarations retain operational identity without retaining retired work.
-pub(crate) struct ListenerInstances<T> {
+pub struct ListenerInstances<T> {
     declared: BTreeMap<ListenerId, Arc<T>>,
     retired: BTreeMap<ListenerId, Weak<T>>,
 }
@@ -16,7 +16,7 @@ impl<T> Default for ListenerInstances<T> {
 }
 
 impl<T> ListenerInstances<T> {
-    pub(crate) fn reconcile<'a>(
+    pub fn reconcile<'a>(
         &mut self,
         ids: impl IntoIterator<Item = &'a ListenerId>,
         mut create: impl FnMut(&ListenerId) -> T,
@@ -39,11 +39,11 @@ impl<T> ListenerInstances<T> {
         self.declared = next;
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &Arc<T>> {
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<T>> {
         self.declared.values()
     }
 }
 
 #[cfg(test)]
-#[path = "../../tests/transport/instances.rs"]
+#[path = "../tests/instances.rs"]
 mod tests;

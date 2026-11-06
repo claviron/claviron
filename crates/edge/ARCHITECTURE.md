@@ -345,7 +345,6 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`log`](src/log.rs) — Optional access-record producer; retained metadata, response progress and body/drop accounting.
 - [`listener.rs`](src/listener.rs) — Hosting alias notifications and atomic candidate updates; PostgreSQL NOTIFY or hosting events.
 - [`transport.rs`](src/transport.rs) — Public transport-facing re-exports; loader and service remain internal.
-- [`transport/instances.rs`](src/transport/instances.rs) — Cold listener declarations, retained handles and weak references to draining instances.
 - [`transport/publication.rs`](src/transport/publication.rs) — Listener input selection, host compilation, weak publication contract and shared bind geometry.
 
 ### `config/`
@@ -477,16 +476,11 @@ and their preparation paths:
 
 ### `tcp/`
 
+Socket acceptance, socket I/O, protocol settings and body adaptation come from
+[`claviron-transport`](../transport/ARCHITECTURE.md); what is listed here resolves a host.
+
 - [`mod.rs`](src/tcp/mod.rs) — TCP module exports and native fixture inclusion.
-- [`listener.rs`](src/tcp/listener.rs) — Bind groups, shared capacity, accepted tasks/session ownership and drain.
-- [`listener/accept.rs`](src/tcp/listener/accept.rs) — Socket-local accept error classification and declared recovery backoff.
-- [`io.rs`](src/tcp/io.rs) — Tokio's native TCP read readiness and write shutdown
-  owned by the protocol; a separate error observer on the same socket, awaited
-  only by an H1 connection with half-close on.
-- [`protocol.rs`](src/tcp/protocol.rs) — Hyper H1 builder and TCP socket options from resolved config.
-- [`geo.rs`](src/tcp/geo.rs) — Optional peer country lookup.
 - [`service.rs`](src/tcp/service.rs) — Thin Hyper service and body representation adaptation.
-- [`service/body.rs`](src/tcp/service/body.rs) — Lazy body erasure and proven-empty-body handling; preserve trailers.
 
 ### `tcp/plain/`
 
@@ -511,11 +505,8 @@ and their preparation paths:
 - [`server`](src/quic/server.rs) — H3 configuration owner, environment binding, snapshots and named listener lifetimes.
 - [`tls.rs`](src/quic/tls.rs) — Deferred SNI authentication and coherent host/TLS selector views.
 - [`listener.rs`](src/quic/listener.rs) — Endpoint groups, connection capacity, concurrent request/session stream driving.
-- [`listener/drain.rs`](src/quic/listener/drain.rs) — Join connection-owned children on completion, explicit force or panic.
 - [`request.rs`](src/quic/request.rs) — H3 replay/framing checks, lazy frame/trailer adaptation and response IO.
-- [`error.rs`](src/quic/error.rs) — Normal closure and interrupted-stream classification.
 - [`wt.rs`](src/quic/wt.rs) — Authorize and hand native WebTransport sessions to applications.
-- [`wt/streams.rs`](src/quic/wt/streams.rs) — Bounded per-session input; a saturated session never blocks the shared driver.
 
 ## `tests/`
 
@@ -525,7 +516,6 @@ ownership and isolated state transitions without provider boot or live listeners
 ### Entry and configuration
 
 - [`log.rs`](tests/log.rs) — Active body accounting, original frames, gRPC trailers, cancellation and empty/error responses without logger boot.
-- [`transport/instances.rs`](tests/transport/instances.rs) — Retain unchanged/draining listener identities and release retired allocations.
 
 - [`sni.rs`](tests/sni.rs) — SNI/catchall lookup and bounded name churn.
 - [`provider.rs`](tests/provider.rs) — Prepared HTTP values, capability rejection and invalid-candidate retention.
@@ -595,15 +585,9 @@ ownership and isolated state transitions without provider boot or live listeners
 ### `tcp/`
 
 - [`fixtures/listeners.yaml`](tests/tcp/fixtures/listeners.yaml) — Reserved loopback listener configuration.
-- [`unit/accept.rs`](tests/tcp/unit/accept.rs) — Retry growth, saturation and warning-state transitions.
-- [`unit/body.rs`](tests/tcp/unit/body.rs) — Ended/lazy bodies, trailers and configured guards.
 - [`unit/config.rs`](tests/tcp/unit/config.rs) — Sibling transport changes do not invalidate unrelated inputs.
-- [`unit/timeout.rs`](tests/tcp/unit/timeout.rs) — Driver-default, disabled and explicit header deadlines.
 - [`unit/tls.rs`](tests/tcp/unit/tls.rs) — Configured host ALPN selection without opening connections.
 
 ### `quic/`
 
-- [`error.rs`](tests/quic/error.rs) — Normal closure does not hide nonzero failures.
-- [`listener/drain.rs`](tests/quic/listener/drain.rs) — Force/panic cleanup joins owned children without cancelling siblings.
 - [`request.rs`](tests/quic/request.rs) — Protocol framing rejection and transport interruptions, independent of body policy.
-- [`wt/streams.rs`](tests/quic/wt/streams.rs) — Bounded input, session completion and dropped receivers.

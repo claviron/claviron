@@ -3,7 +3,7 @@ use hyper::server::conn::http1;
 use hyper_util::rt::TokioTimer;
 use tokio::net::TcpStream;
 
-pub(crate) fn h1(config: &H1Config) -> http1::Builder {
+pub fn h1(config: &H1Config) -> http1::Builder {
     let mut builder = http1::Builder::new();
     builder
         .timer(TokioTimer::new())
@@ -31,7 +31,7 @@ pub(crate) fn h1(config: &H1Config) -> http1::Builder {
     builder
 }
 
-pub(crate) fn socket(
+pub fn socket(
     stream: &TcpStream,
     config: &TcpConfig,
 ) -> std::io::Result<()> {
@@ -45,5 +45,5 @@ pub(crate) fn socket(
 }
 
 #[cfg(test)]
-#[path = "../../tests/tcp/unit/timeout.rs"]
+#[path = "../../tests/tcp/timeout.rs"]
 mod timeout_tests;

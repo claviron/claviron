@@ -6,17 +6,17 @@ use std::num::NonZeroUsize;
 use h3_webtransport::SessionId;
 use tokio::sync::mpsc;
 
-pub(crate) struct SessionStreams<T> {
+pub struct SessionStreams<T> {
     capacity: NonZeroUsize,
     sessions: HashMap<SessionId, mpsc::Sender<T>>,
 }
 
 impl<T> SessionStreams<T> {
-    pub(crate) fn new(capacity: NonZeroUsize) -> Self {
+    pub fn new(capacity: NonZeroUsize) -> Self {
         Self { capacity, sessions: HashMap::new() }
     }
 
-    pub(crate) fn register(
+    pub fn register(
         &mut self,
         id: SessionId,
     ) -> mpsc::Receiver<T> {
@@ -27,7 +27,7 @@ impl<T> SessionStreams<T> {
 
     /// Unknown, ended, or saturated sessions refuse this stream rather than
     /// blocking the shared H3 driver or retaining unbounded pending work.
-    pub(crate) fn route(
+    pub fn route(
         &mut self,
         id: SessionId,
         stream: T,
@@ -43,18 +43,18 @@ impl<T> SessionStreams<T> {
         }
     }
 
-    pub(crate) fn remove(
+    pub fn remove(
         &mut self,
         id: SessionId,
     ) {
         self.sessions.remove(&id);
     }
 
-    pub(crate) fn close(&mut self) {
+    pub fn close(&mut self) {
         self.sessions.clear();
     }
 
-    pub(crate) fn prune_closed(&mut self) {
+    pub fn prune_closed(&mut self) {
         self.sessions.retain(|_, sender| !sender.is_closed());
     }
 }

@@ -2,7 +2,7 @@
 //! Each accepted connection retains its named group snapshot through TLS,
 //! host resolution and dispatch. Request body adaptation remains in `request`.
 
-mod drain;
+use claviron_transport::quic::drain;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -628,12 +628,6 @@ fn h3_tls_info(
     }
 }
 
-#[cfg(feature = "geoip")]
 fn country_code_for(remote: SocketAddr) -> Option<Arc<str>> {
-    Some(claviron_geoip::geoip_lookup(remote.ip()))
-}
-
-#[cfg(not(feature = "geoip"))]
-fn country_code_for(_remote: SocketAddr) -> Option<Arc<str>> {
-    None
+    claviron_transport::geo::country_code(remote.ip())
 }

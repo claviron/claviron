@@ -43,24 +43,30 @@ orbit = [
 # Weak forwarding must not select Lua for unrelated WebSocket users.
 db = ["dep:claviron-db", "dep:claviron-hosting", "claviron-hosting/server"]
 postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
-metrics = ["axum", "claviron-http/metrics"]
+metrics = ["axum", "claviron-http/metrics", "claviron-transport?/metrics"]
 http3 = ["claviron-http/http3"]
-webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport"]
+webtransport = [
+    "http3", "dep:h3-quinn", "dep:h3-webtransport",
+    "dep:claviron-transport", "claviron-transport/webtransport",
+]
 # Native drivers are opt-in; host declarations alone open no sockets.
-tcp = ["claviron-types/ssl", "dep:claviron-sys", "dep:socket2", "dep:hyper", "dep:hyper-util"]
+tcp = [
+    "claviron-types/ssl", "dep:claviron-sys", "dep:socket2", "dep:hyper", "dep:hyper-util",
+    "dep:claviron-transport", "claviron-transport/tcp",
+]
 tls = ["dep:rustls", "dep:tokio-rustls"]
 # Preserve the native H3 driver's existing WebTransport binding contract.
 quic = [
     "http3", "webtransport", "claviron-types/ssl", "dep:claviron-sys",
     "dep:h3", "dep:quinn", "dep:quinn-deferred-config", "dep:rustls",
+    "dep:claviron-transport", "claviron-transport/quic", "claviron-transport/webtransport",
 ]
-geoip = ["dep:claviron-geoip"]
+geoip = ["claviron-transport?/geoip"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-db = { workspace = true, default-features = true, optional = true, features = ["server"] }
 claviron-files.workspace = true
-claviron-geoip = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-hosting = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
@@ -69,6 +75,7 @@ claviron-orbit = { workspace = true, optional = true }
 claviron-runtime.workspace = true
 claviron-sys = { workspace = true, optional = true }
 claviron-tls.workspace = true
+claviron-transport = { workspace = true, optional = true }
 claviron-types.workspace = true
 
 # ── Async runtime & primitives ──────────────────────────────────────────

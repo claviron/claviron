@@ -13,8 +13,7 @@ use tracing::{debug, error};
 
 use crate::quic::request::send_status_response;
 
-mod streams;
-pub(super) use streams::SessionStreams;
+pub(super) use claviron_transport::quic::wt::streams::SessionStreams;
 
 pub(super) type H3Connection =
     WebTransportConnection<h3_quinn::Connection, Bytes>;

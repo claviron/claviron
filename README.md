@@ -62,6 +62,7 @@ path.
 | --- | --- | --- |
 | [edge](crates/edge/README.md) | Virtual-host publication, admission, response-owner selection, and consumer-defined route extensions. Also documents the `edge_config` alias. | `edge` |
 | [http](crates/http/README.md) | Transport-neutral bodies, HTTP policies, listener declarations, and shared routing contracts. | `http`; Axum integration: `axum` |
+| [transport](crates/transport/README.md) | Socket acceptance and HTTP/1.1, HTTP/2 and HTTP/3 connection driving without host selection. | Through `edge` |
 | [edge::tcp](crates/edge/src/tcp/mod.rs) | Edge's native HTTP/1.1 and HTTP/2 listener and connection drivers. | Selected by `edge` |
 | [edge::quic](crates/edge/src/quic/mod.rs) | Edge's HTTP/3 over QUIC and native request/connection integration. | `http3` (includes `tls`) |
 | [tls](crates/tls/README.md) | TLS handshakes, shared certificate resolution, and mTLS client-auth policy. | `tls` (includes `ssl`) |

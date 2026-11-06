@@ -7,7 +7,7 @@ use claviron_http::{RouteBody, boxed_body};
 use http_body_util::Empty;
 use hyper::body::Body;
 
-pub(super) fn adapt<B>(body: B) -> RouteBody
+pub fn adapt<B>(body: B) -> RouteBody
 where
     B: Body<Data = Bytes> + Send + 'static,
     B::Error: StdError + Send + Sync + 'static,
@@ -23,5 +23,5 @@ where
 }
 
 #[cfg(test)]
-#[path = "../../../tests/tcp/unit/body.rs"]
+#[path = "../../tests/tcp/body.rs"]
 mod tests;

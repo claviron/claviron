@@ -11,17 +11,17 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 
 /// The protocol's side of an accepted socket: reads through Tokio's own read
 /// half, writes and write shutdown on the same socket.
-pub(crate) struct TcpIo(OwnedReadHalf);
+pub struct TcpIo(OwnedReadHalf);
 
 /// A second handle on the same socket for its owner to await socket errors.
 ///
 /// Used only by an H1 connection with half-close on, where the protocol
 /// leaves its read side idle during a request and would not see one. Unused,
 /// it is dropped and the socket stays with the protocol.
-pub(crate) struct TcpErrors(Option<OwnedWriteHalf>);
+pub struct TcpErrors(Option<OwnedWriteHalf>);
 
 impl TcpIo {
-    pub(crate) fn split(stream: TcpStream) -> (Self, TcpErrors) {
+    pub fn split(stream: TcpStream) -> (Self, TcpErrors) {
         let (read, write) = stream.into_split();
         (Self(read), TcpErrors(Some(write)))
     }
@@ -31,7 +31,7 @@ impl TcpErrors {
     /// Observe an actual socket error, never ordinary input EOF or queued data.
     /// `async_io` clears false readiness on WouldBlock and parks on the reactor.
     /// No byte is consumed and no read/write readiness waiter is replaced.
-    pub(crate) async fn failed(&self) -> io::Error {
+    pub async fn failed(&self) -> io::Error {
         let stream = self.0.as_ref().expect("socket error handle").as_ref();
         stream
             .async_io(Interest::ERROR, || match stream.take_error() {
