@@ -40,7 +40,7 @@ pub enum BackendPlacement {
 }
 
 #[derive(Default)]
-pub struct PreparedBackends {
+pub(crate) struct PreparedBackends {
     pub before_files: Vec<Arc<dyn BackendHandler>>,
     pub after_files: Vec<Arc<dyn BackendHandler>>,
 }

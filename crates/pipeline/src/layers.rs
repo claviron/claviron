@@ -33,21 +33,20 @@ pub use acl::AclLayer;
 pub use body::RequestBodyLayer;
 pub use cors::{CorsLayer, CorsState};
 pub use deny::DenyLayer;
-pub use fallback::prepare_fallback;
-pub use files::scope_steps;
+pub(crate) use fallback::prepare_fallback;
+pub(crate) use files::scope_steps;
 pub use files::{StaticStage, TryFilesStage};
 pub use headers::{HeaderClearLayer, HeaderSetLayer, prepare_headers};
 pub use identity::IdentityPolicy;
 #[cfg(feature = "access-log")]
 pub use log::{AccessLogLayer, AccessLogState};
 #[cfg(feature = "metrics")]
-pub use metrics::{MetricsLayer, MetricsState};
+pub(crate) use metrics::{MetricsLayer, MetricsState};
 pub use proxy::ProxyLayer;
 #[cfg(feature = "rate-limit")]
-pub use quota::{
-    HostQuotas, QuotaPolicy, QuotaRegistrations, QuotaState,
-    of_site as quotas_of_site,
-};
+pub(crate) use quota::of_site as quotas_of_site;
+#[cfg(feature = "rate-limit")]
+pub use quota::{HostQuotas, QuotaPolicy, QuotaRegistrations, QuotaState};
 pub use redirect::RedirectLayer;
 pub use reply::ReplyPolicy;
 pub use selection::RouteSelectionLayer;

@@ -9,7 +9,7 @@ use std::sync::Arc;
 mod path;
 use path::CompiledAcl;
 #[cfg(feature = "rate-limit")]
-pub use path::comparison_paths;
+pub(crate) use path::comparison_paths;
 
 #[derive(Clone)]
 pub struct AclLayer {
@@ -27,13 +27,13 @@ impl AclLayer {
         }
     }
 
-    pub fn from_entries(
+    pub(crate) fn from_entries(
         entries: impl IntoIterator<Item = (PathPrefix, AccessLimiter)>
     ) -> Option<Self> {
         CompiledAcl::from_entries(entries).map(|rules| Self { rules })
     }
 
-    pub fn for_host(config: &crate::Site) -> Option<Self> {
+    pub(crate) fn for_host(config: &crate::Site) -> Option<Self> {
         if !config.scopes().any(|(_, scope)| {
             scope.acl().is_some_and(|rule| {
                 matches!(rule.policy, AccessPolicy::Deny)

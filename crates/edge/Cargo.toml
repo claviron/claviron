@@ -41,6 +41,8 @@ orbit = [
     # Edge owns the upgrade and protocol; Link carries whole messages.
     "claviron-http/websocket",
     "dep:fastwebsockets",
+    "dep:hyper",
+    "dep:hyper-util",
 ]
 db = ["dep:claviron-db", "dep:claviron-hosting", "claviron-hosting/server"]
 postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]

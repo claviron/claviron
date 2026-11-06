@@ -60,7 +60,7 @@ impl CompiledAcl {
 
 /// The path an ACL compares, and, when it holds an escaped slash, the other
 /// reading of it.
-pub struct ComparisonPaths<'a> {
+pub(crate) struct ComparisonPaths<'a> {
     /// Escaped slashes as separators; every check below applies to it.
     pub separated: Cow<'a, str>,
     /// Escaped slashes kept as text inside their segment (`%2F`), present only
@@ -73,7 +73,7 @@ pub struct ComparisonPaths<'a> {
 /// are read both ways (see [`CompiledAcl::check`]); nested escapes, escaped
 /// backslashes and delimiters, dot segments and alternate separators fail
 /// closed instead of relying on a downstream framework's normalization rules.
-pub fn comparison_paths(
+pub(crate) fn comparison_paths(
     raw: &str
 ) -> Result<ComparisonPaths<'_>, RequestRejection> {
     let (path, literal) = if raw.contains('%') {

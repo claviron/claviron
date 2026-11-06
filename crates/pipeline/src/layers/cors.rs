@@ -14,12 +14,6 @@ pub struct CorsState {
     denied: bool,
 }
 
-impl CorsState {
-    pub fn accepted_origin(&self) -> Option<&HeaderValue> {
-        self.origin.as_ref()
-    }
-}
-
 impl AsMut<CorsState> for CorsState {
     fn as_mut(&mut self) -> &mut Self {
         self

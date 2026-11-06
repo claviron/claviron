@@ -10,7 +10,7 @@ pub struct DenyLayer {
 }
 
 impl DenyLayer {
-    pub fn from_matcher(matcher: &RegexSet) -> Option<Self> {
+    pub(crate) fn from_matcher(matcher: &RegexSet) -> Option<Self> {
         (!matcher.is_empty()).then(|| Self { matcher: matcher.clone() })
     }
 

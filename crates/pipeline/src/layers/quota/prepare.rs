@@ -180,7 +180,7 @@ impl QuotaRegistrations {
 
 /// Open the stores a site declares for itself, for a site served without a
 /// host table. Nothing here can be registered beside them.
-pub fn of_site(site: &Site) -> Result<Option<Arc<HostQuotas>>> {
+pub(crate) fn of_site(site: &Site) -> Result<Option<Arc<HostQuotas>>> {
     let declarations = declarations(site);
     if declarations.is_empty() {
         return Ok(None);

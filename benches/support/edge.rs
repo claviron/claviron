@@ -9,12 +9,12 @@ use claviron::edge::pipeline::host::{
 };
 use claviron::edge::pipeline::{HostAppRegistry, Routable};
 use claviron::edge::transport::{HostConfig, OtherHandler, OtherService};
-use claviron::transport::edge::service::HostService;
 use claviron::http::{RouteBody, RouteFuture, ServiceResult, boxed_body};
 use claviron::runtime::{
     AppState,
     registry::{Component, Result},
 };
+use claviron::transport::edge::service::HostService;
 use http::Request;
 
 use super::{json, plain, setup::Hosts};

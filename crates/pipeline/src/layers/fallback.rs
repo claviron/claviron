@@ -9,7 +9,7 @@ use claviron_runtime::AppState;
 use http::{Request, StatusCode};
 use std::sync::Arc;
 
-pub fn prepare_fallback(
+pub(crate) fn prepare_fallback(
     state: &AppState,
     config: &Site,
 ) -> Option<Arc<dyn DispatchStep>> {

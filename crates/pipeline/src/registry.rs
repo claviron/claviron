@@ -20,7 +20,7 @@ pub struct ContributedExtensions {
 }
 
 #[derive(Default)]
-pub struct ResolvedRouteExtensions {
+pub(crate) struct ResolvedRouteExtensions {
     pub handler: Option<Arc<dyn HostHandler>>,
     pub conditions: Vec<Arc<dyn RouteCondition>>,
     pub layers: Vec<Arc<dyn RouteLayer>>,
@@ -101,7 +101,7 @@ impl SiteRegistry {
 
     /// The registered backends whose directive this scope declares, in
     /// registration order. A null value declares nothing.
-    pub fn declared_backends(
+    pub(crate) fn declared_backends(
         &self,
         scope: &Site,
     ) -> Vec<&'static str> {
@@ -116,7 +116,7 @@ impl SiteRegistry {
             .collect()
     }
 
-    pub fn resolve_backends(
+    pub(crate) fn resolve_backends(
         &self,
         context: &BackendContext<'_>,
     ) -> Result<PreparedBackends> {
@@ -142,7 +142,7 @@ impl SiteRegistry {
 
     /// The directives of one scope, compiled by whichever extension owns each
     /// name. `contributed` adds the extensions a host's own providers bring.
-    pub fn resolve_extensions(
+    pub(crate) fn resolve_extensions(
         &self,
         context: &RouteContext<'_>,
         inherited_only: bool,

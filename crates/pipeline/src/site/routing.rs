@@ -85,7 +85,7 @@ impl RouteConfig {
         &self.index
     }
 
-    pub fn is_indexed(&self) -> bool {
+    pub(crate) fn is_indexed(&self) -> bool {
         !self.index.is_empty()
     }
 
@@ -385,7 +385,7 @@ fn normalize(mut source: Mapping) -> Result<Site, String> {
 /// as written for whoever registered it: a backend or a route extension. The
 /// edge does not know those names, so what they mean, and whether a scope has
 /// one application owner, is settled when the scope is prepared.
-pub fn is_builtin_directive(name: &str) -> bool {
+pub(crate) fn is_builtin_directive(name: &str) -> bool {
     name == "orbit"
         || matches!(
             name,

@@ -97,7 +97,7 @@ impl DispatchStep for TryFilesStage {
 /// `owned`: the scope declares an application owner. An owner takes its scope
 /// whole, so mounts the scope only inherited from an ancestor are left out;
 /// mounts it declares itself still run before the owner.
-pub fn scope_steps(
+pub(crate) fn scope_steps(
     config: &Site,
     owned: bool,
 ) -> Vec<Arc<dyn DispatchStep>> {

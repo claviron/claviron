@@ -3,19 +3,19 @@ use claviron_runtime::activity::{ACTIVITY, Exchange};
 use super::*;
 
 #[derive(Default)]
-pub struct MetricsState<S> {
+pub(crate) struct MetricsState<S> {
     inner: S,
     exchange: Option<Exchange>,
 }
 
 impl<S> MetricsState<S> {
-    pub fn inner_mut(&mut self) -> &mut S {
+    pub(crate) fn inner_mut(&mut self) -> &mut S {
         &mut self.inner
     }
 }
 
 /// Count an exchange until the response head is ready or the request is dropped.
-pub struct MetricsLayer;
+pub(crate) struct MetricsLayer;
 
 impl<S> HostLayer<MetricsState<S>> for MetricsLayer {
     fn prepare(
