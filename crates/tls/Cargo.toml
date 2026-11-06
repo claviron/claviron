@@ -1,7 +1,7 @@
 [package]
 autotests = false
 name = "claviron-tls"
-version.workspace = true
+version = "0.2.0-alpha.25.1"
 publish.workspace = true
 edition.workspace= true
 description = "Shared certificate resolution, TLS policy, and mutual TLS configuration for Claviron"
