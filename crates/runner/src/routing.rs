@@ -18,7 +18,6 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
-use claviron_http::body::{GuardedBody, declared_length_within, guard_reply};
 use claviron_http::deadline::head_within;
 use claviron_http::ext::{ConnCtx, RequestArrival};
 use claviron_http::policy::HttpPolicy;
@@ -212,6 +211,17 @@ pub struct Routing {
     files: Option<Arc<crate::files::Files>>,
 }
 
+#[cfg(feature = "pipeline")]
+impl Routing {
+    /// What the plan serves from, when this launch mounts any files.
+    fn site(&self) -> Option<claviron_pipeline::Site> {
+        #[cfg(feature = "files")]
+        return self.files.as_ref().map(|files| files.site());
+        #[cfg(not(feature = "files"))]
+        None
+    }
+}
+
 impl Routing {
     /// `policy` bounds every request and reply; `HttpPolicy::unlimited()` is
     /// the explicit choice of none.
@@ -240,7 +250,6 @@ pub struct Application {
     service: Arc<dyn ErasedService>,
     upgrades: Option<Arc<dyn ErasedService>>,
     sessions: Option<crate::orbit::OrbitSession>,
-    policy: HttpPolicy,
 }
 
 impl Application {
@@ -258,11 +267,10 @@ impl Application {
         request: AppRequest,
     ) -> impl Future<Output = AppResponse> + Send + use<> {
         let exchange = claviron_runtime::activity::ACTIVITY.begin();
-        let policy = self.policy;
         let service = Arc::clone(&self.service);
         let upgrades = self.upgrades.clone();
         async move {
-            let response = guarded(policy, service, upgrades, request).await;
+            let response = admitted(service, upgrades, request).await;
             drop(exchange);
             response
         }
@@ -282,13 +290,12 @@ impl claviron_transport::owner::Owner for Application {
     }
 }
 
-/// Refuse what no stage may read differently or take over, bound what is
-/// admitted, and hold the request and its reply to the policy.
-async fn guarded(
-    policy: HttpPolicy,
+/// Refuse what no stage may read differently or take over, then hand on what
+/// is left.
+async fn admitted(
     service: Arc<dyn ErasedService>,
     upgrades: Option<Arc<dyn ErasedService>>,
-    mut request: AppRequest,
+    request: AppRequest,
 ) -> AppResponse {
     // Framing two parsers could read differently, refused before anything
     // reads it as a request.
@@ -315,47 +322,118 @@ async fn guarded(
             None => status(StatusCode::NOT_IMPLEMENTED),
         };
     }
-    if declared_length_within(request.headers(), policy.requests.max_body_size)
-        .is_err()
-    {
-        return status(StatusCode::PAYLOAD_TOO_LARGE);
-    }
-    request.extensions_mut().insert(policy);
-    let request = if policy.requests.max_body_size.is_some()
-        || policy.requests.body_read_timeout.is_some()
-    {
-        request.map(|body| {
-            RequestBody::new(GuardedBody::new(
-                body,
-                policy.requests.max_body_size,
-                policy.requests.body_read_timeout,
-            ))
-        })
-    } else {
-        request
-    };
-    match head_within(
-        policy.requests.head_timeout,
-        service.call_erased(request),
-    )
-    .await
-    {
-        Some(Ok(response)) => response.map(|body| {
-            if policy.responses.max_body_size.is_some()
-                || policy.responses.body_idle_timeout.is_some()
-            {
-                guard_reply(
-                    body,
-                    policy.responses.max_body_size,
-                    policy.responses.body_idle_timeout,
+    let Ok(response) = service.call_erased(request).await;
+    response
+}
+
+/// The composed service as the plan's last step: it is told the policy that
+/// applies and its reply head is held to the deadline, which is an owner's to
+/// enforce.
+struct Answering {
+    service: Arc<dyn ErasedService>,
+    policy: HttpPolicy,
+}
+
+impl ErasedService for Answering {
+    fn call_erased(
+        &self,
+        mut request: AppRequest,
+    ) -> RouteFuture {
+        let (service, policy) = (Arc::clone(&self.service), self.policy);
+        Box::pin(async move {
+            request.extensions_mut().insert(policy);
+            Ok(
+                match head_within(
+                    policy.requests.head_timeout,
+                    service.call_erased(request),
                 )
-            } else {
-                body
-            }
-        }),
-        Some(Err(never)) => match never {},
-        None => status(StatusCode::GATEWAY_TIMEOUT),
+                .await
+                {
+                    Some(Ok(response)) => response,
+                    Some(Err(never)) => match never {},
+                    None => status(StatusCode::GATEWAY_TIMEOUT),
+                },
+            )
+        })
     }
+}
+
+#[cfg(feature = "pipeline")]
+mod plan {
+    use claviron_http::{RouteBody, ServiceResult};
+    use claviron_pipeline::plan::HostExecution;
+    use claviron_pipeline::{
+        BackendContract, BackendHandler, BackendIdentity, BackendReply,
+        DispatchCall, DispatchStep, HostContext, Site,
+    };
+
+    use super::*;
+
+    impl DispatchStep for Answering {
+        fn call(
+            &self,
+            request: Request<RouteBody>,
+            _context: Option<HostContext<'_>>,
+        ) -> DispatchCall {
+            let answering = self.call_erased(request.map(RequestBody::new));
+            DispatchCall::new(async move {
+                let Ok(response) = answering.await;
+                ServiceResult::Handled(response)
+            })
+        }
+    }
+
+    impl BackendHandler for Answering {
+        fn contract(&self) -> BackendContract {
+            BackendContract {
+                identity: BackendIdentity::None,
+                reply: BackendReply::Owner,
+            }
+        }
+    }
+
+    struct Planned(HostExecution);
+
+    impl ErasedService for Planned {
+        fn call_erased(
+            &self,
+            request: AppRequest,
+        ) -> RouteFuture {
+            self.0.handle(request.map(RequestBody::into_inner))
+        }
+    }
+
+    /// Bodies, replies and files in front of what answers. A launch that
+    /// declared none of them leaves no plan to walk through.
+    pub(super) fn over(
+        state: &AppState,
+        routing: &Routing,
+        answering: Answering,
+    ) -> registry::Result<Arc<dyn ErasedService>> {
+        let policy = answering.policy;
+        let site = routing.site();
+        if !bounded(&policy) && site.is_none() {
+            return Ok(Arc::new(answering));
+        }
+        let site = site.unwrap_or_else(|| Site::new("."));
+        let execution = claviron_pipeline::compile::compile_with_owner(
+            state,
+            Arc::new(site),
+            policy,
+            Arc::new(answering),
+        )
+        .map_err(|error| registry::Error::msg(error.to_string()))?;
+        Ok(Arc::new(Planned(execution)))
+    }
+}
+
+/// Whether the policy bounds a body in either direction. The reply head's
+/// deadline is not among them: an owner holds it with or without a plan.
+fn bounded(policy: &HttpPolicy) -> bool {
+    policy.requests.max_body_size.is_some()
+        || policy.requests.body_read_timeout.is_some()
+        || policy.responses.max_body_size.is_some()
+        || policy.responses.body_idle_timeout.is_some()
 }
 
 fn status(code: StatusCode) -> AppResponse {
@@ -457,32 +535,24 @@ fn compose_service(
     };
     let sessions = sessions
         .or_else(|| owner.as_ref().and_then(|owner| owner.orbit_session()));
-    #[cfg(feature = "files")]
-    let service = match routing.files.clone() {
-        Some(files) => {
-            let inner = Arc::clone(&service);
-            let router = crate::files::in_front(
-                files,
-                axum::Router::new().fallback(
-                    move |request: axum::extract::Request| {
-                        let inner = Arc::clone(&inner);
-                        async move {
-                            inner
-                                .call_erased(request.map(RequestBody::new))
-                                .await
-                        }
-                    },
-                ),
-            );
-            Arc::new(Erased(router)) as Arc<dyn ErasedService>
+    let answering = Answering { service, policy: routing.policy };
+    #[cfg(feature = "pipeline")]
+    let service = plan::over(state, &routing, answering)?;
+    #[cfg(not(feature = "pipeline"))]
+    let service: Arc<dyn ErasedService> = {
+        if bounded(&answering.policy) {
+            return Err(registry::Error::msg(
+                "requests: and responses: body bounds need claviron-runner's \
+                 `pipeline` feature (`runner-pipeline` on the facade); \
+                 without it they would not be applied",
+            ));
         }
-        None => service,
+        Arc::new(answering)
     };
     state.registry_ref().insert(Arc::new(Application {
         service,
         upgrades,
         sessions,
-        policy: routing.policy,
     }))?;
     Ok(())
 }

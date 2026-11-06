@@ -1,8 +1,36 @@
-use http::Request;
+use std::sync::Arc;
+
+use claviron_http::policy::HttpPolicy;
+use claviron_runtime::AppState;
+use http::{Method, Request, Response, StatusCode};
 use http_body_util::BodyExt;
-use tower::ServiceExt;
 
 use super::*;
+use crate::routing::{AppRequest, Application, Owner, RequestBody, Routing};
+
+/// The files in front of an owner answering "application".
+fn in_front(files: Arc<Files>) -> Arc<Application> {
+    let state = AppState::standalone("runner-files", ".");
+    crate::routing::register_owner(
+        &state,
+        Owner::new(tower::service_fn(|_: AppRequest| async {
+            Ok::<_, std::convert::Infallible>(Response::new(
+                claviron_http::bytes_body("application".into()),
+            ))
+        })),
+    )
+    .unwrap();
+    state
+        .registry_ref()
+        .insert(Arc::new(
+            Routing::new(HttpPolicy::unlimited()).files(Some(files)),
+        ))
+        .unwrap();
+    #[cfg(feature = "axum")]
+    claviron_pipeline::routing::register(&state).unwrap();
+    crate::routing::ensure_application(&state).unwrap();
+    state.registry_ref().resolve::<Application>().unwrap()
+}
 
 #[tokio::test]
 async fn mounts_serve_assets_and_leave_the_rest_to_the_owner() {
@@ -23,8 +51,7 @@ async fn mounts_serve_assets_and_leave_the_rest_to_the_owner() {
             rules: None,
         }],
     });
-    let service =
-        in_front(files, Router::new().fallback(|| async { "application" }));
+    let service = in_front(files);
     for (method, path, status, body) in [
         (Method::GET, "/build/app.css", StatusCode::OK, "body{}"),
         (Method::HEAD, "/build/app.css", StatusCode::OK, ""),
@@ -35,16 +62,14 @@ async fn mounts_serve_assets_and_leave_the_rest_to_the_owner() {
         (Method::GET, "/builder/app.css", StatusCode::OK, "application"),
     ] {
         let response = service
-            .clone()
-            .oneshot(
+            .call(
                 Request::builder()
                     .method(method)
                     .uri(path)
-                    .body(Body::empty())
+                    .body(RequestBody::empty())
                     .unwrap(),
             )
-            .await
-            .unwrap();
+            .await;
         assert_eq!(response.status(), status, "{path}");
         assert_eq!(
             response.into_body().collect().await.unwrap().to_bytes(),
@@ -56,10 +81,13 @@ async fn mounts_serve_assets_and_leave_the_rest_to_the_owner() {
         ["/build/.env", "/build/%2e%2e/secret.php", "/build/missing.css"]
     {
         let response = service
-            .clone()
-            .oneshot(Request::builder().uri(path).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
+            .call(
+                Request::builder()
+                    .uri(path)
+                    .body(RequestBody::empty())
+                    .unwrap(),
+            )
+            .await;
         assert_ne!(response.status(), StatusCode::OK, "{path}");
         let body = response.into_body().collect().await.unwrap().to_bytes();
         assert!(!String::from_utf8_lossy(&body).contains("private"));
@@ -79,10 +107,7 @@ async fn asset_shorthand_and_opt_in_probe_share_the_file_service() {
         let mut files =
             Files::public().with_assets(&["build".into()], enabled).unwrap();
         files.root = dir.path().to_owned();
-        let service = in_front(
-            Arc::new(files),
-            Router::new().fallback(|| async { "application" }),
-        );
+        let service = in_front(Arc::new(files));
         for (method, path, status, body) in [
             (Method::GET, "/build/app.js", StatusCode::OK, "asset"),
             (Method::HEAD, "/build/app.js", StatusCode::OK, ""),
@@ -92,22 +117,27 @@ async fn asset_shorthand_and_opt_in_probe_share_the_file_service() {
                 StatusCode::OK,
                 if enabled { "robots" } else { "application" },
             ),
-            (Method::HEAD, "/robots.txt", StatusCode::OK, ""),
+            // Unprobed, a HEAD is the owner's to answer; the connection's
+            // driver is what drops a HEAD's body on the wire.
+            (
+                Method::HEAD,
+                "/robots.txt",
+                StatusCode::OK,
+                if enabled { "" } else { "application" },
+            ),
             (Method::POST, "/robots.txt", StatusCode::OK, "application"),
             (Method::GET, "/missing.txt", StatusCode::OK, "application"),
             (Method::GET, "/secret.php", StatusCode::OK, "application"),
         ] {
             let response = service
-                .clone()
-                .oneshot(
+                .call(
                     Request::builder()
                         .method(method)
                         .uri(path)
-                        .body(Body::empty())
+                        .body(RequestBody::empty())
                         .unwrap(),
                 )
-                .await
-                .unwrap();
+                .await;
             assert_eq!(response.status(), status, "{enabled}: {path}");
             assert_eq!(
                 response.into_body().collect().await.unwrap().to_bytes(),
@@ -118,15 +148,13 @@ async fn asset_shorthand_and_opt_in_probe_share_the_file_service() {
         if enabled {
             for path in ["/.env", "/%2e%2e/secret.php"] {
                 let response = service
-                    .clone()
-                    .oneshot(
+                    .call(
                         Request::builder()
                             .uri(path)
-                            .body(Body::empty())
+                            .body(RequestBody::empty())
                             .unwrap(),
                     )
-                    .await
-                    .unwrap();
+                    .await;
                 assert_eq!(response.status(), StatusCode::FORBIDDEN, "{path}");
             }
         }

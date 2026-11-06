@@ -7,7 +7,7 @@ use super::*;
 fn application<S>(
     policy: HttpPolicy,
     service: S,
-) -> Application
+) -> Arc<Application>
 where
     S: Service<AppRequest, Response = AppResponse, Error = Infallible>
         + Clone
@@ -16,12 +16,10 @@ where
     S: 'static,
     S::Future: Send + 'static,
 {
-    Application {
-        service: Arc::new(Erased(service)),
-        upgrades: None,
-        sessions: None,
-        policy,
-    }
+    let state = AppState::standalone("runner-routing", ".");
+    state.registry_ref().insert(Arc::new(Routing::new(policy))).unwrap();
+    compose(&state, service).unwrap();
+    state.registry_ref().resolve::<Application>().unwrap()
 }
 
 /// An expired head deadline drops the outstanding owner call.

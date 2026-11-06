@@ -17,16 +17,16 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 default = []
 rust = []
 # `register_router`: the application's axum router, the owner as its fallback.
-axum = ["dep:axum", "claviron-http/axum", "claviron-pipeline/axum"]
+axum = ["dep:axum", "claviron-http/axum", "dep:claviron-pipeline", "claviron-pipeline/axum"]
+# The application's policy and files, from claviron-pipeline, in front of the
+# owner. Without it the owner is reached directly, and a launch that declares
+# them is refused rather than served unbounded.
+pipeline = ["dep:claviron-pipeline", "claviron-transport/pipeline"]
 warp = ["dep:warp", "claviron-http/warp"]
 # HTTPS on the runner's TCP listener, optionally requiring a client certificate.
 tls = ["claviron-transport/tls"]
 # Explicit static mounts in front of the owner, from Claviron's file service.
-files = [
-    "axum",
-    "dep:claviron-files",
-    "claviron-files/axum",
-]
+files = ["pipeline"]
 
 # The launch's shared options from the command line.
 cli = ["dep:clap"]
@@ -40,10 +40,9 @@ watch = ["dep:notify"]
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-app.workspace = true
-claviron-files = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
-claviron-pipeline.workspace = true
+claviron-pipeline = { workspace = true, optional = true }
 claviron-orbit.workspace = true
 claviron-runtime.workspace = true
 claviron-supervisor = { workspace = true, optional = true }

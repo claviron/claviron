@@ -17,7 +17,9 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 default = []
 # Serve Edge's virtual hosts. The only feature that brings Edge in; each
 # driver below asks Edge for its side of that driver when both are selected.
-edge = ["dep:claviron-edge", "dep:async-trait", "dep:serde", "dep:claviron-types"]
+edge = ["dep:claviron-edge", "pipeline", "dep:async-trait", "dep:serde", "dep:claviron-types"]
+# A site compiled by claviron-pipeline as a listener's owner.
+pipeline = ["dep:claviron-pipeline"]
 # TCP bind, admission and drain; Hyper HTTP/1.1 settings and socket I/O.
 tcp = [
     "dep:claviron-sys", "dep:hyper", "dep:hyper-util", "dep:serde_yaml", "dep:socket2",
@@ -41,7 +43,7 @@ webtransport = ["quic", "claviron-edge?/webtransport"]
 # Fill a connection's country from the peer address.
 geoip = ["dep:claviron-geoip"]
 # Dispatch a host plan that is one Axum router without its extra layer.
-axum = ["claviron-pipeline/axum", "claviron-edge?/axum"]
+axum = ["claviron-pipeline?/axum", "claviron-edge?/axum"]
 # The door with no socket: an edge reaches this process's lane over Orbit.
 orbit = ["dep:claviron-app", "dep:claviron-orbit", "dep:tokio-util"]
 # Let an HTTP/1.1 connection be upgraded.
@@ -57,7 +59,7 @@ claviron-edge = { workspace = true, optional = true }
 claviron-geoip = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
 claviron-orbit = { workspace = true, optional = true }
-claviron-pipeline.workspace = true
+claviron-pipeline = { workspace = true, optional = true }
 claviron-runtime.workspace = true
 claviron-sys = { workspace = true, optional = true }
 claviron-tls = { workspace = true, optional = true }

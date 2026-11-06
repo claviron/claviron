@@ -149,8 +149,10 @@ async fn prior_knowledge_serves_h2_and_keeps_h1_on_the_same_socket() {
     serving.await.unwrap();
 }
 
+#[cfg(feature = "pipeline")]
 struct Named(&'static str);
 
+#[cfg(feature = "pipeline")]
 impl claviron_pipeline::DispatchStep for Named {
     fn call(
         &self,
@@ -164,6 +166,7 @@ impl claviron_pipeline::DispatchStep for Named {
     }
 }
 
+#[cfg(feature = "pipeline")]
 impl claviron_pipeline::BackendHandler for Named {
     fn contract(&self) -> claviron_pipeline::BackendContract {
         claviron_pipeline::BackendContract {
@@ -176,6 +179,7 @@ impl claviron_pipeline::BackendHandler for Named {
 /// A site runs on a listener with no virtual host anywhere: its directive
 /// reaches the backend registered for it and its files are served, whatever
 /// authority the request names. A directive nothing owns stops preparation.
+#[cfg(feature = "pipeline")]
 #[tokio::test]
 async fn a_compiled_site_serves_its_backend_and_files_without_a_host() {
     use claviron_pipeline::compile::compile_site;

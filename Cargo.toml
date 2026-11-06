@@ -50,6 +50,9 @@ log-otlp = ["log-pipeline", "claviron-logging/otlp"]
 # The shared shell of a language runner: one application, its owner last.
 # See crates/runner/ARCHITECTURE.md.
 runner = ["server", "http", "dep:claviron-pipeline", "dep:claviron-runner"]
+# The runner's policy and static files, from claviron-pipeline. Without it a
+# launch that declares them is refused.
+runner-pipeline = ["runner", "claviron-runner/pipeline"]
 # A native Rust application on the runner; select `axum` separately.
 rust = ["runner", "claviron-runner/rust", "dep:serde", "dep:bytes", "dep:http", "dep:http-body", "dep:tower"]
 

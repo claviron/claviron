@@ -146,6 +146,9 @@ pub struct CompileInput<'a> {
     pub quotas: Option<&'a HostQuotas>,
     /// Answers upgrades before the site's applications when one is prepared.
     pub upgrades: Option<Arc<dyn BackendHandler>>,
+    /// The bounds the site narrows, for a side with no listener to take them
+    /// from. A listener's own policy wins otherwise.
+    pub policy: Option<HttpPolicy>,
 }
 
 /// What the serving side adds to each scope of a site while it is prepared.
@@ -523,6 +526,49 @@ impl Compiler<'_> {
     }
 }
 
+/// The one owner of a site, after its files.
+struct SiteOwner(Arc<dyn BackendHandler>);
+
+impl CompileHooks for SiteOwner {
+    fn scope_backends(
+        &self,
+        _context: &RouteContext<'_>,
+    ) -> Vec<Arc<dyn BackendHandler>> {
+        vec![self.0.clone()]
+    }
+}
+
+/// Compile a site in front of one owner that answers whatever its files and
+/// policy leave, on no listener in particular: `policy` is what it narrows.
+pub fn compile_with_owner(
+    state: &AppState,
+    site: Arc<Site>,
+    policy: HttpPolicy,
+    owner: Arc<dyn BackendHandler>,
+) -> Result<HostExecution> {
+    #[cfg(feature = "rate-limit")]
+    let quotas = crate::layers::quotas_of_site(&site)?;
+    compile(CompileInput {
+        state,
+        host: None,
+        site,
+        transport: &TransportPolicy::default(),
+        listener: None,
+        protocol: None,
+        http: None,
+        router: None,
+        applications: &[],
+        layers: &[],
+        registry: None,
+        contributed: ContributedExtensions::default(),
+        hooks: &SiteOwner(owner),
+        #[cfg(feature = "rate-limit")]
+        quotas: quotas.as_deref(),
+        upgrades: None,
+        policy: Some(policy),
+    })
+}
+
 /// Compile a site served as itself, by a listener that selects no host. Its
 /// directives resolve against `registry`; a directive nothing owns fails here.
 pub fn compile_site(
@@ -550,6 +596,7 @@ pub fn compile_site(
         #[cfg(feature = "rate-limit")]
         quotas: quotas.as_deref(),
         upgrades: None,
+        policy: None,
     })
 }
 
@@ -573,9 +620,10 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
         #[cfg(feature = "rate-limit")]
         quotas,
         upgrades,
+        policy,
     } = input;
-    let policy = listener
-        .map_or_else(HttpPolicy::unlimited, |listener| listener.policy());
+    let policy = listener.map(ListenerConfig::policy).or(policy);
+    let policy = policy.unwrap_or_else(HttpPolicy::unlimited);
     let protocol = listener.map(RouteProtocol::from).or(protocol);
     let compiler = Compiler {
         host,

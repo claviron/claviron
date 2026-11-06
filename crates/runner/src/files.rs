@@ -1,8 +1,9 @@
-//! Static files in front of the owner, served by Claviron's file service.
+//! The `files:` section: static files in front of the owner, served by
+//! `claviron-pipeline`'s file steps.
 //!
 //! Behind an edge the edge serves them and this is not needed. Without one —
 //! a runner's own listener in development, or a deployment that runs no edge —
-//! it answers explicit mounts in Rust, before the owner is reached. `assets`
+//! they answer explicit mounts in Rust, before the owner is reached. `assets`
 //! is shorthand for mounts under public; `try_files` opts into general probing.
 //! Only GET and HEAD look at files; every other method goes on whatever its path,
 //! and so does a dynamic file, whose source is never served. A missing file is
@@ -16,16 +17,9 @@
 //! ```
 
 use std::path::{Component, Path, PathBuf};
-use std::sync::Arc;
 
-use axum::Router;
-use axum::body::Body;
-use axum::extract::{Request, State};
-use axum::middleware::{Next, from_fn_with_state};
-use axum::response::Response;
-use claviron_files::FileSite;
 use claviron_http::config::statics::StaticConfig;
-use http::{Method, StatusCode};
+use claviron_pipeline::Site;
 use serde::Deserialize;
 
 /// The `files:` section, as written.
@@ -136,84 +130,14 @@ impl Files {
     }
 }
 
-impl FileSite for Files {
-    fn root(&self) -> PathBuf {
-        self.root.clone()
+impl Files {
+    /// What the plan serves from.
+    pub(crate) fn site(&self) -> Site {
+        let mut site = Site::new(&self.root);
+        site.files.try_files = self.try_files;
+        site.files.statics = Some(self.statics.clone());
+        site
     }
-
-    fn indexes(&self) -> &[String] {
-        &[]
-    }
-
-    fn try_files(&self) -> bool {
-        self.try_files
-    }
-
-    fn spa(&self) -> Option<&str> {
-        None
-    }
-
-    fn statics(&self) -> Option<&[StaticConfig]> {
-        Some(&self.statics)
-    }
-
-    fn has_static_index(&self) -> bool {
-        false
-    }
-}
-
-/// `router` with explicit mounts and optional public-file probing in front.
-pub fn in_front(
-    files: Arc<Files>,
-    router: Router,
-) -> Router {
-    // Explicit mounts stay authoritative. General probing only runs after
-    // an unmatched mount, and only when requested at launch.
-    let router = if files.try_files {
-        router.layer(from_fn_with_state(Arc::clone(&files), probe))
-    } else {
-        router
-    };
-    let site: Arc<dyn FileSite> = files;
-    router.layer(from_fn_with_state(site, serve))
-}
-
-async fn probe(
-    State(files): State<Arc<Files>>,
-    request: Request,
-    next: Next,
-) -> Response {
-    if (request.method() == Method::GET || request.method() == Method::HEAD)
-        && let claviron_http::ServiceResult::Handled(response) =
-            claviron_files::try_files_probe(
-                &files.root,
-                request.uri(),
-                request.headers(),
-            )
-            .await
-    {
-        return claviron_http::into_axum_response(response);
-    }
-    next.run(request).await
-}
-
-async fn serve(
-    site: State<Arc<dyn FileSite>>,
-    request: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
-    // The file service takes no method: a POST to an asset's path is the
-    // owner's, not a file read.
-    let head = request.method() == Method::HEAD;
-    if !head && request.method() != Method::GET {
-        return Ok(next.run(request).await);
-    }
-    let mut response =
-        claviron_files::axum_static_mount_handler(site, request, next).await?;
-    if head {
-        *response.body_mut() = Body::empty();
-    }
-    Ok(response)
 }
 
 #[cfg(test)]

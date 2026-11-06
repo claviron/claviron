@@ -179,6 +179,7 @@ impl HostCompiler<'_> {
             #[cfg(feature = "rate-limit")]
             quotas,
             upgrades,
+            policy: None,
         })
     }
 }

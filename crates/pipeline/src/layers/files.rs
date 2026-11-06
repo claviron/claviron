@@ -36,8 +36,14 @@ impl DispatchStep for StaticStage {
         request: Request<RouteBody>,
         _context: Option<crate::plan::HostContext<'_>>,
     ) -> DispatchCall {
+        // The file service takes no method: a POST to an asset's path is the
+        // owner's, not a file read.
+        if !reads_files(request.method()) {
+            return DispatchCall::ready(ServiceResult::Unhandled(request));
+        }
         let mount = self.mount.clone();
         DispatchCall::new(async move {
+            let head = request.method() == http::Method::HEAD;
             let context = RequestContext {
                 uri: request.uri(),
                 headers: request.headers(),
@@ -45,7 +51,7 @@ impl DispatchStep for StaticStage {
             };
             match mount.try_handle(context).await {
                 ServiceResult::Handled(response) => {
-                    ServiceResult::Handled(response)
+                    ServiceResult::Handled(head_only(response, head))
                 }
                 ServiceResult::Unhandled(_) => {
                     ServiceResult::Unhandled(request)
@@ -74,8 +80,12 @@ impl DispatchStep for TryFilesStage {
         request: Request<RouteBody>,
         _context: Option<crate::plan::HostContext<'_>>,
     ) -> DispatchCall {
+        if !reads_files(request.method()) {
+            return DispatchCall::ready(ServiceResult::Unhandled(request));
+        }
         let site = self.site.clone();
         DispatchCall::new(async move {
+            let head = request.method() == http::Method::HEAD;
             match claviron_files::try_files_for_site(
                 site.as_ref(),
                 request.uri(),
@@ -84,7 +94,7 @@ impl DispatchStep for TryFilesStage {
             .await
             {
                 ServiceResult::Handled(response) => {
-                    ServiceResult::Handled(response)
+                    ServiceResult::Handled(head_only(response, head))
                 }
                 ServiceResult::Unhandled(_) => {
                     ServiceResult::Unhandled(request)
@@ -92,6 +102,21 @@ impl DispatchStep for TryFilesStage {
             }
         })
     }
+}
+
+fn reads_files(method: &http::Method) -> bool {
+    method == http::Method::GET || method == http::Method::HEAD
+}
+
+/// A HEAD keeps the headers its GET would have and none of the body.
+fn head_only(
+    mut response: claviron_http::RouteResponse,
+    head: bool,
+) -> claviron_http::RouteResponse {
+    if head {
+        *response.body_mut() = claviron_http::empty_body();
+    }
+    response
 }
 
 /// `owned`: the scope declares an application owner. An owner takes its scope

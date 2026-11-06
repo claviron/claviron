@@ -9,7 +9,9 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use claviron_http::ext::{ConnCtx, RequestArrival};
 use claviron_http::{OtherHandler, RouteBody, RouteBodyError, RouteResponse};
+#[cfg(feature = "pipeline")]
 use claviron_pipeline::HostContext;
+#[cfg(feature = "pipeline")]
 use claviron_pipeline::plan::HostExecution;
 use http::Request;
 use http_body_util::BodyExt;
@@ -114,6 +116,7 @@ impl<H: OtherHandler> Owner for Handler<H> {
 
 /// A site compiled by `claviron_pipeline::compile`: its policies, files and
 /// backends run on every request, with the connection's facts lent to them.
+#[cfg(feature = "pipeline")]
 impl Owner for HostExecution {
     fn call(
         &self,
