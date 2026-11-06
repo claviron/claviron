@@ -41,7 +41,19 @@ impl H1Service {
             Ok(answering) => Either::Right(answering),
         }
     }
+}
 
+impl claviron_transport::tcp::plain::Requests for H1Service {
+    fn call(
+        &self,
+        request: Request<hyper::body::Incoming>,
+    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
+    {
+        H1Service::call(self, request)
+    }
+}
+
+impl H1Service {
     fn prepare<B>(
         &self,
         request: Request<B>,

@@ -28,6 +28,7 @@ connection facts (`ConnCtx`), request policy and the body types.
   only by an H1 connection with half-close on.
 - [`protocol.rs`](src/tcp/protocol.rs) — Hyper H1 builder and TCP socket options from resolved config.
 - [`body.rs`](src/tcp/body.rs) — Lazy body erasure and proven-empty-body handling; preserve trailers.
+- [`plain.rs`](src/tcp/plain.rs) — Drive one cleartext HTTP/1.1 connection: socket setup, connection facts, Hyper and graceful/forced drain. `Cleartext` is what a listener publishes and `Requests` owns one connection's requests; `Single` is the host-free implementation that gives every request to one `OtherHandler`.
 
 ### `quic/`
 
@@ -36,12 +37,26 @@ connection facts (`ConnCtx`), request policy and the body types.
 - [`wt/streams.rs`](src/quic/wt/streams.rs) — Bounded per-session input; a saturated session never blocks the shared driver.
 - [`wt/session.rs`](src/quic/wt/session.rs) — One application-facing WebTransport session and its routed bidi input; classification of a stream whose session has ended.
 
+## The contract with a host selector
+
+A listener's owner publishes one snapshot. For each accepted connection the
+driver completes the connection's facts and asks the snapshot for that
+connection's request owner; the owner is called for one request at a time on
+the connection's task. Selecting a host, caching the selection and answering a
+request for an unknown name all happen behind that call. Edge implements it
+with its virtual-host table; `Single` implements it with one handler and
+selects nothing.
+
+`Single` applies no request policy and attaches nothing to the request. Its
+handler receives the request as the connection produced it.
+
 ## Still in `claviron-edge`
 
-The listener owners (`HttpServer`, `HttpsServer`, `H3Server`), the per-connection
-handlers and the TLS selection still live in Edge, because they resolve a host
-before they can serve. They move here once that resolution is a contract: given
-a connection's facts, return the service for it or a rejection. Who may accept
+The cleartext driver is here; its listener owner (`HttpServer`) is not, because
+it publishes against Edge's host table. The TLS and HTTP/3 owners, handlers and
+TLS selection also still live in Edge. They need more from a host than the
+cleartext path does: its protocol policy before the protocol is chosen, and a
+signal that retires the connection when its host changes. Who may accept
 a WebTransport or H2 CONNECT session for a host and path stays an Edge registry.
 
 ## Tests

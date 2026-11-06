@@ -27,7 +27,7 @@ access-log = [
     "dep:claviron-logging",
     "claviron-logging/pipeline",
 ]
-websocket = ["tcp", "claviron-http/websocket"]
+websocket = ["tcp", "claviron-http/websocket", "claviron-transport/websocket"]
 # Pure host declarations only; Broadcast owns its opt-in execution/session adapter.
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [

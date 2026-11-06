@@ -25,6 +25,8 @@ quic = ["dep:h3", "dep:h3-webtransport"]
 webtransport = ["quic", "dep:h3-quinn"]
 # Fill a connection's country from the peer address.
 geoip = ["dep:claviron-geoip"]
+# Let an HTTP/1.1 connection be upgraded.
+websocket = ["tcp"]
 # Count accepted and open connections per listener.
 metrics = ["claviron-http/metrics"]
 

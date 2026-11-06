@@ -486,7 +486,7 @@ Socket acceptance, socket I/O, protocol settings and body adaptation come from
 
 - [`plain.rs`](src/tcp/plain.rs) — Cleartext H1 driver exports.
 - [`server.rs`](src/tcp/plain/server.rs) — HttpServer configuration, snapshots and named listener registration; `connection_handler` prepares a typed listener without binding or provider boot.
-- [`conn.rs`](src/tcp/plain/conn.rs) — Socket/context setup, H1 driving and connection drain; public `ConnectionHandler` serves caller-accepted streams through the same native path.
+- [`conn.rs`](src/tcp/plain/conn.rs) — Public `ConnectionHandler` for caller-accepted streams; the connection itself is driven by `claviron_transport::tcp::plain`.
 - [`handler.rs`](src/tcp/plain/handler.rs) — Cleartext authority selection and native host handoff.
 - [`error.rs`](src/tcp/plain/error.rs) — Cleartext driver errors.
 

@@ -46,6 +46,22 @@ impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
         &self.listener
     }
 }
+impl claviron_transport::tcp::plain::Cleartext for ServerSnapshot {
+    type Requests = super::handler::H1Service;
+
+    fn tcp(&self) -> &TcpConfig {
+        &self.tcp
+    }
+    fn h1(&self) -> &H1Config {
+        &self.h1
+    }
+    fn connection(
+        self: &Arc<Self>,
+        facts: Arc<claviron_http::ext::ConnCtx>,
+    ) -> Self::Requests {
+        super::handler::H1Service::new(self.clone(), facts)
+    }
+}
 
 pub struct HttpServer {
     state: AppState,

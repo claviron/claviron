@@ -5,9 +5,13 @@
 //! Congif configuration catalog and generation-scoped connection gates.
 //! QUIC/H3 belongs to the sibling `quic` module, not to this transport.
 
-// Socket acceptance, I/O and protocol settings know no host.
+// Socket acceptance, I/O and protocol settings know no host. The cleartext
+// connection is driven entirely there; only the TLS handler drives its own.
+#[cfg(feature = "tls")]
 pub(crate) use claviron_transport::geo;
-pub(crate) use claviron_transport::tcp::{io, listener, protocol};
+pub(crate) use claviron_transport::tcp::listener;
+#[cfg(feature = "tls")]
+pub(crate) use claviron_transport::tcp::{io, protocol};
 
 pub mod plain;
 #[cfg(feature = "tls")]
