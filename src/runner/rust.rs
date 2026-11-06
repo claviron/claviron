@@ -29,7 +29,7 @@ pub struct Runner {
     config_path: Option<PathBuf>,
     registrations: Vec<Registration>,
     application: Option<ApplicationRegistration>,
-    sessions: Option<claviron_runner::orbit::OrbitSession>,
+    sessions: Option<claviron_runner::routing::Sessions>,
 }
 
 impl Runner {
@@ -121,6 +121,7 @@ impl Runner {
     ///
     /// The same callback receives WebSocket sessions and supported reliable
     /// WebTransport bidi streams. Edge owns the public protocol handshake.
+    #[cfg(feature = "runner-orbit")]
     pub fn with_orbit_sessions<F, Fut>(
         mut self,
         session: F,
@@ -155,7 +156,7 @@ impl Runner {
             &name,
         )
         .map_err(registry_error)?;
-        if options.binds().is_empty() && !options.orbit {
+        if !options.names_a_socket() && !options.orbit {
             return Err("select orbit, tcp or uds ingress".into());
         }
         let production = options.production;

@@ -177,7 +177,7 @@ Independent masters must not assume they can allocate the same fleet lanes.
 ## Optional capabilities
 
 The implementation crate has no default features. Its capabilities are `rust`, `axum`, `warp`,
-`tls`, `files`, `cli`, `supervisor`, `websocket`, and `watch`.
+`socket`, `orbit`, `pipeline`, `tls`, `files`, `cli`, `supervisor`, `websocket`, and `watch`.
 The root facade's `runner-cli` extends an already-selected `runner`; it does not
 enable the shell on its own. Select both for command-line launch options.
 `runner-watch` selects the runner and its watcher. Facade and implementation

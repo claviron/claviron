@@ -21,6 +21,7 @@ use claviron_http::policy::{HttpPolicy, HttpPolicyOverride};
 use claviron_http::trust::Network;
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "socket")]
 use crate::socket::{Bind, Protocols};
 
 /// What a runner does when the edge master announces its own shutdown.
@@ -374,8 +375,14 @@ impl RunnerOptions {
             .narrow(&HttpPolicyOverride { requests, responses }))
     }
 
+    /// Whether the launch names a socket, whichever build reads it.
+    pub fn names_a_socket(&self) -> bool {
+        self.tcp.is_some() || self.uds.is_some()
+    }
+
     /// The sockets named, in the order they were; none is not an error here —
     /// what a launch with no door means is the runner's to say.
+    #[cfg(feature = "socket")]
     pub fn binds(&self) -> Vec<Bind> {
         let mut binds = Vec::new();
         if let Some(address) = self.tcp {
@@ -387,6 +394,7 @@ impl RunnerOptions {
         binds
     }
 
+    #[cfg(feature = "socket")]
     pub fn protocols(&self) -> Protocols {
         Protocols::resolve(self.h1, self.h2)
     }

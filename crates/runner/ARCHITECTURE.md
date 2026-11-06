@@ -19,8 +19,9 @@ Every runner has grown the same skeleton:
 | socket ingress | the application and its proxy trust behind `claviron_transport::doors` |
 | Orbit ingress | the application behind `claviron_transport::orbit`, as a runnable in every process kind |
 | proxy trust | which peers' forwarding headers count |
-| request guards | framing, body bounds and response-head deadlines |
-| static mounts | explicit `statics` in front of the application |
+| admission | framing refused, a tunnel refused, an upgrade to whoever claims it |
+| policy and static mounts | `claviron-pipeline`'s body and reply bounds and file steps, behind `pipeline`; none declared leaves no plan |
+| reply head | the deadline, an owner's to hold with or without a plan |
 | workers | master and workers under the supervisor, rolling restart |
 | source watching | native notifications and a restart on change |
 | routing | the order of all of the above, and the owner last |
@@ -71,6 +72,9 @@ a second architecture.
   `runtime` — and none of `edge`, vhosts or the hosting store.
 - The lifecycle stays Claviron's: `Server`, the registry, runnable
   generations, drain and finalize. The runner adds providers, not a sequence.
+- The doors are features too: `socket`, `orbit`, and `pipeline` for the policy
+  and files in front of the owner, all from the crates below this one. A launch
+  that declares what its build was not given is refused, not served without it.
 - Optional pieces are this crate's own features: `files`,
   `supervisor`, `tls`, `cli` and `watch`. A language runner forwards its
   features directly to this dependency. Its listener TLS does not enable

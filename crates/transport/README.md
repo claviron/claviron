@@ -19,6 +19,7 @@ implements and what lives where.
 | Feature | Enables |
 | --- | --- |
 | `edge` | Borrow `claviron-edge` and serve its virtual hosts: `HttpServer`, `HttpsServer`, `H3Server`. |
+| `pipeline` | A site compiled by `claviron-pipeline` as a listener's owner. |
 | `tcp` | TCP bind groups, accept recovery, socket I/O, HTTP/1.1 and cleartext HTTP/2 by prior knowledge; Unix sockets. |
 | `tls` | TLS accept, ALPN selection and HTTP/2 over TCP. |
 | `quic` | HTTP/3 over QUIC: listener, request and response framing, WebTransport session routing. |

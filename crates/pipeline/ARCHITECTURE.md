@@ -41,6 +41,8 @@ serves a site as itself.
 
 `compile_site` is the shortest serving side: one site, one listener, a registry,
 no hooks and no host. `claviron-transport`'s `Single` serves its result.
+`compile_with_owner` is one site in front of one owner on no listener in
+particular; `claviron-runner` puts its application behind one.
 `claviron-edge` is another: its `HostCompiler` adds registered layers,
 host-selected providers, Link dispatch and H1 upgrade endpoints.
 

@@ -22,7 +22,7 @@ pub fn register(
     state: &AppState,
     options: crate::RunnerOptions,
     application: ApplicationRegistration,
-    sessions: Option<crate::orbit::OrbitSession>,
+    sessions: Option<crate::routing::Sessions>,
 ) -> registry::Result<()> {
     state.registry_ref().register(Arc::new(ApplicationSetup {
         options,
@@ -41,7 +41,7 @@ struct ApplicationSetup {
 
 struct PendingApplication {
     register: ApplicationRegistration,
-    sessions: Option<crate::orbit::OrbitSession>,
+    sessions: Option<crate::routing::Sessions>,
 }
 
 impl Component<AppState> for ApplicationSetup {
@@ -88,7 +88,7 @@ pub type Registration =
 pub type ApplicationRegistration = Box<
     dyn FnOnce(
             &AppState,
-            Option<crate::orbit::OrbitSession>,
+            Option<crate::routing::Sessions>,
         ) -> registry::Result<()>
         + Send,
 >;

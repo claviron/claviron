@@ -8,12 +8,15 @@
 #[cfg(feature = "files")]
 pub mod files;
 pub mod launch;
+#[cfg(feature = "orbit")]
 pub mod management;
 pub mod options;
+#[cfg(feature = "orbit")]
 pub mod orbit;
 pub mod routing;
 #[cfg(feature = "rust")]
 pub mod rust;
+#[cfg(feature = "socket")]
 pub mod socket;
 #[cfg(feature = "supervisor")]
 pub mod supervisor;
@@ -25,6 +28,7 @@ pub mod watch;
 pub use claviron_transport::websocket;
 
 pub use options::{EdgeShutdownPolicy, RunnerOptions};
+#[cfg(feature = "orbit")]
 pub use orbit::{
     EdgeShutdownInitiated, Handshake, LinkCommandReceived, OrbitIngress,
 };
@@ -34,6 +38,7 @@ pub use routing::{
     AppRequest, AppResponse, Application, Owner, RequestBody, Routing,
     ensure_application, register_owner, register_router_with, register_routes,
 };
+#[cfg(feature = "socket")]
 pub use socket::{Bind, Protocols, SocketIngress};
 #[cfg(feature = "tls")]
 pub use tls::Tls;

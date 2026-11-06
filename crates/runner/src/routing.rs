@@ -29,6 +29,13 @@ use tower::util::{BoxCloneSyncService, ServiceExt};
 
 pub use claviron_transport::owner::{AppRequest, RequestBody};
 
+/// What answers a message session the edge carries, in a build with that door;
+/// a build without it can name none.
+#[cfg(feature = "orbit")]
+pub type Sessions = crate::orbit::OrbitSession;
+#[cfg(not(feature = "orbit"))]
+pub type Sessions = Infallible;
+
 /// What the composed service answers with.
 pub type AppResponse = Response<RouteBody>;
 
@@ -52,7 +59,7 @@ where
 pub struct Owner {
     service: BoxCloneSyncService<AppRequest, AppResponse, Infallible>,
     upgrades: Option<BoxCloneSyncService<AppRequest, AppResponse, Infallible>>,
-    orbit_sessions: Option<crate::orbit::OrbitSession>,
+    orbit_sessions: Option<Sessions>,
 }
 
 impl Owner {
@@ -95,6 +102,7 @@ impl Owner {
     /// WebSockets over Orbit, which the edge speaks: the owner answers the
     /// handshake and exchanges whole messages over the slot. Without this, the
     /// edge is answered 501.
+    #[cfg(feature = "orbit")]
     pub fn orbit_sessions<F, Fut>(
         mut self,
         session: F,
@@ -117,7 +125,7 @@ impl Owner {
         self
     }
 
-    pub(crate) fn orbit_session(&self) -> Option<crate::orbit::OrbitSession> {
+    pub(crate) fn orbit_session(&self) -> Option<Sessions> {
         self.orbit_sessions.clone()
     }
 
@@ -249,11 +257,13 @@ impl Routing {
 pub struct Application {
     service: Arc<dyn ErasedService>,
     upgrades: Option<Arc<dyn ErasedService>>,
-    sessions: Option<crate::orbit::OrbitSession>,
+    #[cfg(feature = "orbit")]
+    sessions: Option<Sessions>,
 }
 
 impl Application {
-    pub(crate) fn orbit_session(&self) -> Option<crate::orbit::OrbitSession> {
+    #[cfg(feature = "orbit")]
+    pub(crate) fn orbit_session(&self) -> Option<Sessions> {
         self.sessions.clone()
     }
     /// Hand a request to whatever the application composed.
@@ -497,7 +507,7 @@ fn compose_with<S, B>(
     state: &AppState,
     service: S,
     rust: bool,
-    sessions: Option<crate::orbit::OrbitSession>,
+    sessions: Option<Sessions>,
 ) -> registry::Result<()>
 where
     S: Service<AppRequest, Response = Response<B>, Error = Infallible>
@@ -516,7 +526,7 @@ fn compose_service(
     state: &AppState,
     service: Arc<dyn ErasedService>,
     rust: bool,
-    sessions: Option<crate::orbit::OrbitSession>,
+    sessions: Option<Sessions>,
 ) -> registry::Result<()> {
     let routing =
         state.registry_ref().resolve::<Routing>().ok_or_else(|| {
@@ -549,9 +559,12 @@ fn compose_service(
         }
         Arc::new(answering)
     };
+    #[cfg(not(feature = "orbit"))]
+    let _ = sessions;
     state.registry_ref().insert(Arc::new(Application {
         service,
         upgrades,
+        #[cfg(feature = "orbit")]
         sessions,
     }))?;
     Ok(())
@@ -574,7 +587,7 @@ impl ErasedService for PreparedRouter {
 pub(crate) fn register_prepared_router(
     state: &AppState,
     router: claviron_http::RustRouter,
-    sessions: Option<crate::orbit::OrbitSession>,
+    sessions: Option<Sessions>,
 ) -> registry::Result<()> {
     let service: Arc<dyn ErasedService> = Arc::new(PreparedRouter(router));
     #[cfg(feature = "axum")]
@@ -660,7 +673,7 @@ fn contributed_routes(
 pub(crate) fn register_other<S, B>(
     state: &AppState,
     service: S,
-    sessions: Option<crate::orbit::OrbitSession>,
+    sessions: Option<Sessions>,
 ) -> registry::Result<()>
 where
     S: Service<AppRequest, Response = Response<B>, Error = Infallible>

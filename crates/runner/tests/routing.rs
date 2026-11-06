@@ -189,6 +189,7 @@ async fn rust_axum_needs_no_owner_and_keeps_its_fallback() {
 }
 
 #[cfg(feature = "rust")]
+#[cfg(feature = "orbit")]
 #[tokio::test]
 async fn rust_other_keeps_body_bytes_and_orbit_session_without_an_owner() {
     let state = AppState::standalone("rust-service", ".");

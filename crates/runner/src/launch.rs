@@ -17,7 +17,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::options::{RunnerOptions, merge, split};
 use crate::routing::Routing;
-use crate::{OrbitIngress, SocketIngress};
 
 /// A runner's launch: the options every runner shares, and the runner's own
 /// keys beside them in one flat file.
@@ -181,48 +180,75 @@ pub fn register_trust(
 
 /// Every door the launch asked for: its sockets, and its Orbit lane under
 /// `runtime` (`php`, `asgi`), bounded by the launch's `max_in_flight` or else
-/// by `default_in_flight`.
+/// by `default_in_flight`. A door this build was not given stops the launch
+/// rather than leaving the application unreachable through it.
 pub fn register_doors(
+    #[cfg_attr(
+        not(any(feature = "socket", feature = "orbit")),
+        allow(unused_variables)
+    )]
     state: &AppState,
     runner: &RunnerOptions,
+    #[cfg_attr(not(feature = "orbit"), allow(unused_variables))]
     runtime: &'static str,
+    #[cfg_attr(not(feature = "orbit"), allow(unused_variables))]
     default_in_flight: Option<usize>,
 ) -> registry::Result<()> {
-    let binds = runner.binds();
-    if !binds.is_empty() {
-        let ingress = SocketIngress::new(binds, runner.protocols())
-            .tcp_backlog(runner.tcp_backlog());
-        #[cfg(feature = "tls")]
-        let ingress = ingress.tls(runner.tls());
-        state.registry_ref().register(Arc::new(ingress))?;
+    if runner.names_a_socket() {
+        #[cfg(not(feature = "socket"))]
+        return Err(registry::Error::msg(
+            "tcp: and uds: need claviron-runner's `socket` feature \
+             (`runner-socket` on the facade)",
+        ));
+        #[cfg(feature = "socket")]
+        {
+            let ingress =
+                crate::SocketIngress::new(runner.binds(), runner.protocols())
+                    .tcp_backlog(runner.tcp_backlog());
+            #[cfg(feature = "tls")]
+            let ingress = ingress.tls(runner.tls());
+            state.registry_ref().register(Arc::new(ingress))?;
+        }
     }
     if runner.orbit {
-        crate::management::register_link_application_management(state)?;
-        if runner.edge_shutdown_policy
-            == crate::options::EdgeShutdownPolicy::Shutdown
+        #[cfg(not(feature = "orbit"))]
+        return Err(registry::Error::msg(
+            "orbit: true needs claviron-runner's `orbit` feature \
+             (`runner-orbit` on the facade)",
+        ));
+        #[cfg(feature = "orbit")]
         {
-            state.events().listen::<crate::orbit::EdgeShutdownInitiated, _>(
-                |state, _notice| async move {
-                    #[cfg(feature = "supervisor")]
-                    claviron_supervisor::ServerManager::new(&state)
-                        .shutdown()
-                        .map_err(|error| {
-                            registry::Error::msg(error.to_string())
-                        })?;
-                    #[cfg(not(feature = "supervisor"))]
-                    state.initiate_shutdown();
-                    Ok(())
-                },
-            )?;
+            crate::management::register_link_application_management(state)?;
+            if runner.edge_shutdown_policy
+                == crate::options::EdgeShutdownPolicy::Shutdown
+            {
+                state
+                    .events()
+                    .listen::<crate::orbit::EdgeShutdownInitiated, _>(
+                        |state, _notice| async move {
+                            #[cfg(feature = "supervisor")]
+                            claviron_supervisor::ServerManager::new(&state)
+                                .shutdown()
+                                .map_err(|error| {
+                                    registry::Error::msg(error.to_string())
+                                })?;
+                            #[cfg(not(feature = "supervisor"))]
+                            state.initiate_shutdown();
+                            Ok(())
+                        },
+                    )?;
+            }
+            let name = runner.name.clone().ok_or_else(|| {
+                registry::Error::msg("the launch was prepared without a name")
+            })?;
+            state.registry_ref().register(Arc::new(
+                crate::OrbitIngress::new(
+                    name,
+                    runtime,
+                    runner.max_in_flight.or(default_in_flight),
+                ),
+            ))?;
         }
-        let name = runner.name.clone().ok_or_else(|| {
-            registry::Error::msg("the launch was prepared without a name")
-        })?;
-        state.registry_ref().register(Arc::new(OrbitIngress::new(
-            name,
-            runtime,
-            runner.max_in_flight.or(default_in_flight),
-        )))?;
     }
     Ok(())
 }

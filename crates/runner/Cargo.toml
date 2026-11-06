@@ -23,8 +23,12 @@ axum = ["dep:axum", "claviron-http/axum", "dep:claviron-pipeline", "claviron-pip
 # them is refused rather than served unbounded.
 pipeline = ["dep:claviron-pipeline", "claviron-transport/pipeline"]
 warp = ["dep:warp", "claviron-http/warp"]
+# The application's TCP and Unix sockets.
+socket = ["claviron-transport/tcp", "claviron-transport/websocket"]
+# The door with no socket: a lane an edge reaches over Orbit shared memory.
+orbit = ["dep:claviron-orbit", "dep:claviron-app", "claviron-transport/orbit"]
 # HTTPS on the runner's TCP listener, optionally requiring a client certificate.
-tls = ["claviron-transport/tls"]
+tls = ["socket", "claviron-transport/tls"]
 # Explicit static mounts in front of the owner, from Claviron's file service.
 files = ["pipeline"]
 
@@ -33,20 +37,20 @@ cli = ["dep:clap"]
 # Workers under Claviron's supervisor, and its section of the launch.
 supervisor = ["dep:claviron-supervisor"]
 # An owner's WebSocket on the runner's own sockets, spoken with fastwebsockets.
-websocket = ["claviron-transport/websocket-session"]
+websocket = ["socket", "orbit", "claviron-transport/websocket-session"]
 # Development's reload: native source notifications, the owner's reaction.
 watch = ["dep:notify"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
-claviron-app.workspace = true
+claviron-app = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
 claviron-pipeline = { workspace = true, optional = true }
-claviron-orbit.workspace = true
+claviron-orbit = { workspace = true, optional = true }
 claviron-runtime.workspace = true
 claviron-supervisor = { workspace = true, optional = true }
-claviron-transport = { workspace = true, features = ["orbit", "tcp", "websocket"] }
+claviron-transport.workspace = true
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
