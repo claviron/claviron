@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[cfg(feature = "db")]
-use claviron_hosting::HostingStore;
+use claviron_hosting::{HostedCertificate, HostingStore};
 use claviron_types::ssl::certstore::{
     CertEntry, CertStore, CertificateSource, FULLCHAIN_CERT_FILENAME,
     PRIVKEY_FILENAME,
@@ -249,8 +249,6 @@ impl Snapshot {
         store: &HostingStore,
         server_id: i32,
     ) -> Result<usize, Error> {
-        use std::str::FromStr;
-
         // Load DB certificates with their aliases for this server
         let db_certs =
             store.certificates_for_server(server_id).await.map_err(|e| {
@@ -261,51 +259,55 @@ impl Snapshot {
             })?;
 
         let mut loaded = 0;
-
         for hosted in db_certs {
-            let cert = hosted.certificate;
-            let cn = cert.cn.clone();
-            // Convert DB cert (DER) to CertifiedKey
-            let ck = match pem::db_cert_to_certified_key(&cert) {
-                Ok(ck) => Arc::new(ck),
-                Err(e) => {
-                    tracing::warn!("Failed to convert DB cert '{}': {}", cn, e);
-                    continue;
-                }
-            };
-
-            // Insert for CN (Common Name)
-            if let Ok(cn_sni) = Sni::from_str(&cn) {
-                if self.insert_ck(&cn_sni, ck.clone()) {
-                    self.owners
-                        .insert(cn_sni.key_string(), cn.to_ascii_lowercase());
-                    tracing::trace!("🗄️  DB cert CN '{}' added", cn);
-                    loaded += 1;
-                }
-            } else {
-                tracing::warn!("Invalid CN '{}', skipping", cn);
-                continue;
-            }
-
-            // Insert for each SAN (Subject Alternative Name)
-            for alias_model in hosted.aliases {
-                if let Ok(alias_sni) = Sni::from_str(&alias_model.hostname) {
-                    if self.insert_ck(&alias_sni, ck.clone()) {
-                        self.owners.insert(
-                            alias_sni.key_string(),
-                            cn.to_ascii_lowercase(),
-                        );
-                        loaded += 1;
-                    }
-                } else {
-                    tracing::warn!(
-                        "Invalid SAN '{}', skipping",
-                        alias_model.hostname
-                    );
-                }
-            }
+            loaded += self.populate_from_hosted(hosted);
         }
-
         Ok(loaded)
     }
+
+    /// Serve one certificate under its names. A CN need not be a host name:
+    /// a certificate whose CN cannot be sent as SNI still serves its aliases.
+    fn populate_from_hosted(
+        &mut self,
+        hosted: HostedCertificate,
+    ) -> usize {
+        use std::str::FromStr;
+
+        let cert = hosted.certificate;
+        let cn = cert.cn.as_str();
+        // Convert DB cert (DER) to CertifiedKey
+        let ck = match pem::db_cert_to_certified_key(&cert) {
+            Ok(ck) => Arc::new(ck),
+            Err(e) => {
+                tracing::warn!("Failed to convert DB cert '{}': {}", cn, e);
+                return 0;
+            }
+        };
+
+        let aliases = hosted.aliases.iter().filter_map(|alias| {
+            let sni = Sni::from_str(&alias.hostname);
+            if sni.is_err() {
+                tracing::warn!("Invalid SAN '{}', skipping", alias.hostname);
+            }
+            sni.ok()
+        });
+        let owner = cn.to_ascii_lowercase();
+        let mut named = false;
+        let mut loaded = 0;
+        for sni in Sni::from_str(cn).ok().into_iter().chain(aliases) {
+            named = true;
+            if self.insert_ck(&sni, ck.clone()) {
+                self.owners.insert(sni.key_string(), owner.clone());
+                loaded += 1;
+            }
+        }
+        if !named {
+            tracing::warn!("DB cert '{}' has no valid host name, skipping", cn);
+        }
+        loaded
+    }
 }
+
+#[cfg(all(test, feature = "db"))]
+#[path = "../tests/snapshot.rs"]
+mod tests;
