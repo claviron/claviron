@@ -39,7 +39,7 @@ fn duplicate_snapshot_binding_keeps_the_original_execution() {
         }
     }
     let compile = |status| {
-        let mut builder = crate::pipeline::HostPipelineBuilder::<()>::new();
+        let mut builder = claviron_pipeline::plan::HostPipelineBuilder::<()>::new();
         builder
             .layer(RustRouter::Other(OtherService::new(Reply(status))))
             .unwrap();

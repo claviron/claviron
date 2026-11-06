@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use claviron_edge::transport::{AuthContext, HostExecution, VhostCtx};
+use claviron_edge::transport::{AuthContext, VhostCtx};
+use claviron_pipeline::plan::HostExecution;
 use claviron_http::config::{HttpPolicy, RequestPolicy};
 use claviron_http::ext::{ConnCtx, RequestArrival};
 #[cfg(test)]

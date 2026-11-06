@@ -5,13 +5,11 @@
 use std::sync::Arc;
 
 use claviron_http::config::HttpSnapshot;
-use claviron_pipeline::compile::{CompileHooks, CompileInput, compile};
-#[cfg(feature = "orbit")]
-use claviron_pipeline::extension::RouteContext;
+use claviron_pipeline::compile::{CompileInput, NoHooks, compile};
 use claviron_runtime::{AppState, registry::Result};
 use claviron_types::Host;
 
-#[cfg(any(feature = "orbit", feature = "websocket"))]
+#[cfg(feature = "websocket")]
 use super::BackendHandler;
 use super::HostExecution;
 use crate::config::HostConfig;
@@ -31,30 +29,6 @@ pub(crate) struct HostCompileTarget<'a> {
 }
 
 /// What a virtual host adds to each scope of its site.
-#[cfg(feature = "orbit")]
-struct HostHooks;
-
-#[cfg(feature = "orbit")]
-impl CompileHooks for HostHooks {
-    #[cfg(feature = "orbit")]
-    fn scope_backends(
-        &self,
-        context: &RouteContext<'_>,
-    ) -> Vec<Arc<dyn BackendHandler>> {
-        let policy = context.policy();
-        crate::pipeline::link::LinkBackend::new(
-            context.state,
-            context.route.orbit(),
-            Some(context.prefix),
-            policy.requests,
-        )
-        .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>)
-        .into_iter()
-        .collect()
-    }
-
-}
-
 impl HostCompiler<'_> {
     pub(crate) fn prepare(
         &self,
@@ -133,10 +107,7 @@ impl HostCompiler<'_> {
                     )
                 })
                 .unwrap_or_default(),
-            #[cfg(feature = "orbit")]
-            hooks: &HostHooks,
-            #[cfg(not(feature = "orbit"))]
-            hooks: &claviron_pipeline::compile::NoHooks,
+            hooks: &NoHooks,
             #[cfg(feature = "rate-limit")]
             quotas,
             upgrades,

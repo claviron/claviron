@@ -3,7 +3,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use super::{HostHandlerResult, HostRequest};
+use claviron_pipeline::{HostHandlerResult, HostRequest};
 use crate::HostConfig;
 use claviron_http::ext::{ConnCtx, HostKey};
 use claviron_http::policy::HttpPolicy;

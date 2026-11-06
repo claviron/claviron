@@ -1,15 +1,14 @@
 pub mod accept;
 pub mod apps;
-pub use claviron_pipeline::factory as backend;
+pub(crate) use claviron_pipeline::factory as backend;
 mod connect;
-pub use claviron_pipeline::extension;
+pub(crate) use claviron_pipeline::extension;
 pub mod host;
 pub mod layers;
-#[cfg(feature = "orbit")]
-pub mod link;
+#[cfg(all(feature = "orbit", feature = "webtransport"))]
+mod link_webtransport;
 mod non_serving;
 mod routable;
-pub mod routing;
 #[cfg(feature = "webtransport")]
 mod wt;
 
@@ -21,24 +20,16 @@ pub use claviron_http::upgrade::{
     H1UpgradeResult, H1UpgradeRoute, H1UpgradeState, is_h1_header_upgrade,
     websocket_accept_key, websocket_response_headers,
 };
-pub use claviron_pipeline::accept::{AcceptLayer, Accepted};
+pub(crate) use claviron_pipeline::accept::AcceptLayer;
 pub use connect::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
 };
-pub use host::{
-    ApplicationHandler, Backend, BackendContract, BackendHandler,
-    BackendIdentity, BackendReply, DispatchCall, DispatchResult, DispatchStep,
-    HostExecution, HostHandler, HostHandlerFuture, HostHandlerResult,
-    HostLayerBuilder, HostPipelineBuilder, HostRequest,
-};
-pub use layers::{HostLayer, IdentityPolicy};
 #[cfg(feature = "tcp")]
 pub use non_serving::NonServingPipeline;
 pub use non_serving::{InterceptsNonServing, NonServingContext};
-pub use routable::{
-    HostBindingProvider, Routable, RouteBinding, RouteProtocol,
-};
+pub(crate) use routable::RouteProtocol;
+pub use routable::{HostBindingProvider, Routable, RouteBinding};
 #[cfg(feature = "webtransport")]
 pub use wt::{
     H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,

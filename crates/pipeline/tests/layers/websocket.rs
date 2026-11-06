@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::HostConfig;
+use claviron_http::config::transport::TransportPolicy;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -76,24 +76,24 @@ fn only_declared_hosts_and_protocols_prepare_a_websocket_step() {
     registry
         .register_handler(host.clone(), "/socket", Arc::new(Handler(checks)))
         .unwrap();
-    let mut config = HostConfig::new("public");
-    config.transport.h1.upgrade = false;
+    let mut transport = TransportPolicy::default();
+    transport.h1.upgrade = false;
     assert!(
         WebSocketStage::prepare(
             &state,
             &host,
-            &config.transport,
+            &transport,
             None,
             Some(registry.clone())
         )
         .is_none()
     );
-    config.transport.h1.upgrade = true;
+    transport.h1.upgrade = true;
     assert!(
         WebSocketStage::prepare(
             &state,
             &host,
-            &config.transport,
+            &transport,
             None,
             Some(registry.clone())
         )
@@ -108,7 +108,7 @@ fn only_declared_hosts_and_protocols_prepare_a_websocket_step() {
             WebSocketStage::prepare(
                 &state,
                 &host,
-                &config.transport,
+                &transport,
                 Some(listener),
                 Some(registry.clone())
             )
@@ -116,24 +116,24 @@ fn only_declared_hosts_and_protocols_prepare_a_websocket_step() {
             enabled
         );
     }
-    config.transport.protocols =
+    transport.protocols =
         Some(vec![claviron_http::listener::HttpProtocol::H2]);
     assert!(
         WebSocketStage::prepare(
             &state,
             &host,
-            &config.transport,
+            &transport,
             None,
             Some(registry.clone())
         )
         .is_none()
     );
-    config.transport.protocols = Some(Vec::new());
+    transport.protocols = Some(Vec::new());
     assert!(
         WebSocketStage::prepare(
             &state,
             &host,
-            &config.transport,
+            &transport,
             None,
             Some(registry.clone())
         )

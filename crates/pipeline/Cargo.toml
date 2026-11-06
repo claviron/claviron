@@ -20,9 +20,21 @@ access-log = ["dep:claviron-logging", "claviron-logging/pipeline"]
 # Optional Rust application adapter.
 axum = ["dep:axum", "claviron-http/axum"]
 metrics = ["claviron-http/metrics"]
+# H1 upgrades answered by endpoints a host registered, ahead of its applications.
+websocket = ["claviron-http/websocket"]
 warp = ["claviron-http/warp"]
-# Link route declarations.
-orbit = ["claviron-http/orbit"]
+# Link routes, and dispatch to the application process each one names.
+orbit = [
+    "claviron-http/orbit",
+    "claviron-http/websocket",
+    "dep:claviron-orbit",
+    "dep:fastwebsockets",
+    "dep:hyper",
+    "dep:hyper-util",
+    "dep:percent-encoding",
+    "dep:tokio",
+    "tokio-util/io",
+]
 # Admission quotas declared by a site or route.
 rate-limit = ["claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/quota"]
 
@@ -38,14 +50,19 @@ claviron-types.workspace = true
 async-trait.workspace = true
 axum = { workspace = true, optional = true }
 bytes.workspace = true
+fastwebsockets = { workspace = true, optional = true }
 futures-util.workspace = true
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
+hyper = { workspace = true, optional = true, features = ["http1", "http2", "server"] }
+hyper-util = { workspace = true, optional = true, features = ["tokio"] }
+percent-encoding = { workspace = true, optional = true }
 regex.workspace = true
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_yaml.workspace = true
 thiserror.workspace = true
+tokio = { workspace = true, optional = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tower = { workspace = true, features = ["util"] }
 tracing.workspace = true

@@ -74,7 +74,7 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
         country_code: None,
         tls: None,
     });
-    let context = Some(crate::pipeline::host::HostContext::new(
+    let context = Some(claviron_pipeline::HostContext::new(
         &connection,
         claviron_http::ext::RequestArrival::Established,
     ));

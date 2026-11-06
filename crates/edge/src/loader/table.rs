@@ -19,7 +19,7 @@ pub struct VhostRecord {
 #[derive(Clone)]
 struct VhostEntry {
     record: Arc<VhostRecord>,
-    application: Option<crate::pipeline::HostExecution>,
+    application: Option<claviron_pipeline::plan::HostExecution>,
     listener_plans: Option<crate::pipeline::apps::ListenerPlans>,
 }
 
@@ -210,7 +210,7 @@ impl VhostTable {
         &self,
         host: &Host,
         listener: Option<&claviron_http::ListenerId>,
-    ) -> Option<(&VhostRecord, Option<&crate::pipeline::HostExecution>)> {
+    ) -> Option<(&VhostRecord, Option<&claviron_pipeline::plan::HostExecution>)> {
         let entry = self.resolve_entry(host)?;
         let application = match listener {
             Some(listener) => entry.listener_plan(listener)?.application(),

@@ -26,7 +26,7 @@ warp = ["dep:warp", "claviron-http/warp"]
 # The application's TCP and Unix sockets.
 socket = ["claviron-transport/tcp", "claviron-transport/websocket"]
 # The door with no socket: a lane an edge reaches over Orbit shared memory.
-orbit = ["dep:claviron-orbit", "dep:claviron-app", "claviron-transport/orbit"]
+orbit = ["dep:claviron-orbit", "dep:claviron-app", "claviron-transport/orbit", "claviron-pipeline?/orbit"]
 # HTTPS on the runner's TCP listener, optionally requiring a client certificate.
 tls = ["socket", "claviron-transport/tls"]
 # Explicit static mounts in front of the owner, from Claviron's file service.

@@ -11,7 +11,7 @@ use claviron_runtime::AppState;
 use claviron_types::Host;
 use http::Request;
 
-use claviron_pipeline::{DispatchCall, DispatchStep};
+use crate::{DispatchCall, DispatchStep};
 
 /// One host generation's exact HTTP/1 WebSocket endpoints.
 ///
@@ -34,7 +34,7 @@ impl WebSocketStage {
         (!bindings.is_empty()).then_some(Self { state, host, bindings })
     }
 
-    pub(crate) fn prepare(
+    pub fn prepare(
         state: &AppState,
         host: &Host,
         transport: &claviron_http::config::transport::TransportPolicy,
@@ -62,7 +62,7 @@ impl DispatchStep for WebSocketStage {
     fn call(
         &self,
         request: Request<RouteBody>,
-        _context: Option<crate::pipeline::host::HostContext<'_>>,
+        _context: Option<crate::HostContext<'_>>,
     ) -> DispatchCall {
         let Some(binding) = self.bindings.get(request.uri().path()) else {
             return DispatchCall::ready(ServiceResult::Unhandled(request));
@@ -77,15 +77,15 @@ impl DispatchStep for WebSocketStage {
     }
 }
 
-impl crate::pipeline::host::BackendHandler for WebSocketStage {
-    fn contract(&self) -> crate::pipeline::BackendContract {
-        crate::pipeline::BackendContract {
-            identity: crate::pipeline::BackendIdentity::Request,
-            reply: crate::pipeline::BackendReply::Owner,
+impl crate::BackendHandler for WebSocketStage {
+    fn contract(&self) -> crate::BackendContract {
+        crate::BackendContract {
+            identity: crate::BackendIdentity::Request,
+            reply: crate::BackendReply::Owner,
         }
     }
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/layers/websocket.rs"]
+#[path = "../../tests/layers/websocket.rs"]
 mod tests;

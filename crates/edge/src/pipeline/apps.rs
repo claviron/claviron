@@ -869,7 +869,7 @@ impl HostAppRegistry {
                 None,
             )?;
             #[cfg(all(feature = "orbit", feature = "webtransport"))]
-            super::link::webtransport::bind(state, canonical, &record.config)?;
+            super::link_webtransport::bind(state, canonical, &record.config)?;
             let binding = match custom_bindings.get(canonical).cloned() {
                 Some(binding) => {
                     if routable.app.is_some() {

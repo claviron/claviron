@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use claviron::edge::pipeline::HostExecution;
+use claviron::pipeline::plan::HostExecution;
 use claviron::edge::transport::{
     VhostResolver, VhostTable, resolve_sni_from_table,
 };

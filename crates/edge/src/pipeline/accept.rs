@@ -71,9 +71,9 @@ impl HostAppRegistry {
             Option<&claviron_http::config::HttpSnapshot>,
             Option<RouteProtocol>,
         ),
-        app: super::HostExecution,
+        app: claviron_pipeline::plan::HostExecution,
         plans: Option<super::apps::ListenerPlans>,
-    ) -> (super::HostExecution, Option<super::apps::ListenerPlans>) {
+    ) -> (claviron_pipeline::plan::HostExecution, Option<super::apps::ListenerPlans>) {
         use super::apps::ListenerHostPlan;
         let app = app.with_accept(self.accept_layers(host, config, shared));
         let plans = plans.map(|plans| {

@@ -1,6 +1,6 @@
 use super::*;
 use crate::config::HostConfig;
-use crate::pipeline::{HostHandler, HostHandlerFuture, HostRequest};
+use claviron_pipeline::{HostHandler, HostHandlerFuture, HostRequest};
 use claviron_http::{
     OtherHandler, OtherService, RouteBody, RouteFuture, ServiceResult,
 };

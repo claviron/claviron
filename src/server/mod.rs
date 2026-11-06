@@ -247,7 +247,7 @@ pub struct Server<R = fn(&AppState) -> registry::Result<()>> {
     register: R,
     definitions: Vec<DefinitionRegistration>,
     #[cfg(feature = "edge")]
-    edge_extensions: Vec<Arc<dyn claviron_edge::extension::RouteExtension>>,
+    edge_extensions: Vec<Arc<dyn claviron_pipeline::extension::RouteExtension>>,
 }
 
 impl Default for Server {
@@ -315,7 +315,7 @@ where
         extension: E,
     ) -> Self
     where
-        E: claviron_edge::extension::RouteExtension + 'static,
+        E: claviron_pipeline::extension::RouteExtension + 'static,
     {
         self.edge_extensions.push(Arc::new(extension));
         self

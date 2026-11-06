@@ -52,10 +52,19 @@ impl BackendPlan {
         {
             return Self { steps: Vec::new(), fallback: None };
         }
-        Self {
-            steps: hooks.scope_backends(context),
-            fallback: prepare_fallback(context.state, context.route),
-        }
+        let mut steps = Vec::new();
+        #[cfg(feature = "orbit")]
+        steps.extend(
+            crate::link::LinkBackend::new(
+                context.state,
+                context.route.orbit(),
+                Some(context.prefix),
+                context.policy().requests,
+            )
+            .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>),
+        );
+        steps.extend(hooks.scope_backends(context));
+        Self { steps, fallback: prepare_fallback(context.state, context.route) }
     }
 }
 

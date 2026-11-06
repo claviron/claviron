@@ -9,10 +9,11 @@ use claviron_http::{RouteBody, ServiceResult, err_status};
 use claviron_runtime::AppState;
 use http::{Request, StatusCode};
 
-use claviron_edge::pipeline::backend::{BackendPlacement, factory};
-use claviron_edge::pipeline::{
+use claviron_edge::pipeline::HostAppRegistry;
+use claviron_pipeline::factory::{BackendPlacement, factory};
+use claviron_pipeline::{
     BackendContract, BackendHandler, BackendIdentity, BackendReply,
-    DispatchCall, DispatchStep, HostAppRegistry,
+    DispatchCall, DispatchStep,
 };
 use claviron_runtime::registry::{Error, Result};
 use std::sync::Arc;
@@ -89,7 +90,7 @@ impl DispatchStep for UpstreamStage {
     fn call(
         &self,
         request: Request<RouteBody>,
-        context: Option<claviron_edge::pipeline::host::HostContext<'_>>,
+        context: Option<claviron_pipeline::HostContext<'_>>,
     ) -> DispatchCall {
         let path = request.uri().path();
         let service = self

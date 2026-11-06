@@ -20,6 +20,8 @@ pub mod extension;
 pub mod factory;
 mod handler;
 pub mod layers;
+#[cfg(feature = "orbit")]
+pub mod link;
 #[cfg(feature = "access-log")]
 pub mod log;
 pub mod plan;

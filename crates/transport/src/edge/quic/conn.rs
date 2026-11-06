@@ -8,9 +8,8 @@ use std::future::Future;
 use std::sync::Arc;
 
 use crate::edge::service::HostService;
-use claviron_edge::pipeline::{
-    H3WebTransportSession, HostExecution, WebTransportHandler,
-};
+use claviron_edge::pipeline::{H3WebTransportSession, WebTransportHandler};
+use claviron_pipeline::plan::HostExecution;
 use claviron_edge::transport::{
     AnyAuthenticated, AuthContext, VhostCtx, VhostResolver,
     WebTransportBinding, WebTransportRegistry,
@@ -69,7 +68,7 @@ impl QuicHost for SelectedHost {
         let Self { vctx, app, listener, state, web_transport, .. } = self;
         // The facts are complete; what the host prepares from them is frozen
         // into the connection before its first request.
-        facts.state = app.accept(&claviron_edge::pipeline::Accepted::new(
+        facts.state = app.accept(&claviron_pipeline::accept::Accepted::new(
             &facts,
             &vctx.hostname,
             &vctx.vhost_key,

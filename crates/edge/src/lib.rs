@@ -19,10 +19,7 @@ mod listener;
 // else's business, so it is not public. See `transport`.
 pub(crate) mod loader;
 pub mod pipeline;
-pub use pipeline::extension;
 mod provider;
-#[cfg(feature = "rate-limit")]
-pub use pipeline::layers::HostQuotas;
 pub mod transport;
 
 use std::sync::Arc;
@@ -217,15 +214,15 @@ pub fn register_accept_layer(
 }
 
 pub use claviron_types::Host;
-pub use config::{HostConfig, Site};
+pub use config::HostConfig;
+pub(crate) use config::Site;
 pub use pipeline::Routable;
 pub use pipeline::apps::other::{OtherHandler, OtherService};
-pub use pipeline::{AcceptLayer, Accepted};
 pub use pipeline::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
     HostAppRegistry, HostBindingProvider, InterceptsNonServing,
-    NonServingContext, RouteBinding, RouteProtocol, RustRouter,
+    NonServingContext, RouteBinding, RustRouter,
 };
 #[cfg(feature = "websocket")]
 pub use pipeline::{

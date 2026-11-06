@@ -29,18 +29,15 @@ access-log = [
     "claviron-logging/pipeline",
     "claviron-pipeline/access-log",
 ]
-websocket = ["tcp", "claviron-http/websocket"]
+websocket = ["tcp", "claviron-http/websocket", "claviron-pipeline/websocket"]
 # Pure host declarations only; Broadcast owns its opt-in execution/session adapter.
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
     "claviron-http/orbit",
     "claviron-pipeline/orbit",
     "dep:claviron-orbit",
-    "dep:percent-encoding",
     "tokio-util/io",
-    # Edge owns the upgrade and protocol; Link carries whole messages.
     "claviron-http/websocket",
-    "dep:fastwebsockets",
     "dep:hyper",
     "dep:hyper-util",
 ]
@@ -83,13 +80,11 @@ serde_json.workspace = true
 serde_yaml.workspace = true
 
 # ── HTTP core ───────────────────────────────────────────────────────────
-fastwebsockets = { workspace = true, optional = true }
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, optional = true, features = ["http1", "http2", "server"] }
 hyper-util = { workspace = true, optional = true, features = ["tokio"] }
-percent-encoding = { workspace = true, optional = true }
 
 # ── Web framework ───────────────────────────────────────────────────────
 axum = { workspace = true, optional = true }

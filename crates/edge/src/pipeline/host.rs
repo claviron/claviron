@@ -3,4 +3,4 @@
 
 pub(crate) mod compile;
 
-pub use claviron_pipeline::plan::*;
+pub(crate) use claviron_pipeline::plan::*;

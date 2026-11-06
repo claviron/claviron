@@ -16,7 +16,8 @@ use crate::pipeline::host::{
     Backend, BackendHandler, DispatchCall, DispatchStep, HostContext,
     HostPipelineBuilder,
 };
-use crate::pipeline::{Accepted, HostAppRegistry};
+use crate::pipeline::HostAppRegistry;
+use claviron_pipeline::accept::Accepted;
 use claviron_http::ext::RequestArrival;
 
 /// What the layer derives from the accepted facts.
@@ -25,10 +26,10 @@ struct PeerPort(u16);
 /// Answers with what it finds prepared for the request's connection.
 struct Reader;
 impl BackendHandler for Reader {
-    fn contract(&self) -> crate::pipeline::BackendContract {
-        crate::pipeline::BackendContract {
-            identity: crate::pipeline::BackendIdentity::None,
-            reply: crate::pipeline::BackendReply::Owner,
+    fn contract(&self) -> claviron_pipeline::BackendContract {
+        claviron_pipeline::BackendContract {
+            identity: claviron_pipeline::BackendIdentity::None,
+            reply: claviron_pipeline::BackendReply::Owner,
         }
     }
 }
@@ -105,7 +106,7 @@ fn a_selected_host_prepares_once_at_acceptance_and_its_requests_read_it() {
             tls: None,
         };
         connection.state = snapshot.resolve(&host).unwrap().accept(
-            &crate::pipeline::Accepted::new(
+            &Accepted::new(
                 &connection,
                 &HostName(Arc::new(host.clone())),
                 &HostKey(Arc::new(host.clone())),

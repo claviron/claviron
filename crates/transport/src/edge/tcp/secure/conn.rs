@@ -141,7 +141,7 @@ impl SecureHost for SelectedHost {
             .ok_or(ConnectionError::ApplicationUnavailable)?;
         // The facts are complete; what the host prepares from them is frozen
         // into the connection before its first request.
-        facts.state = app.accept(&claviron_edge::pipeline::Accepted::new(
+        facts.state = app.accept(&claviron_pipeline::accept::Accepted::new(
             &facts,
             &vctx.hostname,
             &vctx.vhost_key,

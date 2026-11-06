@@ -56,7 +56,7 @@ fn explicit_listener_requires_selection_without_weakening_host_filters() {
 #[cfg(feature = "tcp")]
 fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
     use crate::loader::selection::resolve_sni_for_listener;
-    use crate::pipeline::host::HostContext;
+    use claviron_pipeline::HostContext;
     use claviron_http::ext::ConnCtx;
     use claviron_http::ext::RequestArrival;
     use claviron_http::listener::HttpProtocol;
@@ -194,12 +194,12 @@ fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
     impl crate::InterceptsNonServing for Interception {
         fn intercept<'a>(
             &'a self,
-            request: crate::pipeline::HostRequest,
+            request: claviron_pipeline::HostRequest,
             context: crate::NonServingContext<'a>,
         ) -> std::pin::Pin<
             Box<
                 dyn std::future::Future<
-                        Output = crate::pipeline::HostHandlerResult,
+                        Output = claviron_pipeline::HostHandlerResult,
                     > + Send
                     + 'a,
             >,
@@ -273,7 +273,7 @@ fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
 #[test]
 #[cfg(feature = "tcp")]
 fn non_serving_factory_is_cold_optional_and_retains_published_generations() {
-    use crate::pipeline::{HostHandlerResult, HostRequest};
+    use claviron_pipeline::{HostHandlerResult, HostRequest};
     use crate::{InterceptsNonServing, NonServingContext};
     struct Interception;
     impl InterceptsNonServing for Interception {

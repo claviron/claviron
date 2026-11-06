@@ -4,8 +4,9 @@ use crate::loader::selection::{
 };
 use crate::pipeline::apps::other::{OtherHandler, OtherService};
 use crate::pipeline::{
-    HostAppSnapshot, HostExecution, HostPipelineBuilder, RustRouter,
+    HostAppSnapshot, RustRouter,
 };
+use claviron_pipeline::plan::{HostExecution, HostPipelineBuilder};
 use claviron_http::authority::RequestAuthority;
 use claviron_http::{RouteBody, RouteFuture};
 use http::{HeaderValue, Request};

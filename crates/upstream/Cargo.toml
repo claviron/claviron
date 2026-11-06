@@ -15,13 +15,14 @@ categories = ["web-programming::http-server", "web-programming::http-client", "n
 
 [features]
 default = []
-edge = ["dep:claviron-edge"]
+edge = ["dep:claviron-edge", "dep:claviron-pipeline"]
 
 metrics = ["claviron-runtime/metrics", "orbitive/metrics"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-edge = { workspace = true, optional = true }
+claviron-pipeline = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
 claviron-macros.workspace = true

@@ -24,7 +24,7 @@ use crate::pipeline::{
     WebTransportResult,
 };
 
-pub(in crate::pipeline) fn bind(
+pub(super) fn bind(
     state: &AppState,
     host: &Host,
     config: &Site,
@@ -47,7 +47,7 @@ pub(in crate::pipeline) fn bind(
         .link_routes()
         .map(|(_, route)| PreparedRoute {
             route: route.clone(),
-            target: super::prepare_target(
+            target: claviron_pipeline::link::prepare_target(
                 state,
                 route.fleet_name,
                 route.application.clone().into(),
@@ -160,10 +160,10 @@ impl WebTransportHandler for Handler {
             method: http::Method::CONNECT.to_string(),
             scheme: ctx.conn.scheme().to_string(),
             version: HttpVersion::Http3,
-            path: super::percent_decoded(ctx.uri.path()),
+            path: claviron_pipeline::link::percent_decoded(ctx.uri.path()),
             raw_path: ctx.uri.path().as_bytes().to_vec(),
             query: ctx.uri.query().unwrap_or_default().as_bytes().to_vec(),
-            headers: super::exchange_headers(&ctx.uri, &ctx.headers),
+            headers: claviron_pipeline::link::exchange_headers(&ctx.uri, &ctx.headers),
             client: Some(ctx.conn.remote),
             server: Some(std::net::SocketAddr::new(
                 ctx.conn.local_ip,
@@ -311,7 +311,7 @@ where
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/link/webtransport.rs"]
+#[path = "../../tests/pipeline/link_webtransport.rs"]
 mod tests;
 
 /// One bounded buffer per direction. A shutdown stops new reads but finishes

@@ -5,9 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use claviron_edge::pipeline::host::{
-    HostHandler, HostHandlerFuture, HostRequest,
-};
+use claviron_pipeline::{HostHandler, HostHandlerFuture, HostRequest};
 use claviron_edge::{Host, HostConfig, Routable, VhostDocument};
 use claviron_http::ServiceResult;
 use claviron_runtime::congif::{self, ConfigFile, ConfigStore, Configurable};
@@ -155,7 +153,7 @@ impl Routable for BenchService {
         _host: Arc<HostConfig>,
     ) -> registry::Result<Option<Arc<dyn HostHandler>>> {
         Ok(Some(Arc::new(BenchRoutes {
-            handler: claviron_edge::pipeline::apps::axum::application(
+            handler: claviron_pipeline::axum::application(
                 crate::bench::routes(),
             ),
         })))

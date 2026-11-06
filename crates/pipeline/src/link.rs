@@ -26,7 +26,7 @@ use claviron_http::{
 use futures_util::StreamExt;
 use http::Request;
 
-use super::host::{DispatchCall, DispatchStep};
+use crate::{DispatchCall, DispatchStep};
 use claviron_http::ext::{ConnCtx, PathPrefix};
 use claviron_http::policy::{BodyNeed, RequestPolicy, RequestPolicyOverride};
 use claviron_orbit::link::application::{
@@ -38,8 +38,6 @@ use http::StatusCode;
 
 mod body;
 mod websocket;
-#[cfg(feature = "webtransport")]
-pub(super) mod webtransport;
 
 #[derive(Clone)]
 struct LinkRoute {
@@ -103,11 +101,11 @@ impl LinkBackend {
     }
 }
 
-impl crate::pipeline::host::BackendHandler for LinkBackend {
-    fn contract(&self) -> crate::pipeline::BackendContract {
-        crate::pipeline::BackendContract {
-            identity: crate::pipeline::BackendIdentity::None,
-            reply: crate::pipeline::BackendReply::ExternalEventStream(
+impl crate::BackendHandler for LinkBackend {
+    fn contract(&self) -> crate::BackendContract {
+        crate::BackendContract {
+            identity: crate::BackendIdentity::None,
+            reply: crate::BackendReply::ExternalEventStream(
                 self.shutdown.clone(),
             ),
         }
@@ -118,7 +116,7 @@ impl DispatchStep for LinkBackend {
     fn call(
         &self,
         request: Request<RouteBody>,
-        context: Option<crate::pipeline::host::HostContext<'_>>,
+        context: Option<crate::HostContext<'_>>,
     ) -> DispatchCall {
         let Some(route) = self.select(request.uri().path()) else {
             return DispatchCall::ready(ServiceResult::Unhandled(request));
@@ -307,14 +305,16 @@ fn reply_length(headers: &[(Vec<u8>, Vec<u8>)]) -> Option<usize> {
     std::str::from_utf8(value).ok()?.trim().parse().ok()
 }
 
-fn percent_decoded(path: &str) -> String {
+/// The path as the application reads it.
+pub fn percent_decoded(path: &str) -> String {
     percent_encoding::percent_decode_str(path).decode_utf8_lossy().into_owned()
 }
 
 // Admission has already validated authority. Orbit carries a path and headers,
 // not a URI authority field, so H2/H3 :authority must cross as Host. Absolute
 // HTTP/1 targets likewise retain their authority precedence over Host.
-fn exchange_headers(
+/// The request's headers as they cross a Link exchange.
+pub fn exchange_headers(
     uri: &http::Uri,
     headers: &http::HeaderMap,
 ) -> claviron_orbit::link::application::Headers {
@@ -352,10 +352,11 @@ fn gateway_failure() -> RouteResponse {
 }
 
 #[cfg(test)]
-#[path = "../../tests/pipeline/link.rs"]
+#[path = "../tests/link.rs"]
 mod tests;
 
-fn prepare_target(
+/// The destination of one route, when this process has an application service.
+pub fn prepare_target(
     state: &AppState,
     fleet_name: FleetName,
     application: Arc<str>,

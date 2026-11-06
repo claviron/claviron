@@ -5,8 +5,6 @@ use std::sync::Arc;
 use axum::Router;
 use claviron_runtime::AppState;
 
-pub use claviron_pipeline::axum::{application, application_if};
-
 /// Cold Axum router factory for a selected host.
 pub type Factory = dyn Fn(AppState) -> Router + Send + Sync + 'static;
 

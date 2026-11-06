@@ -78,6 +78,7 @@ orbit = [
     "dep:claviron-orbit",
     "claviron-files?/orbit",
     "claviron-edge?/orbit",
+    "claviron-pipeline?/orbit",
 ]
 # Transport-neutral standalone application-server lifecycle. This deliberately
 # excludes process supervision, HTTP listeners, edge dispatch, and static files.

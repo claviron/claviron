@@ -3,9 +3,9 @@ use crate::config::HostConfig;
 
 #[cfg(feature = "rate-limit")]
 use crate::pipeline::extension::{RouteEffect, RouteLayer};
-use crate::pipeline::host::HostContext;
+use claviron_pipeline::HostContext;
 #[cfg(feature = "rate-limit")]
-use crate::pipeline::host::HostLayerBuilder;
+use claviron_pipeline::plan::HostLayerBuilder;
 use claviron_http::config::{HttpSnapshot, HttpYaml};
 use claviron_http::ext::ConnCtx;
 #[cfg(feature = "rate-limit")]
@@ -149,7 +149,7 @@ fn absent_or_ineffective_defenses_keep_the_direct_router_path() {
 #[cfg(feature = "rate-limit")]
 #[test]
 fn forwarding_and_acl_precede_quota_which_protects_all_extension_layers() {
-    use crate::config::quota::RateLimitConfig;
+    use claviron_pipeline::site::quota::RateLimitConfig;
     use crate::pipeline::layers::QuotaRegistrations;
     use claviron_orbit::quota::{QuotaBacking, QuotaConfig, QuotaTable};
     use futures_util::FutureExt;
@@ -411,7 +411,7 @@ fn cors_absence_keeps_the_direct_router_and_scoped_policies_inherit_at_boot() {
 #[cfg(feature = "rate-limit")]
 #[test]
 fn cors_preflight_spends_quota_and_quota_refusal_keeps_cors_headers() {
-    use crate::config::quota::RateLimitConfig;
+    use claviron_pipeline::site::quota::RateLimitConfig;
     use crate::pipeline::layers::QuotaRegistrations;
     use claviron_orbit::quota::{QuotaBacking, QuotaConfig, QuotaTable};
     use futures_util::FutureExt;

@@ -9,10 +9,10 @@ use claviron_types::Host;
 #[cfg(feature = "axum")]
 use super::apps::axum::Factory as AxumRouterFactory;
 use super::apps::other::Factory as OtherFactory;
-use super::host::HostHandler;
+use claviron_pipeline::HostHandler;
 use crate::config::HostConfig;
 
-pub use claviron_pipeline::factory::RouteProtocol;
+pub(crate) use claviron_pipeline::factory::RouteProtocol;
 pub(crate) use claviron_pipeline::factory::matches_protocol;
 
 /// Provider contributions prepared for selected hosts and listener protocols.

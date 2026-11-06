@@ -31,11 +31,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 use serde_yaml::{Mapping, Value};
 
-#[cfg(feature = "rate-limit")]
-pub use claviron_pipeline::site::quota;
-#[cfg(feature = "rate-limit")]
-pub use claviron_pipeline::site::quota::RateLimitConfig;
-pub use claviron_pipeline::site::{RouteConfig, Site};
+pub(crate) use claviron_pipeline::site::Site;
 
 /// A virtual host: how a connection finds a [`Site`] and on what terms. Its
 /// names and listeners select it; its handshake and protocol policy hold before

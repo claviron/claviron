@@ -70,7 +70,7 @@ impl super::super::DispatchStep for RegisteredBackend {
     fn call(
         &self,
         request: Request<claviron_http::RouteBody>,
-        _context: Option<crate::pipeline::host::HostContext<'_>>,
+        _context: Option<claviron_pipeline::HostContext<'_>>,
     ) -> super::super::DispatchCall {
         assert!(request.extensions().is_empty());
         super::super::DispatchCall::ready(
@@ -437,7 +437,7 @@ impl super::super::DispatchStep for UnavailableBackend {
     fn call(
         &self,
         request: Request<claviron_http::RouteBody>,
-        _context: Option<crate::pipeline::host::HostContext<'_>>,
+        _context: Option<claviron_pipeline::HostContext<'_>>,
     ) -> super::super::DispatchCall {
         drop(request);
         super::super::DispatchCall::ready(
@@ -563,7 +563,7 @@ async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
     let mut contributions = HostContributions::default();
     contributions
         .applications
-        .push(crate::pipeline::apps::axum::application(router));
+        .push(claviron_pipeline::axum::application(router));
     let owner = HostCompiler { state: &state, http: None, protocol: None }
         .prepare(
             &"example.test".parse().unwrap(),

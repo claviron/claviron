@@ -20,7 +20,7 @@ pub mod publication;
 
 /// A single host's configuration, read by the TLS layer for its certificate
 /// and protocol policy.
-pub use crate::config::{HostConfig, Site};
+pub use crate::config::HostConfig;
 /// Hosts as the runtime registry hands them out.
 pub use crate::loader::resolver::{HostBinding, VhostResolver};
 /// Selecting a published host for a server name or a request's authority.
@@ -37,7 +37,7 @@ pub use crate::pipeline::apps::other::{OtherHandler, OtherService};
 pub use crate::pipeline::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
-    HostAppRegistry, HostAppResolver, HostExecution, RustRouter,
+    HostAppRegistry, HostAppResolver, RustRouter,
 };
 #[cfg(feature = "webtransport")]
 pub use crate::pipeline::{WebTransportBinding, WebTransportRegistry};

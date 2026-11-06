@@ -6,6 +6,10 @@ use crate::plan::{
 use claviron_http::{RouteBody, RouteResponse};
 use std::ops::ControlFlow;
 
+#[cfg(feature = "websocket")]
+mod websocket;
+#[cfg(feature = "websocket")]
+pub use websocket::WebSocketStage;
 pub mod acl;
 mod app;
 mod body;

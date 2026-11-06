@@ -5,8 +5,6 @@ use std::sync::Arc;
 use claviron_http::warp::Router;
 use claviron_runtime::AppState;
 
-pub use claviron_pipeline::warp::application;
-
 /// Cold Warp router factory for a selected host.
 pub type Factory = dyn Fn(AppState) -> Router + Send + Sync + 'static;
 
