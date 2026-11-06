@@ -20,6 +20,8 @@ pub mod prior;
 pub mod protocol;
 #[cfg(feature = "tls")]
 pub mod secure;
+#[cfg(feature = "tls")]
+pub mod tls;
 
 /// The owner of one connection's requests. It lives on that connection's task
 /// and is called from it, so it needs no synchronization of its own.

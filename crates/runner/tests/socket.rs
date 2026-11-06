@@ -1,7 +1,11 @@
+use std::convert::Infallible;
+
 use bytes::Bytes;
 use claviron_http::policy::HttpPolicy;
-use claviron_http::session::SessionOwner;
+use claviron_http::session::{SessionOwner, SessionSpawner};
 use claviron_runtime::gate::Gate;
+use claviron_transport::tcp::listener::TcpListenerSnapshot;
+use claviron_transport::tcp::plain;
 use http::Response;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream, UnixStream};
@@ -51,18 +55,25 @@ async fn ask<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S) -> String {
 }
 
 /// What each door gives the application: a TCP connection its facts, a Unix
-/// one none because it has no addresses, and both the owner of their sessions.
+/// one none because it has no addresses. An ordinary request carries no owner
+/// of sessions; only one that can take its connection over does.
 #[tokio::test]
 async fn each_door_gives_the_application_what_it_knows() {
-    let door = SocketIngress::new(Vec::new(), Protocols::default())
-        .door(None, false, application(), Arc::default())
+    let door = Doors::new(Vec::new(), Protocols::default())
+        .cleartext(
+            None,
+            Arc::new(Front {
+                application: application(),
+                trust: Arc::default(),
+            }),
+        )
         .unwrap();
-    let limits = &door.listener.limits;
+    let limits = &door.listener().limits;
     let gate = Gate::new(
         limits.max_connections.map(|value| value.get()),
         limits.acquire_timeout,
     );
-    let sessions = SessionOwner::new(door.listener.id.clone());
+    let sessions = SessionOwner::new(door.listener().id.clone());
 
     let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let (client, accepted) = tokio::join!(
@@ -75,7 +86,7 @@ async fn each_door_gives_the_application_what_it_knows() {
     let answer = ask(client.unwrap()).await;
     serving.await.unwrap();
     assert!(
-        answer.ends_with("facts=true sessions=true received=true"),
+        answer.ends_with("facts=true sessions=false received=true"),
         "{answer}"
     );
 
@@ -87,7 +98,7 @@ async fn each_door_gives_the_application_what_it_knows() {
     let answer = ask(client).await;
     serving.await.unwrap();
     assert!(
-        answer.ends_with("facts=false sessions=true received=true"),
+        answer.ends_with("facts=false sessions=false received=true"),
         "{answer}"
     );
 }

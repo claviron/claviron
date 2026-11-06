@@ -18,7 +18,7 @@ pub mod socket;
 #[cfg(feature = "supervisor")]
 pub mod supervisor;
 #[cfg(feature = "tls")]
-pub mod tls;
+pub use claviron_transport::tcp::tls;
 #[cfg(feature = "watch")]
 pub mod watch;
 #[cfg(feature = "websocket")]

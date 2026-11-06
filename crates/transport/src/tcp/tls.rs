@@ -1,9 +1,8 @@
-//! Serving TLS on a runner's TCP listener.
+//! One certificate for a listener with one owner.
 //!
 //! A certificate and its key are all that is required; supplying them is what
 //! turns a TCP listener into an HTTPS one. There is no SNI here and no
-//! certificate store: a runner serves one application, so it serves one
-//! certificate.
+//! certificate store.
 //!
 //! # Mutual TLS
 //!
@@ -104,5 +103,5 @@ pub enum Error {
 }
 
 #[cfg(test)]
-#[path = "../tests/tls.rs"]
+#[path = "../../tests/tcp/tls.rs"]
 mod tests;

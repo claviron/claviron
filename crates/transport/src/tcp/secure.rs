@@ -165,6 +165,15 @@ impl<O: Owner> Single<O> {
         tls: Arc<rustls::ServerConfig>,
         owner: O,
     ) -> Result<Self> {
+        Self::shared(listener, tls, Arc::new(owner))
+    }
+
+    /// The same, for an owner shared with other listeners.
+    pub fn shared(
+        listener: Arc<ListenerConfig>,
+        tls: Arc<rustls::ServerConfig>,
+        owner: Arc<O>,
+    ) -> Result<Self> {
         let ListenerSettings::Tcp(config) = &listener.settings else {
             return Err(Error::msg(format!(
                 "listener '{}': not a TCP listener",
@@ -183,7 +192,7 @@ impl<O: Owner> Single<O> {
             config,
             tls,
             transport: TransportPolicy::default(),
-            owner: Arc::new(owner),
+            owner,
         })
     }
 }

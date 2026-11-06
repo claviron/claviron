@@ -20,7 +20,7 @@ default = []
 edge = ["dep:claviron-edge", "dep:async-trait", "dep:serde", "dep:claviron-types"]
 # TCP bind, admission and drain; Hyper HTTP/1.1 settings and socket I/O.
 tcp = [
-    "dep:claviron-sys", "dep:hyper", "dep:hyper-util", "dep:socket2",
+    "dep:claviron-sys", "dep:hyper", "dep:hyper-util", "dep:serde_yaml", "dep:socket2",
     "claviron-edge?/tcp",
 ]
 # TLS accept, ALPN selection and HTTP/2 over TCP.
@@ -67,6 +67,7 @@ http-body-util.workspace = true
 hyper = { workspace = true, optional = true, features = ["http1", "http2", "server"] }
 hyper-util = { workspace = true, optional = true, features = ["server-auto", "tokio"] }
 serde = { workspace = true, optional = true, features = ["derive"] }
+serde_yaml = { workspace = true, optional = true }
 socket2 = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }

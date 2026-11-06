@@ -73,6 +73,14 @@ impl<O: Owner> Single<O> {
         listener: Arc<ListenerConfig>,
         owner: O,
     ) -> Result<Self> {
+        Self::shared(listener, Arc::new(owner))
+    }
+
+    /// The same, for an owner shared with other listeners.
+    pub fn shared(
+        listener: Arc<ListenerConfig>,
+        owner: Arc<O>,
+    ) -> Result<Self> {
         let ListenerSettings::Tcp(config) = &listener.settings else {
             return Err(Error::msg(format!(
                 "listener '{}': not a TCP listener",
@@ -86,7 +94,7 @@ impl<O: Owner> Single<O> {
             )));
         }
         let (tcp, h1) = (config.tcp.clone(), config.h1.clone());
-        Ok(Self { listener, tcp, h1, prior: None, owner: Arc::new(owner) })
+        Ok(Self { listener, tcp, h1, prior: None, owner })
     }
 }
 

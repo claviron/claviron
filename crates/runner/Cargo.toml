@@ -20,7 +20,7 @@ rust = []
 axum = ["dep:axum", "claviron-http/axum", "claviron-pipeline/axum"]
 warp = ["dep:warp", "claviron-http/warp"]
 # HTTPS on the runner's TCP listener, optionally requiring a client certificate.
-tls = ["claviron-transport/tls", "dep:claviron-tls", "dep:rustls", "dep:thiserror"]
+tls = ["claviron-transport/tls"]
 # Explicit static mounts in front of the owner, from Claviron's file service.
 files = [
     "axum",
@@ -48,10 +48,8 @@ claviron-orbit.workspace = true
 claviron-runtime.workspace = true
 claviron-supervisor = { workspace = true, optional = true }
 claviron-transport = { workspace = true, features = ["tcp", "websocket"] }
-claviron-tls = { workspace = true, optional = true }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
-arc-swap.workspace = true
 async-trait.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync"] }
 tokio-util = { workspace = true, features = ["rt"] }
@@ -74,14 +72,11 @@ axum = { workspace = true, optional = true }
 warp = { workspace = true, optional = true }
 tower = { workspace = true, features = ["util"] }
 
-# ── TLS / certificates ──────────────────────────────────────────────────
-rustls = { workspace = true, optional = true, features = ["std"] }
 
 # ── System / OS bindings ────────────────────────────────────────────────
 notify = { version = "8.2", optional = true }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
-thiserror = { workspace = true, optional = true }
 tracing.workspace = true
 
 # ── Misc utilities ──────────────────────────────────────────────────────

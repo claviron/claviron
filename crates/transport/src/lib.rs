@@ -9,6 +9,8 @@
 //! backend. With it, the [`edge`] module borrows Edge and is the only place an
 //! Edge type is named.
 
+#[cfg(feature = "tcp")]
+pub mod doors;
 #[cfg(feature = "edge")]
 pub mod edge;
 pub mod geo;
