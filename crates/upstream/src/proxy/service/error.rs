@@ -32,7 +32,10 @@ pub(crate) fn error_response(
     message: impl Into<Bytes>,
 ) -> RouteResponse {
     let message = message.into();
-    tracing::warn!(error = %String::from_utf8_lossy(&message), "http upstream request failed");
+    tracing::warn!(
+        "http upstream request failed: {}",
+        String::from_utf8_lossy(&message)
+    );
     Response::builder()
         .status(status)
         .body(bytes_body(message))
