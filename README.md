@@ -105,7 +105,7 @@ process:
 | Package | Integration |
 | --- | --- |
 | [claviron-deno](https://crates.io/crates/claviron-deno) | Slim embedded `deno_core`/V8 for persistent JS/TS applications, with native `claviron:*` modules for Orbit events, cells, counters, locks, and invocations. Provides selected Web APIs rather than the full Deno CLI environment. |
-| [orbit-js](https://github.com/claviron/orbit-js) / `@claviron/orbit` | Native Node-API addon for Deno, Node, and Bun. A separate application joins an [Orbit Link](https://crates.io/crates/orbitive) fleet and handles Web `Request`/`Response` exchanges over SHM-based asynchronous streams, with events, shared cells, and lifecycle controls. |
+| [`@claviron/orbit`](https://github.com/claviron/js) | Native Node-API addon for Deno, Node, and Bun. A separate application joins an [Orbit Link](https://crates.io/crates/orbitive) fleet and handles Web `Request`/`Response` exchanges over SHM-based asynchronous streams, with events, shared cells, and lifecycle controls. |
 
 [Orbit Link](https://crates.io/crates/orbitive) connects same-host processes
 through shared-memory (SHM)-based asynchronous streams rather than requiring an
