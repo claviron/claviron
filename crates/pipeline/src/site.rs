@@ -16,7 +16,7 @@ pub mod quota;
 mod routing;
 
 pub use routing::RouteConfig;
-pub use routing::is_builtin_directive;
+pub(crate) use routing::is_builtin_directive;
 
 /// What one application serves: its request and file declarations, its route
 /// scopes and the directives its owners decode. A route is a `Site` of its own,
@@ -104,7 +104,7 @@ impl Site {
         self.extensions.get(name)
     }
 
-    pub fn entry_rules(&self) -> &[PathPrefix] {
+    pub(crate) fn entry_rules(&self) -> &[PathPrefix] {
         &self.entry_rules
     }
 
@@ -148,7 +148,7 @@ impl Site {
     }
 
     /// Borrow root and matching prefix declarations from outermost to nearest.
-    pub fn scopes_at<'a>(
+    pub(crate) fn scopes_at<'a>(
         &'a self,
         prefix: &'a PathPrefix,
     ) -> impl DoubleEndedIterator<Item = &'a RouteConfig> {
