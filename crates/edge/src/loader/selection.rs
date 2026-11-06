@@ -1,7 +1,10 @@
+//! Selecting a published host for a server name or a request's authority.
+
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use claviron_http::authority::RequestAuthority;
 use claviron_http::ext::{HostKey, HostName};
 use claviron_types::Host;
 use tracing::debug;
@@ -9,8 +12,7 @@ use tracing::debug;
 use crate::config::HostConfig;
 use crate::loader::table::VhostTable;
 
-/// Bundle of resolved vhost extensions to be injected into each request
-/// This avoids parameter bloat when passing to h1/h2/h3 serve functions
+/// A host selected for a connection or a request.
 #[derive(Clone)]
 pub struct VhostCtx {
     /// Requested hostname: SNI for TLS, validated authority for cleartext.
@@ -61,6 +63,22 @@ fn resolve_sni(
         }
         None => Err(HostRejection::NotHosted(sni.to_string())),
     }
+}
+
+/// Resolve an already validated wire authority against the configured table.
+/// Preserve the requested host separately from its canonical binding.
+pub fn resolve_request_authority(
+    authority: &RequestAuthority,
+    table: &VhostTable,
+) -> Option<VhostCtx> {
+    let (record, application) =
+        table.resolve_application_on(authority.host(), None)?;
+    Some(VhostCtx {
+        hostname: HostName(Arc::new(authority.host().clone())),
+        vhost_key: HostKey(Arc::new(record.canonical.clone())),
+        vhost_config: record.config.clone(),
+        application: application.cloned(),
+    })
 }
 
 /// Result of SNI/vhost resolution at connection time

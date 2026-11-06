@@ -8,6 +8,7 @@
 
 #[cfg(feature = "quic")]
 pub mod quic;
+pub mod service;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]

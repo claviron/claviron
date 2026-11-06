@@ -2,8 +2,8 @@
 
 use std::convert::Infallible;
 
-use claviron::edge::transport::RequestArrival;
 use claviron::http::boxed_body;
+use claviron::http::ext::RequestArrival;
 use criterion::{Criterion, criterion_group, criterion_main};
 use futures_util::FutureExt;
 

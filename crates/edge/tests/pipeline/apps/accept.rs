@@ -17,7 +17,7 @@ use crate::pipeline::host::{
     HostPipelineBuilder,
 };
 use crate::pipeline::{Accepted, HostAppRegistry};
-use crate::service::RequestArrival;
+use claviron_http::ext::RequestArrival;
 
 /// What the layer derives from the accepted facts.
 struct PeerPort(u16);

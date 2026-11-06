@@ -394,13 +394,13 @@ async fn explicit_rust_routers_observe_scoped_layers_and_unread_body_ownership()
 
 #[test]
 fn listener_plans_keep_full_policy_and_never_fall_back_to_unbound_execution() {
-    use crate::service::{
-        HostService, RequestArrival, resolve_sni_for_listener,
-    };
+    use crate::loader::selection::resolve_sni_for_listener;
     use claviron_http::config::HttpYaml;
     use claviron_http::ext::ConnCtx;
+    use claviron_http::ext::RequestArrival;
     use claviron_http::listener::HttpProtocol;
     use claviron_http::{OtherHandler, OtherService, RouteBody, RouteFuture};
+    use claviron_pipeline::HostContext;
     use futures_util::FutureExt;
     use http_body_util::BodyExt;
 
@@ -525,23 +525,23 @@ listeners:
                 country_code: None,
                 tls: None,
             });
-            let service = HostService::new(
-                app,
-                connection,
-                selected,
-                http.listeners[&id].policy(),
-            );
             let request = http::Request::builder()
                 .header("content-length", "5")
                 .body(claviron_http::boxed_body(http_body_util::Full::new(
                     bytes::Bytes::from_static(b"12345"),
                 )))
                 .unwrap();
-            let reply = service
-                .request(request, RequestArrival::Established)
-                .dispatch()
+            let context =
+                HostContext::new(&connection, RequestArrival::Established)
+                    .with_host(&selected.hostname, &selected.vhost_key);
+            let reply = match app
+                .handle_in(request, Some(context))
                 .now_or_never()
-                .unwrap();
+                .unwrap()
+            {
+                Ok(reply) => reply,
+                Err(never) => match never {},
+            };
             assert_eq!(reply.status(), status, "{listener}: {protocol:?}");
             let bytes = reply
                 .into_body()

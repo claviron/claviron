@@ -5,7 +5,7 @@ use std::convert::Infallible;
 use std::future::{Future, ready};
 use std::sync::Arc;
 
-use claviron_edge::transport::{CleartextHostCache, CleartextRequest};
+use crate::edge::service::{CleartextHostCache, CleartextRequest};
 use claviron_http::ext::ConnCtx;
 use claviron_http::session::SessionSpawner;
 use claviron_http::{RouteResponse, ServiceResult, err_status};

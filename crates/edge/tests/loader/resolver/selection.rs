@@ -1,10 +1,10 @@
 use super::*;
+use crate::loader::selection::{
+    VhostCtx, resolve_request_authority, resolve_sni_from_table,
+};
 use crate::pipeline::apps::other::{OtherHandler, OtherService};
 use crate::pipeline::{
     HostAppSnapshot, HostExecution, HostPipelineBuilder, RustRouter,
-};
-use crate::service::{
-    VhostCtx, resolve_request_authority, resolve_sni_from_table,
 };
 use claviron_http::authority::RequestAuthority;
 use claviron_http::{RouteBody, RouteFuture};

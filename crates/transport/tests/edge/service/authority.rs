@@ -1,6 +1,7 @@
 use http::{Version, header};
 
 use super::*;
+use claviron_edge::transport::resolve_request_authority;
 
 fn authority(host: &str) -> RequestAuthority {
     let request =

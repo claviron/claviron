@@ -5,8 +5,8 @@
 //! picks a configuration by SNI, and a request's authority is checked against
 //! what that handshake agreed, both before any router exists.
 //!
-//! This module is the whole of what that crate may use. `loader` and `service`
-//! stay crate-private so the boundary is enforced rather than described:
+//! This module is the whole of what that crate may use. `loader` stays
+//! crate-private so the boundary is enforced rather than described:
 //! widening the port is one `pub use` line, written on purpose in a file named
 //! for the boundary. `pipeline` stays public because it is the *other* door —
 //! what an application author builds a `Routable` or an Other handler against.
@@ -23,6 +23,11 @@ pub mod publication;
 pub use crate::config::{HostConfig, Site};
 /// Hosts as the runtime registry hands them out.
 pub use crate::loader::resolver::{HostBinding, VhostResolver};
+/// Selecting a published host for a server name or a request's authority.
+pub use crate::loader::selection::{
+    HostRejection, VhostCtx, resolve_request_authority,
+    resolve_sni_for_listener, resolve_sni_from_table,
+};
 /// The set of hosts a listener serves, as SNI and authority resolution read it.
 pub use crate::loader::table::VhostTable;
 /// Application-owned Rust handler registration, without Axum.
@@ -36,16 +41,3 @@ pub use crate::pipeline::{
 };
 #[cfg(feature = "webtransport")]
 pub use crate::pipeline::{WebTransportBinding, WebTransportRegistry};
-/// A cleartext connection's host selection and the authority a connection has
-/// already accepted, for the drivers that admit requests one at a time.
-#[cfg(feature = "tcp")]
-pub use crate::service::{CleartextHostCache, CleartextRequest};
-/// Turning an accepted connection and a received request into a host's
-/// response — the transport's actual reason for depending on this crate.
-pub use crate::service::{
-    HostRejection, HostResponse, HostService, PreparedRequest, RequestArrival,
-    RequestAuthority, RequestRejection, VhostCtx, resolve_request_authority,
-    resolve_sni_for_listener, resolve_sni_from_table,
-};
-#[cfg(any(feature = "tcp", feature = "quic"))]
-pub use claviron_http::authority::AcceptedAuthority;

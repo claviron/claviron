@@ -1,10 +1,8 @@
 use super::*;
-use crate::pipeline::apps::HostContributions;
-use crate::pipeline::host::compile::HostCompiler;
-use crate::pipeline::{
-    HostHandler, HostHandlerFuture, HostRequest, RustRouter,
-};
+use claviron_http::RustRouter;
 use claviron_http::ext::{ClientAuthStatus, TlsInfo};
+use claviron_pipeline::plan::{Backend, HostExecution, HostPipelineBuilder};
+use claviron_pipeline::{HostHandler, HostHandlerFuture, HostRequest};
 use futures_util::FutureExt;
 use http::StatusCode;
 
@@ -99,24 +97,20 @@ fn native_handoff_leaves_rust_handlers_untouched_and_exports_identity_to_a_frame
         )
         .unwrap();
         let host = resolve_sni_from_table(&table, Some("alias.test")).unwrap();
-        let state =
-            claviron_runtime::AppState::standalone("backend-identity", ".");
-        let compiler =
-            HostCompiler { state: &state, http: None, protocol: None };
-        let config = host.vhost_config.clone();
-        let canonical = "app.test".parse().unwrap();
-        let mut contributions = HostContributions::default();
-        contributions.applications.push(Arc::new(EmbeddedOwner));
+        let policy = HttpPolicy::unlimited();
+        let embedded: Arc<dyn HostHandler> = Arc::new(EmbeddedOwner);
+        let mut plan = HostPipelineBuilder::<()>::new();
+        plan.layer(Backend::new(embedded, policy)).unwrap();
         let mut owners = vec![
-            (
-                Some(RustRouter::Other(OtherService::new(RustOwner))),
-                HostContributions::default(),
+            HostExecution::router(
+                RustRouter::Other(OtherService::new(RustOwner)),
+                policy,
             ),
-            (None, contributions),
+            plan.build().into_execution(),
         ];
         #[cfg(feature = "axum")]
-        owners.push((
-            Some(RustRouter::Axum(axum::Router::new().fallback(
+        owners.push(HostExecution::router(
+            RustRouter::Axum(axum::Router::new().fallback(
                 |ip: claviron_http::ext::RealIp,
                  request: Request<axum::body::Body>| async move {
                     check(&request);
@@ -126,22 +120,10 @@ fn native_handoff_leaves_rust_handlers_untouched_and_exports_identity_to_a_frame
                     );
                     http::Response::new(request.into_body())
                 },
-            ))),
-            HostContributions::default(),
+            )),
+            policy,
         ));
-        for (router, contributions) in owners {
-            let owner = compiler
-                .prepare(
-                    &canonical,
-                    config.clone(),
-                    router,
-                    &contributions,
-                    #[cfg(feature = "rate-limit")]
-                    None,
-                    #[cfg(feature = "websocket")]
-                    None,
-                )
-                .unwrap();
+        for owner in owners {
             let service = HostService::new(
                 owner,
                 connection.clone(),

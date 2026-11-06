@@ -13,8 +13,9 @@ use std::future::Future;
 use std::hint::black_box;
 
 use bytes::Bytes;
-use claviron::edge::transport::{HostService, RequestArrival};
 use claviron::http::boxed_body;
+use claviron::http::ext::RequestArrival;
+use claviron::transport::edge::service::HostService;
 use criterion::{BatchSize, Criterion, Throughput};
 use http::{Request, Response, StatusCode, header};
 use http_body::Body;

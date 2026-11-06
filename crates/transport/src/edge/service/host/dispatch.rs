@@ -1,10 +1,10 @@
 //! Execute a published host plan without reselecting or skipping its layers.
 
 use super::*;
-#[cfg(feature = "axum")]
-use crate::pipeline::host::ApplicationHandler;
 #[cfg(all(feature = "tcp", feature = "axum"))]
 use claviron_http::RouteFuture;
+#[cfg(feature = "axum")]
+use claviron_pipeline::plan::ApplicationHandler;
 #[cfg(any(feature = "tcp", feature = "axum"))]
 use futures_util::FutureExt;
 #[cfg(feature = "axum")]
@@ -92,7 +92,7 @@ async fn call_execution(
 
 #[cfg(feature = "axum")]
 fn call<H: ApplicationHandler + Clone + Sync + 'static>(
-    backend: Arc<crate::pipeline::host::Backend<H>>,
+    backend: Arc<claviron_pipeline::plan::Backend<H>>,
     request: Request<RouteBody>,
     connection: Arc<HostPolicy>,
     arrival: RequestArrival,

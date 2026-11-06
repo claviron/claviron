@@ -6,7 +6,8 @@ HTTP host selection, native dispatch and optional TCP/QUIC drivers.
 
 - `loader` prepares host declarations and publishes names, policy and applications
   together. Congif owns configuration reads and source watching.
-- `service` binds an accepted transport/request to a ready host plan.
+- Binding an accepted connection to a ready host plan is
+  `claviron_transport::edge::service`'s; this crate selects the host.
 - `config` keeps a `HostConfig`: how a connection finds a `Site` (names,
   listeners, handshake and protocol terms). The `Site` itself, what one
   application serves, is `claviron-pipeline`'s. A route
@@ -350,7 +351,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`config.rs`](src/config.rs) — Host identity, transport policy and normalized route views; read-only backend accessors.
 - [`provider.rs`](src/provider.rs) — Congif HTTP configuration owner; validate capabilities and atomically publish HttpSnapshot.
 - [`listener.rs`](src/listener.rs) — Hosting alias notifications and atomic candidate updates; PostgreSQL NOTIFY or hosting events.
-- [`transport.rs`](src/transport.rs) — What `claviron-transport` may use of this crate: host selection, request handoff and connection-level handlers; loader and service stay internal behind it.
+- [`transport.rs`](src/transport.rs) — What `claviron-transport` may use of this crate: host selection and connection-level handlers; the loader stays internal behind it.
 - [`transport/publication.rs`](src/transport/publication.rs) — Listener input selection, host compilation, weak publication contract and shared bind geometry.
 
 ### `config/`
@@ -364,16 +365,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`table.rs`](src/loader/table.rs) — Canonical names, validated aliases, shared listener-plan selection and prepared dependencies.
 - [`snapshot.rs`](src/loader/snapshot.rs) — Candidate host/alias edits and optional database alias hydration.
 - [`resolver.rs`](src/loader/resolver.rs) — Retained sources, dependent preparation, atomic table publication and binding retirement.
-
-### `service/`
-
-- [`service.rs`](src/service.rs) — Transport handoff exports; no file loading or backend execution engine.
-- [`authority.rs`](src/service/authority.rs) — Validated cleartext authority and connection-local name identity reuse; borrowed access to the admitted request.
-- [`bindings.rs`](src/service/bindings.rs) — Pair live names with the captured TLS policy epoch.
-- [`ctx`](src/service/ctx.rs) — VhostCtx and connection-time SNI selection/rejections.
-- [`host.rs`](src/service/host.rs) — HostService and native request handoff; no fixed Ingress/Identity/Access chain.
-- [`host/cache.rs`](src/service/host/cache.rs) — Cleartext metadata cache, owner selection against the supplied publication, and reuse of the last admitted owner for a repeated authority on that same publication.
-- [`host/dispatch.rs`](src/service/host/dispatch.rs) — Execute the prepared host owner; retain the direct-call optimization only for a plan without preceding actions.
+- [`selection.rs`](src/loader/selection.rs) — `VhostCtx`: a published host selected for a server name or a request's authority, and why one is refused.
 
 ### `pipeline/`
 
@@ -501,11 +493,3 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`quota.rs`](tests/pipeline/layers/quota.rs) — Borrowed connection identity, shared debt, cancellation and committed reply headers.
 - [`quota/prepare.rs`](tests/pipeline/layers/quota/prepare.rs) — Resource collisions, prefix selection, config checks and reload restrictions.
 - [`websocket.rs`](tests/pipeline/layers/websocket.rs) — Protocol-gated exact endpoints and ordinary request passthrough.
-
-### `service/`
-
-- [`host/authority.rs`](tests/service/host/authority.rs) — Per-request SNI comparison, malformed/conflicting authority, unread body ownership and repeats admitted only for the fields last accepted.
-- [`authority.rs`](tests/service/authority.rs) — Authority proofs and connection-local identity allocation reuse.
-- [`host.rs`](tests/service/host.rs) — Narrowed request limits, accepted facts, body mapping, deferred native dispatch and cleartext repeats bound only on the same publication.
-- [`host/identity.rs`](tests/service/host/identity.rs) — Shared H1/H2/H3 metadata delivery to direct Rust routers and registered application handlers.
-

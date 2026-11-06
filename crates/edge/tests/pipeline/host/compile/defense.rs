@@ -6,11 +6,11 @@ use crate::pipeline::extension::{RouteEffect, RouteLayer};
 use crate::pipeline::host::HostContext;
 #[cfg(feature = "rate-limit")]
 use crate::pipeline::host::HostLayerBuilder;
-use crate::service::RequestArrival;
 use claviron_http::config::{HttpSnapshot, HttpYaml};
 use claviron_http::ext::ConnCtx;
 #[cfg(feature = "rate-limit")]
 use claviron_http::ext::RealIpExt;
+use claviron_http::ext::RequestArrival;
 use claviron_http::{OtherHandler, OtherService, RouteBody, RouteFuture};
 use http::StatusCode;
 #[cfg(feature = "rate-limit")]

@@ -60,6 +60,12 @@ HTTP over a Unix socket with the same drain and HTTP settings as TCP. `Unix` is 
 
 - [`mod.rs`](src/edge/mod.rs) — The one module that names Edge types.
 - [`tls.rs`](src/edge/tls.rs) — A host's TLS configuration: client authentication from its declared authority, and whether a retained configuration still matches.
+- [`service.rs`](src/edge/service.rs) — An accepted connection bound to the host Edge selected; no file loading or backend execution engine.
+- [`service/authority.rs`](src/edge/service/authority.rs) — Validated cleartext authority and connection-local name identity reuse; borrowed access to the admitted request.
+- [`service/host.rs`](src/edge/service/host.rs) — `HostService` and native request handoff; no fixed Ingress/Identity/Access chain.
+- [`service/host/policy.rs`](src/edge/service/host/policy.rs) — Accepted connection facts and the narrowed policy a host context lends.
+- [`service/host/cache.rs`](src/edge/service/host/cache.rs) — Cleartext metadata cache, owner selection against the supplied publication, and reuse of the last admitted owner for a repeated authority on that same publication.
+- [`service/host/dispatch.rs`](src/edge/service/host/dispatch.rs) — Execute the prepared host owner; retain the direct-call optimization only for a plan without preceding actions.
 - [`tcp/mod.rs`](src/edge/tcp/mod.rs) — TCP listener owner exports.
 - [`tcp/service.rs`](src/edge/tcp/service.rs) — One TLS connection's requests: authority admission against the handshake, then the bound host.
 - [`tcp/plain/server.rs`](src/edge/tcp/plain/server.rs) — `HttpServer`: configuration, snapshots against the published host table and named listener lifetimes.

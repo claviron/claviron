@@ -15,13 +15,12 @@ use claviron_pipeline::log;
 mod listener;
 // `pipeline` prepares native host plans and optional Rust application adapters.
 // `transport` is what a transport driver resolves a host with.
-// `loader` combines host declarations; `service` is the machinery behind them.
-// neither is anyone else's business, so neither is public. See `transport`.
+// `loader` combines host declarations and selects among them; it is no one
+// else's business, so it is not public. See `transport`.
 pub(crate) mod loader;
 pub mod pipeline;
 pub use pipeline::extension;
 mod provider;
-pub(crate) mod service;
 #[cfg(feature = "rate-limit")]
 pub use pipeline::layers::HostQuotas;
 pub mod transport;

@@ -7,13 +7,15 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use crate::edge::service::HostService;
 use claviron_edge::pipeline::{
     H3WebTransportSession, HostExecution, WebTransportHandler,
 };
 use claviron_edge::transport::{
-    AcceptedAuthority, AnyAuthenticated, AuthContext, HostService, VhostCtx,
-    VhostResolver, WebTransportBinding, WebTransportRegistry,
+    AnyAuthenticated, AuthContext, VhostCtx, VhostResolver,
+    WebTransportBinding, WebTransportRegistry,
 };
+use claviron_http::authority::AcceptedAuthority;
 use claviron_http::config::ListenerConfig;
 use claviron_http::config::transport::EarlyDataPolicy;
 use claviron_http::ext::{ConnCtx, RequestArrival};

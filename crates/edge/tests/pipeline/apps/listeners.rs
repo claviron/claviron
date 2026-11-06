@@ -55,9 +55,10 @@ fn explicit_listener_requires_selection_without_weakening_host_filters() {
 #[test]
 #[cfg(feature = "tcp")]
 fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
+    use crate::loader::selection::resolve_sni_for_listener;
     use crate::pipeline::host::HostContext;
-    use crate::service::{RequestArrival, resolve_sni_for_listener};
     use claviron_http::ext::ConnCtx;
+    use claviron_http::ext::RequestArrival;
     use claviron_http::listener::HttpProtocol;
     use http_body::{Body, Frame};
     use std::convert::Infallible;

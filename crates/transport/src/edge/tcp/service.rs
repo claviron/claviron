@@ -3,10 +3,12 @@
 use std::convert::Infallible;
 use std::future::Future;
 
-use claviron_edge::transport::PreparedRequest;
 #[cfg(feature = "tls")]
-use claviron_edge::transport::{HostService, RequestArrival};
+use crate::edge::service::HostService;
+use crate::edge::service::PreparedRequest;
 use claviron_http::RouteResponse;
+#[cfg(feature = "tls")]
+use claviron_http::ext::RequestArrival;
 #[cfg(feature = "tls")]
 use hyper::body::Incoming;
 
@@ -17,7 +19,7 @@ use crate::tcp::body;
 #[cfg(feature = "tls")]
 pub(crate) struct HostRequests {
     host: HostService,
-    accepted: std::cell::RefCell<claviron_edge::transport::AcceptedAuthority>,
+    accepted: std::cell::RefCell<claviron_http::authority::AcceptedAuthority>,
     sessions: claviron_http::session::SessionSpawner,
 }
 

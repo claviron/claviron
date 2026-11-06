@@ -40,6 +40,8 @@ quic = [
 webtransport = ["quic", "claviron-edge?/webtransport"]
 # Fill a connection's country from the peer address.
 geoip = ["dep:claviron-geoip"]
+# Dispatch a host plan that is one Axum router without its extra layer.
+axum = ["claviron-pipeline/axum", "claviron-edge?/axum"]
 # Let an HTTP/1.1 connection be upgraded.
 websocket = ["tcp", "claviron-edge?/websocket"]
 # Count accepted and open connections per listener.
@@ -79,6 +81,7 @@ rustls = { workspace = true, optional = true, features = ["std"] }
 h3-webtransport = { workspace = true, optional = true }
 
 [dev-dependencies]
+axum.workspace = true
 orbitive = { workspace = true, features = ["rustls"] }
 tokio-util.workspace = true
 hyper = { workspace = true, features = ["client", "http2"] }

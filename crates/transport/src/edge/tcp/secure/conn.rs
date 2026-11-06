@@ -8,9 +8,10 @@ use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use crate::edge::service::HostService;
 use crate::tcp::secure::SecureHost;
 use claviron_edge::transport::{
-    HostBinding, HostRejection, HostService, VhostCtx, VhostResolver,
+    HostBinding, HostRejection, VhostCtx, VhostResolver,
 };
 use claviron_http::config::ListenerConfig;
 use claviron_http::config::transport::TransportPolicy;

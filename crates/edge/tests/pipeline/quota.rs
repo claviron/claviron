@@ -76,7 +76,7 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
     });
     let context = Some(crate::pipeline::host::HostContext::new(
         &connection,
-        crate::service::RequestArrival::Established,
+        claviron_http::ext::RequestArrival::Established,
     ));
     let run = |snapshot: &HostAppSnapshot, key: &str| {
         use futures_util::FutureExt;

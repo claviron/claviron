@@ -1,8 +1,7 @@
 use super::*;
-use crate::pipeline::apps::other::{OtherHandler, OtherService};
-use crate::service::resolve_sni_from_table;
 use bytes::Bytes;
-use claviron_http::{RouteFuture, empty_body};
+use claviron_edge::transport::resolve_sni_from_table;
+use claviron_http::{OtherHandler, OtherService, RouteFuture, empty_body};
 use http::StatusCode;
 use std::future::Future;
 use std::pin::pin;
@@ -13,6 +12,7 @@ use std::task::{Context, Poll, Waker};
 #[path = "host/authority.rs"]
 mod authority;
 
+#[cfg(any(feature = "tls", feature = "quic"))]
 #[path = "host/identity.rs"]
 mod identity;
 
@@ -25,9 +25,9 @@ fn service(
         serde_yaml::from_str(&format!("app.test: {{root: public, {config}}}"))
             .unwrap();
     let host = resolve_sni_from_table(&table, Some("app.test")).unwrap();
-    let mut builder = crate::pipeline::HostPipelineBuilder::<()>::new();
+    let mut builder = claviron_pipeline::plan::HostPipelineBuilder::<()>::new();
     if let Some(owner) = owner {
-        builder.layer(crate::pipeline::RustRouter::Other(owner)).unwrap();
+        builder.layer(claviron_http::RustRouter::Other(owner)).unwrap();
     }
     HostService::new(
         builder.build().into_execution(),
@@ -149,7 +149,7 @@ fn native_dispatch_calls_the_owner_only_when_polled() {
 #[cfg(feature = "tcp")]
 #[test]
 fn cleartext_repeat_binds_only_the_same_authority_on_the_same_publication() {
-    use crate::loader::table::VhostTable;
+    use claviron_edge::transport::VhostTable;
 
     let hosts = "app.test: {root: public}";
     let table: VhostTable = serde_yaml::from_str(hosts).unwrap();

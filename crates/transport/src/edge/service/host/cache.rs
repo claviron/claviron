@@ -1,7 +1,8 @@
 use super::*;
-use crate::loader::table::VhostTable;
-use crate::service::{AcceptedAuthority, HostIdentityCache, RequestAuthority};
+use crate::edge::service::HostIdentityCache;
+use claviron_edge::transport::VhostTable;
 use claviron_http::ServiceResult;
+use claviron_http::authority::{AcceptedAuthority, RequestAuthority};
 
 /// One connection's last immutable host policy. Application selection remains
 /// request-local; this cache owns no request, body or backend.

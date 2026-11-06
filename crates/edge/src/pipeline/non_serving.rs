@@ -38,9 +38,10 @@ mod plain {
 
     use super::*;
     use crate::config::NonSslPolicy;
-    use crate::service::{HostResponse, RequestRejection, VhostCtx};
+    use crate::loader::selection::VhostCtx;
     use claviron_http::ext::ConnCtx;
     use claviron_http::{RouteResponse, ServiceResult};
+    use claviron_pipeline::response::{HostResponse, RequestRejection};
     use claviron_types::Host;
     use http::{HeaderValue, Request, StatusCode};
 

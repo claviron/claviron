@@ -6,8 +6,9 @@ use std::sync::Arc;
 
 use claviron::edge::pipeline::HostExecution;
 use claviron::edge::transport::{
-    HostService, VhostResolver, VhostTable, resolve_sni_from_table,
+    VhostResolver, VhostTable, resolve_sni_from_table,
 };
+use claviron::transport::edge::service::HostService;
 use claviron::http::config::{HttpSnapshot, ListenerConfig};
 use claviron::http::ext::ConnCtx;
 use claviron::http::listener::HttpProtocol;

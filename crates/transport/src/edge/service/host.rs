@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
+use claviron_edge::transport::{AuthContext, HostExecution, VhostCtx};
 use claviron_http::config::{HttpPolicy, RequestPolicy};
-use claviron_http::ext::ConnCtx;
+use claviron_http::ext::{ConnCtx, RequestArrival};
 #[cfg(test)]
 use claviron_http::listener::HttpProtocol;
 use claviron_http::{RouteBody, RouteResponse};
@@ -11,20 +12,20 @@ use http::Request;
 
 #[cfg(feature = "tcp")]
 use super::CleartextRequest;
-use super::ctx::VhostCtx;
-use crate::pipeline::host::HostPolicy;
-use crate::pipeline::{AuthContext, HostExecution};
+#[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+use claviron_http::authority::{AcceptedAuthority, RequestAuthority};
 #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
 use claviron_pipeline::response::RequestRejection;
 
 mod dispatch;
+mod policy;
+
+use policy::HostPolicy;
 
 #[cfg(feature = "tcp")]
 mod cache;
 #[cfg(feature = "tcp")]
 pub use cache::CleartextHostCache;
-
-pub use claviron_http::ext::RequestArrival;
 
 /// An accepted connection bound to a published request owner. This handoff
 /// retains transport facts and declarations; it installs no host actions.
@@ -57,12 +58,12 @@ impl HostService {
     pub fn validate_authority<B>(
         &self,
         request: &Request<B>,
-        accepted: &mut super::AcceptedAuthority,
+        accepted: &mut AcceptedAuthority,
     ) -> Result<(), RequestRejection> {
         if accepted.repeats(request) {
             return Ok(());
         }
-        let authority = super::RequestAuthority::from_request(request)
+        let authority = RequestAuthority::from_request(request)
             .map_err(RequestRejection::InvalidAuthority)?;
         if authority.is_some_and(|authority| {
             authority.host() != self.policy.host.hostname.0.as_ref()
@@ -172,5 +173,5 @@ impl<B> PreparedRequest<B> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/service/host.rs"]
+#[path = "../../../tests/edge/service/host.rs"]
 mod tests;

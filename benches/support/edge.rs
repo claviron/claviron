@@ -8,9 +8,8 @@ use claviron::edge::pipeline::host::{
     HostHandler, HostHandlerFuture, HostRequest,
 };
 use claviron::edge::pipeline::{HostAppRegistry, Routable};
-use claviron::edge::transport::{
-    HostConfig, HostService, OtherHandler, OtherService,
-};
+use claviron::edge::transport::{HostConfig, OtherHandler, OtherService};
+use claviron::transport::edge::service::HostService;
 use claviron::http::{RouteBody, RouteFuture, ServiceResult, boxed_body};
 use claviron::runtime::{
     AppState,
