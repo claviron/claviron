@@ -25,7 +25,7 @@ use std::sync::atomic::AtomicU8;
 use claviron_http::forwarding::reject_request_smuggling;
 use claviron_http::policy::{BodyNeed, Delivery};
 use claviron_http::{RouteBody, RouteResponse};
-use error::{error_response, failure_response};
+use error::{error_response, failure_response, refused_response};
 use http::{Method, Request, StatusCode};
 use kind::{is_h1_upgrade_request, is_h2_extended_connect_request};
 
@@ -166,22 +166,22 @@ impl UpstreamService {
         if is_h1_upgrade_request(&req) {
             let policy = scope.policy;
             if !policy.allow_h1_upgrade {
-                return error_response(
-                    StatusCode::UPGRADE_REQUIRED,
-                    "upstream h1 upgrade is disabled by host policy",
+                return refused_response(
+                    StatusCode::FORBIDDEN,
+                    "h1 upgrade is disabled by host policy",
                 );
             }
         }
         if is_h2_extended_connect_request(&req) {
             let policy = scope.policy;
             if !policy.allow_connect_protocol {
-                return error_response(
+                return refused_response(
                     StatusCode::FORBIDDEN,
                     "h2 extended connect is disabled by host policy",
                 );
             }
         } else if req.method() == Method::CONNECT {
-            return error_response(
+            return refused_response(
                 StatusCode::METHOD_NOT_ALLOWED,
                 "generic CONNECT is not supported by http upstream",
             );

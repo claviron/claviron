@@ -36,6 +36,23 @@ pub(crate) fn error_response(
         "http upstream request failed: {}",
         String::from_utf8_lossy(&message)
     );
+    plain_response(status, message)
+}
+
+/// A request this host's policy does not allow. The upstream is healthy and
+/// nothing failed, so it does not read as a failure in the log.
+pub(crate) fn refused_response(
+    status: StatusCode,
+    message: &'static str,
+) -> RouteResponse {
+    tracing::debug!("http upstream request refused: {message}");
+    plain_response(status, Bytes::from_static(message.as_bytes()))
+}
+
+fn plain_response(
+    status: StatusCode,
+    message: Bytes,
+) -> RouteResponse {
     Response::builder()
         .status(status)
         .body(bytes_body(message))
