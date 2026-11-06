@@ -58,8 +58,9 @@ impl crate::tcp::plain::Cleartext for ServerSnapshot {
     fn connection(
         self: &Arc<Self>,
         facts: Arc<claviron_http::ext::ConnCtx>,
+        sessions: claviron_http::session::SessionSpawner,
     ) -> Self::Requests {
-        super::handler::H1Service::new(self.clone(), facts)
+        super::handler::H1Service::new(self.clone(), facts, sessions)
     }
 }
 

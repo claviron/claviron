@@ -92,6 +92,11 @@ the ALPN list, session storage — and who owns the connection is what `select`
 decides. A listener with many certificates and one owner is therefore still a
 `Single`.
 
+A connection's request owner also receives the connection's session owner.
+`tcp::attach_sessions` hands it only to a request that can take over its
+connection, a CONNECT or an `Upgrade`, so an ordinary request pays nothing for
+it. Whatever an upgrade starts is joined with the listener's drain through it.
+
 The `edge` module implements both with Edge's virtual-host table. `Single` implements both
 with one handler: it selects nothing, applies no request policy, attaches
 nothing to the request and never retires a connection.

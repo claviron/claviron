@@ -18,12 +18,16 @@ use crate::tcp::body;
 pub(crate) struct HostRequests {
     host: HostService,
     accepted: std::cell::RefCell<claviron_edge::transport::AcceptedAuthority>,
+    sessions: claviron_http::session::SessionSpawner,
 }
 
 #[cfg(feature = "tls")]
 impl HostRequests {
-    pub(crate) fn new(host: HostService) -> Self {
-        Self { host, accepted: Default::default() }
+    pub(crate) fn new(
+        host: HostService,
+        sessions: claviron_http::session::SessionSpawner,
+    ) -> Self {
+        Self { host, accepted: Default::default(), sessions }
     }
 }
 
@@ -31,10 +35,11 @@ impl HostRequests {
 impl crate::tcp::Requests for HostRequests {
     fn call(
         &self,
-        request: http::Request<Incoming>,
+        mut request: http::Request<Incoming>,
     ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
     {
         use futures_util::future::{Either, ready};
+        crate::tcp::attach_sessions(&mut request, &self.sessions);
         if let Err(reason) = self
             .host
             .validate_authority(&request, &mut self.accepted.borrow_mut())

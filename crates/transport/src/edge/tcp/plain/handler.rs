@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use claviron_edge::transport::{CleartextHostCache, CleartextRequest};
 use claviron_http::ext::ConnCtx;
+use claviron_http::session::SessionSpawner;
 use claviron_http::{RouteResponse, ServiceResult, err_status};
 use futures_util::future::Either;
 use hyper::{Request, StatusCode};
@@ -16,16 +17,18 @@ use super::server::ServerSnapshot;
 pub(super) struct H1Service {
     snapshot: Arc<ServerSnapshot>,
     host_cache: RefCell<CleartextHostCache>,
+    sessions: SessionSpawner,
 }
 
 impl H1Service {
     pub(super) fn new(
         snapshot: Arc<ServerSnapshot>,
         ctx: Arc<ConnCtx>,
+        sessions: SessionSpawner,
     ) -> Self {
         let host_cache =
             CleartextHostCache::new(ctx, snapshot.listener.policy());
-        Self { snapshot, host_cache: RefCell::new(host_cache) }
+        Self { snapshot, host_cache: RefCell::new(host_cache), sessions }
     }
 
     pub(super) fn call<B>(
@@ -46,9 +49,10 @@ impl H1Service {
 impl crate::tcp::plain::Requests for H1Service {
     fn call(
         &self,
-        request: Request<hyper::body::Incoming>,
+        mut request: Request<hyper::body::Incoming>,
     ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
     {
+        crate::tcp::attach_sessions(&mut request, &self.sessions);
         H1Service::call(self, request)
     }
 }

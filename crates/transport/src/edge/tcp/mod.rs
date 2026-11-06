@@ -17,6 +17,10 @@ mod service;
 #[path = "../../../tests/edge/tcp/unit/config.rs"]
 mod config_tests;
 
+#[cfg(all(test, feature = "tls"))]
+#[path = "../../../tests/edge/tcp/sessions.rs"]
+mod session_tests;
+
 pub use plain::HttpServer;
 #[cfg(feature = "tls")]
 pub use secure::HttpsServer;

@@ -15,7 +15,7 @@ use claviron_http::config::{
 };
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;
-use claviron_http::session::ConnectionScope;
+use claviron_http::session::{ConnectionScope, SessionSpawner};
 use claviron_runtime::registry::{Error, Result};
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
@@ -37,9 +37,11 @@ pub trait Cleartext: TcpListenerSnapshot + Send + Sync + 'static {
 
     /// Called once for each accepted connection, with its completed facts and
     /// before its first request. Work done here is not repeated per request.
+    /// `sessions` owns what outlives a request on this connection.
     fn connection(
         self: &Arc<Self>,
         facts: Arc<ConnCtx>,
+        sessions: SessionSpawner,
     ) -> Self::Requests;
 }
 
@@ -99,8 +101,9 @@ impl<H: OtherHandler> Cleartext for Single<H> {
     fn connection(
         self: &Arc<Self>,
         _facts: Arc<ConnCtx>,
+        sessions: SessionSpawner,
     ) -> Self::Requests {
-        HandlerRequests(self.handler.clone())
+        HandlerRequests { handler: self.handler.clone(), sessions }
     }
 }
 
@@ -136,7 +139,7 @@ pub async fn serve<S: Cleartext>(
         country_code: crate::geo::country_code(peer.ip()),
         tls: None,
     });
-    let requests = snapshot.connection(ctx);
+    let requests = snapshot.connection(ctx, scope.sessions());
     let service = service_fn(move |request| requests.call(request));
     let (stream, errors) = super::io::TcpIo::split(stream);
     let connection = super::protocol::h1(snapshot.h1())

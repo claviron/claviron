@@ -22,7 +22,7 @@ use claviron_http::config::{
 use claviron_http::ext::{ClientAuthStatus, ConnCtx, TlsInfo};
 #[cfg(feature = "metrics")]
 use claviron_http::metrics::SERVER_METRICS;
-use claviron_http::session::ConnectionScope;
+use claviron_http::session::{ConnectionScope, SessionSpawner};
 use claviron_runtime::registry::{Error, Result};
 use claviron_tls::Proto::{self, H1, H2};
 use claviron_types::ssl::peer::peer_identity;
@@ -81,9 +81,11 @@ pub trait SecureHost: Send + 'static {
 
     /// Take the connection's completed facts and return its request owner.
     /// Called once, after the protocol is known and before the first request.
+    /// `sessions` owns what outlives a request on this connection.
     fn bind(
         self,
         facts: ConnCtx,
+        sessions: SessionSpawner,
     ) -> Result<Self::Requests, Self::Rejection>;
 }
 
@@ -258,8 +260,9 @@ impl<H: OtherHandler> SecureHost for SingleHost<H> {
     fn bind(
         self,
         _facts: ConnCtx,
+        sessions: SessionSpawner,
     ) -> Result<Self::Requests, Infallible> {
-        Ok(HandlerRequests(self.0.handler.clone()))
+        Ok(HandlerRequests { handler: self.0.handler.clone(), sessions })
     }
 }
 
@@ -371,7 +374,7 @@ async fn handle_stream<S: Secure>(
         country_code: crate::geo::country_code(peer.ip()),
     };
     let requests = host
-        .bind(facts)
+        .bind(facts, scope.sessions())
         .map_err(|refusal| ConnectionError::Host(refusal.to_string()))?;
     let vhost_service = service_fn(move |request| requests.call(request));
     let stream = TokioIo::new(tls_stream);

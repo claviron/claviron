@@ -131,6 +131,7 @@ impl SecureHost for SelectedHost {
     fn bind(
         self,
         mut facts: ConnCtx,
+        sessions: claviron_http::session::SessionSpawner,
     ) -> Result<HostRequests, ConnectionError> {
         let Self { mut vctx, listener, .. } = self;
         let app = vctx
@@ -145,11 +146,9 @@ impl SecureHost for SelectedHost {
             &vctx.vhost_key,
             &vctx.vhost_config,
         ));
-        Ok(HostRequests::new(HostService::new(
-            app,
-            Arc::new(facts),
-            vctx,
-            listener.policy(),
-        )))
+        Ok(HostRequests::new(
+            HostService::new(app, Arc::new(facts), vctx, listener.policy()),
+            sessions,
+        ))
     }
 }
