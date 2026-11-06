@@ -22,7 +22,6 @@ Every runner has grown the same skeleton:
 | proxy trust | which peers' forwarding headers count |
 | request guards | framing, body bounds and response-head deadlines |
 | static mounts | explicit `statics` in front of the application |
-| broadcast | the Pusher protocol endpoints and the local publisher |
 | workers | master and workers under the supervisor, rolling restart |
 | source watching | native notifications and a restart on change |
 | routing | the order of all of the above, and the owner last |
@@ -69,11 +68,11 @@ a second architecture.
 - Claviron still knows no language. This crate holds no interpreter, no PHP,
   no ASGI; a language runner depends on this crate directly. Lumenize follows
   this boundary; Gufi still uses the legacy facade adapter pending migration.
-- It composes lower crates — `http`, `files`, `tls`, `broadcast`, `orbit`,
+- It composes lower crates — `http`, `files`, `tls`, `orbit`,
   `runtime` — and none of `edge`, vhosts or the hosting store.
 - The lifecycle stays Claviron's: `Server`, the registry, runnable
   generations, drain and finalize. The runner adds providers, not a sequence.
-- Optional pieces are this crate's own features: `files`, `broadcast`,
+- Optional pieces are this crate's own features: `files`,
   `supervisor`, `tls`, `cli` and `watch`. A language runner forwards its
   features directly to this dependency. Its listener TLS does not enable
   the facade's certificate-provider bootstrap. DNS, hosting and upstream
@@ -99,7 +98,7 @@ the registered services' boot, execution and drain.
 Rust composition does not register a language `Owner`. Without contributed
 routes there is no intermediate Axum router. Registered host-free Routables
 stand before the terminal service; the terminal router retains its own fallback
-and method responses. Files and broadcast retain the shared composition order.
+and method responses. Files retain the shared composition order.
 Inactive request/reply body guards add no body wrapper, and existing canonical
 bodies are reused. The outer application future is concrete; terminal service
 erasure remains one request-future allocation.
@@ -300,11 +299,6 @@ ingress generation's cancellation. Owners use it to begin their cooperative
 protocol close while the ingress retains and joins accepted work. Closing lane
 admission alone is not a shutdown signal to an idle owner. The capability adds
 no deadline or authority to cancel guest tasks or another service's generation.
-
-The Broadcast adapter applies header/session admission to linked WebSockets
-and its existing first-record authentication to linked WebTransport streams.
-A broadcast acceptance that cannot enter the caller's bounded inbox resets
-the response direction instead of starting an unreachable session.
 
 Both call the same routed service, so an application never learns which door
 a request came through.

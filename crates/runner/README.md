@@ -56,7 +56,7 @@ before composition. Host-free HTTP Routables contribute routes before the
 terminal service. `with_service` accepts another compatible Rust HTTP service
 without requiring Axum.
 
-Files, broadcast and session support use the existing optional capabilities.
+Files and session support use the existing optional capabilities.
 `with_orbit_sessions` supplies the application's WebSocket/WebTransport message
 handler over Link; it does not infer a session handler from ordinary HTTP
 routes. Lifecycle management requires the application's registered controller.
@@ -67,8 +67,7 @@ filter without Warp's listener. `OtherService` is the low-level handler choice.
 
 ## Language owners
 
-The shared routing path runs admission guards first, then configured broadcast
-paths, explicit static mounts, Rust routes, and finally the application owner.
+The shared routing path runs admission guards first, then explicit static mounts, Rust routes, and finally the application owner.
 The owner is the fallback, not a second router racing the Rust application.
 
 `Owner` wraps the application service. `Routing` holds the shared routing and HTTP
@@ -178,7 +177,7 @@ Independent masters must not assume they can allocate the same fleet lanes.
 ## Optional capabilities
 
 The implementation crate has no default features. Its capabilities are `rust`, `axum`, `warp`,
-`tls`, `files`, `broadcast`, `cli`, `supervisor`, `websocket`, and `watch`.
+`tls`, `files`, `cli`, `supervisor`, `websocket`, and `watch`.
 The root facade's `runner-cli` extends an already-selected `runner`; it does not
 enable the shell on its own. Select both for command-line launch options.
 `runner-watch` selects the runner and its watcher. Facade and implementation

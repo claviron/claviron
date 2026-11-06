@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 authors.workspace = true
 include.workspace = true
-keywords = ["http", "routing", "proxy", "php", "http3"]
+keywords = ["http", "routing", "proxy", "vhost", "http3"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming"]
 
 [features]
@@ -42,8 +42,6 @@ orbit = [
     "claviron-http/websocket",
     "dep:fastwebsockets",
 ]
-# A selected Lua runtime contributes its configured H1/H2 WebSocket endpoints.
-# Weak forwarding must not select Lua for unrelated WebSocket users.
 db = ["dep:claviron-db", "dep:claviron-hosting", "claviron-hosting/server"]
 postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
 metrics = ["axum", "claviron-http/metrics", "claviron-pipeline/metrics"]
@@ -52,14 +50,13 @@ webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport"]
 # What a transport's native drivers need from host selection. The drivers
 # themselves live in claviron-transport; these open no sockets.
 tcp = ["claviron-types/ssl", "dep:hyper", "dep:hyper-util"]
-tls = ["dep:rustls"]
+tls = []
 # The H3 driver always offers WebTransport sessions to the hosts that bind them.
 quic = ["http3", "webtransport", "claviron-types/ssl"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-db = { workspace = true, default-features = true, optional = true, features = ["server"] }
-claviron-files.workspace = true
 claviron-helpers.workspace = true
 claviron-hosting = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
@@ -77,7 +74,6 @@ futures-util.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }
 
-regex.workspace = true
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde = { workspace = true, features = ["derive", "rc"] }
@@ -93,18 +89,10 @@ hyper = { workspace = true, optional = true, features = ["http1", "http2", "serv
 hyper-util = { workspace = true, optional = true, features = ["tokio"] }
 percent-encoding = { workspace = true, optional = true }
 
-# ── Web framework (axum + tower) ────────────────────────────────────────
+# ── Web framework ───────────────────────────────────────────────────────
 axum = { workspace = true, optional = true }
-tower = { workspace = true, features = ["util"] }
-
-# ── TLS / certificates ──────────────────────────────────────────────────
-rustls = { workspace = true, optional = true, features = ["std"] }
-
-# ── Networking utilities ────────────────────────────────────────────────
-ipnet = { workspace = true, features = ["serde"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
-thiserror.workspace = true
 tracing.workspace = true
 
 # ── Misc utilities ──────────────────────────────────────────────────────
@@ -115,6 +103,7 @@ h3-quinn = { workspace = true, features = ["datagram"], optional = true }
 h3-webtransport = { workspace = true, optional = true }
 
 [dev-dependencies]
+regex.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
 

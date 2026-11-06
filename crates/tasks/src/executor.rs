@@ -74,8 +74,8 @@ pub struct ScriptSpec {
 ///
 /// This crate decides *when* and *where* a PHP task runs — trigger, scope,
 /// dispatch, attempts, backoff — and never learns *how*. The how is supplied
-/// by `claviron-php-embed` through [`Executor`], which is the whole of the
-/// coupling between the two crates.
+/// by the engine's owner through [`Executor`], which is the whole of the
+/// coupling between the two.
 pub struct TaskExecution {
     pub task: String,
     /// Execution-time environment is already evaluated. The raw recipe stays
@@ -113,8 +113,7 @@ pub type Executor = Arc<
 impl crate::service::TaskService {
     /// Install the engine that runs one executor kind.
     ///
-    /// Called once by the crate that owns that engine — `claviron-php-embed`
-    /// for `php:`, `claviron-js` for `js:`. This crate keeps the schedule, the
+    /// Called once by the crate that owns that engine. This crate keeps the schedule, the
     /// scope, the dispatch, the attempt budget and the drain; the executor is
     /// handed one occurrence at a time and knows nothing about any of them.
     ///

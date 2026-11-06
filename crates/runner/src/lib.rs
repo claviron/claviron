@@ -5,8 +5,6 @@
 //! See `ARCHITECTURE.md` for the whole of it; the pieces arrive here one at a
 //! time from the runners that grew them.
 
-#[cfg(feature = "broadcast")]
-mod broadcast;
 #[cfg(feature = "files")]
 pub mod files;
 pub mod launch;

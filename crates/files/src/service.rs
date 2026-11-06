@@ -236,8 +236,7 @@ async fn serve_index(
     let base_dir = root.join(&rel);
 
     for rel in cfg.indexes().iter().map(|s| s.trim_start_matches('/')) {
-        // INVARIANT `EXECUTION_IO: OPCACHE_OWNS_FRESHNESS` — canonical text in
-        // `crates/claviron-php/ARCHITECTURE.md`. A `.php` index belongs to the
+        // INVARIANT `EXECUTION_IO: OPCACHE_OWNS_FRESHNESS`. A `.php` index belongs to the
         // PHP resolver, which finds it by name. Skip it here by name too,
         // without building a path or touching the disk for it.
         //
@@ -349,8 +348,7 @@ async fn try_files(
     }
 }
 
-/// INVARIANT `EXECUTION_IO: OPCACHE_OWNS_FRESHNESS` — canonical text in
-/// `crates/claviron-php/ARCHITECTURE.md`.
+/// INVARIANT `EXECUTION_IO: OPCACHE_OWNS_FRESHNESS`.
 ///
 /// This is the name-only test that keeps a PHP path out of the file service
 /// before any IO happens. It runs first in `serve_with_policy_and_condition`,

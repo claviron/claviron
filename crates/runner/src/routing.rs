@@ -300,8 +300,6 @@ impl Routing {
 /// the guards, then what the application composed.
 pub struct Application {
     service: Arc<dyn ErasedService>,
-    #[cfg(feature = "broadcast")]
-    broadcast: Option<Arc<crate::broadcast::Broadcast>>,
     upgrades: Option<Arc<dyn ErasedService>>,
     sessions: Option<crate::orbit::OrbitSession>,
     policy: HttpPolicy,
@@ -311,12 +309,6 @@ impl Application {
     pub(crate) fn orbit_session(&self) -> Option<crate::orbit::OrbitSession> {
         self.sessions.clone()
     }
-    /// The broadcast service's place in front of the owner, when present.
-    #[cfg(feature = "broadcast")]
-    pub(crate) fn broadcast(&self) -> Option<&crate::broadcast::Broadcast> {
-        self.broadcast.as_deref()
-    }
-
     /// Hand a request to whatever the application composed.
     ///
     /// Every ingress arrives here, which is why the exchange is counted and
@@ -330,23 +322,9 @@ impl Application {
         let exchange = claviron_runtime::activity::ACTIVITY.begin();
         let policy = self.policy;
         let service = Arc::clone(&self.service);
-        // An upgrade the broadcast service claims goes to it, in front of the
-        // owner; any other is the owner's to claim.
-        #[cfg(feature = "broadcast")]
-        let broadcasting = self
-            .broadcast
-            .as_ref()
-            .is_some_and(|broadcast| broadcast.accepts(&request));
-        #[cfg(not(feature = "broadcast"))]
-        let broadcasting = false;
         let upgrades = self.upgrades.clone();
         async move {
-            let response = if broadcasting {
-                let Ok(response) = service.call_erased(request).await;
-                response
-            } else {
-                guarded(policy, service, upgrades, request).await
-            };
+            let response = guarded(policy, service, upgrades, request).await;
             drop(exchange);
             response
         }
@@ -549,30 +527,8 @@ fn compose_service(
         }
         None => service,
     };
-    #[cfg(feature = "broadcast")]
-    let (broadcast, service) = {
-        let inner = Arc::clone(&service);
-        let router =
-            axum::Router::new().fallback(
-                move |request: axum::extract::Request| {
-                    let inner = Arc::clone(&inner);
-                    async move {
-                        inner.call_erased(request.map(RequestBody::new)).await
-                    }
-                },
-            );
-        match crate::broadcast::Broadcast::wrap(state, router)? {
-            (Some(broadcast), router) => (
-                Some(broadcast),
-                Arc::new(Erased(router)) as Arc<dyn ErasedService>,
-            ),
-            (None, _) => (None, service),
-        }
-    };
     state.registry_ref().insert(Arc::new(Application {
         service,
-        #[cfg(feature = "broadcast")]
-        broadcast,
         upgrades,
         sessions,
         policy: routing.policy,

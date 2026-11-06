@@ -28,9 +28,9 @@ claviron = { version = "0.2", features = ["edge"] }
 ```
 
 `http` exposes framework-neutral HTTP primitives; `axum` adds its Rust router
-API. HostPipeline preparation, file steps, embedded PHP/Lua, Upstream and Link
-use native request/response ownership. Axum is an optional Rust application
-adapter, not their host compiler. Embedded PHP does not select Axum by itself.
+API. HostPipeline preparation, file steps, registered backends, Upstream and
+Link use native request/response ownership. Axum is an optional Rust application
+adapter, not their host compiler.
 
 `files` exposes static-file serving and its cache lifecycle independently of
 `edge`. Application servers provide a `files::FileSite`; virtual hosts are not
@@ -190,28 +190,6 @@ Python/native profiling needs frame pointers through the final application and
 all native dependencies: select the Rust flag in the application's shared build
 configuration, not in a library build script or per-command environment.
 
-`php_embed` exposes the embedded PHP runtime independently of `edge`.
-It enables PHP edge dispatch only when that optional dependency is already
-selected. A standalone PHP runner can compose `server`, `axum` (for the
-shared HTTP contract), and `php_embed` without booting vhosts or listeners
-owned by the edge preset.
-
-`upgrade` and `broadcast` are also independent of the edge preset.
-They expose native upgrade hand-off and the live broadcast service to
-application-owned listeners. Their edge routing bindings are enabled only when
-the edge dependency is selected separately. `laravel` can therefore provide
-its native PHP broadcaster against a local Broadcast service without booting a
-second HTTP edge. Pusher wire types live under
-`claviron::broadcast::protocol::pusher`. The broadcast crate's own optional
-`pusher` feature adds the external HTTP compatibility adapter. Edge broadcast
-bindings select it internally; the facade exposes only `broadcast`. The service loads `broadcast.yaml`. The previous
-`soketi`/`pusher` facade features and `soketi.yaml` have been replaced by this
-capability naming; WebSocket event names and signatures remain Pusher-compatible.
-
-`websocket` enables configured Lua H1/H2 endpoint registration when `edge`
-and `lua` are already selected, as well as the engine's WebSocket support.
-It does not implicitly select Lua or Edge for other WebSocket consumers.
-
 `edge` preserves the former `server` composition and boots cleartext H1 without
 certificate configuration. TLS termination is an explicit `tls` facade
 capability (which enables Hyper's TLS driver
@@ -283,39 +261,6 @@ in this workspace does not make it a dependency of the facade.
 Consumers select the engine's own features, register its service explicitly,
 and compose `claviron_js::routing::build_router` or their route extension.
 Edge no longer installs JavaScript routes or WebSocket bindings implicitly.
-
-`php_embed` exposes `claviron::ephp::{PhpEmbedRuntime, RequestPool,
-DedicatedPhpProgram}`. It does not implicitly register PHP during server
-bootstrap. Applications call `claviron::ephp::register(state)` like other
-configured subsystems; the embed crate reads `php.yaml`, resolves dedicated
-`env_file` entries and constructs the typed service internally. Inline environment
-values take precedence. Alternatively, explicit builder composition remains
-configuration-free and can register an optional request pool and named programs
-without any YAML file. Operator files and script paths remain application-owned,
-but their schema, parsing, defaults and validation belong to the library.
-Providers may contribute definitions during boot via
-`state.php_embed()?.register_dedicated(program)?` (`PhpEmbedStateExt`). The
-catalog closes on the first start, after all boot contributions. One process
-shares a SAPI module; request-pool slots and dedicated OS/ZTS threads have
-separate ownership.
-
-`PhpEmbedRuntime` (also named `PhpEmbedRuntime`) is the shared, non-runnable
-provider. Registration adds the independent `PhpScriptService` and
-`PhpApplicationService` runnables only on workers/standalone, retaining common
-provider/master infrastructure without PHP execution on master, and installs
-the `php:` task executor on `TaskService`. `PhpScriptService`
-aliases the request runnable for HTTP adapters. Each service stops, joins and
-restarts only its own threads over the retained process SAPI, without rereading
-configuration or reinitializing PHP modules. Managed execution failures leave
-the other service running; native process crashes are not isolated.
-
-A named background PHP program is a `php:` task (`docs/PHP-TASK-EXECUTOR.md`), so its
-placement, retry and drain are the task's: `scope`, `dispatch`, `concurrency`,
-`attempts`, `backoff` and `graceful_timeout`, read by `TaskService` exactly as
-for the `builtin` and `command` kinds. Master is never eligible, because the
-engine is not there — `TaskExecutorKind::Php` defaults `scope` to `workers`.
-`php-embed` supplies only the execution: one closure, installed
-through `TaskService::set_php_executor`.
 
 `tasks` owns an unconditional internal Orbit dependency because
 `dispatch: one` and non-standalone `dispatch: pool` have no alternate
@@ -450,8 +395,7 @@ and features and requires `CARGO_BUILD_TARGET=aarch64-unknown-freebsd`.
 Cross-build success is not evidence that FreeBSD runtime tests passed.
 
 Runners must provide Rust, Cargo, Just, Bash, and the native build dependencies
-required by the enabled subsystems, including compatible PHP embed development
-files, `php-config`, and libclang. Cross runners also need the matching FreeBSD
+required by the enabled subsystems. Cross runners also need the matching FreeBSD
 toolchain, sysroot, and target libraries. The workflow does not provision an app,
 load an app's `.env`, or install those dependencies. `Cargo.lock` is not tracked
 in this library workspace, so these recipes do not use `--locked`.

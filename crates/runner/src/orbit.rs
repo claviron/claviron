@@ -628,53 +628,6 @@ async fn serve(
             body: exchange.body,
         };
         let request = session_request(&exchange, shutdown);
-        // A Pusher client's WebSocket is a broadcast session, served here
-        // and not by the owner. The session is held before it is
-        // acknowledged, so a 101 never announces one that could not start.
-        #[cfg(feature = "broadcast")]
-        if let (Ok(request), Some(broadcast)) =
-            (&request, application.broadcast())
-            && let Some(accepting) = broadcast.accept_orbit(request)
-        {
-            let host = request
-                .headers()
-                .get(http::header::HOST)
-                .and_then(|host| host.to_str().ok())
-                .unwrap_or_default()
-                .to_owned();
-            let webtransport = crate::broadcast::is_webtransport(request);
-            let outcome = accepting.await;
-            match (outcome, body) {
-                (Ok(session), Some(mut endpoint)) => {
-                    if !handshake.try_answer(101, Vec::new()) {
-                        endpoint.reset();
-                        return;
-                    }
-                    let _activity =
-                        claviron_runtime::activity::ACTIVITY.open_session();
-                    if let Err(error) = crate::broadcast::serve_orbit(
-                        session,
-                        host,
-                        webtransport,
-                        endpoint,
-                    )
-                    .await
-                    {
-                        tracing::debug!(
-                            correlation,
-                            "🛰 broadcast session ended: {error}"
-                        );
-                    }
-                }
-                (Ok(_), None) => {
-                    handshake.refuse(400, None);
-                }
-                (Err(status), endpoint) => {
-                    handshake.refuse(status.as_u16(), endpoint);
-                }
-            }
-            return;
-        }
         match (sessions, body, request) {
             (Some(sessions), Some(endpoint), Ok(request)) => {
                 let _activity =

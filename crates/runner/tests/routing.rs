@@ -16,8 +16,6 @@ where
 {
     Application {
         service: Arc::new(Erased(service)),
-        #[cfg(feature = "broadcast")]
-        broadcast: None,
         upgrades: None,
         sessions: None,
         policy,

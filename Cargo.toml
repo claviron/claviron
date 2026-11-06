@@ -1,6 +1,6 @@
 [package]
 name = "claviron"
-keywords = ["http", "runtime", "php", "http3", "shared-memory"]
+keywords = ["http", "runtime", "edge", "http3", "shared-memory"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming", "concurrency"]
 description = "Embeddable Rust runtime and server fabric for fleet-aware application servers"
 authors.workspace = true
@@ -22,7 +22,7 @@ include = ["/src/**/*.rs", "/build.rs", "/README.md", "/LICENSE-MIT", "/LICENSE-
 default = []
 
 # ── Core ─────────────────────────────────────────────────────────────
-auth = ["dep:claviron-auth", "claviron-auth/csrf", "claviron-php-embed?/auth"]
+auth = ["dep:claviron-auth", "claviron-auth/csrf"]
 users = ["auth", "claviron-auth/users"]
 authorization = ["auth", "claviron-auth/authorization"]
 application = ["runtime", "dep:claviron-app"]
@@ -43,9 +43,7 @@ log-pipeline = [
     "orbit",
     "claviron-logging/pipeline",
     "claviron-edge?/access-log",
-    "claviron-php-embed?/log-pipeline",
     "claviron-tasks?/log-pipeline",
-    "claviron-lua?/log",
 ]
 # The OTLP channel adapter (OpenTelemetry logs over OTLP/HTTP).
 log-otlp = ["log-pipeline", "claviron-logging/otlp"]
@@ -60,9 +58,6 @@ runner-watch = ["runner", "claviron-runner/watch"]
 
 # Add command-line options to an already-selected runner.
 runner-cli = ["claviron-runner?/cli"]
-# Lua 5.5 scripts in a fresh sandboxed state each; with `orbit`, the fleet's
-# state as Lua modules, and with `tasks`, `lua:` tasks. See crates/lua/ARCHITECTURE.md.
-lua = ["dep:claviron-lua", "claviron-lua/orbit", "claviron-lua/server", "claviron-lua/app", "claviron-lua/fetch"]
 
 runtime = ["dep:claviron-runtime"]
 # Native configuration notifications for opt-in ConfigObserver owners.
@@ -99,10 +94,6 @@ supervisor = ["server", "dep:claviron-supervisor", "claviron-runner?/supervisor"
 # The supervised HTTP edge with native host routing and file serving.
 # Select `axum` separately for Rust Axum applications.
 edge = [
-    "claviron-broadcast?/edge",
-    "claviron-lua?/edge",
-    "claviron-php-embed?/backend",
-    "claviron-php-fcgi?/backend",
     "supervisor",
     "http",
     "files",
@@ -130,14 +121,12 @@ metrics = [
     "claviron-http?/metrics",
     "claviron-upstream?/metrics",
     "claviron-files?/metrics",
-    "claviron-php-fcgi?/metrics",
-    "claviron-php-embed?/metrics",
     "claviron-tasks?/metrics",
 ]
 ffi = ["dep:claviron-ffi"]
 # ── Protocols ────────────────────────────────────────────────────────
 http3 = [
-    "tls", "claviron-edge/quic", "dep:quinn", "dep:quinn-deferred-config",
+    "tls", "claviron-edge/quic", "dep:quinn",
     "dep:claviron-transport", "claviron-transport/edge", "claviron-transport/quic",
 ]
 # DNS origins are always available; the application binds the resolver
@@ -147,10 +136,8 @@ upstream = ["edge", "dep:claviron-upstream", "claviron-upstream/edge", "resolver
 resolver = ["dep:claviron-resolver"]
 resolver-hickory = ["resolver", "claviron-resolver/hickory"]
 # http connect extensions
-websocket = ["claviron-http/websocket", "claviron-edge?/websocket", "claviron-transport?/websocket", "claviron-runner?/websocket", "claviron-lua?/websocket", "http"]
-webtransport = ["edge", "http3", "claviron-edge/webtransport", "claviron-transport/webtransport", "claviron-lua?/webtransport", "claviron-broadcast?/webtransport"]
-# pusher and broadcast replacement for embeded apps
-broadcast = ["websocket", "dep:claviron-broadcast", "claviron-runner?/broadcast"]
+websocket = ["claviron-http/websocket", "claviron-edge?/websocket", "claviron-transport?/websocket", "claviron-runner?/websocket", "http"]
+webtransport = ["edge", "http3", "claviron-edge/webtransport", "claviron-transport/webtransport"]
 
 # ── TLS / SSL ────────────────────────────────────────────────────────
 mtls = ["ssl"]
@@ -158,18 +145,14 @@ ssl = ["dep:claviron-types", "claviron-types/ssl"]
 tls = ["ssl", "dep:claviron-tls", "claviron-edge?/tls", "claviron-transport?/tls", "claviron-runner?/tls"]
 
 # ── Data ─────────────────────────────────────────────────────────────
-cache = ["dep:claviron-cache", "claviron-cache/axum", "claviron-http?/cache", "claviron-files?/cache", "claviron-php-embed?/cache"]
+cache = ["dep:claviron-cache", "claviron-cache/axum", "claviron-http?/cache", "claviron-files?/cache"]
 db = ["dep:claviron-db", "dep:sqlx", "claviron-tls?/db"]
-postgres = ["db", "claviron-db/postgres", "sqlx/postgres", "claviron-php-embed?/postgres", "claviron-hosting?/postgres", "claviron-tls?/postgres", "claviron-edge?/postgres", "claviron-lua?/postgres"]
-mysql = ["db", "claviron-db/mysql", "sqlx/mysql", "claviron-php-embed?/mysql", "claviron-lua?/mysql"]
-sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite", "claviron-php-embed?/sqlite", "claviron-hosting?/sqlite", "claviron-tls?/sqlite", "claviron-lua?/sqlite"]
+postgres = ["db", "claviron-db/postgres", "sqlx/postgres", "claviron-hosting?/postgres", "claviron-tls?/postgres", "claviron-edge?/postgres"]
+mysql = ["db", "claviron-db/mysql", "sqlx/mysql"]
+sqlite = ["db", "claviron-db/sqlite", "sqlx/sqlite", "claviron-hosting?/sqlite", "claviron-tls?/sqlite"]
 redis = ["claviron-cache?/redis", "dep:redis"]
 
 # ── Apps / services ──────────────────────────────────────────────────
-php = ["dep:claviron-php"]
-php_fcgi = ["php", "edge", "dep:claviron-php-fcgi", "claviron-php/php_fcgi"]
-# A PHP application server need not carry edge dispatch or virtual hosts.
-php_embed = ["php", "dep:claviron-php-embed", "claviron-php/php_embed"]
 # ── Hosting / domains ────────────────────────────────────────────────
 # DB-managed vhost aliases and TLS certificates. This is an operational
 # hosting mode, not the generic ability to open a database connection.
@@ -177,14 +160,13 @@ hosting = ["tls", "db", "dep:claviron-hosting", "claviron-edge?/db"]
 
 # ── Misc ─────────────────────────────────────────────────────────────
 geoip = ["dep:claviron-geoip", "claviron-transport?/geoip"]
-tasks = ["dep:claviron-tasks", "dep:tokio-util", "claviron-lua?/tasks", "claviron-files?/tasks", "claviron-php-fcgi?/tasks", "claviron-php-embed?/tasks"]
+tasks = ["dep:claviron-tasks", "dep:tokio-util", "claviron-files?/tasks"]
 sys = ["dep:claviron-sys"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-app = { workspace = true, optional = true }
 claviron-auth = { workspace = true, optional = true }
-claviron-broadcast = { workspace = true, optional = true }
 claviron-cache = { workspace = true, optional = true }
 claviron-db = { workspace = true, default-features = true, optional = true }
 claviron-edge = { workspace = true, optional = true }
@@ -195,11 +177,7 @@ claviron-helpers.workspace = true
 claviron-hosting = { workspace = true, optional = true }
 claviron-http = { workspace = true, optional = true }
 claviron-logging = { workspace = true, optional = true }
-claviron-lua = { workspace = true, optional = true }
 claviron-orbit = { workspace = true, optional = true }
-claviron-php = { workspace = true, optional = true }
-claviron-php-embed = { workspace = true, optional = true }
-claviron-php-fcgi = { workspace = true, optional = true }
 claviron-resolver = { workspace = true, optional = true }
 claviron-runner = { workspace = true, optional = true }
 claviron-runtime = { workspace = true, optional = true }
@@ -246,7 +224,6 @@ tracing.workspace = true
 
 # ── HTTP/3 (QUIC) ───────────────────────────────────────────────────────
 quinn = { workspace = true, optional = true, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
-quinn-deferred-config = { workspace = true, optional = true, features = ["rustls-aws-lc-rs"] }
 
 # ── Published sibling libraries shared through workspace dependencies ───
 orbitive.workspace = true
@@ -272,7 +249,6 @@ tokio-rustls.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
-tempfile = "3"
 
 [[bench]]
 name = "dispatch-edge-other"
@@ -373,10 +349,18 @@ test = false
 required-features = ["edge", "axum", "tls"]
 
 [workspace]
+# Moving to repositories of their own.
+exclude = [
+    "crates/broadcast",
+    "crates/lua",
+    "crates/php",
+    "crates/php-embed",
+    "crates/php-fcgi",
+    "crates/pusher",
+]
 members = [
     "crates/app",
     "crates/auth",
-    "crates/broadcast",
     "crates/cache",
     "crates/db",
     "crates/edge",
@@ -387,14 +371,9 @@ members = [
     "crates/hosting",
     "crates/http",
     "crates/logging",
-    "crates/lua",
     "crates/macros",
     "crates/orbit",
     "crates/pipeline",
-    "crates/php",
-    "crates/php-embed",
-    "crates/php-fcgi",
-    "crates/pusher",
     "crates/resolver",
     "crates/runner",
     "crates/runtime",
@@ -431,7 +410,6 @@ publish = true
 # ── Internal workspace crates ────────────────────────────────────────
 claviron-app = { version = "0.2.0-alpha.24", path = "crates/app" }
 claviron-auth = { version = "0.2.0-alpha.24", path = "crates/auth" }
-claviron-broadcast = { version = "0.2.0-alpha.24", path = "crates/broadcast" }
 claviron-cache = { version = "0.2.0-alpha.24", path = "crates/cache" }
 claviron-db = { version = "0.2.0-alpha.24", path = "crates/db", default-features = false }
 claviron-edge = { version = "0.2.0-alpha.24", path = "crates/edge" }
@@ -442,14 +420,9 @@ claviron-helpers = { version = "0.2.0-alpha.24", path = "crates/helpers" }
 claviron-hosting = { version = "0.2.0-alpha.24", path = "crates/hosting" }
 claviron-http = { version = "0.2.0-alpha.24", path = "crates/http" }
 claviron-logging = { version = "0.2.0-alpha.24", path = "crates/logging" }
-claviron-lua = { version = "0.2.0-alpha.24", path = "crates/lua" }
 claviron-macros = { version = "0.2.0-alpha.24", path = "crates/macros" }
 claviron-orbit = { version = "0.2.0-alpha.24", path = "crates/orbit" }
 claviron-pipeline = { version = "0.2.0-alpha.24", path = "crates/pipeline" }
-claviron-php = { version = "0.2.0-alpha.24", path = "crates/php" }
-claviron-php-embed = { version = "0.2.0-alpha.24", path = "crates/php-embed" }
-claviron-php-fcgi = { version = "0.2.0-alpha.24", path = "crates/php-fcgi" }
-claviron-pusher = { version = "0.2.0-alpha.24", path = "crates/pusher" }
 claviron-resolver = { version = "0.2.0-alpha.24", path = "crates/resolver", default-features = false }
 claviron-runner = { version = "0.2.0-alpha.24", path = "crates/runner" }
 claviron-runtime = { version = "0.2.0-alpha.24", path = "crates/runtime" }
@@ -463,7 +436,6 @@ claviron-upstream = { version = "0.2.0-alpha.24", path = "crates/upstream" }
 # ── Async runtime & primitives ───────────────────────────────────────
 arc-swap = "1.9"
 async-trait = "0.1"
-futures = "0.3"
 futures-util = "0.3"
 pin-project-lite = "0.2"
 tokio = "1"
@@ -479,7 +451,6 @@ serde_regex = "1.1"
 serde_yaml = "0.9"
 hex = "0.4"
 hmac = "0.13"
-md-5 = "0.11"
 sha2 = "0.11"
 # ── Proc macros ─────────────────────────────────────────────────────
 proc-macro2 = "1.0"
@@ -498,9 +469,6 @@ percent-encoding = "2.3"
 # ── Web framework (axum + tower) ─────────────────────────────────────
 axum = "0.8"
 tower = "0.5"
-# ── PHP / FFI ────────────────────────────────────────────────────────
-fastcgi-client = "0.12"
-ext-php-rs = { version = "0.16", default-features = false }
 # ── TLS / certificates ───────────────────────────────────────────────
 rcgen = "^0.14"
 rustls = { version = "0.23", default-features = false }

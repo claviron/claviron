@@ -46,7 +46,6 @@ regex.workspace = true
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_yaml.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs", "io-util", "macros", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }
 tower = { workspace = true, features = ["util"] }
 tracing.workspace = true

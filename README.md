@@ -28,7 +28,7 @@ lifecycle.
 - **Shared runtime state:** Orbit integration for same-host events, keyed state,
   counters, locks, invocation transport, and application links.
 - **Optional infrastructure:** tasks, database pools, cache stores, authentication
-  contracts, WebSockets, broadcasting, logging, and metrics.
+  contracts, WebSockets, logging, and metrics.
 
 Cargo features select capabilities; typed registration and configuration
 determine how they run.
@@ -89,29 +89,13 @@ are available through the [managed extensions](#managed-extensions-and-clients).
 
 ### Language engines and framework adapters
 
-| Crate | Responsibility | Facade selection |
-| --- | --- | --- |
-| [php](crates/php/README.md) | Shared PHP configuration and execution-adapter contracts. | `php` |
-| [php-embed](crates/php-embed/README.md) | Embedded ZTS PHP with request-scoped Script mode, persistent Application mode, native functions, and fixed or elastic pools. | `php_embed` (includes `php`) |
-| [php-fcgi](crates/php-fcgi/README.md) | Dispatch to PHP-FPM through FastCGI rather than embedding Zend. | `php_fcgi` (includes `php`) |
-| [lua](crates/lua/README.md) | Lua 5.5 scripts, managed Olua applications, and Rust-provided modules. | `lua` (includes outbound HTTP) |
-
-**Script mode** runs PHP request startup and shutdown for each request, including
-an ordinary Laravel or Symfony front controller. **Application mode** keeps the
-application booted: the Laravel Octane adapter or Symfony persistent-kernel
-adapter receives native request envelopes and returns responses through an
-explicit receive/respond loop. Both modes support elastic pools that grow within
-declared capacity and retire excess idle instances.
-
-Install the companion Composer package for Laravel or Symfony integration.
-Lua likewise supports fresh script states and persistent application states.
+PHP, Lua and broadcasting are moving to repositories of their own and are not
+part of this workspace. They implement `claviron-pipeline`'s backend contract.
 
 Laravel's native and Composer adapters live in the independent
-[Lumenize library](https://github.com/claviron/lumenize). A custom Edge host
-registers those adapters during its own boot without using Lumenize Runner.
-The [Symfony Composer adapter](https://github.com/claviron/skene/tree/main/php)
-lives in Skene. The general PHP engine stays framework-independent, selected
-with `php_embed`.
+[Lumenize library](https://github.com/claviron/lumenize). The
+[Symfony Composer adapter](https://github.com/claviron/skene/tree/main/php)
+lives in Skene.
 
 ### Companion JavaScript integrations
 
@@ -135,8 +119,6 @@ multiple application instances can join while retaining their own runtime.
 | Crate | Responsibility | Facade selection |
 | --- | --- | --- |
 | [http::upgrade](crates/http/docs/upgrade/README.md) | HTTP/1 WebSocket admission and listener-owned handoff; also exposed as `claviron::websocket`. | `websocket` |
-| [pusher](crates/pusher/README.md) | Pusher-compatible wire messages, signing, and channel authorization primitives. | Through `broadcast::protocol::pusher`; no separate facade feature |
-| [broadcast](crates/broadcast/README.md) | Live broadcast applications, publication, presence, and delivery. | `broadcast` (includes `websocket`; Edge integration only with `edge`) |
 
 ### Observability and native benchmark workloads
 
@@ -160,9 +142,7 @@ multiple application instances can join while retaining their own runtime.
 
 Features combine at the facade:
 
-- `lua` + `tasks` installs the Lua task executor; `lua` + `websocket` enables its
-  socket integration.
-- `tls`, `files`, `broadcast`, and `websocket` extend an already-selected runner
+- `tls`, `files`, and `websocket` extend an already-selected runner
   where supported; they do not select `runner` themselves.
 - `metrics` and `log-pipeline` add instrumentation to selected subsystems.
 - `postgres`, `mysql`, and `sqlite` each select `db`, exposing the shared database
@@ -257,7 +237,7 @@ Rust routes to their existing pipelines. Host selection and route construction
 happen during boot or reload.
 
 Requests not claimed by native routes continue to the configured owner: an
-embedded application, PHP-FPM, an HTTP upstream, or an Orbit-linked application.
+registered backend, an HTTP upstream, or an Orbit-linked application.
 
 Host admission still applies. Authentication, CSRF, and authorization for the
 intercepted routes must be composed explicitly; native handlers do not inherit
@@ -332,8 +312,8 @@ actually needs:
 - `edge` composes the supervised HTTP edge with native host routing, static-file
   support, and native cleartext HTTP/1 and HTTP/2 ingress.
 
-Add `axum` for Axum Rust applications, or `tls`, `http3`, `php_embed`, `tasks`,
-and `cache` as needed.
+Add `axum` for Axum Rust applications, or `tls`, `http3`, `tasks`, and `cache`
+as needed.
 
 Applications register their own components through `Server::register` or
 `Server::with_services`, then provide the configuration and adapters their

@@ -368,32 +368,6 @@ pub fn register(state: &AppState) -> Result<()> {
     #[cfg(feature = "tasks")]
     claviron_tasks::register(state)?;
 
-    // Lua scripts reach the fleet's cells, whether or not an engine that
-    // registers them too is built in.
-    #[cfg(feature = "lua")]
-    claviron_orbit::register_cells(state)?;
-    // And streams between two scripts, or a script and anything else holding
-    // the far side.
-    #[cfg(feature = "lua")]
-    claviron_orbit::register_streams(state)?;
-    // Applications `lua.yaml` declares, loaded in each worker.
-    #[cfg(feature = "lua")]
-    claviron_lua::serve::register(state)?;
-    // Application events reach Lua scripts from the whole fleet.
-    #[cfg(feature = "lua")]
-    claviron_lua::events::register(state)?;
-    // …and the fleet's invocations, sent and served.
-    #[cfg(feature = "lua")]
-    claviron_orbit::register_invoke(state)?;
-    // `lua.yaml`'s search path for `require`.
-    #[cfg(feature = "lua")]
-    claviron_lua::config::register(state)?;
-
-    // `lua:` tasks: installed on the task service just registered.
-    #[cfg(all(feature = "lua", feature = "tasks"))]
-    claviron_lua::task::register(state)
-        .map_err(claviron_runtime::registry::Error::msg)?;
-
     // The Rust side of invocations: one `invoke-router` task in the fleet
     // serves every operation registered on `InvocationRouter`, answering on
     // the application event bus. Registered here because the router (app)
@@ -443,29 +417,11 @@ pub fn register(state: &AppState) -> Result<()> {
     #[cfg(feature = "upstream")]
     claviron_upstream::register(state)?;
 
-    #[cfg(feature = "php_fcgi")]
-    claviron_php_fcgi::register(state)?;
-
-    #[cfg(feature = "php_embed")]
-    claviron_php_embed::register(state)?;
-
     #[cfg(feature = "cache")]
     claviron_cache::register(state)?;
 
-    #[cfg(feature = "broadcast")]
-    claviron_broadcast::register(state)?;
-
     #[cfg(feature = "edge")]
     claviron_edge::register(state)?;
-    #[cfg(all(feature = "edge", feature = "broadcast"))]
-    claviron_broadcast::edge::register(state)?;
-    #[cfg(all(feature = "edge", feature = "lua"))]
-    claviron_lua::edge::register(state)?;
-    #[cfg(all(
-        feature = "edge",
-        any(feature = "php_embed", feature = "php_fcgi")
-    ))]
-    super::backends::register(state)?;
     #[cfg(feature = "upstream")]
     claviron_upstream::edge::register(state)?;
     // The static file cache learns about changed files from a reload, not

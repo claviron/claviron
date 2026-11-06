@@ -48,4 +48,4 @@ host-selected providers, Link dispatch and H1 upgrade endpoints.
 
 Link dispatch and its session bindings, the host-keyed `HostAppRegistry`,
 `Routable`, H2 CONNECT and WebTransport registries, and the H1 upgrade stage.
-Lua, broadcast and upstream reach this crate through Edge's re-exports.
+Upstream reaches this crate through Edge's re-exports.

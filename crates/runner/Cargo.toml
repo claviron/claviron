@@ -28,8 +28,6 @@ files = [
     "claviron-files/axum",
 ]
 
-# Claviron's broadcasting in front of the owner, on the sockets and over Orbit.
-broadcast = ["axum", "dep:claviron-broadcast", "claviron-http/websocket"]
 # The launch's shared options from the command line.
 cli = ["dep:clap"]
 # Workers under Claviron's supervisor, and its section of the launch.
@@ -42,7 +40,6 @@ watch = ["dep:notify"]
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-app.workspace = true
-claviron-broadcast = { workspace = true, optional = true }
 claviron-files = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }

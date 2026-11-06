@@ -24,7 +24,6 @@ Repository-local skills provide focused guidance for coding agents:
 
 - [Services](.agents/skills/claviron-services/SKILL.md): DI, configuration, and lifecycle.
 - [Routing](.agents/skills/claviron-routing/SKILL.md): Edge, Runner, and Rust interception.
-- [PHP](.agents/skills/claviron-php/SKILL.md): execution modes and native framework bridges.
 - [Orbit](.agents/skills/claviron-orbit/SKILL.md): shared state, Link, and SHM ownership.
 - [Testing](.agents/skills/claviron-testing/SKILL.md): regression tests and verification scope.
 
@@ -34,9 +33,7 @@ They are usable without the unpublished architecture documents.
 
 Use stable Rust with rustfmt and Clippy. Select the features needed by the crate
 you are changing; the facade has no default features. Native integrations may
-need additional tools. Embedded PHP, for example, requires a matching ZTS embed
-build and `PHP` / `PHP_CONFIG` settings; see its
-[requirements](crates/php-embed/README.md#requirements-and-optional-capabilities).
+need additional tools.
 
 ### Local Python tools
 
