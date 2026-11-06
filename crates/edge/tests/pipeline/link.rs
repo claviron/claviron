@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::task::{Context, Poll, Waker};
 
-use claviron_orbit::transport::{Message, read_message, write_message};
+use claviron_orbit::link::application::{Message, read_message, write_message};
 use fastwebsockets::{Frame, OpCode, Payload, Role, WebSocket};
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
 use tokio_util::sync::CancellationToken;

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use arc_swap::{ArcSwap, Guard};
 
-use super::{Exchange, Inbox, Pending, Result, TransportClient};
+use super::{ApplicationClient, Exchange, Inbox, Pending, Result};
 
 /// One application in an already joined destination fleet.
 ///
@@ -12,10 +12,10 @@ use super::{Exchange, Inbox, Pending, Result, TransportClient};
 /// client or application name in a map. Lane membership is refreshed only
 /// when Link's directory generation changes; admission and depth remain live.
 #[derive(Clone)]
-pub struct TransportTarget(Arc<Prepared>);
+pub struct ApplicationTarget(Arc<Prepared>);
 
 struct Prepared {
-    client: Arc<TransportClient>,
+    client: Arc<ApplicationClient>,
     application: Arc<str>,
     lanes: Lanes,
 }
@@ -69,9 +69,9 @@ impl Lanes {
     }
 }
 
-impl TransportTarget {
+impl ApplicationTarget {
     pub(super) fn new(
-        client: Arc<TransportClient>,
+        client: Arc<ApplicationClient>,
         application: Arc<str>,
     ) -> Self {
         let lanes = Lanes::new(client.inbox(), &application);
@@ -101,5 +101,5 @@ impl TransportTarget {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/link/transport/target.rs"]
+#[path = "../../../tests/link/application/target.rs"]
 mod tests;

@@ -362,14 +362,14 @@ impl VhostResolver {
         // The master does not build request routers, but owns worker exit
         // cleanup. Retain destinations of accepted work across route reloads.
         #[cfg(feature = "orbit")]
-        if let Some(transport) = self.state.get().and_then(|state| {
+        if let Some(applications) = self.state.get().and_then(|state| {
             state
                 .registry_ref()
-                .resolve::<claviron_orbit::transport::TransportService>()
+                .resolve::<claviron_orbit::link::application::ApplicationService>()
         }) {
             for (_, record) in table.canonical_entries() {
                 for (_, route) in record.config.link_routes() {
-                    transport
+                    applications
                         .track_target(route.fleet_name, &route.application);
                 }
             }

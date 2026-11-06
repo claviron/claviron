@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use claviron_orbit::link::application::ApplicationSegment;
 use claviron_orbit::shm::{ManagedShmProvider, ReusableOrbitRing};
-use claviron_orbit::transport::TransportSegment;
 use claviron_orbit::{FleetEventRegistry, FleetProvider};
 use claviron_runtime::registry::{
     self, Bootable, Component, ComponentOrder, Runnable,
@@ -159,7 +159,7 @@ impl Runnable<AppState, (Arc<ApplicationManager>, Arc<FleetProvider>)>
             if let Err(error) = snapshot::publish(&fleet, &local, member) {
                 warn!(%error, "application snapshot publication failed");
             }
-            match TransportSegment::existing_for_fleet(state.fleet_name()) {
+            match ApplicationSegment::existing_for_fleet(state.fleet_name()) {
                 Ok(Some(segment)) => {
                     match snapshot::encode_local_rows(&local, member) {
                         Ok(rows) => {
@@ -176,7 +176,7 @@ impl Runnable<AppState, (Arc<ApplicationManager>, Arc<FleetProvider>)>
                 }
                 Ok(None) => {}
                 Err(error) => {
-                    warn!(%error, "linked application transport is unavailable")
+                    warn!(%error, "application link is unavailable")
                 }
             }
         }

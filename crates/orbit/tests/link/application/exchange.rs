@@ -11,8 +11,8 @@ use orbitive::{Fleet, NodeId};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
-use crate::transport::{
-    Exchange, ExchangeReply, TransportBodies, TransportSegment,
+use crate::link::application::{
+    ApplicationBodies, ApplicationSegment, Exchange, ExchangeReply,
 };
 
 const EDGE: usize = 0;
@@ -21,8 +21,8 @@ const FLEET_CAPACITY: usize = 4;
 
 /// Both tables as one side holds them.
 struct Side {
-    inbox: TransportSegment,
-    bodies: TransportBodies,
+    inbox: ApplicationSegment,
+    bodies: ApplicationBodies,
 }
 
 struct Wires {
@@ -40,8 +40,8 @@ impl Drop for Wires {
 fn wires(tag: &str) -> Wires {
     let name = format!("te{tag}{:x}", std::process::id());
     let open = |node: u16| Side {
-        inbox: TransportSegment::open(&name, FLEET_CAPACITY).expect("inbox"),
-        bodies: TransportBodies::open(
+        inbox: ApplicationSegment::open(&name, FLEET_CAPACITY).expect("inbox"),
+        bodies: ApplicationBodies::open(
             Arc::new(
                 Fleet::join_shm_as(
                     &name,
@@ -205,7 +205,7 @@ async fn an_exchange_with_no_request_body_still_carries_a_reply() {
 }
 
 /// Writing into a mailbox nobody empties would leave a caller waiting for an
-/// answer that cannot come. The transport refuses at the door, and the caller
+/// answer that cannot come. The link refuses at the door, and the caller
 /// turns that into a 503 rather than a timeout.
 #[test]
 fn an_application_with_no_worker_is_refused_rather_than_queued() {
@@ -223,7 +223,7 @@ fn an_application_with_no_worker_is_refused_rather_than_queued() {
     );
     assert!(matches!(
         edge.inbox.inbox().admits(WORKER),
-        Ok(crate::transport::Admission::NoConsumer)
+        Ok(crate::link::application::Admission::NoConsumer)
     ));
     assert!(edge.inbox.inbox().write(WORKER, b"nobody home").is_err());
 }

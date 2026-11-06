@@ -5,7 +5,7 @@ use orbitive::{Fleet, NodeId};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
-use crate::transport::{Error, TRANSPORT_BUFFER_BYTES};
+use crate::link::application::{Error, LINK_BUFFER_BYTES};
 
 fn fleet_name(tag: &str) -> String {
     format!("tb{tag}{:x}", std::process::id())
@@ -15,8 +15,8 @@ fn fleet_name(tag: &str) -> String {
 /// leaving an object behind. Shared memory outlives the process that made it,
 /// so a test that forgot would cost every run after it.
 struct Pair {
-    edge: TransportBodies,
-    worker: TransportBodies,
+    edge: ApplicationBodies,
+    worker: ApplicationBodies,
 }
 
 impl Drop for Pair {
@@ -27,7 +27,7 @@ impl Drop for Pair {
 
 fn pair(tag: &str) -> Pair {
     let name = fleet_name(tag);
-    let edge = TransportBodies::open(
+    let edge = ApplicationBodies::open(
         Arc::new(
             Fleet::join_shm_as(&name, 4, NodeId::ZERO).expect("edge fleet"),
         ),
@@ -36,7 +36,7 @@ fn pair(tag: &str) -> Pair {
     .expect("edge bodies");
     edge.streams().reset_all();
 
-    let worker = TransportBodies::open(
+    let worker = ApplicationBodies::open(
         Arc::new(
             Fleet::join_shm_as(&name, 4, NodeId::new(1)).expect("worker fleet"),
         ),
@@ -141,7 +141,7 @@ async fn a_body_larger_than_the_window_crosses() {
     let (_, mut originator_write) = originator.split();
     let (mut acceptor_read, _) = acceptor.split();
 
-    let size = TRANSPORT_BUFFER_BYTES * 3 + 1234;
+    let size = LINK_BUFFER_BYTES * 3 + 1234;
     let sending = tokio::spawn(async move {
         let payload: Vec<u8> = (0..size).map(|i| (i % 251) as u8).collect();
         originator_write.write_all(&payload).await.expect("write body");

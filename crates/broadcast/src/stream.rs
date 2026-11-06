@@ -2,8 +2,8 @@
 //! channel authorization, publication and lifecycle belong to the session.
 use std::future::Future;
 
-pub use claviron_orbit::transport::Message;
-use claviron_orbit::transport::{MessageReader, write_message};
+pub use claviron_orbit::link::application::Message;
+use claviron_orbit::link::application::{MessageReader, write_message};
 use fastwebsockets::{
     FragmentCollector, Frame, OpCode, Payload, Role, WebSocket,
 };

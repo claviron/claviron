@@ -1,4 +1,4 @@
-//! Who is on the other side of a transport segment, read from its lane
+//! Who is on the other side of an application segment, read from its lane
 //! directory.
 //!
 //! A connect or disconnect is not carried anywhere. The lane directory is
@@ -160,7 +160,7 @@ impl Event for ApplicationDisconnected {}
 
 /// This process took a lane in a link segment and bound its bridge: it can
 /// now be reached, and what it publishes crosses. Process-local; never
-/// published. It is a transport-readiness observation, not a request for
+/// published. It is a link-readiness observation, not a request for
 /// fleet-wide introductions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LinkJoined {
@@ -173,5 +173,5 @@ pub struct LinkJoined {
 impl Event for LinkJoined {}
 
 #[cfg(test)]
-#[path = "../../../tests/link/transport/peer.rs"]
+#[path = "../../../tests/link/application/peer.rs"]
 mod tests;

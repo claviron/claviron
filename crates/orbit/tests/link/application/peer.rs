@@ -1,4 +1,4 @@
-use super::super::TransportSegment;
+use super::super::ApplicationSegment;
 use super::*;
 
 fn fleet_name(mut pid: u32) -> String {
@@ -49,7 +49,7 @@ fn fleet_names_remain_valid_and_distinct_across_pid_boundaries() {
 #[test]
 fn a_lane_retaken_between_two_looks_is_a_departure_and_an_arrival() {
     let fleet = fleet_name(std::process::id());
-    let segment = TransportSegment::open(&fleet, 2).unwrap();
+    let segment = ApplicationSegment::open(&fleet, 2).unwrap();
     let inbox = segment.inbox();
     let mut peers = Peers::new(FleetName::new(&fleet), |role| role == "edge");
 

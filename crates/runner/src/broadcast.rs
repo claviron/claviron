@@ -124,7 +124,7 @@ pub(crate) async fn serve_orbit(
     mut session: BroadcastSession,
     host: String,
     webtransport: bool,
-    endpoint: claviron_orbit::transport::Endpoint,
+    endpoint: claviron_orbit::link::application::Endpoint,
 ) -> claviron_runtime::registry::Result<()> {
     let mut stream =
         claviron_broadcast::stream::OrbitMessageStream::new(endpoint);

@@ -21,8 +21,10 @@
 
 use std::sync::Arc;
 
+use claviron_orbit::link::application::{
+    Message, MessageReader, write_message,
+};
 use claviron_orbit::stream::{Endpoint, ReadHalf, Streams, Ticket, WriteHalf};
-use claviron_orbit::transport::{Message, MessageReader, write_message};
 use mlua::{Lua, Table, UserData, UserDataMethods, UserDataRef, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;

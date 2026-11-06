@@ -7,7 +7,9 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-use claviron_orbit::transport::{Message, MessageReader, write_message};
+use claviron_orbit::link::application::{
+    Message, MessageReader, write_message,
+};
 use futures_util::{StreamExt, stream::FuturesUnordered};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot, watch};

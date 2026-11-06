@@ -95,14 +95,10 @@ pub fn register(state: &AppState) -> claviron_runtime::Result<()> {
             events.register_bridge::<claviron_runtime::ReopenLogs>(state)?;
         }
     }
-    if state
-        .registry_ref()
-        .resolve::<crate::transport::LinkInterest>()
-        .is_none()
-    {
+    if state.registry_ref().resolve::<crate::link::LinkInterest>().is_none() {
         state
             .registry_ref()
-            .insert(Arc::new(crate::transport::LinkInterest::default()))?;
+            .insert(Arc::new(crate::link::LinkInterest::default()))?;
     }
     if !state.is_standalone() {
         crate::event::register_shm::<ApplicationEventLayout>(state)?;
@@ -120,11 +116,11 @@ pub fn register(state: &AppState) -> claviron_runtime::Result<()> {
     // should not create them.
     if state
         .registry_ref()
-        .resolve::<crate::transport::TransportService>()
+        .resolve::<crate::link::application::ApplicationService>()
         .is_none()
     {
         state.registry_ref().register(Arc::new(
-            crate::transport::TransportService::default(),
+            crate::link::application::ApplicationService::default(),
         ))?;
     }
     Ok(())

@@ -29,9 +29,9 @@ use http::Request;
 use super::host::{DispatchCall, DispatchStep};
 use claviron_http::ext::{ConnCtx, PathPrefix};
 use claviron_http::policy::{BodyNeed, RequestPolicy, RequestPolicyOverride};
-use claviron_orbit::transport::{
-    Exchange, HttpVersion, TRANSPORT_BUFFER_BYTES, TransportService,
-    TransportTarget,
+use claviron_orbit::link::application::{
+    ApplicationService, ApplicationTarget, Exchange, HttpVersion,
+    LINK_BUFFER_BYTES,
 };
 use claviron_runtime::{AppState, FleetName};
 use http::StatusCode;
@@ -44,7 +44,7 @@ pub(super) mod webtransport;
 #[derive(Clone)]
 struct LinkRoute {
     path: Option<PathPrefix>,
-    target: Option<TransportTarget>,
+    target: Option<ApplicationTarget>,
     requests: RequestPolicyOverride,
 }
 
@@ -146,7 +146,7 @@ impl DispatchStep for LinkBackend {
 }
 
 async fn dispatch(
-    target: TransportTarget,
+    target: ApplicationTarget,
     policy: RequestPolicy,
     connection: Option<Arc<ConnCtx>>,
     request: Request<RouteBody>,
@@ -284,9 +284,7 @@ async fn dispatch(
     // gives no length, an event stream, reads a window at a time and takes
     // whatever has arrived.
     let piece = reply_length(&head.headers)
-        .map_or(TRANSPORT_BUFFER_BYTES, |length| {
-            length.clamp(1, TRANSPORT_BUFFER_BYTES)
-        });
+        .map_or(LINK_BUFFER_BYTES, |length| length.clamp(1, LINK_BUFFER_BYTES));
     let body = boxed_body(http_body_util::StreamBody::new(
         tokio_util::io::ReaderStream::with_capacity(response_body, piece)
             .map(|chunk| chunk.map(http_body::Frame::data)),
@@ -319,7 +317,7 @@ fn percent_decoded(path: &str) -> String {
 fn exchange_headers(
     uri: &http::Uri,
     headers: &http::HeaderMap,
-) -> claviron_orbit::transport::Headers {
+) -> claviron_orbit::link::application::Headers {
     let authority = uri.authority();
     let mut result =
         Vec::with_capacity(headers.len() + usize::from(authority.is_some()));
@@ -361,14 +359,14 @@ fn prepare_target(
     state: &AppState,
     fleet_name: FleetName,
     application: Arc<str>,
-) -> Option<TransportTarget> {
-    let transport = state.registry_ref().resolve::<TransportService>();
-    match transport.as_ref() {
+) -> Option<ApplicationTarget> {
+    let service = state.registry_ref().resolve::<ApplicationService>();
+    match service.as_ref() {
         None => {
             tracing::error!(
                 fleet_name = %fleet_name,
                 application = %application,
-                "a Link route is configured but the transport is not registered in this build"
+                "a Link route is configured but the application link is not registered in this build"
             );
             None
         }
@@ -379,9 +377,9 @@ fn prepare_target(
         // is there before the first request, and a fleet this process cannot
         // reach is an error in the log at boot rather than a 503 at an unlucky
         // moment.
-        Some(transport) => {
-            transport.track_target(fleet_name, &application);
-            match transport.client(fleet_name) {
+        Some(service) => {
+            service.track_target(fleet_name, &application);
+            match service.client(fleet_name) {
                 Ok(client) => Some(client.target(application)),
                 Err(error) => {
                     tracing::error!(

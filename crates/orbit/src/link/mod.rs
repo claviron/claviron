@@ -3,10 +3,11 @@
 //! A Rust application can join a Link and exchange frames or topic/payload
 //! events without an HTTP route, an application runner or `ApplicationEvent`.
 //! Orbitive owns the inbox, admission and death recovery. This module owns
-//! the connection lifetime and its single reader. [`transport`] adds the
-//! existing Claviron application/HTTP protocol over that substrate.
+//! the connection lifetime and its single reader. [`application`] adds
+//! Claviron's web-application protocol (HTTP exchanges and routes) over that
+//! substrate; it is one user of a Link, not what a Link is.
 //! [`invoke`] carries HTTP-independent commands with reserved result channels;
-//! callers enter through [`crate::invoke::Client`], not transport addressing.
+//! callers enter through [`crate::invoke::Client`], not application addressing.
 //!
 //! Opening is explicit: do it in the owning service's execution/preparation,
 //! not during registration. All geometry and identities come from the caller.
@@ -15,11 +16,11 @@
 //! shares only a dedicated Link and its streams with trusted OS-group members.
 
 mod access;
+pub mod application;
 mod connection;
 mod events;
 pub mod interest;
 pub mod invoke;
-pub mod transport;
 
 pub use access::Access;
 pub use connection::Connection;

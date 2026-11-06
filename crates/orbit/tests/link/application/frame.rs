@@ -76,7 +76,7 @@ fn headers_arrive_exactly_as_they_were_sent() {
 }
 
 /// `raw_path` exists in ASGI precisely because `path` has been decoded. A
-/// transport that carried only one of them would be deciding for the
+/// link that carried only one of them would be deciding for the
 /// application which it is allowed to see.
 #[test]
 fn the_decoded_and_raw_paths_are_both_carried() {

@@ -13,7 +13,7 @@ use claviron_runtime::{AppState, ProcessEventBus};
 use orbitive::link::{DirectoryWatcher, LinkEvents, Routing};
 use tracing::warn;
 
-use super::{LinkInterest, TransportSegment};
+use super::{ApplicationSegment, LinkInterest};
 use crate::{ApplicationEventLayout, ApplicationEventRegistry};
 
 /// How application events are matched against interest across a link.
@@ -48,7 +48,7 @@ impl ApplicationLinkSetup {
     /// other fleet's roles.
     pub fn for_lane(
         &self,
-        segment: &TransportSegment,
+        segment: &ApplicationSegment,
         lane: usize,
         far: fn(&str) -> bool,
     ) -> Option<ApplicationLink> {

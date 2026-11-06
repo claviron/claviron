@@ -5,7 +5,7 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use claviron_http::{RouteBody, RouteBodyError};
-use claviron_orbit::transport::client::LentWrite;
+use claviron_orbit::link::application::client::LentWrite;
 use http_body::{Body, Frame, SizeHint};
 use http_body_util::BodyExt;
 use tokio::io::AsyncWriteExt;

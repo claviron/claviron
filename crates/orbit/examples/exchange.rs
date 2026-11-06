@@ -15,8 +15,8 @@
 //! and waits. Both ends select the same namespace; the application name is
 //! advertised inside it, not used as the physical SHM address.
 
-use claviron_orbit::transport::{
-    Exchange, HttpVersion, TransportClient, TransportSegment,
+use claviron_orbit::link::application::{
+    ApplicationClient, ApplicationSegment, Exchange, HttpVersion,
 };
 use tokio::io::AsyncReadExt;
 
@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         None
     };
-    let segment = TransportSegment::for_fleet(&fleet_name)?;
+    let segment = ApplicationSegment::for_fleet(&fleet_name)?;
     let inbox = segment.inbox();
     #[allow(clippy::print_literal)]
     // `--lanes` reads the table instead of writing to it. Membership is a
@@ -88,7 +88,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Everything an edge worker does, through the same client it uses: take a
     // lane for the replies, read the lanes serving the application, choose,
     // write.
-    let client = TransportClient::join(&fleet_name, "edge-cli", 1)?;
+    let client = ApplicationClient::join(&fleet_name, "edge-cli", 1)?;
     println!(
         "lanes serving '{application}': {:?}",
         inbox.targets(&application)

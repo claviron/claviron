@@ -151,8 +151,10 @@ impl Runner {
             self.application.ok_or("register a Rust application service")?;
         let name = options.name.clone().ok_or("name is required")?;
         let server_name: ServerName = name.parse().map_err(registry_error)?;
-        claviron_orbit::transport::segment::check_application_name(&name)
-            .map_err(registry_error)?;
+        claviron_orbit::link::application::segment::check_application_name(
+            &name,
+        )
+        .map_err(registry_error)?;
         if options.binds().is_empty() && !options.orbit {
             return Err("select orbit, tcp or uds ingress".into());
         }

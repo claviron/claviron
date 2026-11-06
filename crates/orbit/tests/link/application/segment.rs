@@ -15,14 +15,14 @@ fn unique() -> u64 {
 /// Unlinks its segment when the test ends. Shared memory outlives the process
 /// that made it, so a test that forgot would leave an object behind for every
 /// run after it.
-struct Scratch(TransportSegment);
+struct Scratch(ApplicationSegment);
 
 impl Scratch {
     fn open(
         fleet: &str,
         capacity: usize,
     ) -> Self {
-        Self(TransportSegment::open(fleet, capacity).unwrap())
+        Self(ApplicationSegment::open(fleet, capacity).unwrap())
     }
 }
 
@@ -83,7 +83,7 @@ fn a_second_open_attaches_to_the_same_table() {
     let first = Scratch::open(&fleet, 4);
     assert!(first.0.created(), "the first open creates");
 
-    let second = TransportSegment::open(&fleet, 4).unwrap();
+    let second = ApplicationSegment::open(&fleet, 4).unwrap();
     assert!(!second.created(), "the second attaches");
 
     first.0.inbox().claim_lane(2, "checkout", "asgi", 9).unwrap();
@@ -103,7 +103,7 @@ fn attaching_leaves_a_live_lane_alone() {
     first.0.inbox().claim_lane(1, "catalog", "asgi", 3).unwrap();
     first.0.inbox().write(1, b"queued before the peer arrived").unwrap();
 
-    let second = TransportSegment::open(&fleet, 4).unwrap();
+    let second = ApplicationSegment::open(&fleet, 4).unwrap();
     assert_eq!(
         second.inbox().depth(1).unwrap(),
         1,
@@ -123,7 +123,7 @@ fn targets_are_visible_across_the_boundary() {
     owner.0.inbox().claim_lane(1, "checkout", "asgi", 1).unwrap();
     owner.0.inbox().claim_lane(2, "catalog", "asgi", 1).unwrap();
 
-    let edge = TransportSegment::open(&fleet, 6).unwrap();
+    let edge = ApplicationSegment::open(&fleet, 6).unwrap();
     edge.inbox().write(0, b"busy").unwrap();
 
     let targets = edge.inbox().targets("checkout");
@@ -147,7 +147,7 @@ fn a_differently_shaped_open_is_refused() {
     let fleet = scratch_fleet();
     let _held = Scratch::open(&fleet, 4);
     assert!(
-        TransportSegment::open(&fleet, 8).is_err(),
+        ApplicationSegment::open(&fleet, 8).is_err(),
         "a different fleet capacity is a different table"
     );
 }
@@ -175,10 +175,10 @@ fn an_application_name_is_checked_independently_of_the_fleet() {
 #[test]
 fn the_same_application_is_isolated_by_destination_fleet() {
     let first_name = scratch_fleet();
-    let first = Scratch(TransportSegment::for_fleet(&first_name).unwrap());
+    let first = Scratch(ApplicationSegment::for_fleet(&first_name).unwrap());
     let second =
-        Scratch(TransportSegment::for_fleet(&scratch_fleet()).unwrap());
-    let caller = TransportSegment::for_fleet(&first_name).unwrap();
+        Scratch(ApplicationSegment::for_fleet(&scratch_fleet()).unwrap());
+    let caller = ApplicationSegment::for_fleet(&first_name).unwrap();
     first.0.inbox().claim_lane(0, "example", "php", 1).unwrap();
     assert_eq!(first.0.inbox().targets("example").len(), 1);
     assert!(second.0.inbox().targets("example").is_empty());
@@ -198,7 +198,7 @@ fn the_next_join_takes_back_a_gone_process_lane_and_ends_its_streams() {
 
     use orbitive::{Fleet, NodeId};
 
-    use crate::transport::TransportBodies;
+    use crate::link::application::ApplicationBodies;
 
     let fleet: &'static str = Box::leak(scratch_fleet().into_boxed_str());
     let segment = Scratch::open(fleet, 4);
@@ -209,7 +209,7 @@ fn the_next_join_takes_back_a_gone_process_lane_and_ends_its_streams() {
     let bodies = |lane: usize, incarnation: u64| {
         let fleet =
             Fleet::join_shm_as(fleet, 4, NodeId::new(lane as u16)).unwrap();
-        TransportBodies::open(Arc::new(fleet), incarnation).unwrap()
+        ApplicationBodies::open(Arc::new(fleet), incarnation).unwrap()
     };
     let live_bodies = bodies(0, 1);
     let gone_bodies = bodies(1, 7);

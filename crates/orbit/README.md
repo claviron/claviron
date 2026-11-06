@@ -94,7 +94,7 @@ completion must model that separately.
 
 ## Link connections without HTTP
 
-`claviron::orbit::link::Connection` owns one Link membership and its single
+`claviron::orbit::link::application::Connection` owns one Link membership and its single
 inbox reader. A Rust service can use it without a route, an HTTP exchange or
 an application runner. The service supplies its Link namespace, layout, name,
 role and execution incarnation; these are not inferred from an Edge process.
@@ -146,14 +146,14 @@ local ring, not to the remote service's durable state. Inspect `Incoming::Frame`
 and `Incoming::Directory` when the protocol requires them. Interest is only a
 routing hint, never an authorization boundary.
 
-The existing application/HTTP protocol lives under `link::transport`; the
-`orbit::transport` path continues to expose the same API. Its `ApplicationEvent`
-codec, routing, kinds and geometry are unchanged. Application transport may
-carry both exchanges and events, while an event-only connection opens no body
+The web-application protocol (HTTP exchanges addressed to a named application)
+is one user of a Link and lives in `orbit::link::application`. Its
+`ApplicationEvent` codec, routing, kinds and geometry are its own. An
+application link may carry both exchanges and events, while an event-only connection opens no body
 streams. Its peer advertisement describes reachability, not application health.
 
-For repeated HTTP dispatch, prepare a `TransportTarget` with
-`TransportClient::target(application)` and retain it with the route. Clones share
+For repeated HTTP dispatch, prepare a `ApplicationTarget` with
+`ApplicationClient::target(application)` and retain it with the route. Clones share
 the client and lane snapshot. Sends use the prepared destination without a
 fleet-client or application-directory map lookup. A directory generation change
 refreshes lane membership; admission and queue depth are checked on every send.
@@ -174,10 +174,10 @@ independent owner-only access. All group writers are trusted peers; this is
 not authenticated per-publisher isolation or a grant of kernel privileges.
 
 HTTP adapters use the same `Access` type through
-`TransportSegment::for_fleet_with_access` and open body handles through
-`TransportBodies::for_segment`, preserving the exact inbox scope and geometry.
-`TransportClient::join_with_access` supports a direct caller. A managed
-`TransportService` accepts `register_access(destination_fleet, access)` before
+`ApplicationSegment::for_fleet_with_access` and open body handles through
+`ApplicationBodies::for_segment`, preserving the exact inbox scope and geometry.
+`ApplicationClient::join_with_access` supports a direct caller. A managed
+`ApplicationService` accepts `register_access(destination_fleet, access)` before
 that destination's first client opens; conflicting registrations and changes
 after opening are rejected. Register the same policy in every relevant host
 process, including management, so inspection and exact-incarnation recovery

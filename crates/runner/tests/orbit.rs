@@ -120,7 +120,7 @@ async fn message_owner_receives_its_ingress_retirement_signal() {
         scheme: "https".into(),
         path: "/messages".into(),
         raw_path: b"/messages".to_vec(),
-        version: claviron_orbit::transport::HttpVersion::Http3,
+        version: claviron_orbit::link::application::HttpVersion::Http3,
         ..Default::default()
     };
     let request =
@@ -154,8 +154,8 @@ fn refused_reply_publication_resets_even_a_finished_response_direction() {
     outgoing.finish().unwrap();
 
     let name = format!("rr{:x}", std::process::id());
-    let segment = TransportSegment::open(&name, 2).unwrap();
-    struct Cleanup(TransportSegment);
+    let segment = ApplicationSegment::open(&name, 2).unwrap();
+    struct Cleanup(ApplicationSegment);
     impl Drop for Cleanup {
         fn drop(&mut self) {
             let _ = self.0.unlink();

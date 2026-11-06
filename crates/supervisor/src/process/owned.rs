@@ -93,17 +93,17 @@ impl OwnedProcess {
     ) -> Self {
         let fleet = state.fleet_name().to_owned();
         let pid = self.pid();
-        let transport = state
+        let applications = state
             .registry_ref()
-            .resolve::<claviron_orbit::transport::TransportService>(
+            .resolve::<claviron_orbit::link::application::ApplicationService>(
         );
         let cells =
             state.registry_ref().resolve::<claviron_orbit::CellsProvider>();
         assert!(self.exit.cleanup.set(Box::new(move || {
-            if let Some(transport) = &transport {
-                transport.process_exited(&fleet, pid, incarnation);
+            if let Some(applications) = &applications {
+                applications.process_exited(&fleet, pid, incarnation);
             } else {
-                let result = claviron_orbit::transport::TransportSegment::existing_for_fleet(&fleet)
+                let result = claviron_orbit::link::application::ApplicationSegment::existing_for_fleet(&fleet)
                     .and_then(|segment| match segment {
                         Some(segment) => segment.process_exited(pid, incarnation),
                         None => Ok(()),

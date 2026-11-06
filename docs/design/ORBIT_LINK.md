@@ -15,7 +15,7 @@ socket and parse the same HTTP wire protocol a second time.
 ## Names find peers; streams carry bodies
 
 An application advertises its name and runtime in a Link lane. An edge worker
-reuses a transport client for applications in the same destination fleet;
+reuses an application client for applications in the same destination fleet;
 different destination fleets have independent clients. Routing identity is
 separate from a management command's runtime-qualified target identity.
 
@@ -26,7 +26,7 @@ that the complete body must fit in that window.
 
 Full inboxes are refused, not overwritten. There is no successful submission
 whose meaning is “an earlier request disappeared to make room.” An inbox write
-proves acceptance into the transport, not successful application execution.
+proves acceptance into the link, not successful application execution.
 
 The geometry and frame formats are shared declarations. Peers that map the
 same namespace must agree on them. A change in physical shape is a compatibility
@@ -50,7 +50,7 @@ Stream cleanup is tied to the exited process and its incarnation. A request
 timeout, a missed pulse or a lane being withdrawn is not permission to reclaim
 another live owner's resources. Supervisor-confirmed exit can recover that
 exact owner's streams without closing a sibling's or a newer incarnation's.
-This is the transport side of [INCARNATION_MASKING](INCARNATION_MASKING.md):
+This is the link side of [INCARNATION_MASKING](INCARNATION_MASKING.md):
 stable names do not make successive process owners interchangeable.
 
 Shared-memory mappings can survive processes. Reusing or retiring them must
@@ -70,7 +70,7 @@ processes keep their own private event rings, auth/cache state and files.
 Kernel privileges stay with the account that performs the privileged work.
 
 The owner provisions first. Other users attach existing resources, and every
-transport/body/recovery path retains that same scope. Group access is never a
+link/body/recovery path retains that same scope. Group access is never a
 fallback for an owner-only failure. The managed caller registers access per
 destination before opening its first client; runtime policy replacement is
 not supported. Group writers are trusted with Link state: an advertised name
@@ -80,9 +80,9 @@ with the consumer.
 ## Follow the implementation
 
 - [Connection access policy](../../crates/orbit/src/link/access.rs).
-- [Transport layout and addressing](../../crates/orbit/src/link/transport/mod.rs).
-- [Destination clients and lifecycle](../../crates/orbit/src/link/transport/service.rs).
-- [Inbox ownership and exact-process recovery](../../crates/orbit/src/link/transport/segment.rs).
-- [Duplex body streams](../../crates/orbit/src/link/transport/body.rs).
-- [Explicit application-event bridge](../../crates/orbit/src/link/transport/app.rs).
+- [Layout and addressing](../../crates/orbit/src/link/application/mod.rs).
+- [Destination clients and lifecycle](../../crates/orbit/src/link/application/service.rs).
+- [Inbox ownership and exact-process recovery](../../crates/orbit/src/link/application/segment.rs).
+- [Duplex body streams](../../crates/orbit/src/link/application/body.rs).
+- [Explicit application-event bridge](../../crates/orbit/src/link/application/app.rs).
 - [Orbit integration guide](../../crates/orbit/README.md).

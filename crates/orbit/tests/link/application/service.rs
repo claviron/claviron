@@ -3,11 +3,11 @@ use super::*;
 #[test]
 fn destination_access_is_explicit_immutable_and_local_to_that_link() {
     let directory = tempfile::tempdir().unwrap();
-    let service = TransportService::default();
+    let service = ApplicationService::default();
     let destination = FleetName::new("example");
     let other = FleetName::new("other");
     let access = Access::Group(
-        crate::link::GroupAccess::new(
+        crate::link::application::GroupAccess::new(
             unsafe { libc::geteuid() },
             unsafe { libc::getegid() },
             directory.path().join("ipc"),

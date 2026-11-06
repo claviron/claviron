@@ -17,7 +17,7 @@
 
 use claviron_orbit::ApplicationEventRegistry;
 use claviron_orbit::FleetEventCodec;
-use claviron_orbit::transport::{
+use claviron_orbit::link::application::{
     ApplicationConnected, ApplicationDisconnected, EdgeConnected,
     EdgeDisconnected, Peer,
 };

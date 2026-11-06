@@ -38,9 +38,6 @@ pub mod service;
 #[cfg(unix)]
 pub mod shm;
 pub mod stream;
-// Preserve the existing application transport API while its implementation
-// lives below the protocol-neutral Link connection.
-pub use link::transport;
 
 pub use arena::{Arena, ArenaBootPolicy, ArenaProvider};
 pub use cell::orbital::{Error as CellError, Orbital};

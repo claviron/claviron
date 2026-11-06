@@ -46,10 +46,10 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::oneshot;
 
 use super::{
-    Access, ApplicationConnected, ApplicationDisconnected,
-    ApplicationLinkSetup, ApplicationStateNotice, ControlCommand, Error,
-    Exchange, ExchangeReply, FrameKind, LinkJoined, Peers, Result,
-    TransportBodies, TransportSegment, frame_kind,
+    Access, ApplicationBodies, ApplicationConnected, ApplicationDisconnected,
+    ApplicationLinkSetup, ApplicationSegment, ApplicationStateNotice,
+    ControlCommand, Error, Exchange, ExchangeReply, FrameKind, LinkJoined,
+    Peers, Result, frame_kind,
 };
 
 /// The runtime tag an edge worker's lane carries. It serves no name — its lane
@@ -170,7 +170,7 @@ impl Hot {
     /// likely to have been let go.
     fn take(
         &mut self,
-        bodies: &TransportBodies,
+        bodies: &ApplicationBodies,
     ) -> Option<(Endpoint, Ticket)> {
         let mut at = 0;
         while at < self.slots.len() {
@@ -327,15 +327,15 @@ impl AsyncRead for LentRead {
 }
 
 /// This worker's place in one destination fleet, as a caller.
-pub struct TransportClient {
+pub struct ApplicationClient {
     fleet: FleetName,
-    segment: Arc<TransportSegment>,
-    bodies: Arc<TransportBodies>,
+    segment: Arc<ApplicationSegment>,
+    bodies: Arc<ApplicationBodies>,
     lane: usize,
-    /// The lane's lock, let go in [`TransportClient::leave`] after the lane.
+    /// The lane's lock, let go in [`ApplicationClient::leave`] after the lane.
     hold: Mutex<Option<orbitive::shm::LaneHold>>,
     correlation: AtomicU64,
-    /// Which of the idlest targets to take next. See [`TransportClient::send`].
+    /// Which of the idlest targets to take next. See [`ApplicationClient::send`].
     rotation: AtomicU64,
     directory: Mutex<Directory>,
     hot: Arc<Mutex<Hot>>,
@@ -434,13 +434,13 @@ impl Waiting {
     }
 }
 
-impl TransportClient {
+impl ApplicationClient {
     /// Bind an application name once, before requests begin to use it.
     pub fn target(
         self: &Arc<Self>,
         application: impl Into<Arc<str>>,
-    ) -> super::TransportTarget {
-        super::TransportTarget::new(Arc::clone(self), application.into())
+    ) -> super::ApplicationTarget {
+        super::ApplicationTarget::new(Arc::clone(self), application.into())
     }
 
     pub(super) fn inbox(&self) -> &super::Inbox {
@@ -554,12 +554,12 @@ impl TransportClient {
         link: Option<ApplicationLinkSetup>,
         access: &Access,
     ) -> Result<Arc<Self>> {
-        let segment = Arc::new(TransportSegment::for_fleet_with_access(
+        let segment = Arc::new(ApplicationSegment::for_fleet_with_access(
             fleet_name, access,
         )?);
         let joined = segment.join(name, EDGE_RUNTIME, incarnation)?;
         let lane = joined.lane;
-        let bodies = Arc::new(TransportBodies::for_segment(
+        let bodies = Arc::new(ApplicationBodies::for_segment(
             &segment,
             lane,
             incarnation,
@@ -841,7 +841,7 @@ impl TransportClient {
 /// too.
 fn observe_applications(
     applications: &mut Peers,
-    segment: &TransportSegment,
+    segment: &ApplicationSegment,
     edge: &str,
     events: Option<&ProcessEventBus>,
     last_seen: &Mutex<HashMap<String, String>>,
@@ -894,7 +894,7 @@ fn observe_applications(
 }
 
 fn request_application_state(
-    segment: &TransportSegment,
+    segment: &ApplicationSegment,
     peer: &super::Peer,
 ) {
     let request = ControlCommand {
@@ -925,7 +925,7 @@ fn pid(pid: Option<u32>) -> String {
 
 fn accept_application_state(
     states: &Mutex<HashMap<usize, ApplicationBatch>>,
-    segment: &TransportSegment,
+    segment: &ApplicationSegment,
     frame: &[u8],
 ) {
     let notice = match ApplicationStateNotice::decode(frame) {
@@ -1007,7 +1007,7 @@ impl ApplicationBatch {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/link/transport/client.rs"]
+#[path = "../../../tests/link/application/client.rs"]
 mod tests;
 
 /// Hand one frame to whoever is waiting for it.

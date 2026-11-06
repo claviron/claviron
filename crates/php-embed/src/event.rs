@@ -13,7 +13,7 @@ use std::time::Duration;
 use arc_swap::ArcSwapOption;
 use claviron_app::{ApplicationEvent, ApplicationId, EventValue};
 use claviron_orbit::ApplicationEventRegistry;
-use claviron_orbit::transport::{InterestGuard, LinkInterest};
+use claviron_orbit::link::application::{InterestGuard, LinkInterest};
 use claviron_runtime::{AppState, ProcessEventBus};
 use ext_php_rs::convert::IntoZval;
 use ext_php_rs::flags::ClassFlags;

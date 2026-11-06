@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use claviron_http::config::routes::OrbitRouteConfig;
-use claviron_orbit::transport::client::{LentRead, LentWrite};
-use claviron_orbit::transport::{
-    Exchange, HttpVersion, TransportService, TransportTarget,
+use claviron_orbit::link::application::client::{LentRead, LentWrite};
+use claviron_orbit::link::application::{
+    ApplicationService, ApplicationTarget, Exchange, HttpVersion,
 };
 use claviron_runtime::{AppState, registry};
 use claviron_types::Host;
@@ -38,8 +38,10 @@ pub(in crate::pipeline) fn bind(
         state.registry_ref().resolve::<WebTransportRegistry>().ok_or_else(
             || registry::Error::msg("Orbit requires the WebTransport registry"),
         )?;
-    if state.registry_ref().resolve::<TransportService>().is_none() {
-        return Err(registry::Error::msg("Orbit transport is not registered"));
+    if state.registry_ref().resolve::<ApplicationService>().is_none() {
+        return Err(registry::Error::msg(
+            "Orbit application link is not registered",
+        ));
     }
     let routes = config
         .link_routes()
@@ -70,7 +72,7 @@ struct Handler {
 
 struct PreparedRoute {
     route: OrbitRouteConfig,
-    target: Option<TransportTarget>,
+    target: Option<ApplicationTarget>,
 }
 
 /// Dropping a pending or interrupted session resets only this exchange's
@@ -90,14 +92,14 @@ impl Drop for Channel {
 }
 
 struct Accepted {
-    target: TransportTarget,
+    target: ApplicationTarget,
     exchange: Exchange,
     first: Channel,
 }
 
 impl Handler {
     async fn open(
-        target: &TransportTarget,
+        target: &ApplicationTarget,
         exchange: Exchange,
         cancellation: impl std::future::Future<Output = ()>,
     ) -> Result<Channel, StatusCode> {
@@ -320,7 +322,8 @@ async fn copy<R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
     writer: &mut W,
     cancellation: &CancellationToken,
 ) -> std::io::Result<()> {
-    let mut buffer = vec![0; claviron_orbit::transport::TRANSPORT_BUFFER_BYTES];
+    let mut buffer =
+        vec![0; claviron_orbit::link::application::LINK_BUFFER_BYTES];
     loop {
         let size = tokio::select! {
             biased;

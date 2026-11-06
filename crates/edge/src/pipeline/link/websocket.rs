@@ -3,8 +3,8 @@
 use std::future::Future;
 
 use claviron_http::{RouteResponse, empty_body, err_status};
-use claviron_orbit::transport::client::{LentRead, LentWrite};
-use claviron_orbit::transport::{
+use claviron_orbit::link::application::client::{LentRead, LentWrite};
+use claviron_orbit::link::application::{
     ExchangeReply, Message, MessageReader, write_message,
 };
 use http::Response;

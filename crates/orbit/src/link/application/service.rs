@@ -1,4 +1,4 @@
-//! The caller's lifecycle: one [`TransportClient`] per destination fleet this
+//! The caller's lifecycle: one [`ApplicationClient`] per destination fleet this
 //! worker reaches, and the provider that owns them.
 //!
 //! Applications in the same destination fleet share one client, lane and reader.
@@ -15,10 +15,10 @@ use claviron_runtime::{
     ProcessEventBus, registry,
 };
 
-use super::client::TransportClient;
+use super::client::ApplicationClient;
 use super::{
-    Access, ApplicationLinkSetup, ControlCommand, ControlTarget, Error, Peer,
-    Result, TransportSegment,
+    Access, ApplicationLinkSetup, ApplicationSegment, ControlCommand,
+    ControlTarget, Error, Peer, Result,
 };
 
 /// One live or configured Link target. Link reachability says nothing about
@@ -36,7 +36,7 @@ pub struct LinkedApplication {
 /// Reaches applications by name over shared memory, for as long as this
 /// worker lives.
 #[derive(Default)]
-pub struct TransportService {
+pub struct ApplicationService {
     /// What this worker's own lane advertises. Read from the instance at
     /// boot, because a lane an operator reads should say which process it
     /// belongs to.
@@ -48,13 +48,13 @@ pub struct TransportService {
     /// How application events cross each fleet this worker reaches, when
     /// this process has an application ring.
     link: Mutex<Option<ApplicationLinkSetup>>,
-    clients: Mutex<HashMap<FleetName, Arc<TransportClient>>>,
+    clients: Mutex<HashMap<FleetName, Arc<ApplicationClient>>>,
     targets: Mutex<BTreeSet<(FleetName, String)>>,
     /// Explicit access only for selected destination Links, never the host fleet.
     access: Mutex<BTreeMap<FleetName, Access>>,
 }
 
-impl TransportService {
+impl ApplicationService {
     /// Register immutable access before this destination's first client opens.
     /// This maps no SHM and changes no credentials or resource permissions.
     pub fn register_access(
@@ -66,7 +66,7 @@ impl TransportService {
         let clients = self
             .clients
             .lock()
-            .map_err(|_| Error::Malformed("transport client lock"))?;
+            .map_err(|_| Error::Malformed("application client lock"))?;
         if clients.contains_key(&fleet) {
             return Err(Error::Malformed(
                 "Link access must be registered before its client opens",
@@ -75,7 +75,7 @@ impl TransportService {
         let mut policies = self
             .access
             .lock()
-            .map_err(|_| Error::Malformed("transport access lock"))?;
+            .map_err(|_| Error::Malformed("link access lock"))?;
         if policies.get(&fleet).is_some_and(|existing| existing != &access) {
             return Err(Error::Malformed(
                 "Link access is already registered differently",
@@ -92,7 +92,7 @@ impl TransportService {
         Ok(self
             .access
             .lock()
-            .map_err(|_| Error::Malformed("transport access lock"))?
+            .map_err(|_| Error::Malformed("link access lock"))?
             .get(&fleet)
             .cloned()
             .unwrap_or_default())
@@ -109,14 +109,14 @@ impl TransportService {
         fleets.extend(
             self.targets
                 .lock()
-                .expect("transport target lock")
+                .expect("application target lock")
                 .iter()
                 .map(|(fleet, _)| fleet.as_str().to_owned()),
         );
         fleets.extend(
             self.clients
                 .lock()
-                .expect("transport client lock")
+                .expect("application client lock")
                 .keys()
                 .map(|fleet| fleet.as_str().to_owned()),
         );
@@ -124,7 +124,7 @@ impl TransportService {
             let result = self
                 .access_for(FleetName::new(&fleet))
                 .and_then(|access| {
-                    TransportSegment::existing_for_fleet_with_access(
+                    ApplicationSegment::existing_for_fleet_with_access(
                         &fleet, &access,
                     )
                 })
@@ -147,7 +147,7 @@ impl TransportService {
     ) {
         self.targets
             .lock()
-            .expect("transport target lock")
+            .expect("application target lock")
             .insert((fleet, application.to_owned()));
     }
 
@@ -157,7 +157,7 @@ impl TransportService {
         let targets = self
             .targets
             .lock()
-            .map_err(|_| Error::Malformed("transport target lock"))?
+            .map_err(|_| Error::Malformed("application target lock"))?
             .clone();
         for fleet in
             targets.iter().map(|(fleet, _)| *fleet).collect::<BTreeSet<_>>()
@@ -165,10 +165,10 @@ impl TransportService {
             let joined = self
                 .clients
                 .lock()
-                .map_err(|_| Error::Malformed("transport client lock"))?
+                .map_err(|_| Error::Malformed("application client lock"))?
                 .contains_key(&fleet);
             if !joined
-                && TransportSegment::existing_for_fleet_with_access(
+                && ApplicationSegment::existing_for_fleet_with_access(
                     fleet.as_str(),
                     &self.access_for(fleet)?,
                 )?
@@ -180,7 +180,7 @@ impl TransportService {
         let clients: Vec<_> = self
             .clients
             .lock()
-            .map_err(|_| Error::Malformed("transport client lock"))?
+            .map_err(|_| Error::Malformed("application client lock"))?
             .iter()
             .map(|(fleet, client)| (*fleet, Arc::clone(client)))
             .collect();
@@ -269,29 +269,29 @@ impl TransportService {
     pub fn client(
         &self,
         fleet_name: FleetName,
-    ) -> Result<Arc<TransportClient>> {
+    ) -> Result<Arc<ApplicationClient>> {
         let mut held = self
             .clients
             .lock()
-            .map_err(|_| Error::Malformed("transport client lock"))?;
+            .map_err(|_| Error::Malformed("application client lock"))?;
         if let Some(client) = held.get(&fleet_name) {
             return Ok(Arc::clone(client));
         }
         let identity = self
             .identity
             .lock()
-            .map_err(|_| Error::Malformed("transport identity"))?;
+            .map_err(|_| Error::Malformed("application identity"))?;
         let events = self
             .events
             .lock()
-            .map_err(|_| Error::Malformed("transport events"))?
+            .map_err(|_| Error::Malformed("application events"))?
             .clone();
         let link = self
             .link
             .lock()
-            .map_err(|_| Error::Malformed("transport link"))?
+            .map_err(|_| Error::Malformed("application link"))?
             .clone();
-        let client = TransportClient::join_observed_with_access(
+        let client = ApplicationClient::join_observed_with_access(
             fleet_name.as_str(),
             &identity,
             self.incarnation.load(Ordering::Acquire),
@@ -310,11 +310,11 @@ impl TransportService {
     }
 }
 
-impl Component<AppState> for TransportService {
+impl Component<AppState> for ApplicationService {
     type Deps = ();
 
     fn name(&self) -> &'static str {
-        "TransportService"
+        "ApplicationService"
     }
 
     fn as_finalizable(&self) -> Option<&dyn Finalizable<AppState>> {
@@ -327,7 +327,7 @@ impl Component<AppState> for TransportService {
 }
 
 #[async_trait::async_trait]
-impl Bootable<AppState> for TransportService {
+impl Bootable<AppState> for ApplicationService {
     /// Learn who this process is, without joining anything.
     ///
     /// The join waits for a request that needs it; what cannot wait is the
@@ -341,7 +341,7 @@ impl Bootable<AppState> for TransportService {
         *self
             .identity
             .lock()
-            .map_err(|_| registry::Error::msg("transport identity"))? =
+            .map_err(|_| registry::Error::msg("application identity"))? =
             state.name().to_owned();
         let incarnation = state
             .registry_ref()
@@ -352,19 +352,19 @@ impl Bootable<AppState> for TransportService {
         *self
             .events
             .lock()
-            .map_err(|_| registry::Error::msg("transport events"))? =
+            .map_err(|_| registry::Error::msg("application events"))? =
             Some(state.events().bus().clone());
         *self
             .link
             .lock()
-            .map_err(|_| registry::Error::msg("transport link"))? =
+            .map_err(|_| registry::Error::msg("application link"))? =
             ApplicationLinkSetup::resolve(state);
         Ok(())
     }
 }
 
 #[async_trait::async_trait]
-impl Finalizable<AppState> for TransportService {
+impl Finalizable<AppState> for ApplicationService {
     /// Give up every lane after the runnables have drained, so an exchange
     /// in flight still has somewhere for its reply to land.
     async fn finalize(
@@ -384,5 +384,5 @@ impl Finalizable<AppState> for TransportService {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/link/transport/service.rs"]
+#[path = "../../../tests/link/application/service.rs"]
 mod tests;

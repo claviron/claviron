@@ -5,8 +5,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::{
-    Access, ApplicationStateNotice, ControlCommand, Error, Result,
-    ShutdownNotice, TRANSPORT_LINK_SPEC, map_link_error, transport_link_spec,
+    Access, ApplicationStateNotice, ControlCommand, Error, LINK_SPEC, Result,
+    ShutdownNotice, link_spec, map_link_error,
 };
 #[cfg(test)]
 use orbitive::link::Reclaimed;
@@ -14,19 +14,18 @@ use orbitive::link::{
     DirectoryWatcher, Inbox, InboxReceiver, Joined, LinkSegment, LinkSpec,
 };
 
-/// The geometry every Claviron application transport peer must agree on.
-pub const INBOX_GEOMETRY: orbitive::link::InboxGeometry =
-    TRANSPORT_LINK_SPEC.inbox;
+/// The geometry every Claviron application link peer must agree on.
+pub const INBOX_GEOMETRY: orbitive::link::InboxGeometry = LINK_SPEC.inbox;
 
 /// A mapped application inbox, backed by `orbitive::link::LinkSegment`.
-pub struct TransportSegment {
+pub struct ApplicationSegment {
     link: Arc<LinkSegment>,
     fleet_name: String,
     spec: LinkSpec,
     access: Access,
 }
 
-impl TransportSegment {
+impl ApplicationSegment {
     /// Open a table with Claviron's inbox geometry and an explicit test or
     /// embedding capacity.
     pub fn open(
@@ -41,10 +40,9 @@ impl TransportSegment {
         fleet_capacity: usize,
         access: &Access,
     ) -> Result<Self> {
-        let capacity = u16::try_from(fleet_capacity).map_err(|_| {
-            Error::Malformed("transport fleet capacity exceeds u16")
-        })?;
-        let spec = transport_link_spec(capacity);
+        let capacity = u16::try_from(fleet_capacity)
+            .map_err(|_| Error::Malformed("link fleet capacity exceeds u16"))?;
+        let spec = link_spec(capacity);
         let link =
             Arc::new(access.open(fleet_name, spec).map_err(map_link_error)?);
         Ok(Self {
@@ -64,14 +62,12 @@ impl TransportSegment {
         access: &Access,
     ) -> Result<Self> {
         let link = Arc::new(
-            access
-                .open(fleet_name, TRANSPORT_LINK_SPEC)
-                .map_err(map_link_error)?,
+            access.open(fleet_name, LINK_SPEC).map_err(map_link_error)?,
         );
         Ok(Self {
             link,
             fleet_name: fleet_name.to_owned(),
-            spec: TRANSPORT_LINK_SPEC,
+            spec: LINK_SPEC,
             access: access.clone(),
         })
     }
@@ -86,10 +82,7 @@ impl TransportSegment {
         fleet_name: &str,
         access: &Access,
     ) -> Result<Option<Self>> {
-        if access
-            .exists(fleet_name, TRANSPORT_LINK_SPEC)
-            .map_err(map_link_error)?
-        {
+        if access.exists(fleet_name, LINK_SPEC).map_err(map_link_error)? {
             Self::for_fleet_with_access(fleet_name, access).map(Some)
         } else {
             Ok(None)
@@ -129,7 +122,7 @@ impl TransportSegment {
         check_application_name(application)?;
         if command.application != application {
             return Err(Error::Malformed(
-                "transport control target differs from application",
+                "control target differs from application",
             ));
         }
         let lane = self
@@ -369,5 +362,5 @@ pub fn check_application_name(application: &str) -> Result<()> {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/link/transport/segment.rs"]
+#[path = "../../../tests/link/application/segment.rs"]
 mod tests;

@@ -49,7 +49,7 @@ impl FrameKind {
             3 => Ok(Self::Control),
             4 => Ok(Self::ShutdownInitiated),
             5 => Ok(Self::ApplicationState),
-            _ => Err(Error::Malformed("unknown transport frame kind")),
+            _ => Err(Error::Malformed("unknown application frame kind")),
         }
     }
 }
@@ -179,7 +179,9 @@ impl ControlCommand {
             || (runtime.is_empty() != target.is_empty())
             || (self.target.is_some() && runtime.is_empty())
         {
-            return Err(Error::Malformed("invalid transport control identity"));
+            return Err(Error::Malformed(
+                "invalid application control identity",
+            ));
         }
         let payload_len = u16::try_from(self.payload.len())
             .map_err(|_| Error::FrameTooLarge)?;
@@ -220,7 +222,7 @@ impl ControlCommand {
             rest @ ..,
         ] = frame
         else {
-            return Err(Error::Malformed("invalid transport control header"));
+            return Err(Error::Malformed("invalid application control header"));
         };
         let payload_len = u16::from_le_bytes([*len_lo, *len_hi]) as usize;
         let application_len = *application_len as usize;
@@ -237,16 +239,16 @@ impl ControlCommand {
                     + target_len
                     + payload_len
         {
-            return Err(Error::Malformed("invalid transport control length"));
+            return Err(Error::Malformed("invalid application control length"));
         }
         let application = String::from_utf8(rest[..application_len].to_vec())
             .map_err(|_| {
-            Error::Malformed("invalid transport control application")
+            Error::Malformed("invalid application control application")
         })?;
         let name = String::from_utf8(
             rest[application_len..application_len + name_len].to_vec(),
         )
-        .map_err(|_| Error::Malformed("invalid transport control name"))?;
+        .map_err(|_| Error::Malformed("invalid application control name"))?;
         let target_offset = application_len + name_len;
         let payload_offset = target_offset + runtime_len + target_len;
         let target = if runtime_len == 0 {
@@ -703,5 +705,5 @@ impl<'a> Cursor<'a> {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/link/transport/frame.rs"]
+#[path = "../../../tests/link/application/frame.rs"]
 mod tests;

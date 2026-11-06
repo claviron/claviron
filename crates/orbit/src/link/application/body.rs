@@ -10,18 +10,18 @@ use orbitive::link::LinkBodies;
 use orbitive::stream::{Endpoint, Streams, Ticket};
 use orbitive::{Fleet, NodeId};
 
-use super::{Result, TRANSPORT_LINK_SPEC, map_link_error, transport_link_spec};
+use super::{LINK_SPEC, Result, link_spec, map_link_error};
 
 /// This process's handle on the destination fleet's duplex body table.
-pub struct TransportBodies {
+pub struct ApplicationBodies {
     link: LinkBodies,
 }
 
-impl TransportBodies {
+impl ApplicationBodies {
     /// Inherit the inbox's access and geometry; never reopen a group Link in
     /// the caller's private UID namespace by accident.
     pub fn for_segment(
-        segment: &super::TransportSegment,
+        segment: &super::ApplicationSegment,
         lane_index: usize,
         incarnation: u64,
     ) -> Result<Self> {
@@ -35,7 +35,7 @@ impl TransportBodies {
         fleet: Arc<Fleet>,
         incarnation: u64,
     ) -> Result<Self> {
-        let spec = transport_link_spec(fleet.fleet_capacity());
+        let spec = link_spec(fleet.fleet_capacity());
         let link = LinkBodies::open(fleet, incarnation, spec)
             .map_err(map_link_error)?;
         Ok(Self { link })
@@ -50,7 +50,7 @@ impl TransportBodies {
             fleet_name,
             lane_index,
             incarnation,
-            TRANSPORT_LINK_SPEC,
+            LINK_SPEC,
         )
         .map_err(map_link_error)?;
         Ok(Self { link })
@@ -110,5 +110,5 @@ impl TransportBodies {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/link/transport/body.rs"]
+#[path = "../../../tests/link/application/body.rs"]
 mod tests;

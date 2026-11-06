@@ -32,14 +32,15 @@ use claviron_app::{
 };
 use claviron_http::ext::RealIpExt;
 use claviron_http::trust::Forwarded;
-use claviron_orbit::placement::{Scope, Scoped};
-pub use claviron_orbit::transport::Endpoint;
-use claviron_orbit::transport::{
-    ApplicationLinkSetup, ControlCommand, ControlTarget, EDGE_RUNTIME,
-    EdgeConnected, EdgeDisconnected, Exchange, ExchangeReply, FrameKind, Inbox,
-    LinkJoined, Peers, Received, ShutdownNotice, TRANSPORT_BUFFER_BYTES,
-    Ticket, TransportBodies, TransportSegment, frame_kind,
+pub use claviron_orbit::link::application::Endpoint;
+use claviron_orbit::link::application::{
+    ApplicationBodies, ApplicationLinkSetup, ApplicationSegment,
+    ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
+    EdgeDisconnected, Exchange, ExchangeReply, FrameKind, Inbox,
+    LINK_BUFFER_BYTES, LinkJoined, Peers, Received, ShutdownNotice, Ticket,
+    frame_kind,
 };
+use claviron_orbit::placement::{Scope, Scoped};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
 use claviron_runtime::{
     AppState, Component, Event, FleetIncarnation, FleetName, RunContext,
@@ -82,7 +83,7 @@ impl SessionShutdown {
 /// Link's session acknowledgment: `101` with the owner's accepted headers, or
 /// an error status. Edge translates acceptance to the native H1/H2/H3 response.
 pub struct Handshake {
-    segment: Arc<TransportSegment>,
+    segment: Arc<ApplicationSegment>,
     origin: usize,
     correlation: u64,
     body: Option<Ticket>,
@@ -294,7 +295,7 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for OrbitIngress {
             incarnation.map_or(FleetIncarnation::FIRST, |held| *held).raw();
 
         let segment = Arc::new(
-            TransportSegment::for_fleet(state.fleet_name())
+            ApplicationSegment::for_fleet(state.fleet_name())
                 .map_err(|error| registry::Error::msg(error.to_string()))?,
         );
         let joined = segment
@@ -302,7 +303,7 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for OrbitIngress {
             .map_err(|error| registry::Error::msg(error.to_string()))?;
         let lane = joined.lane;
         let bodies = Arc::new(
-            TransportBodies::for_fleet(state.fleet_name(), lane, incarnation)
+            ApplicationBodies::for_fleet(state.fleet_name(), lane, incarnation)
                 .map_err(|error| registry::Error::msg(error.to_string()))?,
         );
         if let Err(error) = crate::management::publish_application_snapshot(
@@ -450,7 +451,7 @@ impl OrbitIngress {
         state: &AppState,
         context: RunContext,
     ) -> registry::Result<()> {
-        let segment = TransportSegment::for_fleet(state.fleet_name())
+        let segment = ApplicationSegment::for_fleet(state.fleet_name())
             .map_err(|error| registry::Error::msg(error.to_string()))?;
         let mut watcher = segment
             .watch(self.runtime)
@@ -543,8 +544,8 @@ async fn serve(
     lane: usize,
     application: Arc<Application>,
     sessions: Option<OrbitSession>,
-    segment: Arc<TransportSegment>,
-    bodies: Arc<TransportBodies>,
+    segment: Arc<ApplicationSegment>,
+    bodies: Arc<ApplicationBodies>,
     shutdown: SessionShutdown,
 ) {
     match frame_kind(&frame) {
@@ -697,8 +698,8 @@ async fn serve(
         Some(endpoint) => {
             let (incoming, outgoing) = endpoint.split();
             let piece = declared_length(&exchange.headers)
-                .map_or(TRANSPORT_BUFFER_BYTES, |length| {
-                    length.clamp(1, TRANSPORT_BUFFER_BYTES)
+                .map_or(LINK_BUFFER_BYTES, |length| {
+                    length.clamp(1, LINK_BUFFER_BYTES)
                 });
             (Some(outgoing), RequestBody::new(SlotBody::new(incoming, piece)))
         }
@@ -725,7 +726,7 @@ async fn serve(
     // before the head goes; anything else streams after the head.
     let whole = http_body::Body::size_hint(&response_body)
         .exact()
-        .is_some_and(|size| size <= TRANSPORT_BUFFER_BYTES as u64);
+        .is_some_and(|size| size <= LINK_BUFFER_BYTES as u64);
     let mut streaming = None;
     let bytes = if whole {
         let Some(collected) =

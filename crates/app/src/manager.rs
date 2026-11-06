@@ -1,4 +1,4 @@
-use claviron_orbit::transport::{LinkEventRouting, Routing};
+use claviron_orbit::link::application::{LinkEventRouting, Routing};
 use std::collections::BTreeMap;
 use std::sync::{Arc, RwLock};
 

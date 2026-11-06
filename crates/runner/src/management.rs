@@ -9,7 +9,7 @@ use claviron_app::management::{
 use claviron_app::{
     ApplicationId, ApplicationManager, ApplicationName, ApplicationRuntime,
 };
-use claviron_orbit::transport::TransportSegment;
+use claviron_orbit::link::application::ApplicationSegment;
 use claviron_runtime::{AppState, registry};
 
 use crate::LinkCommandReceived;
@@ -79,7 +79,7 @@ pub fn register_link_application_management(
 
 fn publish_if_linked(state: &AppState) -> registry::Result<()> {
     let Some(segment) =
-        TransportSegment::existing_for_fleet(state.fleet_name())
+        ApplicationSegment::existing_for_fleet(state.fleet_name())
             .map_err(|error| registry::Error::msg(error.to_string()))?
     else {
         return Ok(());
@@ -90,7 +90,7 @@ fn publish_if_linked(state: &AppState) -> registry::Result<()> {
 /// Report the real local application snapshot through this runner's Link lane.
 pub(crate) fn publish_application_snapshot(
     state: &AppState,
-    segment: &TransportSegment,
+    segment: &ApplicationSegment,
     link_name: &str,
 ) -> registry::Result<()> {
     let Some(rows) = link_snapshot_rows(state).map_err(registry::Error::msg)?

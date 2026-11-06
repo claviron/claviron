@@ -13,7 +13,7 @@ inbox, admission, reusable duplex slots, and exact incarnation recovery.
 Claviron supplies kinds and geometry, then adds application naming, HTTP
 exchange frames, routing, status mapping, and runtime lifecycle integration.
 
-HTTP routes prepare a `TransportTarget` from their destination client while
+HTTP routes prepare a `ApplicationTarget` from their destination client while
 the route is built. Its shared immutable lane snapshot is tagged with the Link
 directory generation. The ordinary send reads that snapshot without a client
 map lookup or directory-cache mutex. A generation change performs one bounded
@@ -120,10 +120,10 @@ the generic typed fleet codec and bridge it uses.
 - `link::EventConnection`: optional topic/payload forwarding on that connection
   using a supplied event bus, connection-local interest and owner cancellation.
   Plain topics use `Routing::Topic`; envelope owners may select `Routing::Key`.
-- `link::transport::{TransportSegment, TransportBodies}`: Claviron adapters over
-  `orbitive::link`, fixing the application-link geometry while retaining HTTP
-  frames, target policy, and lifecycle here. `transport` remains a public
-  re-export of this module to preserve existing consumers and type identity.
+- `link::application::{ApplicationSegment, ApplicationBodies}`: Claviron
+  adapters over `orbitive::link`, fixing the application-link geometry while
+  retaining HTTP frames, target policy, and lifecycle here. `link` itself stays
+  protocol-neutral; the web application is one layer over it.
 - `lock::OrbitLock`: framework-neutral fleet lock handle.
 - `lock::Lock`: exact-lease RAII binding for Rust services.
 - `lock::{LOCK_STATE_KIND, LOCK_EVENT_RING_KIND}`: the physical kind ids
@@ -209,7 +209,7 @@ not duplicated as new Claviron constants.
 | `192` | Application snapshots with execution descriptions, row version 2 | Ring, 512-byte payloads | `claviron-app` [APPLICATION_SNAPSHOT_RING_KIND](../app/src/fleet/snapshot.rs); replaces `235`; `Reuse` / `Preserve` |
 | `193` | Shared byte arena v2 with per-process reader pins, reclaimed only after taking the dead owner's kernel hold | Index + owner rows + byte ring | Orbitive `ARENA_KIND`; [ArenaProvider binding](src/arena.rs); replaces `242` |
 | `194` | Arena-addressed cache mutation transport (protocol v3); values stay in kind `193` | Ring | Orbitive `CACHE_MUTATION_RING_KIND`; [cache binding](src/cache/runtime.rs); replaces `200`/`201` |
-| `195` | Application-link inbox: one lane per transport participant, fixed-size frames carrying an exchange header and its stream ticket. Many writers, the lane's owner reads; a full lane refuses rather than overwrites, and the next process to join takes back lanes whose kernel hold it can take (see Cleanup). Blocking consumers wait on the lane word; Tokio consumers arm the lane's named descriptor bell and await the reactor while frames remain in SHM. One directory-watcher slot per lane follows the lanes: a process that holds no lane (a master) is woken by the same claims and releases through its slot, held like a lane by a kernel lock (`orbitive::shm::try_hold_watcher`), and never appears in the directory. An interest entry per lane and per watcher follows: the routing keys (application-event domain topics) that slot's process subscribes to, read by `orbitive::link::LinkEvents` so an application event crosses the link only to a side that wants it. Lives in the selected destination fleet (`/orbit-<fleet_name>-195-<uid>`), with application names advertised inside it | Ring, watcher slots after the lanes (orbit-link layout 6) | Orbitive `orbit-link` layout with Claviron `TRANSPORT_LINK_SPEC`; `ORBIT_TRANSPORT_INBOX_CAPACITY` / `ORBIT_TRANSPORT_INBOX_PAYLOAD_CAPACITY` / `ORBIT_TRANSPORT_FLEET_CAPACITY`; [HTTP transport](TRANSPORT.md) |
+| `195` | Application-link inbox: one lane per link participant, fixed-size frames carrying an exchange header and its stream ticket. Many writers, the lane's owner reads; a full lane refuses rather than overwrites, and the next process to join takes back lanes whose kernel hold it can take (see Cleanup). Blocking consumers wait on the lane word; Tokio consumers arm the lane's named descriptor bell and await the reactor while frames remain in SHM. One directory-watcher slot per lane follows the lanes: a process that holds no lane (a master) is woken by the same claims and releases through its slot, held like a lane by a kernel lock (`orbitive::shm::try_hold_watcher`), and never appears in the directory. An interest entry per lane and per watcher follows: the routing keys (application-event domain topics) that slot's process subscribes to, read by `orbitive::link::LinkEvents` so an application event crosses the link only to a side that wants it. Lives in the selected destination fleet (`/orbit-<fleet_name>-195-<uid>`), with application names advertised inside it | Ring, watcher slots after the lanes (orbit-link layout 6) | Orbitive `orbit-link` layout with Claviron `LINK_SPEC`; `ORBIT_LINK_INBOX_CAPACITY` / `ORBIT_LINK_INBOX_PAYLOAD_CAPACITY` / `ORBIT_LINK_FLEET_CAPACITY`; [application link](../../docs/design/ORBIT_LINK.md) |
 | `196` | Retired application-link inbox without interest entries (orbit-link layout 5) | Ring | Replaced by `195` when the interest table grew the segment; retained segments are not resized, reset or unlinked automatically |
 | `197` | Current worker lifecycle/operation snapshots with master runtime start, monotonic uptime and reload revision | Ring, 171-byte rows on 192-byte payloads | `supervisor` [WORKER_SNAPSHOT_RING_KIND](../supervisor/src/observation/snapshot.rs); replaces kind `240`; `Reuse` / `Preserve` |
 | `198` | Auth live sessions and consumed replay IDs; typed BLAKE3, encrypted or explicitly unprotected records; Principals stay process-local | Table, 320-byte slots, two 17-word banks; OAUTH004 with policy ID | Orbitive `orbit-auth` `AUTH_STATE_KIND`; supplied-Fleet backing, preserve across restart, no automatic migration; no Claviron provider binding yet |
@@ -225,7 +225,7 @@ not duplicated as new Claviron constants.
 | `208` | Retired FastCGI fleet exchange control | Stream table | The fleet FCGI exchange was removed; retained deployed segments are not reset or unlinked automatically |
 | `209` | Retired FastCGI fleet exchange request payload | Payload arena | The fleet FCGI exchange was removed; retained deployed segments are not reset or unlinked automatically |
 | `210` | Retired FastCGI fleet exchange response payload | Payload arena | The fleet FCGI exchange was removed; retained deployed segments are not reset or unlinked automatically |
-| `211` | Application-link bodies: per-node lanes of stream slots, two bounded byte rings per slot. One duplex slot per exchange — request body one way, response body the other. Separate from kind `246` because worker coordination wants many narrow lanes and this wants fewer and wider. In the selected destination fleet beside kind `195`, addressed by the same lane index | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-link` / `orbit-stream` with Claviron `TRANSPORT_LINK_SPEC`; `ORBIT_TRANSPORT_LANE_CAPACITY` / `ORBIT_TRANSPORT_BUFFER_BYTES`; [HTTP transport](TRANSPORT.md) |
+| `211` | Application-link bodies: per-node lanes of stream slots, two bounded byte rings per slot. One duplex slot per exchange — request body one way, response body the other. Separate from kind `246` because worker coordination wants many narrow lanes and this wants fewer and wider. In the selected destination fleet beside kind `195`, addressed by the same lane index | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-link` / `orbit-stream` with Claviron `LINK_SPEC`; `ORBIT_LINK_LANE_CAPACITY` / `ORBIT_LINK_BUFFER_BYTES`; [application link](../../docs/design/ORBIT_LINK.md) |
 | `212` | Retired upstream worker metrics v1 (58-byte payload) | Ring | Replaced by `213`; retained deployed segments are not reset or unlinked automatically |
 | `213` | Upstream worker metrics v2 (74-byte payload) | Ring | `upstream` [UpstreamOrbitMetrics::KIND](../upstream/src/metrics/orbit.rs); `Reuse` / `Preserve` |
 | `214` | Embedded PHP worker metrics | Ring | `php-embed` [PhpEmbedOrbitMetrics::KIND](../php-embed/src/metrics/orbit.rs) |
@@ -405,7 +405,7 @@ its index row.
   lives, so it never takes over; a quiescent boot covers it.
 - **Kernel-held lock**: an owner holds a lock the kernel releases when the
   process dies, however it dies; whoever can take it knows the owner is gone.
-  Transport lanes (`195`) use one per lane (`orbitive::shm::try_hold_lane`),
+  Link lanes (`195`) use one per lane (`orbitive::shm::try_hold_lane`),
   directory watchers one per watcher slot (`orbitive::shm::try_hold_watcher`),
   and the joiner that takes a lane back ends its streams (`211`) with
   `node_died`, naming the dead incarnation.
@@ -426,8 +426,8 @@ its index row.
 | kind | boot | finalize | successor | what stays, and why it is harmless |
 |---|---|---|---|---|
 | `194` cache mutation transport | Reuse | Preserve | — | old frames; cursors start at the head |
-| `195` application-link inbox (selected transport fleet, not managed) | `orbitive::link::LinkSegment` creates once and otherwise attaches; a lane is won under its hold by CAS, then cleared and stamped | Claviron releases the lane, then its hold | **the next joiner takes back every lane whose hold it can take**: the kernel let go of it, so its owner is gone | a dead owner's lane and frames until the next process joins the fleet; the lock files beside the segment (removed with it) |
-| `211` application-link bodies (selected transport fleet, not managed) | `orbitive::link::LinkBodies` attaches without reset | nothing | join recovery, refused-write recovery, and exact supervisor exit reset only the dead lane/incarnation's sides | unsupervised peers still need reclaim on a refused write or a join |
+| `195` application-link inbox (selected link fleet, not managed) | `orbitive::link::LinkSegment` creates once and otherwise attaches; a lane is won under its hold by CAS, then cleared and stamped | Claviron releases the lane, then its hold | **the next joiner takes back every lane whose hold it can take**: the kernel let go of it, so its owner is gone | a dead owner's lane and frames until the next process joins the fleet; the lock files beside the segment (removed with it) |
+| `211` application-link bodies (selected link fleet, not managed) | `orbitive::link::LinkBodies` attaches without reset | nothing | join recovery, refused-write recovery, and exact supervisor exit reset only the dead lane/incarnation's sides | unsupervised peers still need reclaim on a refused write or a join |
 | `213`–`219`, `223`–`225` metrics | Reuse | Preserve | overwrite | old samples; readers filter by `max_age` |
 | `220`/`234` events | Reuse | Preserve | — | old events; the inbound cursor starts at the head |
 | `221` heartbeat | Reuse | Preserve | overwrite | a stale head; activity reads lane *motion* |
@@ -466,7 +466,7 @@ costs nothing. The directory is never removed. On Linux the name is abstract
 and nothing is left.
 
 Lock files sit in the per-uid lock directory (`$XDG_RUNTIME_DIR/orbit-<uid>`
-or `/tmp/orbit-<uid>`): one beside a locked region, and one per transport lane
+or `/tmp/orbit-<uid>`): one beside a locked region, and one per link lane
 ever held (`<segment>.lane<n>.lock`). An unlocked one is harmless and reused.
 Unlinking the segment, from code or with `orbit clear`, removes them with it.
 
@@ -726,26 +726,26 @@ publication as a second local event. Topics/payloads remain opaque; exact topic
 checks, authorization, codecs, revision and acknowledgement belong to the
 protocol owner. No universal ApplicationEvent envelope is introduced.
 
-The existing application/HTTP transport is nested under `link::transport`,
-including its existing ApplicationEvent bridge and routing. Its physical layout,
-frame bytes and public `transport` path are unchanged. Existing HTTP readers
+The web-application protocol lives in `link::application`, including its
+ApplicationEvent bridge and routing. Moving it there changed neither its
+physical layout nor its frame bytes. Existing HTTP readers
 still own their lanes; the new generic reader must never be attached as a second
 reader of a running application lane. Common interest ownership lives directly
 under `link` and is reused by the application adapter.
 
 No SHM kind is allocated by the generic API. The caller supplies a compatible
 deployment-owned `LinkSpec`. `Access::OwnerOnly` remains the default of every
-existing constructor. `Connection::open_with_access` and transport's explicit
-access constructors forward `Access::Group(GroupAccess)` to Orbitive's dedicated
+existing constructor. `Connection::open_with_access` and the application layer's
+explicit access constructors forward `Access::Group(GroupAccess)` to Orbitive's dedicated
 group namespace. Only that Link's inbox, streams, lane/watcher locks and wake
 paths are shared. No Fleet permissions or ring constructors are changed.
 The owner provisions first and peers attach; no private fallback is permitted.
 Group writers share trust in Link state, not a cryptographically authenticated
 source identity. Scoping does not grant capabilities or file access.
 
-`TransportBodies::for_segment` derives geometry and access from the already
-selected inbox. TransportClient uses it for all new joins. Reclamation and
-existing-only management inspection retain the same access. TransportService
+`ApplicationBodies::for_segment` derives geometry and access from the already
+selected inbox. ApplicationClient uses it for all new joins. Reclamation and
+existing-only management inspection retain the same access. ApplicationService
 accepts immutable per-destination access registration before its first client
 opens; registration maps nothing. Unregistered destinations stay private.
 Hosts supply the same policy in every participating process. This phase adds
@@ -1277,15 +1277,15 @@ is placement ownership, not an exactly-once execution guarantee.
 
 ## Application WebSocket messages
 
-The application transport's existing duplex slot also carries complete WebSocket
+The application link's existing duplex slot also carries complete WebSocket
 messages after upgrade acceptance, and the same records for reliable
 WebTransport bidi streams. H1 Upgrade, H2 extended CONNECT and H3 WebTransport
 share the application acceptance marker; Edge owns the native 101/200 response.
 This uses the existing Exchange flags and stream geometry. It adds no SHM kind
 or layout change. Each WebTransport bidi stream is an independent slot/session;
 datagrams and uni streams do not become message records implicitly.
-`transport::MessageReader` is cancellation
+`link::application::MessageReader` is cancellation
 safe and optionally bounds declared payload sizes before allocation. The bound
 is a consumer policy; default construction preserves the existing unbounded
 reader. Broadcast and Gufi share the record format and existing stream wakeups. See
-[the transport contract](TRANSPORT.md#websocket-records).
+[the application link contract](../../docs/design/ORBIT_LINK.md).

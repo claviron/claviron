@@ -58,7 +58,7 @@ async fn orbit_messages_share_the_pusher_session_and_service_shutdown() {
     use claviron_broadcast::stream::{
         Message, MessageStream, OrbitMessageStream,
     };
-    use claviron_orbit::transport::TransportBodies;
+    use claviron_orbit::link::application::ApplicationBodies;
 
     tokio::time::timeout(TIMEOUT, async {
         let directory = tempfile::tempdir().unwrap();
@@ -74,7 +74,7 @@ async fn orbit_messages_share_the_pusher_session_and_service_shutdown() {
         let fleet = Arc::new(
             orbitive::Fleet::join("broadcast-stream-test", 1).unwrap(),
         );
-        let bodies = TransportBodies::open(fleet, 1).unwrap();
+        let bodies = ApplicationBodies::open(fleet, 1).unwrap();
         let (edge, ticket) = bodies.create().unwrap();
         let application =
             OrbitMessageStream::new(bodies.accept(ticket).unwrap());

@@ -15,7 +15,7 @@ use std::future::Future;
 
 use bytes::Bytes;
 use claviron_http::session::SessionSpawner;
-pub use claviron_orbit::transport::Message;
+pub use claviron_orbit::link::application::Message;
 use fastwebsockets::upgrade::UpgradeFut;
 use fastwebsockets::{FragmentCollector, Frame, OpCode, Payload};
 use http::{Response, StatusCode};

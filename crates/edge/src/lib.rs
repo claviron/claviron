@@ -84,7 +84,7 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
         state.events().listen::<claviron_runtime::ShutdownInitiated, _>(|state, _| async move {
             use std::collections::BTreeSet;
 
-            use claviron_orbit::transport::TransportSegment;
+            use claviron_orbit::link::application::ApplicationSegment;
 
             let Some(vhosts) = state.registry_ref().resolve::<VhostResolver>() else {
                 return Ok(());
@@ -93,7 +93,7 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
                 .flat_map(|(_, record)| record.config.link_routes().map(|(_, route)| route.fleet_name))
                 .collect();
             for fleet in fleets {
-                match TransportSegment::existing_for_fleet(fleet.as_str()) {
+                match ApplicationSegment::existing_for_fleet(fleet.as_str()) {
                     Ok(Some(segment)) => {
                         if let Err(error) = segment.announce_edge_shutdown(state.name()) {
                             tracing::warn!(%fleet, "could not announce edge shutdown over Link: {error}");
