@@ -51,6 +51,9 @@ where
     RequestBody::new(body).into_inner()
 }
 
+/// An owner's service for requests asking to take the connection over.
+pub type Upgrades = BoxCloneSyncService<AppRequest, AppResponse, Infallible>;
+
 /// The owner: the language's service — embedded PHP, the ASGI engine — as the
 /// shell holds it. A runner registers it before the application's `configure`
 /// runs; its engine boots before any ingress does, so a service whose inside
@@ -58,7 +61,7 @@ where
 #[derive(Clone)]
 pub struct Owner {
     service: BoxCloneSyncService<AppRequest, AppResponse, Infallible>,
-    upgrades: Option<BoxCloneSyncService<AppRequest, AppResponse, Infallible>>,
+    upgrades: Option<Upgrades>,
     orbit_sessions: Option<Sessions>,
 }
 
@@ -127,6 +130,18 @@ impl Owner {
 
     pub(crate) fn orbit_session(&self) -> Option<Sessions> {
         self.orbit_sessions.clone()
+    }
+
+    /// Take the owner's own upgrades, for something placed in front of it to
+    /// answer what it does not claim.
+    pub fn take_upgrades(&mut self) -> Option<Upgrades> {
+        self.upgrades.take()
+    }
+
+    /// Take the owner's own message sessions, the same way.
+    #[cfg(feature = "orbit")]
+    pub fn take_orbit_sessions(&mut self) -> Option<Sessions> {
+        self.orbit_sessions.take()
     }
 
     /// Hand a request to the owner and wait for its answer: the `Service`
