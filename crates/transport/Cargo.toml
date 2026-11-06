@@ -42,15 +42,19 @@ webtransport = ["quic", "claviron-edge?/webtransport"]
 geoip = ["dep:claviron-geoip"]
 # Dispatch a host plan that is one Axum router without its extra layer.
 axum = ["claviron-pipeline/axum", "claviron-edge?/axum"]
+# The door with no socket: an edge reaches this process's lane over Orbit.
+orbit = ["dep:claviron-app", "dep:claviron-orbit", "dep:tokio-util"]
 # Let an HTTP/1.1 connection be upgraded.
 websocket = ["tcp", "claviron-edge?/websocket"]
 # Count accepted and open connections per listener.
 metrics = ["claviron-http/metrics"]
 
 [dependencies]
+claviron-app = { workspace = true, optional = true }
 claviron-edge = { workspace = true, optional = true }
 claviron-geoip = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
+claviron-orbit = { workspace = true, optional = true }
 claviron-pipeline.workspace = true
 claviron-runtime.workspace = true
 claviron-sys = { workspace = true, optional = true }
@@ -73,6 +77,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 tracing.workspace = true
 tokio-rustls = { workspace = true, optional = true }
+tokio-util = { workspace = true, optional = true }
 
 h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, features = ["datagram"], optional = true }

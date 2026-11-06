@@ -11,7 +11,6 @@
 //! Every ingress calls the one [`Application`] this composes, so an
 //! application never learns which door a request came through.
 
-use std::any::Any;
 use std::convert::Infallible;
 use std::future::Future;
 use std::pin::Pin;
@@ -21,65 +20,15 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use claviron_http::body::{GuardedBody, declared_length_within, guard_reply};
 use claviron_http::deadline::head_within;
+use claviron_http::ext::{ConnCtx, RequestArrival};
 use claviron_http::policy::HttpPolicy;
 use claviron_http::{RouteBody, RouteBodyError, RouteFuture, empty_body};
 use claviron_runtime::{AppState, registry};
 use http::{Method, Request, Response, StatusCode};
-use http_body_util::BodyExt;
 use tower::Service;
 use tower::util::{BoxCloneSyncService, ServiceExt};
 
-/// The request every ingress hands over and the owner receives.
-pub type AppRequest = Request<RequestBody>;
-
-/// A request body as an ingress hands it over, read as it arrives.
-///
-/// Its own type rather than [`RouteBody`] itself: with the boxed error's
-/// lifetime elided inside a request type, a service future that captures one
-/// fails the compiler's `Send` and `Service` checks for every lifetime at
-/// once. A name says what it is besides.
-pub struct RequestBody(RouteBody);
-
-impl RequestBody {
-    /// Box any body.
-    pub fn new<B>(body: B) -> Self
-    where
-        B: http_body::Body<Data = Bytes> + Send + 'static,
-        B::Error: Into<RouteBodyError>,
-    {
-        Self(route_body(body))
-    }
-
-    /// A request with no body.
-    pub fn empty() -> Self {
-        Self::new(http_body_util::Empty::<Bytes>::new())
-    }
-
-    /// Recover the existing body without buffering or another erasure wrapper.
-    pub fn into_inner(self) -> RouteBody {
-        self.0
-    }
-}
-
-impl http_body::Body for RequestBody {
-    type Data = Bytes;
-    type Error = RouteBodyError;
-
-    fn poll_frame(
-        mut self: Pin<&mut Self>,
-        context: &mut Context<'_>,
-    ) -> Poll<Option<Result<http_body::Frame<Bytes>, RouteBodyError>>> {
-        Pin::new(&mut self.0).poll_frame(context)
-    }
-
-    fn is_end_stream(&self) -> bool {
-        self.0.is_end_stream()
-    }
-
-    fn size_hint(&self) -> http_body::SizeHint {
-        self.0.size_hint()
-    }
-}
+pub use claviron_transport::owner::{AppRequest, RequestBody};
 
 /// What the composed service answers with.
 pub type AppResponse = Response<RouteBody>;
@@ -93,18 +42,7 @@ where
     B: http_body::Body<Data = Bytes> + Send + 'static,
     B::Error: Into<RouteBodyError>,
 {
-    let mut body = Some(body);
-    if let Some(body) =
-        (&mut body as &mut dyn Any).downcast_mut::<Option<RouteBody>>()
-    {
-        return body.take().expect("body is present");
-    }
-    if let Some(body) =
-        (&mut body as &mut dyn Any).downcast_mut::<Option<RequestBody>>()
-    {
-        return body.take().expect("body is present").into_inner();
-    }
-    body.expect("body is present").map_err(Into::into).boxed_unsync()
+    RequestBody::new(body).into_inner()
 }
 
 /// The owner: the language's service — embedded PHP, the ASGI engine — as the
@@ -328,6 +266,19 @@ impl Application {
             drop(exchange);
             response
         }
+    }
+}
+
+/// A door with no connection facts of its own to attach: over Orbit the
+/// exchange already carries what the edge knew.
+impl claviron_transport::owner::Owner for Application {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+        _connection: Option<&Arc<ConnCtx>>,
+        _arrival: RequestArrival,
+    ) -> impl Future<Output = AppResponse> + Send + use<> {
+        Application::call(self, request.map(RequestBody::new))
     }
 }
 

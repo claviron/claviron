@@ -47,12 +47,11 @@ claviron-pipeline.workspace = true
 claviron-orbit.workspace = true
 claviron-runtime.workspace = true
 claviron-supervisor = { workspace = true, optional = true }
-claviron-transport = { workspace = true, features = ["tcp", "websocket"] }
+claviron-transport = { workspace = true, features = ["orbit", "tcp", "websocket"] }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync"] }
-tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 clap = { workspace = true, features = ["derive"], optional = true }
@@ -65,7 +64,6 @@ fastwebsockets = { workspace = true, features = ["upgrade"], optional = true }
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
-hyper = { workspace = true, features = ["http1", "http2", "server"] }
 
 # ── Web framework (axum + tower) ────────────────────────────────────────
 axum = { workspace = true, optional = true }
@@ -83,12 +81,8 @@ tracing.workspace = true
 bytes.workspace = true
 
 [dev-dependencies]
-tokio-rustls.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util"] }
-
-# ── TLS / certificates ──────────────────────────────────────────────────
-rcgen = { workspace = true, features = ["pem"] }
 
 # ── System / OS bindings ────────────────────────────────────────────────
 tempfile = "3"

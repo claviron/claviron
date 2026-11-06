@@ -24,8 +24,8 @@ use claviron_runtime::{
     AppState, Component, RunContext, RunMode, Runnable, ServiceStartPolicy,
     registry,
 };
-pub use claviron_transport::doors::{Bind, Protocols};
 use claviron_transport::doors::Doors;
+pub use claviron_transport::doors::{Bind, Protocols};
 use claviron_transport::owner::Owner as TransportOwner;
 use http::Request;
 
@@ -75,11 +75,8 @@ impl Component<AppState> for SocketIngress {
         state: &AppState,
     ) -> registry::Result<()> {
         if !matches!(state.run_mode(), RunMode::Standalone)
-            && let Some(Bind::Uds(path)) = self
-                .0
-                .binds()
-                .iter()
-                .find(|bind| matches!(bind, Bind::Uds(_)))
+            && let Some(Bind::Uds(path)) =
+                self.0.binds().iter().find(|bind| matches!(bind, Bind::Uds(_)))
         {
             return Err(registry::Error::msg(format!(
                 "unix:{} cannot be served by several workers; serve it standalone, or reach \
@@ -138,11 +135,8 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for SocketIngress {
     ) -> registry::Result<()> {
         let trust = trust.unwrap_or_default();
         tracing::info!(
-            trusted = if trust.is_empty() {
-                "nobody"
-            } else {
-                "registered peers"
-            },
+            trusted =
+                if trust.is_empty() { "nobody" } else { "registered peers" },
             "the application's doors are opening"
         );
         self.0

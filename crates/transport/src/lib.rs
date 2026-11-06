@@ -15,6 +15,8 @@ pub mod doors;
 pub mod edge;
 pub mod geo;
 pub mod instances;
+#[cfg(feature = "orbit")]
+pub mod orbit;
 pub mod owner;
 #[cfg(feature = "quic")]
 pub mod quic;

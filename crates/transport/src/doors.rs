@@ -225,7 +225,8 @@ impl Doors {
                             tls.clone(),
                             owner.clone(),
                         )?);
-                        serving.spawn(serve_secure(snapshot, context, run_mode));
+                        serving
+                            .spawn(serve_secure(snapshot, context, run_mode));
                         continue;
                     }
                     let snapshot =

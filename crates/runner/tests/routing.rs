@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+use http_body_util::BodyExt;
+
 use super::*;
 
 fn application<S>(

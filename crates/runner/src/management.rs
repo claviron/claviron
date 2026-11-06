@@ -2,7 +2,7 @@
 //! application manager. The runner stays alive while its hosted application
 //! changes state.
 
-use claviron_app::fleet::{FleetApplicationManager, link_snapshot_rows};
+use claviron_app::fleet::FleetApplicationManager;
 use claviron_app::management::{
     ApplicationFailed, ApplicationStarted, ApplicationStopped,
 };
@@ -84,21 +84,9 @@ fn publish_if_linked(state: &AppState) -> registry::Result<()> {
     else {
         return Ok(());
     };
-    publish_application_snapshot(state, &segment, state.name())
-}
-
-/// Report the real local application snapshot through this runner's Link lane.
-pub(crate) fn publish_application_snapshot(
-    state: &AppState,
-    segment: &ApplicationSegment,
-    link_name: &str,
-) -> registry::Result<()> {
-    let Some(rows) = link_snapshot_rows(state).map_err(registry::Error::msg)?
-    else {
-        return Ok(());
-    };
-    segment
-        .publish_application_state(link_name, &rows)
-        .map_err(|error| registry::Error::msg(error.to_string()))?;
-    Ok(())
+    claviron_transport::orbit::publish_application_snapshot(
+        state,
+        &segment,
+        state.name(),
+    )
 }
