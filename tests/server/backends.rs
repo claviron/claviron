@@ -1,5 +1,7 @@
 #[cfg(feature = "php_embed")]
 use super::*;
+#[cfg(feature = "php_embed")]
+use claviron_edge::HostConfig;
 
 #[cfg(feature = "php_embed")]
 #[test]

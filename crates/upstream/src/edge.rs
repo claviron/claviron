@@ -43,7 +43,7 @@ pub fn register(state: &AppState) -> Result<()> {
                         context.host
                     ))
                 })?;
-            let transport = &context.route.transport;
+            let transport = context.transport;
             Ok(vec![Arc::new(UpstreamStage::new(
                 app,
                 UpstreamRequestPolicy {

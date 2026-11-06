@@ -13,7 +13,7 @@ use http::{HeaderMap, Request, StatusCode};
 #[cfg(feature = "tcp")]
 use tracing::{debug, error};
 
-use crate::config::HostConfig;
+use crate::config::Site;
 
 /// Typed request context for long-lived transport attempts.
 ///
@@ -23,7 +23,7 @@ use crate::config::HostConfig;
 #[derive(Clone)]
 pub struct AuthContext {
     pub host: Host,
-    pub host_config: Arc<HostConfig>,
+    pub host_config: Arc<Site>,
     pub path: Arc<str>,
     pub uri: http::Uri,
     pub headers: HeaderMap,

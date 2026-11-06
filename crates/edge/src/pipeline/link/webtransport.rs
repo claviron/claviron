@@ -17,7 +17,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::HostConfig;
+use crate::Site;
 use crate::pipeline::{
     AnyAuthenticated, AuthContext, H3WebTransportSession, WebTransportAccept,
     WebTransportHandler, WebTransportRegistry, WebTransportReject,
@@ -27,7 +27,7 @@ use crate::pipeline::{
 pub(in crate::pipeline) fn bind(
     state: &AppState,
     host: &Host,
-    config: &HostConfig,
+    config: &Site,
 ) -> registry::Result<()> {
     if config.orbit().is_empty()
         && config.routes.iter().all(|(_, route)| route.orbit().is_empty())
@@ -59,7 +59,7 @@ pub(in crate::pipeline) fn bind(
 }
 
 fn route<'a>(
-    host: &'a HostConfig,
+    host: &'a Site,
     path: &str,
 ) -> Option<&'a OrbitRouteConfig> {
     let selected = host.routes.find(path).map(|route| &**route).unwrap_or(host);

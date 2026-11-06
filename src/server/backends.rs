@@ -1,7 +1,7 @@
 //! Cold composition of selected PHP engines; Edge knows no execution engine.
 
 use claviron_edge::{
-    HostConfig,
+    Site,
     pipeline::{
         BackendHandler, HostAppRegistry,
         backend::{BackendContext, BackendFactory, BackendPlacement},
@@ -73,7 +73,7 @@ impl BackendFactory for PhpFactory {
 /// The edge keeps it as written; this is where it is decoded and validated.
 /// An absent or null directive declares nothing.
 fn declarations(
-    route: &HostConfig
+    route: &Site
 ) -> std::result::Result<Vec<PhpConfig>, serde_yaml::Error> {
     match route.directive("php") {
         None | Some(serde_yaml::Value::Null) => Ok(Vec::new()),
@@ -87,7 +87,7 @@ fn declarations(
 // Resolve route mappings and PHP defaults before selecting runner owners.
 fn prepare_runtimes(
     state: &AppState,
-    config: &HostConfig,
+    config: &Site,
     declared: &[PhpConfig],
 ) -> Vec<PhpRuntime> {
     declared

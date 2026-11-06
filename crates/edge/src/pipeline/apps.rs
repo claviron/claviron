@@ -516,7 +516,7 @@ impl HostAppRegistry {
     /// registration order. A null value declares nothing.
     pub(crate) fn declared_backends(
         &self,
-        scope: &HostConfig,
+        scope: &crate::config::Site,
     ) -> Vec<&'static str> {
         self.backend_factories
             .read()
@@ -585,15 +585,17 @@ impl HostAppRegistry {
 
     pub(crate) fn resolve_host_layers(
         &self,
+        host_config: &HostConfig,
         context: &RouteContext<'_>,
         protocol: Option<RouteProtocol>,
     ) -> Result<Vec<Arc<dyn RouteLayer>>> {
-        self.resolve_extensions(context, true, protocol)
+        self.resolve_extensions(host_config, context, true, protocol)
             .map(|resolved| resolved.layers)
     }
 
     pub(crate) fn resolve_extensions(
         &self,
+        host_config: &HostConfig,
         context: &RouteContext<'_>,
         inherited_only: bool,
         protocol: Option<RouteProtocol>,
@@ -614,7 +616,7 @@ impl HostAppRegistry {
             codecs.insert(codec.name(), codec.clone());
         }
         for provider in providers {
-            if !provider.match_host(context.host, context.config) {
+            if !provider.match_host(context.host, host_config) {
                 continue;
             }
             let active = matches_protocol(protocol, |protocol| {

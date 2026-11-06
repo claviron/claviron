@@ -15,17 +15,19 @@ use claviron_types::Host;
 use serde::de::DeserializeOwned;
 
 use super::{BackendHandler, RouteProtocol};
-use crate::HostConfig;
+use crate::Site;
 
 /// Effective input borrowed while preparing one listener/host/prefix backend.
 /// No registry lookup or configuration decoding is performed by dispatch.
 pub struct BackendContext<'a> {
     pub state: &'a AppState,
     pub host: &'a Host,
-    pub host_config: &'a HostConfig,
-    pub route: &'a HostConfig,
+    pub host_config: &'a Site,
+    pub route: &'a Site,
     pub prefix: &'a PathPrefix,
     pub policy: HttpPolicy,
+    /// What the connection's terms allow an owner to take over.
+    pub transport: &'a claviron_http::config::transport::TransportPolicy,
     pub protocol: Option<RouteProtocol>,
     pub listener: Option<&'a ListenerConfig>,
 }

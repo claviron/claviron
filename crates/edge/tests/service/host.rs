@@ -97,7 +97,7 @@ fn transport_handoff_and_body_mapping_keep_the_accepted_owners() {
     assert_eq!(prepared.arrival(), RequestArrival::EarlyData);
     let auth = prepared.auth_context();
     assert!(Arc::ptr_eq(&auth.conn, &connection));
-    assert!(Arc::ptr_eq(&auth.host_config, &config));
+    assert!(Arc::ptr_eq(&auth.host_config, config.site()));
     assert_eq!(auth.path.as_ref(), "/original");
     drop(service);
     let prepared = prepared.map_body(|body| {

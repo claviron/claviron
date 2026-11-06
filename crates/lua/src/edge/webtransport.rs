@@ -12,7 +12,7 @@ use claviron_types::Host;
 use http::StatusCode;
 
 use super::Endpoint;
-use claviron_edge::HostConfig;
+use claviron_edge::Site;
 use claviron_edge::pipeline::{
     AnyAuthenticated, AuthContext, H3WebTransportSession, WebTransportAccept,
     WebTransportHandler, WebTransportRegistry, WebTransportReject,
@@ -22,7 +22,7 @@ use claviron_edge::pipeline::{
 pub(crate) fn append_routes(
     state: &AppState,
     host: &Host,
-    config: &HostConfig,
+    config: &Site,
 ) -> Result<()> {
     let Some(service) = state.registry_ref().resolve::<LuaApplications>()
     else {

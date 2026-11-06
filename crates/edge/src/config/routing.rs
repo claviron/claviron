@@ -274,7 +274,8 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
             leaf(source.clone(), Vec::new())?
         } else {
             leaf(route, Vec::new())?
-        };
+        }
+        .into_site();
         config.extensions.extend(extensions);
         config.files.mapping = Some(mapping);
         entries.push((prefix.clone(), Arc::new(config)));
@@ -347,7 +348,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     if !host.extensions.is_empty()
         && !entries.iter().any(|(prefix, _)| prefix.as_str() == "/")
     {
-        let root = leaf(source, Vec::new())?;
+        let root = leaf(source, Vec::new())?.into_site();
         host.entry_rules.push(PathPrefix::root());
         entries.push((PathPrefix::root(), Arc::new(root)));
     }
@@ -356,7 +357,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
         fallback
             .entry(key("root"))
             .or_insert_with(|| Value::String(".".into()));
-        let mut fallback = leaf(fallback, Vec::new())?;
+        let mut fallback = leaf(fallback, Vec::new())?.into_site();
         if routes.find("/").is_some() {
             fallback.files.mapping =
                 Some(file_mapping(&host_root, &PathPrefix::root(), &routes)?);
@@ -421,20 +422,13 @@ fn leaf(
         .map_err(|error| error.to_string())?;
     let mut extensions = std::mem::take(&mut fields.directives);
     #[cfg(feature = "rate-limit")]
-    if let Some(rate_limit) = &fields.rate_limit {
+    if let Some(rate_limit) = &fields.routing.rate_limit {
         rate_limit.validate()?;
     }
     // Nested flattened structs may leave their recognized keys visible to a
     // sibling flattened map. Only provider directives belong to that map.
     extensions.retain(|name, _| !is_builtin_directive(name));
-    Ok(HostConfig {
-        fields,
-        routes: RouteTable::default(),
-        entry_rules,
-        fallback: None,
-        extensions,
-        statics_inherited: false,
-    })
+    Ok(HostConfig::from_fields(fields, entry_rules, extensions))
 }
 
 fn validate(

@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::HostConfig;
 use claviron_http::ext::RealIpExt;
 use claviron_orbit::quota::{QuotaBacking, QuotaTable};
 use std::num::{NonZeroU64, NonZeroUsize};
@@ -84,7 +85,7 @@ fn specific_prefix_selects_one_store_without_charging_its_parent() {
     child.rate_limit = Some(definition());
     config.routes = claviron_http::config::routes::RouteTable::new([(
         serde_yaml::from_str("/api").unwrap(),
-        Arc::new(child),
+        Arc::new(child.into_site()),
     )]);
     let quotas = QuotaRegistrations::default()
         .prepare(false, &"example.test".parse().unwrap(), &config, None)
@@ -226,7 +227,7 @@ fn header_opt_in_belongs_to_the_selected_definition_and_defaults_off() {
     child.rate_limit = Some(explicit);
     config.routes = claviron_http::config::routes::RouteTable::new([(
         serde_yaml::from_str("/api").unwrap(),
-        Arc::new(child),
+        Arc::new(child.into_site()),
     )]);
     let quotas = QuotaRegistrations::default()
         .prepare(false, &"example.test".parse().unwrap(), &config, None)

@@ -203,7 +203,7 @@ where
 /// when they are accepted. See [`pipeline::AcceptLayer`].
 pub fn register_accept_layer(
     state: &AppState,
-    select: impl Fn(&Host, &HostConfig, pipeline::RouteProtocol) -> bool
+    select: impl Fn(&Host, &Site, pipeline::RouteProtocol) -> bool
     + Send
     + Sync
     + 'static,
@@ -218,7 +218,7 @@ pub fn register_accept_layer(
 }
 
 pub use claviron_types::Host;
-pub use config::HostConfig;
+pub use config::{HostConfig, Site};
 pub use pipeline::Routable;
 pub use pipeline::apps::other::{OtherHandler, OtherService};
 pub use pipeline::{AcceptLayer, Accepted};

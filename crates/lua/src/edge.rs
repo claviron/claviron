@@ -28,7 +28,7 @@ pub use config::{LuaRouteConfig, LuaSocketOriginPolicy};
 /// The edge keeps it as written; this is where it is decoded. An absent or
 /// null directive declares nothing.
 fn declared(
-    scope: &claviron_edge::HostConfig
+    scope: &claviron_edge::Site
 ) -> Result<Vec<LuaRouteConfig>, serde_yaml::Error> {
     match scope.directive("lua") {
         None | Some(serde_yaml::Value::Null) => Ok(Vec::new()),
@@ -164,7 +164,7 @@ impl Endpoint {
     /// this one.
     fn still_declared(
         &self,
-        host: &claviron_edge::HostConfig,
+        host: &claviron_edge::Site,
     ) -> bool {
         let selected =
             host.routes.find(&self.path).map(|route| &**route).unwrap_or(host);
@@ -177,7 +177,7 @@ impl Endpoint {
 /// Every socket endpoint the host's scopes declare, decoded once.
 #[cfg(any(feature = "websocket", feature = "webtransport"))]
 fn socket_endpoints(
-    host: &claviron_edge::HostConfig
+    host: &claviron_edge::Site
 ) -> Result<Vec<Endpoint>, serde_yaml::Error> {
     let mut endpoints = Vec::new();
     for (prefix, scope) in host.scopes() {

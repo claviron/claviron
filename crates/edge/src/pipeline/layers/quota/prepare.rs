@@ -12,7 +12,7 @@ use claviron_orbit::quota::{Quota, QuotaConfig, QuotaResource};
 use claviron_runtime::registry::{Error, Result};
 
 use crate::Host;
-use crate::config::{HostConfig, quota::RateLimitConfig};
+use crate::config::{Site, quota::RateLimitConfig};
 use crate::loader::table::VhostTable;
 use crate::service::HostResponse;
 
@@ -141,7 +141,7 @@ impl QuotaRegistrations {
         &self,
         config_check: bool,
         host: &Host,
-        config: &HostConfig,
+        config: &Site,
         previous: Option<&Option<Arc<HostQuotas>>>,
     ) -> Result<Option<Arc<HostQuotas>>> {
         let declarations = declarations(config);
@@ -199,7 +199,7 @@ impl QuotaRegistrations {
     }
 }
 
-fn declarations(config: &HostConfig) -> Vec<(PathPrefix, RateLimitConfig)> {
+fn declarations(config: &Site) -> Vec<(PathPrefix, RateLimitConfig)> {
     config
         .scopes()
         .filter_map(|(prefix, scope)| {

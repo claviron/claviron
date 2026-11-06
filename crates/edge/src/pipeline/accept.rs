@@ -24,7 +24,7 @@ use claviron_types::Host;
 
 use super::routable::matches_protocol;
 use super::{HostAppRegistry, RouteProtocol};
-use crate::HostConfig;
+use crate::Site;
 
 /// A connection whose facts are complete: its handshake is over and its host
 /// selected, and no request has been read from it.
@@ -38,7 +38,7 @@ pub struct Accepted<'a> {
     pub hostname: &'a HostName,
     /// The canonical host that name resolved to.
     pub host: &'a HostKey,
-    pub config: &'a HostConfig,
+    pub config: &'a Site,
 }
 
 impl<'a> Accepted<'a> {
@@ -49,7 +49,7 @@ impl<'a> Accepted<'a> {
         connection: &'a ConnCtx,
         hostname: &'a HostName,
         host: &'a HostKey,
-        config: &'a HostConfig,
+        config: &'a Site,
     ) -> Self {
         Self { connection, hostname, host, config }
     }
@@ -84,7 +84,7 @@ where
 /// The layers selected for one host on one protocol family.
 pub(crate) type AcceptLayers = Arc<[Arc<dyn AcceptLayer>]>;
 
-type Select = dyn Fn(&Host, &HostConfig, RouteProtocol) -> bool + Send + Sync;
+type Select = dyn Fn(&Host, &Site, RouteProtocol) -> bool + Send + Sync;
 
 pub(in crate::pipeline) struct AcceptRegistration {
     select: Box<Select>,
@@ -99,10 +99,7 @@ impl HostAppRegistry {
     /// type an earlier layer already supplied replaces it.
     pub fn register_accept_layer(
         &self,
-        select: impl Fn(&Host, &HostConfig, RouteProtocol) -> bool
-        + Send
-        + Sync
-        + 'static,
+        select: impl Fn(&Host, &Site, RouteProtocol) -> bool + Send + Sync + 'static,
         layer: impl AcceptLayer,
     ) {
         self.accept_registrations
@@ -118,7 +115,7 @@ impl HostAppRegistry {
     pub(in crate::pipeline) fn accept_layers(
         &self,
         host: &Host,
-        config: &HostConfig,
+        config: &Site,
         protocol: Option<RouteProtocol>,
     ) -> Option<AcceptLayers> {
         let selected: Vec<_> = self
@@ -143,7 +140,7 @@ impl HostAppRegistry {
     pub(in crate::pipeline) fn with_accept_layers(
         &self,
         host: &Host,
-        config: &HostConfig,
+        config: &Site,
         (http, shared): (
             Option<&claviron_http::config::HttpSnapshot>,
             Option<RouteProtocol>,

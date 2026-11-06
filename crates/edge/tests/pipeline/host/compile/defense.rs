@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::HostConfig;
 
 #[cfg(feature = "rate-limit")]
 use crate::pipeline::extension::{RouteEffect, RouteLayer};

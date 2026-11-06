@@ -13,7 +13,7 @@ use claviron_http::{RequestContext, RouteBody, ServiceResult};
 use http::Request;
 
 use super::{DispatchCall, DispatchStep};
-use crate::HostConfig;
+use crate::Site;
 
 /// One explicit, prepared static mount. The file service owns mapping/security.
 #[derive(Clone)]
@@ -98,7 +98,7 @@ impl DispatchStep for TryFilesStage {
 /// whole, so mounts the scope only inherited from an ancestor are left out;
 /// mounts it declares itself still run before the owner.
 pub(in crate::pipeline) fn scope_steps(
-    config: &HostConfig,
+    config: &Site,
     owned: bool,
 ) -> Vec<Arc<dyn DispatchStep>> {
     let mut files = config.files.clone();
@@ -120,7 +120,7 @@ pub(in crate::pipeline) fn scope_steps(
 }
 
 /// General fallback after these steps must not repeat Static or TryFiles.
-pub(crate) fn fallback_config(config: &HostConfig) -> FilesConfig {
+pub(crate) fn fallback_config(config: &Site) -> FilesConfig {
     let mut files = config.files.clone();
     files.root = config.root();
     files.statics = None;

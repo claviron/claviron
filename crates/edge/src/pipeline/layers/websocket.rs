@@ -12,7 +12,6 @@ use claviron_types::Host;
 use http::Request;
 
 use super::{DispatchCall, DispatchStep, HostLayer, HostLayerBuilder};
-use crate::HostConfig;
 
 /// One host generation's exact HTTP/1 WebSocket endpoints.
 ///
@@ -38,14 +37,13 @@ impl WebSocketStage {
     pub(crate) fn prepare(
         state: &AppState,
         host: &Host,
-        config: &HostConfig,
+        transport: &claviron_http::config::transport::TransportPolicy,
         listener: Option<&claviron_http::config::ListenerConfig>,
         local: Option<Arc<H1UpgradeRegistry>>,
     ) -> Option<Arc<Self>> {
-        if !config
-            .transport
+        if !transport
             .allows_protocol(claviron_http::listener::HttpProtocol::H1)
-            || !config.transport.h1.upgrade
+            || !transport.h1.upgrade
             || listener.is_some_and(|listener| {
                 !matches!(&listener.settings,
                     claviron_http::config::ListenerSettings::Tcp(tcp)

@@ -12,16 +12,16 @@ pub use super::host::{
     ExchangeAction, HostHandler, HostHandlerFuture, HostHandlerResult,
     HostLayerBuilder, HostRequest, ReplyHooks,
 };
-use crate::HostConfig;
+use crate::Site;
 pub use claviron_http::dispatch::{RouteCondition, RuleContext};
 
 pub struct RouteContext<'a> {
     pub state: &'a AppState,
     pub host: &'a Host,
     /// Canonical host declaration, before path selection.
-    pub config: &'a HostConfig,
+    pub config: &'a Site,
     /// Prepared declaration selected by this URL prefix.
-    pub route: &'a HostConfig,
+    pub route: &'a Site,
     pub prefix: &'a claviron_http::ext::PathPrefix,
 }
 
@@ -62,7 +62,7 @@ pub enum RouteEffect {
 /// The file view and effective HTTP policy selected for this route.
 #[derive(Clone, Copy)]
 pub struct PreparedScope<'a> {
-    pub config: &'a Arc<HostConfig>,
+    pub config: &'a Arc<Site>,
     pub policy: claviron_http::policy::HttpPolicy,
     /// Whether this plan runs Rust contributions for the selected route.
     pub accepts_applications: bool,

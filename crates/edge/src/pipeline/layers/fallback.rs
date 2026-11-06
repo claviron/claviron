@@ -1,5 +1,5 @@
 use super::files::fallback_config;
-use crate::HostConfig;
+use crate::Site;
 use crate::pipeline::host::{DispatchCall, DispatchStep};
 use claviron_files::{FileSite, try_handle_files};
 use claviron_http::config::files::FilesConfig;
@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 pub(in crate::pipeline) fn prepare_fallback(
     state: &AppState,
-    config: &HostConfig,
+    config: &Site,
 ) -> Option<Arc<dyn DispatchStep>> {
     let files = fallback_config(config);
     if files.spa.is_none() && !files.has_static_index() {

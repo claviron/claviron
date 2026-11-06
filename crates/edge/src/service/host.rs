@@ -173,7 +173,7 @@ impl<B> PreparedRequest<B> {
         let host = &self.service.policy.host;
         AuthContext {
             host: host.vhost_key.0.as_ref().clone(),
-            host_config: host.vhost_config.clone(),
+            host_config: host.vhost_config.site().clone(),
             path: Arc::from(self.request.uri().path()),
             uri: self.request.uri().clone(),
             headers: self.request.headers().clone(),

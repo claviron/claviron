@@ -20,7 +20,7 @@ pub mod publication;
 
 /// A single host's configuration, read by the TLS layer for its certificate
 /// and protocol policy.
-pub use crate::config::HostConfig;
+pub use crate::config::{HostConfig, Site};
 /// Hosts as the runtime registry hands them out.
 pub use crate::loader::resolver::{HostBinding, VhostResolver};
 /// The set of hosts a listener serves, as SNI and authority resolution read it.

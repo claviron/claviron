@@ -16,7 +16,6 @@ use claviron_runtime::{
 };
 use http::{Request, StatusCode};
 
-use claviron_edge::HostConfig;
 use claviron_edge::pipeline::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectHandler,
     H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
@@ -26,11 +25,12 @@ use claviron_edge::pipeline::{
     H3WebTransportSession, WebTransportAccept, WebTransportHandler,
     WebTransportRegistry, WebTransportReject, WebTransportResult,
 };
+use claviron_edge::{HostConfig, Site};
 
 fn append_routes(
     state: &AppState,
     canonical: &Host,
-    host: &HostConfig,
+    host: &Site,
     routes: &mut Vec<H1UpgradeRoute>,
 ) -> Result<()> {
     if !is_fleet(host) && !host.routes.iter().any(|(_, route)| is_fleet(route))
@@ -82,7 +82,7 @@ fn append_routes(
 
 /// A scope's broadcast declaration as written. `pusher` is its other name;
 /// the edge refuses a scope that declares both.
-fn directive(scope: &HostConfig) -> Option<&serde_yaml::Value> {
+fn directive(scope: &Site) -> Option<&serde_yaml::Value> {
     scope.directive("broadcast").or_else(|| scope.directive("pusher"))
 }
 
@@ -100,16 +100,16 @@ fn declared(
 
 /// The scope that owns `path`: its most specific route, or the host itself.
 fn selected<'a>(
-    host: &'a HostConfig,
+    host: &'a Site,
     path: &str,
-) -> &'a HostConfig {
+) -> &'a Site {
     host.routes.find(path).map(|route| route.as_ref()).unwrap_or(host)
 }
 
 /// Whether the scope targets this fleet. A declaration that does not decode
 /// selects nothing here; the backend's preparation of the same scope reports
 /// it.
-fn is_fleet(scope: &HostConfig) -> bool {
+fn is_fleet(scope: &Site) -> bool {
     declared(directive(scope)).is_ok_and(|config| {
         config.is_some_and(|config| {
             matches!(config.target, claviron_pusher::PusherTarget::Fleet)
@@ -118,7 +118,7 @@ fn is_fleet(scope: &HostConfig) -> bool {
 }
 
 fn is_fleet_route(
-    host: &HostConfig,
+    host: &Site,
     path: &str,
 ) -> bool {
     is_fleet(selected(host, path))
@@ -127,7 +127,7 @@ fn is_fleet_route(
 /// Whether the scope that owns `path` still declares exactly `source`, the
 /// declaration a binding was prepared from.
 fn still_declared(
-    host: &HostConfig,
+    host: &Site,
     path: &str,
     source: &serde_yaml::Value,
 ) -> bool {

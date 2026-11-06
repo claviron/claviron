@@ -10,7 +10,7 @@ use super::HostPipelineBuilder;
 use crate::pipeline::extension::{PreparedScope, RouteLayer};
 use crate::pipeline::routable::matches_protocol;
 use crate::pipeline::{HostAppRegistry, RouteProtocol};
-use crate::{HostConfig, Result};
+use crate::{Result, Site};
 
 /// Borrowed preparation input for a code-defined host contribution.
 /// Nothing here is retained by dispatch unless the factory explicitly owns it.
@@ -18,7 +18,7 @@ pub struct LayerContext<'a> {
     pub state: &'a AppState,
     pub host: &'a Host,
     /// The canonical host declaration, before path selection.
-    pub host_config: &'a HostConfig,
+    pub host_config: &'a Site,
     /// The URL scope already selected by the host compiler.
     pub prefix: &'a PathPrefix,
     /// None denotes the protocol-independent lookup. A restricted registration
@@ -49,7 +49,7 @@ struct Registration<S, F> {
 
 impl<S, F> LayerRegistration for Registration<S, F>
 where
-    S: Fn(&Host, &HostConfig, RouteProtocol) -> bool + Send + Sync,
+    S: Fn(&Host, &Site, RouteProtocol) -> bool + Send + Sync,
     F: Fn(&LayerContext<'_>) -> Result<HostPipelineBuilder> + Send + Sync,
 {
     fn matches(
@@ -75,10 +75,7 @@ impl HostAppRegistry {
     /// and the terminal Rust router. Register before the first publication.
     pub fn register_layer<L>(
         &self,
-        select: impl Fn(&Host, &HostConfig, RouteProtocol) -> bool
-        + Send
-        + Sync
-        + 'static,
+        select: impl Fn(&Host, &Site, RouteProtocol) -> bool + Send + Sync + 'static,
         layer: L,
     ) where
         L: RouteLayer + 'static,
@@ -100,10 +97,7 @@ impl HostAppRegistry {
     /// publication; a failed factory rejects the candidate publication.
     pub fn register_pipeline<P>(
         &self,
-        select: impl Fn(&Host, &HostConfig, RouteProtocol) -> bool
-        + Send
-        + Sync
-        + 'static,
+        select: impl Fn(&Host, &Site, RouteProtocol) -> bool + Send + Sync + 'static,
         prepare: impl Fn(&LayerContext<'_>) -> Result<P> + Send + Sync + 'static,
     ) where
         P: Into<HostPipelineBuilder>,

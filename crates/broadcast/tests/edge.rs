@@ -1,4 +1,5 @@
 use super::*;
+use claviron_edge::HostConfig;
 
 #[test]
 fn fleet_broadcast_uses_the_selected_route_not_an_unrelated_root_owner() {

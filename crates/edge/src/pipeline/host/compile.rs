@@ -14,7 +14,7 @@ use super::backend::BackendPlan;
 use super::{
     Backend, BackendHandler, HostExecution, HostHandler, HostPipelineBuilder,
 };
-use crate::HostConfig;
+use crate::Site;
 use crate::pipeline::apps::{
     HostAppRegistry, HostContributions, ResolvedRouteExtensions,
 };
@@ -109,7 +109,8 @@ struct Compiler<'a> {
     host: &'a Host,
     listener: Option<&'a claviron_http::config::ListenerConfig>,
     protocol: Option<RouteProtocol>,
-    config: &'a HostConfig,
+    config: &'a Site,
+    transport: &'a claviron_http::config::transport::TransportPolicy,
     policy: HttpPolicy,
     headers: Option<&'a claviron_http::config::host::HostHeadersConfig>,
     #[cfg(feature = "metrics")]
@@ -135,7 +136,7 @@ impl Compiler<'_> {
     /// the rule can be held.
     fn application_owner(
         &self,
-        config: &HostConfig,
+        config: &Site,
         prefix: &claviron_http::ext::PathPrefix,
     ) -> Result<bool> {
         let owners = self
@@ -160,7 +161,7 @@ impl Compiler<'_> {
 
     fn scope(
         &self,
-        config: Arc<HostConfig>,
+        config: Arc<Site>,
         mut plan: BackendPlan,
         accept_applications: bool,
         handler: Option<&Arc<dyn HostHandler>>,
@@ -199,6 +200,7 @@ impl Compiler<'_> {
                     route: &config,
                     prefix,
                     policy,
+                    transport: self.transport,
                     protocol: self.protocol,
                     listener: self.listener,
                 },
@@ -475,7 +477,7 @@ impl HostCompiler<'_> {
     pub(crate) fn prepare(
         &self,
         host: &Host,
-        config: Arc<HostConfig>,
+        config: Arc<crate::config::HostConfig>,
         router: Option<RustRouter>,
         contributions: &HostContributions,
         #[cfg(feature = "rate-limit")] quotas: Option<
@@ -500,7 +502,7 @@ impl HostCompiler<'_> {
     pub(crate) fn prepare_target(
         &self,
         target: HostCompileTarget<'_>,
-        config: Arc<HostConfig>,
+        host_config: Arc<crate::config::HostConfig>,
         router: Option<RustRouter>,
         contributions: &HostContributions,
         #[cfg(feature = "rate-limit")] quotas: Option<
@@ -511,6 +513,9 @@ impl HostCompiler<'_> {
         >,
     ) -> Result<HostExecution> {
         let HostCompileTarget { host, listener } = target;
+        // Only the upgrade decision reads the connection terms; everything
+        // prepared below serves this host's site.
+        let config = host_config.site().clone();
         let policy = listener
             .map_or_else(HttpPolicy::unlimited, |listener| listener.policy());
         let protocol = listener.map(RouteProtocol::from).or(self.protocol);
@@ -520,6 +525,7 @@ impl HostCompiler<'_> {
             listener,
             protocol,
             config: &config,
+            transport: &host_config.transport,
             policy,
             headers: self.http.map(|http| http.headers.as_ref()),
             #[cfg(feature = "metrics")]
@@ -538,7 +544,11 @@ impl HostCompiler<'_> {
             acl: AclLayer::for_host(&config),
             #[cfg(feature = "websocket")]
             websocket: crate::pipeline::layers::WebSocketStage::prepare(
-                state, host, &config, listener, websocket,
+                state,
+                host,
+                &host_config.transport,
+                listener,
+                websocket,
             ),
         };
         let fallback =
@@ -553,6 +563,7 @@ impl HostCompiler<'_> {
         });
         let layers = match &compiler.registry {
             Some(registry) => registry.resolve_host_layers(
+                &host_config,
                 &RouteContext {
                     state,
                     host,
@@ -586,6 +597,7 @@ impl HostCompiler<'_> {
                 if let Some(route) = config.routes.find(prefix.as_str()) {
                     let resolved = match &compiler.registry {
                         Some(registry) => registry.resolve_extensions(
+                            &host_config,
                             &RouteContext {
                                 state,
                                 host,

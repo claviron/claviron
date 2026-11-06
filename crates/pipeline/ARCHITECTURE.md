@@ -20,6 +20,6 @@ The request contract is here, and PHP's backends are written against it alone.
 
 The plan that runs these steps (`HostPipelineBuilder`, the layers), the factory
 a backend registers with, and the scope declaration it reads
-(`HostConfig`, to be split into a site and a virtual host) are still in
+(`Site`, already separate from the virtual host's `HostConfig`) are still in
 `claviron-edge`. Lua, broadcast and upstream wait for those: they decode their
 declarations from a scope and bind session registries.

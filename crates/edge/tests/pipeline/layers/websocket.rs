@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::HostConfig;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -81,7 +82,7 @@ fn only_declared_hosts_and_protocols_prepare_a_websocket_step() {
         WebSocketStage::prepare(
             &state,
             &host,
-            &config,
+            &config.transport,
             None,
             Some(registry.clone())
         )
@@ -92,7 +93,7 @@ fn only_declared_hosts_and_protocols_prepare_a_websocket_step() {
         WebSocketStage::prepare(
             &state,
             &host,
-            &config,
+            &config.transport,
             None,
             Some(registry.clone())
         )
@@ -107,7 +108,7 @@ fn only_declared_hosts_and_protocols_prepare_a_websocket_step() {
             WebSocketStage::prepare(
                 &state,
                 &host,
-                &config,
+                &config.transport,
                 Some(listener),
                 Some(registry.clone())
             )
@@ -121,7 +122,7 @@ fn only_declared_hosts_and_protocols_prepare_a_websocket_step() {
         WebSocketStage::prepare(
             &state,
             &host,
-            &config,
+            &config.transport,
             None,
             Some(registry.clone())
         )
@@ -132,7 +133,7 @@ fn only_declared_hosts_and_protocols_prepare_a_websocket_step() {
         WebSocketStage::prepare(
             &state,
             &host,
-            &config,
+            &config.transport,
             None,
             Some(registry.clone())
         )

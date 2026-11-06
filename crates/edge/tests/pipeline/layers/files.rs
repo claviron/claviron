@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::HostConfig;
 
 use std::future::Future;
 use std::pin::Pin;

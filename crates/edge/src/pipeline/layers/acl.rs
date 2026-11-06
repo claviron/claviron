@@ -33,7 +33,7 @@ impl AclLayer {
         CompiledAcl::from_entries(entries).map(|rules| Self { rules })
     }
 
-    pub(crate) fn for_host(config: &crate::HostConfig) -> Option<Self> {
+    pub(crate) fn for_host(config: &crate::Site) -> Option<Self> {
         if !config.scopes().any(|(_, scope)| {
             scope.acl().is_some_and(|rule| {
                 matches!(rule.policy, AccessPolicy::Deny)

@@ -1,4 +1,4 @@
-use super::*;
+use claviron_edge::HostConfig;
 
 /// The endpoint prepared for `application` at `path`, as a registry would
 /// keep it.

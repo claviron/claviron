@@ -1,4 +1,5 @@
 use super::*;
+use crate::config::HostConfig;
 
 use bytes::Bytes;
 #[cfg(feature = "axum")]
@@ -209,6 +210,47 @@ async fn backend_placement_preserves_explicit_precedence_with_static_files() {
             expected
         );
     }
+}
+
+/// What a connection may hand over is the host's term, and it reaches a backend
+/// under any route of that host, not only under its root.
+#[test]
+fn a_backend_under_a_route_sees_the_hosts_connection_terms() {
+    use crate::pipeline::backend::{BackendPlacement, factory};
+    let state = AppState::standalone("backend-terms", ".");
+    let registry = Arc::new(HostAppRegistry::default());
+    let seen = Arc::new(AtomicUsize::new(0));
+    let observed = seen.clone();
+    registry
+        .register_backend_factory(factory::<bool, _>(
+            "execute",
+            BackendPlacement::AfterFiles,
+            move |context, _| {
+                if context.transport.h1.upgrade {
+                    observed.fetch_add(1, Ordering::Relaxed);
+                }
+                Ok(vec![Arc::new(RegisteredBackend)])
+            },
+        ))
+        .unwrap();
+    state.registry_ref().insert(registry).unwrap();
+    let config = serde_yaml::from_str::<HostConfig>(
+        "transport: {h1: {upgrade: true}}\nroutes: {'/api': {execute: true}}\n",
+    )
+    .unwrap();
+    HostCompiler { state: &state, http: None, protocol: None }
+        .prepare(
+            &"example.test".parse().unwrap(),
+            Arc::new(config),
+            None,
+            &HostContributions::default(),
+            #[cfg(feature = "rate-limit")]
+            None,
+            #[cfg(feature = "websocket")]
+            None,
+        )
+        .unwrap();
+    assert!(seen.load(Ordering::Relaxed) > 0);
 }
 
 fn two_backends() -> AppState {

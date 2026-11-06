@@ -7,6 +7,11 @@ HTTP host selection, native dispatch and optional TCP/QUIC drivers.
 - `loader` prepares host declarations and publishes names, policy and applications
   together. Congif owns configuration reads and source watching.
 - `service` binds an accepted transport/request to a ready host plan.
+- `config` separates a `Site` (what one application serves: request and file
+  declarations, route scopes, owner directives) from a `HostConfig` (how a
+  connection finds it: names, listeners, handshake and protocol terms). A route
+  is a `Site`; the pipeline prepares from a `Site` and reads no connection terms
+  except those handed to it explicitly.
 - `pipeline` prepares host actions and request owners. Axum is a Rust application
   adapter; files, Embed, Upstream and Link use native dispatch.
 - Wire framing, native body adaptation, accepted connections and sessions belong

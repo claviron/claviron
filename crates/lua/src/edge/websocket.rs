@@ -9,13 +9,13 @@ use claviron_runtime::{
 use claviron_types::Host;
 
 use super::{Endpoint, LuaSocketOriginPolicy, origin::allows_origin};
-use claviron_edge::HostConfig;
+use claviron_edge::Site;
 use claviron_edge::pipeline::{H1UpgradeHandler, H1UpgradeRoute};
 
 pub(crate) fn append_routes(
     state: &AppState,
     canonical: &Host,
-    host: &HostConfig,
+    host: &Site,
     routes: &mut Vec<H1UpgradeRoute>,
 ) -> Result<()> {
     let Some(service) =
