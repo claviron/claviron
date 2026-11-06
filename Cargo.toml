@@ -349,15 +349,6 @@ test = false
 required-features = ["edge", "axum", "tls"]
 
 [workspace]
-# Moving to repositories of their own.
-exclude = [
-    "crates/broadcast",
-    "crates/lua",
-    "crates/php",
-    "crates/php-embed",
-    "crates/php-fcgi",
-    "crates/pusher",
-]
 members = [
     "crates/app",
     "crates/auth",

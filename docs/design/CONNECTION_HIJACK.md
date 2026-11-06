@@ -60,9 +60,9 @@ one database unit of work into two unrelated ones.
 
 ## Follow the implementation
 
-- [Public PostgreSQL borrowing API and rationale](../../crates/php-embed/src/postgres.rs).
-- [Request leases, borrowing and cleanup](../../crates/php-embed/src/functions/postgres/session.rs).
-- [Request-owned cursors](../../crates/php-embed/src/functions/postgres/cursor.rs).
-- [PHP Embed integration](../../crates/php-embed/README.md).
+- Public PostgreSQL borrowing API and rationale.
+- Request leases, borrowing and cleanup.
+- Request-owned cursors.
+- PHP Embed integration.
 
 Keep `CONNECTION_HIJACK` as the search key if the public name evolves later.

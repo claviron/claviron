@@ -228,9 +228,9 @@ not duplicated as new Claviron constants.
 | `211` | Application-link bodies: per-node lanes of stream slots, two bounded byte rings per slot. One duplex slot per exchange — request body one way, response body the other. Separate from kind `246` because worker coordination wants many narrow lanes and this wants fewer and wider. In the selected destination fleet beside kind `195`, addressed by the same lane index | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-link` / `orbit-stream` with Claviron `LINK_SPEC`; `ORBIT_LINK_LANE_CAPACITY` / `ORBIT_LINK_BUFFER_BYTES`; [application link](../../docs/design/ORBIT_LINK.md) |
 | `212` | Retired upstream worker metrics v1 (58-byte payload) | Ring | Replaced by `213`; retained deployed segments are not reset or unlinked automatically |
 | `213` | Upstream worker metrics v2 (74-byte payload) | Ring | `upstream` [UpstreamOrbitMetrics::KIND](../upstream/src/metrics/orbit.rs); `Reuse` / `Preserve` |
-| `214` | Embedded PHP worker metrics | Ring | `php-embed` [PhpEmbedOrbitMetrics::KIND](../php-embed/src/metrics/orbit.rs) |
-| `215` | PHP FastCGI worker metrics | Ring | `php-fcgi` [FcgiOrbitMetrics::KIND](../php-fcgi/src/metrics/fcgi/orbit.rs) |
-| `216` | FPM pool metrics | Ring | `php-fcgi` [FpmPoolOrbitMetrics::KIND](../php-fcgi/src/metrics/fpm/store.rs) |
+| `214` | Embedded PHP worker metrics | Ring | `php-embed` PhpEmbedOrbitMetrics::KIND |
+| `215` | PHP FastCGI worker metrics | Ring | `php-fcgi` FcgiOrbitMetrics::KIND |
+| `216` | FPM pool metrics | Ring | `php-fcgi` FpmPoolOrbitMetrics::KIND |
 | `217` | Task service metrics | Ring | `tasks` [TaskServiceOrbitMetrics::KIND](../tasks/src/metrics/store.rs) |
 | `218` | Per-task metrics | Ring | `tasks` [TaskOrbitMetrics::KIND](../tasks/src/metrics/store.rs) |
 | `219` | Task/role pair metrics | Ring | `tasks` [TaskPairOrbitMetrics::KIND](../tasks/src/metrics/store.rs) |
@@ -250,15 +250,15 @@ not duplicated as new Claviron constants.
 | `233` | Retired scalar cells v2 without handle pins | Table | Replaced by `189`; retained objects are not migrated, reset or unlinked automatically |
 | `234` | Application events | Ring | [APPLICATION_EVENT_RING_KIND](src/event.rs) / `ApplicationEventLayout` |
 | `235` | Retired application snapshots without execution descriptions | Ring, 512-byte payloads | Replaced by `192`; retained segments are not resized, reset or unlinked automatically |
-| `236` | Broadcast publication metadata | Ring | `broadcast` [PUBLICATION_RING_KIND](../broadcast/src/fleet.rs) |
-| `237` | Broadcast publication payload chunks | Ring | `broadcast` [PAYLOAD_RING_KIND](../broadcast/src/fleet.rs) |
+| `236` | Broadcast publication metadata | Ring | `broadcast` PUBLICATION_RING_KIND |
+| `237` | Broadcast publication payload chunks | Ring | `broadcast` PAYLOAD_RING_KIND |
 | `238` | Master generation identity | Ring | `supervisor` [MASTER_GENERATION_RING_KIND](../supervisor/src/process/identity.rs) |
 | `239` | Worker-owned process presence | Ring | `supervisor` [PRESENCE_RING_KIND](../supervisor/src/observation/presence.rs) |
 | `240` | Retired worker lifecycle/operation snapshots without master runtime clocks | Ring, 147-byte rows on 160-byte payloads | Replaced by `197`; retained deployed segments are not resized, reset or unlinked automatically |
 | `241` | Generic invocation requests | Ring | Orbitive `INVOCATION_RING_KIND`; [InvocationProvider binding](src/invoke.rs) |
 | `242` | Retired byte arena v1 with anonymous pins | Index + byte ring | Replaced by `193`; retained segments are not resized, reset or unlinked automatically |
-| `243` | Embedded PHP SAPI pool/thread statistics | Table | `php-embed` [SAPI_STATS_KIND](../php-embed/src/functions/sapi_stats.rs) |
-| `244` | Retired private PHP invalidation transport | Ring | Replaced by the inbound-only kind-220 event bridge; [retirement contract](../php-embed/ARCHITECTURE.md). Not available for incompatible reuse; retained segments require stopped-fleet cleanup |
+| `243` | Embedded PHP SAPI pool/thread statistics | Table | `php-embed` SAPI_STATS_KIND |
+| `244` | Retired private PHP invalidation transport | Ring | Replaced by the inbound-only kind-220 event bridge; retirement contract. Not available for incompatible reuse; retained segments require stopped-fleet cleanup |
 | `245` | Retired upstream DNS snapshot-only v1 | Table | `upstream` [RETIRED_RESOLUTION_KIND](../upstream/src/resolve/table/layout.rs); replaced by unified kind `248`; retained deployed bytes are neither migrated nor reset/unlinked automatically |
 | `246` | Fleet byte streams: per-node lanes of stream slots, two bounded byte rings per slot, per-node doorbells and offer bitmaps | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-stream` `STREAM_KIND`; `ORBIT_STREAM_LANE_CAPACITY` / `ORBIT_STREAM_BUFFER_BYTES`; [StreamsProvider binding](src/stream.rs), reset when quiescent at boot, and a worker ends what its node's earlier lives held when it opens (`Streams::supersede`); first user: Lua's `claviron.stream` |
 | `247` | Retired fleet resource pool: key table (creation budget, members), per-node resource lanes (capacity, reserved/active units, fence), per-node doorbells, interest and claim tables | Header + doorbells + bitmaps + claims + keys + resources in one segment | Orbitive `orbit-pool` `POOL_KIND`. Claviron's opt-in binding (`pool::DefaultPoolTable`, `register_pool::<T>`) was removed 2026-09-24; nothing had ever registered it and this host's fleet holds no segment for it. Listed so the number is not reused blindly |

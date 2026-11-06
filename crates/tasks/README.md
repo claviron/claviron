@@ -153,7 +153,7 @@ task execution or turn output into a job queue.
 - [Runtime](../runtime/README.md): service state, configuration, and cancellation.
 - [App](../app/README.md): hosted application lifecycle, distinct from task timing.
 - [Supervisor](../supervisor/README.md): runtime process ownership and supervision.
-- [Embedded PHP](../php-embed/README.md): PHP task executor and native engine.
+- Embedded PHP: PHP task executor and native engine.
 
 ## Status and license
 

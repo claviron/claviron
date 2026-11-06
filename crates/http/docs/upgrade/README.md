@@ -88,7 +88,7 @@ contracts. They are not represented as HTTP/1 upgrades in this registry.
 Likewise, an upstream proxy tunnel has its own outbound connection ownership.
 
 - [HTTP](../../README.md): trusted connection context and listener sessions.
-- [Broadcast](../../../broadcast/README.md): Pusher-compatible channels and sessions.
+- Broadcast: Pusher-compatible channels and sessions.
 - [Edge](../../../edge/README.md): host-aware routing and publication of upgrade bindings.
 - [Runner](../../../runner/README.md): single-application listener composition.
 - [Upstream](../../../upstream/README.md): transparent proxy upgrade ownership.

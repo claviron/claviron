@@ -27,15 +27,3 @@ package = false
 # Local release artifacts and receipts; never part of a registry package.
 [tool.claviron.publish]
 state-directory = "target/publisher"
-
-# Composer distribution mirrors are generated from committed package snapshots.
-# These paths are local tooling inputs, never published package metadata.
-[tool.packagist]
-state-directory = "target/composer"
-
-[[tool.packagist.packages]]
-name = "claviron/sapi"
-remote = "git@github.com:claviron/sapi.git"
-directory = "php"
-license = "LICENSE-MIT"
-include = ["composer.json", "README.md", "src", "fallback"]

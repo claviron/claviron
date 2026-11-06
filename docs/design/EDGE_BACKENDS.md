@@ -196,7 +196,7 @@ and permission to execute remain separate
 - [Scope compiler](../../crates/edge/src/pipeline/host/compile.rs)
 - [Body delivery policy](../../crates/http/src/policy.rs)
 - [H3 request/response adapter](../../crates/edge/src/quic/request.rs)
-- [PHP input contract](../../crates/php/ARCHITECTURE.md#http-request-body-limits)
+- PHP input contract
 
 Verify new integrations with isolated ownership and transformation tests:
 unread fallthrough, guard-error propagation, byte ownership and cancellation.

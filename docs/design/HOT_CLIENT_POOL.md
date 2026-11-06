@@ -60,8 +60,8 @@ process; remote users reach that owner through an exchange.
 - [General client-pool facade](../../src/clients.rs) and [typed policy](../../src/clients/config.rs).
 - [Upstream H1 accounting](../../crates/upstream/src/proxy/h1/pool.rs) and [warm maintenance](../../crates/upstream/src/proxy/h1/pool/warm.rs).
 - [Upstream H2 session and stream admission](../../crates/upstream/src/proxy/h2/pool.rs).
-- [FastCGI pool and live floor](../../crates/php-fcgi/src/pool.rs).
-- [Upstream guide](../../crates/upstream/README.md) and [FastCGI guide](../../crates/php-fcgi/README.md).
+- FastCGI pool and live floor.
+- [Upstream guide](../../crates/upstream/README.md) and FastCGI guide.
 
 Use `HOT_CLIENT_POOL` for this reuse and preparation policy; a pool's actual
 warm guarantee still comes from its configuration and running lifecycle.

@@ -137,7 +137,7 @@ contracts; process survival alone proves none of them.
   exact process ownership, worker drain and escalation.
 - [Tasks](../../crates/tasks/README.md):
   cancellation scopes, per-task grace and external process actions.
-- [PHP Embed](../../crates/php-embed/README.md):
+- PHP Embed:
   execution ownership, VM interruption and joined OS-thread teardown.
 - [Logging](../../crates/logging/README.md): producer-before-writer drain.
 - [Upstream](../../crates/upstream/README.md): outbound profile drain
