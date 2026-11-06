@@ -29,7 +29,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 INDEX = "https://index.crates.io/"
 UPLOAD = "https://crates.io/api/v1/crates/new"
 USER_AGENT = "claviron-publisher (https://github.com/claviron/claviron)"
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class PublishError(Exception):
