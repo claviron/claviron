@@ -49,6 +49,7 @@ metrics = ["claviron-http/metrics"]
 claviron-edge = { workspace = true, optional = true }
 claviron-geoip = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
+claviron-pipeline.workspace = true
 claviron-runtime.workspace = true
 claviron-sys = { workspace = true, optional = true }
 claviron-tls = { workspace = true, optional = true }

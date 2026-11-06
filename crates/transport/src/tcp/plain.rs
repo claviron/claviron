@@ -9,7 +9,6 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use claviron_http::OtherHandler;
 use claviron_http::config::{
     H1Config, ListenerConfig, ListenerSettings, TcpConfig, TcpSecurity,
 };
@@ -22,10 +21,11 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 use tracing::{debug, warn};
 
-use super::HandlerRequests;
+use super::OwnerRequests;
 pub use super::Requests;
 use super::listener::TcpListenerSnapshot;
 use super::prior::PriorKnowledge;
+use crate::owner::Owner;
 
 /// What one cleartext listener serves, published as a whole and retained by
 /// the connections accepted under it.
@@ -52,27 +52,26 @@ pub trait Cleartext: TcpListenerSnapshot + Send + Sync + 'static {
     ) -> Self::Requests;
 }
 
-/// A cleartext listener that gives every request to one handler, whatever
-/// authority the request names. No host is selected and nothing is added to
-/// the request: the handler receives it as the connection produced it, with
-/// only the body erased to [`claviron_http::RouteBody`].
+/// A cleartext listener that gives every request to one [`Owner`], whatever
+/// authority the request names. No host is selected.
 ///
-/// The listener's request policy is not applied here. A handler that needs a
-/// body limit or a read deadline enforces it, as it would under any caller.
-pub struct Single<H> {
+/// The driver applies no request policy; that is the owner's. A compiled site
+/// enforces the listener's as it was prepared with it, and a
+/// [`Handler`](crate::owner::Handler) that needs a body limit enforces its own.
+pub struct Single<O> {
     listener: Arc<ListenerConfig>,
     tcp: TcpConfig,
     h1: H1Config,
     prior: Option<PriorKnowledge>,
-    handler: Arc<H>,
+    owner: Arc<O>,
 }
 
-impl<H: OtherHandler> Single<H> {
+impl<O: Owner> Single<O> {
     /// `listener` must be a cleartext TCP listener; its socket and HTTP/1.1
     /// settings are taken as declared.
     pub fn new(
         listener: Arc<ListenerConfig>,
-        handler: H,
+        owner: O,
     ) -> Result<Self> {
         let ListenerSettings::Tcp(config) = &listener.settings else {
             return Err(Error::msg(format!(
@@ -87,11 +86,11 @@ impl<H: OtherHandler> Single<H> {
             )));
         }
         let (tcp, h1) = (config.tcp.clone(), config.h1.clone());
-        Ok(Self { listener, tcp, h1, prior: None, handler: Arc::new(handler) })
+        Ok(Self { listener, tcp, h1, prior: None, owner: Arc::new(owner) })
     }
 }
 
-impl<H: OtherHandler> Single<H> {
+impl<O: Owner> Single<O> {
     /// Accept cleartext HTTP/2 from clients that speak it from their first
     /// byte; `h1` keeps HTTP/1.1 on the same socket.
     pub fn prior_knowledge(
@@ -107,20 +106,21 @@ impl<H: OtherHandler> Single<H> {
 
     pub(crate) fn requests(
         &self,
+        connection: Option<Arc<ConnCtx>>,
         sessions: SessionSpawner,
-    ) -> HandlerRequests<H> {
-        HandlerRequests { handler: self.handler.clone(), sessions }
+    ) -> OwnerRequests<O> {
+        OwnerRequests::new(self.owner.clone(), connection, sessions)
     }
 }
 
-impl<H: OtherHandler> TcpListenerSnapshot for Single<H> {
+impl<O: Owner> TcpListenerSnapshot for Single<O> {
     fn listener(&self) -> &ListenerConfig {
         &self.listener
     }
 }
 
-impl<H: OtherHandler> Cleartext for Single<H> {
-    type Requests = HandlerRequests<H>;
+impl<O: Owner> Cleartext for Single<O> {
+    type Requests = OwnerRequests<O>;
 
     fn tcp(&self) -> &TcpConfig {
         &self.tcp
@@ -130,10 +130,10 @@ impl<H: OtherHandler> Cleartext for Single<H> {
     }
     fn connection(
         self: &Arc<Self>,
-        _facts: Arc<ConnCtx>,
+        facts: Arc<ConnCtx>,
         sessions: SessionSpawner,
     ) -> Self::Requests {
-        self.requests(sessions)
+        self.requests(Some(facts), sessions)
     }
     fn prior_knowledge(&self) -> Option<&PriorKnowledge> {
         self.prior.as_ref()

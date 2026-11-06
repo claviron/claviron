@@ -1,6 +1,6 @@
 use arc_swap::ArcSwapOption;
 use claviron_http::config::HttpSnapshot;
-use claviron_http::{RouteFuture, bytes_body};
+use claviron_http::{OtherHandler, RouteFuture, bytes_body};
 use claviron_runtime::RunContext;
 use http::{Method, Response};
 use http_body_util::BodyExt;
@@ -57,7 +57,12 @@ async fn a_single_handler_serves_h3_without_a_host_table() {
     let config: HttpSnapshot = serde_yaml::from_str(HTTP).unwrap();
     let listener = config.listeners.values().next().unwrap().clone();
     let snapshot = Arc::new(
-        Single::new(listener, tls(certificate.clone(), key), Echo).unwrap(),
+        Single::new(
+            listener,
+            tls(certificate.clone(), key),
+            crate::owner::Handler(Echo),
+        )
+        .unwrap(),
     );
 
     let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -107,6 +112,7 @@ fn a_configuration_without_h3_is_refused_when_prepared() {
     without.alpn_protocols = vec![b"http/1.1".to_vec()];
     let config: HttpSnapshot = serde_yaml::from_str(HTTP).unwrap();
     let listener = config.listeners.values().next().unwrap().clone();
-    let refused = Single::new(listener, Arc::new(without), Echo);
+    let refused =
+        Single::new(listener, Arc::new(without), crate::owner::Handler(Echo));
     assert!(refused.is_err());
 }

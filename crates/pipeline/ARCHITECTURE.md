@@ -37,8 +37,10 @@ the connection's terms, the listener, the `SiteRegistry` its directives resolve
 against, and `CompileHooks` for what the serving side adds to a scope. `NoHooks`
 serves a site as itself.
 
-`claviron-edge` is one such serving side: its `HostCompiler` adds registered
-layers, host-selected providers, Link dispatch and H1 upgrade endpoints.
+`compile_site` is the shortest serving side: one site, one listener, a registry,
+no hooks and no host. `claviron-transport`'s `Single` serves its result.
+`claviron-edge` is another: its `HostCompiler` adds registered layers,
+host-selected providers, Link dispatch and H1 upgrade endpoints.
 
 ## What is still in `claviron-edge`
 

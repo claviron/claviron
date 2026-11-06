@@ -2,7 +2,7 @@ use super::*;
 
 use claviron_http::config::HttpSnapshot;
 use claviron_http::session::SessionOwner;
-use claviron_http::{RouteBody, RouteFuture, bytes_body};
+use claviron_http::{OtherHandler, RouteBody, RouteFuture, bytes_body};
 use claviron_runtime::gate::Gate;
 use hyper::Request;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -64,8 +64,10 @@ async fn a_single_handler_serves_tls_without_a_host_table() {
         listener.limits.acquire_timeout,
     );
     let sessions = SessionOwner::new(listener.id.clone());
-    let snapshot =
-        Arc::new(Single::new(listener, Arc::new(server), Echo).unwrap());
+    let snapshot = Arc::new(
+        Single::new(listener, Arc::new(server), crate::owner::Handler(Echo))
+            .unwrap(),
+    );
 
     let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = socket.local_addr().unwrap();

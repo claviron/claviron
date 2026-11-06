@@ -1,5 +1,5 @@
 use claviron_http::config::HttpSnapshot;
-use claviron_http::{RouteBody, RouteFuture, bytes_body};
+use claviron_http::{OtherHandler, RouteBody, RouteFuture, bytes_body};
 use http::{Request, Response};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio_util::sync::CancellationToken;
@@ -20,13 +20,13 @@ impl OtherHandler for Echo {
     }
 }
 
-fn single() -> Arc<plain::Single<Echo>> {
+fn single() -> Arc<plain::Single<crate::owner::Handler<Echo>>> {
     let config: HttpSnapshot = serde_yaml::from_str(
         "listeners:\n  door:\n    transport: tcp\n    protocols: h1\n    listen: '127.0.0.1:0'\n    requests: {max_body_size: off, body_read_timeout: off}\n",
     )
     .unwrap();
     let listener = config.listeners.values().next().unwrap().clone();
-    Arc::new(plain::Single::new(listener, Echo).unwrap())
+    Arc::new(plain::Single::new(listener, crate::owner::Handler(Echo)).unwrap())
 }
 
 /// A socket answers over its file, a leftover file does not stop it from

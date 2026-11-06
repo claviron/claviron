@@ -14,7 +14,6 @@ use std::io;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use claviron_http::OtherHandler;
 use claviron_http::config::transport::TransportPolicy;
 use claviron_http::config::{
     ListenerConfig, ListenerSettings, TcpListenerConfig, TcpSecurity,
@@ -37,7 +36,8 @@ use tracing::{debug, error, warn};
 use super::io::{TcpErrors, TcpIo};
 use super::listener::TcpListenerSnapshot;
 use super::protocol::h1 as make_h1_builder;
-use super::{HandlerRequests, Requests};
+use super::{OwnerRequests, Requests};
+use crate::owner::Owner;
 
 /// What one TLS listener serves, published as a whole and retained by the
 /// connections accepted under it.
@@ -138,8 +138,8 @@ impl Display for ConnectionError {
 }
 
 /// A TLS listener that gives every connection one TLS configuration and every
-/// request one handler, whatever server name or authority the client names.
-/// No host is selected and nothing is attached to the request.
+/// request one [`Owner`], whatever server name or authority the client names.
+/// No host is selected.
 ///
 /// A server name selecting a certificate is not a host being selected: the
 /// configuration's own certificate resolver may still choose among several
@@ -148,22 +148,22 @@ impl Display for ConnectionError {
 /// authentication for a name.
 ///
 /// The configuration's ALPN list decides what is negotiated; the listener's
-/// declared protocols bound it. The listener's request policy is not applied
-/// here, and such a connection is never retired by a host change.
-pub struct Single<H> {
+/// declared protocols bound it. The driver applies no request policy; that is
+/// the owner's. Such a connection is never retired by a host change.
+pub struct Single<O> {
     listener: Arc<ListenerConfig>,
     config: TcpListenerConfig,
     tls: Arc<rustls::ServerConfig>,
     transport: TransportPolicy,
-    handler: Arc<H>,
+    owner: Arc<O>,
 }
 
-impl<H: OtherHandler> Single<H> {
+impl<O: Owner> Single<O> {
     /// `listener` must be a TLS TCP listener.
     pub fn new(
         listener: Arc<ListenerConfig>,
         tls: Arc<rustls::ServerConfig>,
-        handler: H,
+        owner: O,
     ) -> Result<Self> {
         let ListenerSettings::Tcp(config) = &listener.settings else {
             return Err(Error::msg(format!(
@@ -183,19 +183,19 @@ impl<H: OtherHandler> Single<H> {
             config,
             tls,
             transport: TransportPolicy::default(),
-            handler: Arc::new(handler),
+            owner: Arc::new(owner),
         })
     }
 }
 
-impl<H: OtherHandler> TcpListenerSnapshot for Single<H> {
+impl<O: Owner> TcpListenerSnapshot for Single<O> {
     fn listener(&self) -> &ListenerConfig {
         &self.listener
     }
 }
 
-impl<H: OtherHandler> Secure for Single<H> {
-    type Host = SingleHost<H>;
+impl<O: Owner> Secure for Single<O> {
+    type Host = SingleHost<O>;
 
     fn config(&self) -> &TcpListenerConfig {
         &self.config
@@ -209,10 +209,10 @@ impl<H: OtherHandler> Secure for Single<H> {
 }
 
 /// The owner of every connection of a [`Single`] listener.
-pub struct SingleHost<H>(Arc<Single<H>>);
+pub struct SingleHost<O>(Arc<Single<O>>);
 
-impl<H: OtherHandler> SecureHost for SingleHost<H> {
-    type Requests = HandlerRequests<H>;
+impl<O: Owner> SecureHost for SingleHost<O> {
+    type Requests = OwnerRequests<O>;
     type Rejection = Infallible;
 
     fn admit(&self) -> Result<(), Infallible> {
@@ -232,10 +232,14 @@ impl<H: OtherHandler> SecureHost for SingleHost<H> {
     }
     fn bind(
         self,
-        _facts: ConnCtx,
+        facts: ConnCtx,
         sessions: SessionSpawner,
     ) -> Result<Self::Requests, Infallible> {
-        Ok(HandlerRequests { handler: self.0.handler.clone(), sessions })
+        Ok(OwnerRequests::new(
+            self.0.owner.clone(),
+            Some(Arc::new(facts)),
+            sessions,
+        ))
     }
 }
 

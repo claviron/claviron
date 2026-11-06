@@ -48,7 +48,7 @@ HTTP over a Unix socket with the same drain and HTTP settings as TCP. `Unix` is 
 
 - [`mod.rs`](src/quic/mod.rs) — HTTP/3 module exports.
 - [`listener.rs`](src/quic/listener.rs) — Endpoint groups, connection capacity, handshake deadline and concurrent request/session stream driving. `Quic` is what a listener publishes, `QuicHost` the owner a connection was accepted for and `QuicRequests` its request owner.
-- [`single.rs`](src/quic/single.rs) — `Single`: the host-free implementation that gives every request to one `OtherHandler`.
+- [`single.rs`](src/quic/single.rs) — `Single`: the host-free implementation that gives every request to one `Owner`.
 - [`request.rs`](src/quic/request.rs) — H3 replay/framing checks, lazy frame/trailer adaptation and response IO.
 - [`config.rs`](src/quic/config.rs) — QUIC transport parameters from a listener's settings.
 - [`wt.rs`](src/quic/wt.rs) — Recognize a WebTransport CONNECT, authorize it beside the connection's other work and hand the session to its `QuicSession` owner.
@@ -103,14 +103,20 @@ connection, a CONNECT or an `Upgrade`, so an ordinary request pays nothing for
 it. Whatever an upgrade starts is joined with the listener's drain through it.
 
 The `edge` module implements both with Edge's virtual-host table. `Single` implements both
-with one handler: it selects nothing, applies no request policy, attaches
-nothing to the request and never retires a connection.
+with one `Owner`: it selects nothing and never retires a connection.
 
 ## Owners without a host
 
 Every driver runs without Edge: `tcp::plain::Single`, `tcp::secure::Single` and
-`quic::Single` serve a listener with one handler. They are composed from the
-driver's own serve functions; nothing here reads a configuration file for them.
+`quic::Single` serve a listener with one [`Owner`](src/owner.rs). They are
+composed from the driver's own serve functions; nothing here reads a
+configuration file for them.
+
+An owner is one of two things. `owner::Handler` wraps an `OtherHandler`, which
+receives the request as the connection produced it, with no policy applied and
+nothing attached. A `HostExecution` from `claviron_pipeline::compile::compile_site`
+is a whole site: its policy, files, directives and backends, with the connection's
+facts lent to them and no host name.
 
 The listener owners that do read one (`HttpServer`, `HttpsServer`, `H3Server`)
 live under `edge/`, because they publish against Edge's host table.

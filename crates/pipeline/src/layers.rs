@@ -44,7 +44,10 @@ pub use log::{AccessLogLayer, AccessLogState};
 pub use metrics::{MetricsLayer, MetricsState};
 pub use proxy::ProxyLayer;
 #[cfg(feature = "rate-limit")]
-pub use quota::{HostQuotas, QuotaPolicy, QuotaRegistrations, QuotaState};
+pub use quota::{
+    HostQuotas, QuotaPolicy, QuotaRegistrations, QuotaState,
+    of_site as quotas_of_site,
+};
 pub use redirect::RedirectLayer;
 pub use reply::ReplyPolicy;
 pub use selection::RouteSelectionLayer;

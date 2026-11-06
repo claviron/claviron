@@ -174,30 +174,49 @@ impl QuotaRegistrations {
         if declarations.is_empty() && registered.is_empty() {
             return Ok(None);
         }
-        let mut rules = registered.clone();
-        for (prefix, definition) in &declarations {
-            let store =
-                Quota::new(definition.quota.clone()).map_err(|error| {
-                    Error::msg(format!(
-                        "host '{host}' quota '{prefix}': {error}"
-                    ))
-                })?;
-            let limiter = RateLimiter::new(
-                store,
-                IpKey,
-                definition.namespace.as_bytes(),
-                definition.cost,
-            )
-            .map_err(|error| Error::msg(error.to_string()))?
-            .with_headers(definition.headers);
-            rules.push((prefix.clone(), RegisteredQuota(Arc::new(limiter))));
-        }
-        rules.sort_unstable_by(|(a, _), (b, _)| {
-            b.len().cmp(&a.len()).then_with(|| a.as_str().cmp(b.as_str()))
-        });
-        let rules: Arc<[(PathPrefix, RegisteredQuota)]> = rules.into();
-        Ok(Some(Arc::new(HostQuotas { declarations, registered, rules })))
+        open(&host.to_string(), declarations, registered).map(Some)
     }
+}
+
+/// Open the stores a site declares for itself, for a site served without a
+/// host table. Nothing here can be registered beside them.
+pub fn of_site(site: &Site) -> Result<Option<Arc<HostQuotas>>> {
+    let declarations = declarations(site);
+    if declarations.is_empty() {
+        return Ok(None);
+    }
+    for (prefix, definition) in &declarations {
+        validate_prefix(prefix)?;
+        definition.validate().map_err(Error::msg)?;
+    }
+    open("site", declarations, Vec::new()).map(Some)
+}
+
+fn open(
+    owner: &str,
+    declarations: Vec<(PathPrefix, RateLimitConfig)>,
+    registered: Vec<(PathPrefix, RegisteredQuota)>,
+) -> Result<Arc<HostQuotas>> {
+    let mut rules = registered.clone();
+    for (prefix, definition) in &declarations {
+        let store = Quota::new(definition.quota.clone()).map_err(|error| {
+            Error::msg(format!("{owner} quota '{prefix}': {error}"))
+        })?;
+        let limiter = RateLimiter::new(
+            store,
+            IpKey,
+            definition.namespace.as_bytes(),
+            definition.cost,
+        )
+        .map_err(|error| Error::msg(error.to_string()))?
+        .with_headers(definition.headers);
+        rules.push((prefix.clone(), RegisteredQuota(Arc::new(limiter))));
+    }
+    rules.sort_unstable_by(|(a, _), (b, _)| {
+        b.len().cmp(&a.len()).then_with(|| a.as_str().cmp(b.as_str()))
+    });
+    let rules: Arc<[(PathPrefix, RegisteredQuota)]> = rules.into();
+    Ok(Arc::new(HostQuotas { declarations, registered, rules }))
 }
 
 fn declarations(config: &Site) -> Vec<(PathPrefix, RateLimitConfig)> {

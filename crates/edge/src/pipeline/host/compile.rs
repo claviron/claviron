@@ -16,7 +16,9 @@ use claviron_runtime::{
 };
 use claviron_types::Host;
 
-use super::{BackendHandler, HostExecution, HostPipelineBuilder, LayerContext};
+#[cfg(any(feature = "orbit", feature = "websocket"))]
+use super::BackendHandler;
+use super::{HostExecution, HostPipelineBuilder, LayerContext};
 use crate::config::HostConfig;
 use crate::pipeline::apps::{HostAppRegistry, HostContributions};
 use crate::pipeline::{RouteProtocol, RustRouter};

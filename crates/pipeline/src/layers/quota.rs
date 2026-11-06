@@ -17,6 +17,7 @@ mod prepare;
 pub use prepare::HostQuotas;
 pub use prepare::QuotaRegistrations;
 use prepare::RegisteredQuota;
+pub use prepare::of_site;
 
 /// The committed admission snapshot, retained without a second store read.
 #[derive(Default)]

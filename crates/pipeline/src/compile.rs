@@ -523,6 +523,36 @@ impl Compiler<'_> {
     }
 }
 
+/// Compile a site served as itself, by a listener that selects no host. Its
+/// directives resolve against `registry`; a directive nothing owns fails here.
+pub fn compile_site(
+    state: &AppState,
+    site: Arc<Site>,
+    listener: &ListenerConfig,
+    registry: Option<&SiteRegistry>,
+) -> Result<HostExecution> {
+    #[cfg(feature = "rate-limit")]
+    let quotas = crate::layers::quotas_of_site(&site)?;
+    compile(CompileInput {
+        state,
+        host: None,
+        site,
+        transport: &TransportPolicy::default(),
+        listener: Some(listener),
+        protocol: None,
+        http: None,
+        router: None,
+        applications: &[],
+        layers: &[],
+        registry,
+        contributed: ContributedExtensions::default(),
+        hooks: &NoHooks,
+        #[cfg(feature = "rate-limit")]
+        quotas: quotas.as_deref(),
+        upgrades: None,
+    })
+}
+
 /// Compile a site into its immutable dispatch owner, for one listener's plan
 /// or for every protocol when none is given.
 pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {

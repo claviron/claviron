@@ -5,7 +5,8 @@ Socket acceptance and HTTP connection driving, without host selection.
 A transport accepts a connection, drives its protocol and hands each request
 to a service. What that service is belongs to how the listener is composed:
 `tcp::plain::Single`, `tcp::secure::Single` and `quic::Single` give every
-request to one handler with no host table; with the `edge` feature the crate borrows
+request to one owner with no host table, a plain handler or a site compiled by
+`claviron-pipeline`; with the `edge` feature the crate borrows
 `claviron-edge` and serves its virtual hosts through the same drivers.
 `claviron-runner` composes them with its own application.
 

@@ -4,10 +4,13 @@ use std::convert::Infallible;
 use std::future::Future;
 use std::sync::Arc;
 
+use claviron_http::RouteResponse;
+use claviron_http::ext::{ConnCtx, RequestArrival};
 use claviron_http::session::SessionSpawner;
-use claviron_http::{OtherHandler, RouteResponse};
 use hyper::Request;
 use hyper::body::Incoming;
+
+use crate::owner::Owner;
 
 pub mod body;
 pub mod io;
@@ -43,22 +46,35 @@ pub fn attach_sessions<B>(
     }
 }
 
-/// One connection of a listener that gives every request to one handler.
-/// Nothing is selected and nothing else is attached: the handler receives the
-/// request as the connection produced it, with only the body erased to
-/// [`claviron_http::RouteBody`] and [`attach_sessions`] applied.
-pub struct HandlerRequests<H> {
-    handler: Arc<H>,
+/// One connection of a listener whose every request has one [`Owner`].
+pub struct OwnerRequests<O> {
+    owner: Arc<O>,
+    connection: Option<Arc<ConnCtx>>,
     sessions: SessionSpawner,
 }
 
-impl<H: OtherHandler> Requests for HandlerRequests<H> {
+impl<O: Owner> OwnerRequests<O> {
+    pub(crate) fn new(
+        owner: Arc<O>,
+        connection: Option<Arc<ConnCtx>>,
+        sessions: SessionSpawner,
+    ) -> Self {
+        Self { owner, connection, sessions }
+    }
+}
+
+impl<O: Owner> Requests for OwnerRequests<O> {
     fn call(
         &self,
         mut request: Request<Incoming>,
-    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<H>
+    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<O>
     {
         attach_sessions(&mut request, &self.sessions);
-        self.handler.call(request.map(body::adapt))
+        let answering = self.owner.call(
+            request.map(body::adapt),
+            self.connection.as_ref(),
+            RequestArrival::Established,
+        );
+        async move { Ok(answering.await) }
     }
 }

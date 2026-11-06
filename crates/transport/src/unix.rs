@@ -17,10 +17,10 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::task::JoinSet;
 use tracing::{debug, warn};
 
+use crate::owner::Owner;
 use crate::tcp::listener::TcpListenerSnapshot;
 use crate::tcp::prior::{PriorKnowledge, drive};
-use crate::tcp::{HandlerRequests, Requests, plain};
-use claviron_http::OtherHandler;
+use crate::tcp::{OwnerRequests, Requests, plain};
 
 /// What one Unix socket serves. It shares the listener's limits, drain and
 /// HTTP settings with a TCP listener; only the socket differs.
@@ -40,8 +40,8 @@ pub trait Unix: TcpListenerSnapshot + Send + Sync + 'static {
     ) -> Self::Requests;
 }
 
-impl<H: OtherHandler> Unix for plain::Single<H> {
-    type Requests = HandlerRequests<H>;
+impl<O: Owner> Unix for plain::Single<O> {
+    type Requests = OwnerRequests<O>;
 
     fn h1(&self) -> &H1Config {
         plain::Cleartext::h1(self)
@@ -53,7 +53,7 @@ impl<H: OtherHandler> Unix for plain::Single<H> {
         self: &Arc<Self>,
         sessions: SessionSpawner,
     ) -> Self::Requests {
-        self.requests(sessions)
+        self.requests(None, sessions)
     }
 }
 

@@ -8,7 +8,9 @@ use claviron_http::config::{
     ListenerConfig, ListenerSettings, QuicListenerConfig,
 };
 use claviron_http::ext::{ConnCtx, RequestArrival};
-use claviron_http::{OtherHandler, RouteBody, RouteResponse};
+use claviron_http::{RouteBody, RouteResponse};
+
+use crate::owner::Owner;
 use claviron_runtime::registry::{Error, Result};
 use http::{Request, StatusCode};
 use quinn::crypto::rustls::QuicServerConfig;
@@ -17,31 +19,30 @@ use tokio::sync::mpsc;
 use super::listener::{Quic, QuicHost, QuicRequests, Refusal, SessionScope};
 use super::wt::{Authorized, BiStream, NativeSession, QuicSession};
 
-/// Every connection gets one TLS configuration and every request one handler,
-/// whatever server name or authority the client names. No host is selected and
-/// nothing is attached to the request.
+/// Every connection gets one TLS configuration and every request one [`Owner`],
+/// whatever server name or authority the client names. No host is selected.
 ///
 /// A server name selecting a certificate is not a host being selected: the
 /// configuration's own resolver may still choose among certificates by name
 /// and refuse a name it has none for.
 ///
-/// The listener's request policy is not applied here. 0-RTT requests are
-/// refused and WebTransport is not offered: both are decisions about an
+/// The driver applies no request policy; that is the owner's. 0-RTT requests
+/// are refused and WebTransport is not offered: both are decisions about an
 /// application this listener knows nothing of.
-pub struct Single<H> {
+pub struct Single<O> {
     listener: Arc<ListenerConfig>,
     settings: QuicListenerConfig,
     config: Arc<quinn::ServerConfig>,
-    handler: Arc<H>,
+    owner: Arc<O>,
 }
 
-impl<H: OtherHandler> Single<H> {
+impl<O: Owner> Single<O> {
     /// `listener` must be a QUIC listener; `tls` must offer the `h3` ALPN and
     /// a cipher suite QUIC can start with.
     pub fn new(
         listener: Arc<ListenerConfig>,
         tls: Arc<rustls::ServerConfig>,
-        handler: H,
+        owner: O,
     ) -> Result<Self> {
         let ListenerSettings::Quic(settings) = &listener.settings else {
             return Err(Error::msg(format!(
@@ -65,13 +66,13 @@ impl<H: OtherHandler> Single<H> {
             listener,
             settings,
             config: Arc::new(config),
-            handler: Arc::new(handler),
+            owner: Arc::new(owner),
         })
     }
 }
 
-impl<H: OtherHandler> Quic for Single<H> {
-    type Host = SingleHost<H>;
+impl<O: Owner> Quic for Single<O> {
+    type Host = SingleHost<O>;
 
     fn listener(&self) -> &ListenerConfig {
         &self.listener
@@ -89,15 +90,15 @@ impl<H: OtherHandler> Quic for Single<H> {
         self: &Arc<Self>,
         _server_name: Option<&str>,
     ) -> std::result::Result<Self::Host, Refusal> {
-        Ok(SingleHost(self.handler.clone()))
+        Ok(SingleHost(self.owner.clone()))
     }
 }
 
 /// The owner of every connection of a [`Single`] listener.
-pub struct SingleHost<H>(Arc<H>);
+pub struct SingleHost<O>(Arc<O>);
 
-impl<H: OtherHandler> QuicHost for SingleHost<H> {
-    type Requests = SingleRequests<H>;
+impl<O: Owner> QuicHost for SingleHost<O> {
+    type Requests = SingleRequests<O>;
 
     fn early_data(&self) -> EarlyDataPolicy {
         EarlyDataPolicy::DenyAll
@@ -110,16 +111,19 @@ impl<H: OtherHandler> QuicHost for SingleHost<H> {
     }
     fn bind(
         self,
-        _facts: ConnCtx,
+        facts: ConnCtx,
     ) -> std::result::Result<Self::Requests, Refusal> {
-        Ok(SingleRequests(self.0))
+        Ok(SingleRequests { owner: self.0, connection: Arc::new(facts) })
     }
 }
 
 /// One connection of a [`Single`] listener.
-pub struct SingleRequests<H>(Arc<H>);
+pub struct SingleRequests<O> {
+    owner: Arc<O>,
+    connection: Arc<ConnCtx>,
+}
 
-impl<H: OtherHandler> QuicRequests for SingleRequests<H> {
+impl<O: Owner> QuicRequests for SingleRequests<O> {
     type Session = NoSession;
 
     fn admit(
@@ -132,15 +136,9 @@ impl<H: OtherHandler> QuicRequests for SingleRequests<H> {
     fn call(
         &self,
         request: Request<RouteBody>,
-        _arrival: RequestArrival,
+        arrival: RequestArrival,
     ) -> impl Future<Output = RouteResponse> + Send + 'static {
-        let answering = self.0.call(request);
-        async move {
-            match answering.await {
-                Ok(response) => response,
-                Err(never) => match never {},
-            }
-        }
+        self.owner.call(request, Some(&self.connection), arrival)
     }
 
     fn connect(

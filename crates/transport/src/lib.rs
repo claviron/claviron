@@ -13,6 +13,7 @@
 pub mod edge;
 pub mod geo;
 pub mod instances;
+pub mod owner;
 #[cfg(feature = "quic")]
 pub mod quic;
 #[cfg(feature = "tcp")]
