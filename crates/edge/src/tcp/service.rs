@@ -12,29 +12,39 @@ use hyper::body::Incoming;
 
 use claviron_transport::tcp::body;
 
+/// One TLS connection's requests: admitted on its own task against the
+/// authority its handshake agreed, then handed to the bound host.
 #[cfg(feature = "tls")]
-pub(crate) fn service(
-    host: HostService
-) -> impl hyper::service::Service<
-    http::Request<Incoming>,
-    Response = RouteResponse,
-    Error = Infallible,
-    Future: Send,
-> {
-    // One connection's service: its requests are admitted on its own task.
-    let accepted =
-        std::cell::RefCell::new(crate::service::AcceptedAuthority::default());
-    hyper::service::service_fn(move |request| {
+pub(crate) struct HostRequests {
+    host: HostService,
+    accepted: std::cell::RefCell<crate::service::AcceptedAuthority>,
+}
+
+#[cfg(feature = "tls")]
+impl HostRequests {
+    pub(crate) fn new(host: HostService) -> Self {
+        Self { host, accepted: Default::default() }
+    }
+}
+
+#[cfg(feature = "tls")]
+impl claviron_transport::tcp::Requests for HostRequests {
+    fn call(
+        &self,
+        request: http::Request<Incoming>,
+    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
+    {
         use futures_util::future::{Either, ready};
-        if let Err(reason) =
-            host.validate_authority(&request, &mut accepted.borrow_mut())
+        if let Err(reason) = self
+            .host
+            .validate_authority(&request, &mut self.accepted.borrow_mut())
         {
             return Either::Left(ready(Ok(reason.into())));
         }
         Either::Right(dispatch(
-            host.request(request, RequestArrival::Established),
+            self.host.request(request, RequestArrival::Established),
         ))
-    })
+    }
 }
 
 pub(crate) fn dispatch<B>(

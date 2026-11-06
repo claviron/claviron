@@ -1,10 +1,9 @@
-//! TLS accept, ALPN selection and Hyper H1/H2 connection driving.
+//! TLS host and certificate selection for the transport's H1/H2 driver.
 
 mod conn;
 mod error;
-mod handler;
 mod server;
 mod tls;
 
-pub use handler::ConnectionHandler;
+pub use conn::ConnectionHandler;
 pub use server::{HttpsServer, HttpsServerConfig};

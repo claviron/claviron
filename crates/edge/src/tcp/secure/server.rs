@@ -32,10 +32,32 @@ pub(crate) struct ServerSnapshot {
     pub(crate) listener: Arc<ListenerConfig>,
     pub(crate) config: TcpListenerConfig,
     pub(crate) tls_accept: TlsAccept,
+    state: AppState,
 }
 impl crate::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
     fn listener(&self) -> &ListenerConfig {
         &self.listener
+    }
+}
+impl claviron_transport::tcp::secure::Secure for ServerSnapshot {
+    type Host = super::conn::SelectedHost;
+
+    fn config(&self) -> &TcpListenerConfig {
+        &self.config
+    }
+    fn select(
+        self: &Arc<Self>,
+        server_name: Option<&str>,
+    ) -> std::io::Result<(Arc<rustls::ServerConfig>, Self::Host)> {
+        let (config, vctx) = self.tls_accept.select(server_name)?;
+        Ok((
+            config,
+            super::conn::SelectedHost {
+                vctx,
+                listener: self.listener.clone(),
+                state: self.state.clone(),
+            },
+        ))
     }
 }
 
@@ -184,19 +206,13 @@ impl HttpsServer {
             tls_sessions,
             revocations,
         };
-        let snapshot = build_snapshots(&input, &deps, hosts, None)?
-            .remove(listener)
-            .ok_or_else(|| {
-                Error::msg(format!("listener '{listener}' is not TLS TCP"))
-            })?;
-        let instance = Arc::new(HttpsListener {
-            id: listener.clone(),
-            name: format!("Listener:{listener}").into(),
-            state: self.state.clone(),
-            current: Arc::default(),
-            input: ArcSwap::from_pointee(input),
-        });
-        Ok(super::ConnectionHandler::new(instance, snapshot))
+        let snapshot =
+            build_snapshots(&self.state, &input, &deps, hosts, None)?
+                .remove(listener)
+                .ok_or_else(|| {
+                    Error::msg(format!("listener '{listener}' is not TLS TCP"))
+                })?;
+        Ok(super::ConnectionHandler::new(snapshot))
     }
 
     pub async fn serve(
@@ -234,6 +250,7 @@ impl HttpsServer {
 }
 
 pub(crate) fn build_snapshots(
+    state: &AppState,
     http: &HttpSnapshot,
     deps: &Deps,
     hosts: Arc<VhostTable>,
@@ -260,6 +277,7 @@ pub(crate) fn build_snapshots(
                 listener: listener.clone(),
                 config: config.clone(),
                 tls_accept,
+                state: state.clone(),
             }),
         );
     }
@@ -429,15 +447,21 @@ impl HttpsListener {
             )
             .map_err(crate::Error::other)?,
         );
-        let snapshot = build_snapshots(input, deps, hosts, previous.as_deref())
-            .map_err(crate::Error::other)?
-            .remove(&self.id)
-            .ok_or_else(|| {
-                crate::Error::other(format!(
-                    "listener '{}' is not TLS TCP",
-                    self.id
-                ))
-            })?;
+        let snapshot = build_snapshots(
+            &self.state,
+            input,
+            deps,
+            hosts,
+            previous.as_deref(),
+        )
+        .map_err(crate::Error::other)?
+        .remove(&self.id)
+        .ok_or_else(|| {
+            crate::Error::other(format!(
+                "listener '{}' is not TLS TCP",
+                self.id
+            ))
+        })?;
         publication::resolver(&self.state)
             .map_err(crate::Error::other)?
             .validate_listener_binding(snapshot.listener.clone())?;
@@ -533,16 +557,15 @@ impl Runnable<AppState, ServerDeps> for HttpsListener {
                     )?;
                 deps.vhost_resolver.start_listener_binding(listener)
             })?;
-        let instance = self.clone();
         crate::tcp::listener::serve(
             &self.current,
             self.current.load_full().expect("TLS listener prepared"),
             &context,
             self.state.run_mode(),
-            move |snapshot, stream, peer, permit| {
-                instance
-                    .clone()
-                    .handle_connection(snapshot, stream, peer, permit)
+            |snapshot, stream, peer, permit| {
+                claviron_transport::tcp::secure::serve(
+                    stream, peer, snapshot, permit,
+                )
             },
         )
         .await

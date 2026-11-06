@@ -494,10 +494,9 @@ Socket acceptance, socket I/O, protocol settings and body adaptation come from
 
 - [`secure.rs`](src/tcp/secure.rs) — TLS H1/H2 driver exports.
 - [`server.rs`](src/tcp/secure/server.rs) — HttpsServer configuration owner, named listener lifetimes and TLS policy preparation.
-- [`tls.rs`](src/tcp/secure/tls.rs) — ClientHello/SNI authentication, ALPN intersection and TLS policy epochs.
-- [`conn.rs`](src/tcp/secure/conn.rs) — Verified TLS metadata and the accepted host/application binding.
-- [`handler.rs`](src/tcp/secure/handler.rs) — TLS handshake deadline, H1/H2 driving and graceful/forced connection drain.
-- [`error.rs`](src/tcp/secure/error.rs) — TLS/native connection error classification.
+- [`tls.rs`](src/tcp/secure/tls.rs) — Per-host TLS configuration, ALPN intersection and TLS policy epochs; selects configuration and host from a server name. The handshake itself is the transport's.
+- [`conn.rs`](src/tcp/secure/conn.rs) — The SNI host as the transport's `SecureHost`: listener admission, protocol policy, retirement and the application binding; public `ConnectionHandler` for caller-accepted streams.
+- [`error.rs`](src/tcp/secure/error.rs) — Why a selected host refuses an accepted connection.
 
 ### `quic/`
 

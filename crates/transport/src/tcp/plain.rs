@@ -6,26 +6,24 @@
 //! the peer or a shutdown ends it. Which host a request belongs to, if hosts
 //! exist at all, is the snapshot's business.
 
-use std::convert::Infallible;
-use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use claviron_http::OtherHandler;
 use claviron_http::config::{
     H1Config, ListenerConfig, ListenerSettings, TcpConfig, TcpSecurity,
 };
 use claviron_http::ext::ConnCtx;
 use claviron_http::listener::HttpProtocol;
 use claviron_http::session::ConnectionScope;
-use claviron_http::{OtherHandler, RouteResponse};
 use claviron_runtime::registry::{Error, Result};
-use hyper::Request;
-use hyper::body::Incoming;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 use tracing::{debug, warn};
 
+use super::HandlerRequests;
+pub use super::Requests;
 use super::listener::TcpListenerSnapshot;
 
 /// What one cleartext listener serves, published as a whole and retained by
@@ -45,17 +43,6 @@ pub trait Cleartext: TcpListenerSnapshot + Send + Sync + 'static {
     ) -> Self::Requests;
 }
 
-/// The owner of one connection's requests. It lives on that connection's task
-/// and is called for one request at a time, so it needs no synchronization.
-pub trait Requests: Send + 'static {
-    /// Answer one request. The response future owns what it needs; it does
-    /// not borrow this owner.
-    fn call(
-        &self,
-        request: Request<Incoming>,
-    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<Self>;
-}
-
 /// A cleartext listener that gives every request to one handler, whatever
 /// authority the request names. No host is selected and nothing is added to
 /// the request: the handler receives it as the connection produced it, with
@@ -67,7 +54,7 @@ pub struct Single<H> {
     listener: Arc<ListenerConfig>,
     tcp: TcpConfig,
     h1: H1Config,
-    handler: H,
+    handler: Arc<H>,
 }
 
 impl<H: OtherHandler> Single<H> {
@@ -90,7 +77,7 @@ impl<H: OtherHandler> Single<H> {
             )));
         }
         let (tcp, h1) = (config.tcp.clone(), config.h1.clone());
-        Ok(Self { listener, tcp, h1, handler })
+        Ok(Self { listener, tcp, h1, handler: Arc::new(handler) })
     }
 }
 
@@ -101,7 +88,7 @@ impl<H: OtherHandler> TcpListenerSnapshot for Single<H> {
 }
 
 impl<H: OtherHandler> Cleartext for Single<H> {
-    type Requests = SingleRequests<H>;
+    type Requests = HandlerRequests<H>;
 
     fn tcp(&self) -> &TcpConfig {
         &self.tcp
@@ -113,20 +100,7 @@ impl<H: OtherHandler> Cleartext for Single<H> {
         self: &Arc<Self>,
         _facts: Arc<ConnCtx>,
     ) -> Self::Requests {
-        SingleRequests(self.clone())
-    }
-}
-
-/// One connection of a [`Single`] listener.
-pub struct SingleRequests<H>(Arc<Single<H>>);
-
-impl<H: OtherHandler> Requests for SingleRequests<H> {
-    fn call(
-        &self,
-        request: Request<Incoming>,
-    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<H>
-    {
-        self.0.handler.call(request.map(super::body::adapt))
+        HandlerRequests(self.handler.clone())
     }
 }
 

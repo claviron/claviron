@@ -54,7 +54,7 @@ tcp = [
     "claviron-types/ssl", "dep:claviron-sys", "dep:socket2", "dep:hyper", "dep:hyper-util",
     "dep:claviron-transport", "claviron-transport/tcp",
 ]
-tls = ["dep:rustls", "dep:tokio-rustls"]
+tls = ["dep:rustls", "dep:tokio-rustls", "claviron-transport?/tls"]
 # Preserve the native H3 driver's existing WebTransport binding contract.
 quic = [
     "http3", "webtransport", "claviron-types/ssl", "dep:claviron-sys",

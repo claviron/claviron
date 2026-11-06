@@ -28,7 +28,9 @@ connection facts (`ConnCtx`), request policy and the body types.
   only by an H1 connection with half-close on.
 - [`protocol.rs`](src/tcp/protocol.rs) — Hyper H1 builder and TCP socket options from resolved config.
 - [`body.rs`](src/tcp/body.rs) — Lazy body erasure and proven-empty-body handling; preserve trailers.
-- [`plain.rs`](src/tcp/plain.rs) — Drive one cleartext HTTP/1.1 connection: socket setup, connection facts, Hyper and graceful/forced drain. `Cleartext` is what a listener publishes and `Requests` owns one connection's requests; `Single` is the host-free implementation that gives every request to one `OtherHandler`.
+- [`mod.rs`](src/tcp/mod.rs) — `Requests`, the owner of one connection's requests, and `HandlerRequests`, which gives them all to one `OtherHandler`.
+- [`plain.rs`](src/tcp/plain.rs) — Drive one cleartext HTTP/1.1 connection: socket setup, connection facts, Hyper and graceful/forced drain. `Cleartext` is what a listener publishes; `Single` is its host-free implementation.
+- [`secure.rs`](src/tcp/secure.rs) — TLS handshake deadline, ALPN and protocol choice, connection facts, H1/H2 driving and graceful/forced drain. `Secure` selects a TLS configuration and a `SecureHost` from the ClientHello; `Single` is its host-free implementation.
 
 ### `quic/`
 
@@ -40,23 +42,37 @@ connection facts (`ConnCtx`), request policy and the body types.
 ## The contract with a host selector
 
 A listener's owner publishes one snapshot. For each accepted connection the
-driver completes the connection's facts and asks the snapshot for that
-connection's request owner; the owner is called for one request at a time on
-the connection's task. Selecting a host, caching the selection and answering a
-request for an unknown name all happen behind that call. Edge implements it
-with its virtual-host table; `Single` implements it with one handler and
-selects nothing.
+driver completes the connection's facts and asks for that connection's request
+owner, which is then called on the connection's task. Selecting a host, caching
+the selection and answering a request for an unknown name all happen behind
+that call.
 
-`Single` applies no request policy and attaches nothing to the request. Its
-handler receives the request as the connection produced it.
+A cleartext connection has nothing to select by until a request arrives, so
+`Cleartext::connection` takes only the facts. A TLS connection is selected by
+its ClientHello: `Secure::select` returns the TLS configuration and a
+`SecureHost` together, so the host cannot change underneath a connection. The
+host then answers what the driver must know before it can serve: whether this
+listener serves it, which protocols it accepts and whether ALPN is required,
+when the connection should retire, and finally its request owner.
+
+A server name is used twice and only one use is host selection. Choosing a
+certificate by server name happens inside the TLS configuration's resolver and
+needs no host. Choosing which configuration applies — client authentication,
+the ALPN list, session storage — and who owns the connection is what `select`
+decides. A listener with many certificates and one owner is therefore still a
+`Single`.
+
+Edge implements both with its virtual-host table. `Single` implements both
+with one handler: it selects nothing, applies no request policy, attaches
+nothing to the request and never retires a connection.
 
 ## Still in `claviron-edge`
 
-The cleartext driver is here; its listener owner (`HttpServer`) is not, because
-it publishes against Edge's host table. The TLS and HTTP/3 owners, handlers and
-TLS selection also still live in Edge. They need more from a host than the
-cleartext path does: its protocol policy before the protocol is chosen, and a
-signal that retires the connection when its host changes. Who may accept
+The TCP drivers are here; their listener owners (`HttpServer`, `HttpsServer`)
+are not, because they publish against Edge's host table and prepare each
+host's TLS configuration. The HTTP/3 owner, listener and request adaptation
+also still live in Edge, together with the registries that decide who may
+accept a WebTransport or H2 CONNECT session for a host and path. Who may accept
 a WebTransport or H2 CONNECT session for a host and path stays an Edge registry.
 
 ## Tests

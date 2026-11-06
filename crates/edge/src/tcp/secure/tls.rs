@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
-use crate::tcp::io::{TcpErrors, TcpIo};
 use crate::transport::tls::{
     TlsHost, client_authority, create_host_auth_config,
 };
@@ -14,10 +13,7 @@ use claviron_tls::Proto::{H1, H2};
 use claviron_tls::create_tls_config;
 use claviron_tls::orbit::SessionDomain;
 use claviron_types::Host;
-use tokio::net::TcpStream;
-use tokio_rustls::LazyConfigAcceptor;
 use tokio_rustls::rustls;
-use tokio_rustls::server::TlsStream;
 
 /// SNI selects both host authentication and the listener/host ALPN intersection.
 /// Host and TLS policy are captured together; a reload cannot switch auth policy
@@ -32,12 +28,6 @@ pub(crate) struct TlsAccept {
 pub(super) struct TlsPolicy {
     by_host: HashMap<Host, TlsHost>,
     protocols: Vec<claviron_tls::Proto>,
-}
-
-pub(crate) struct AcceptedTls {
-    pub stream: TlsStream<TcpIo>,
-    pub errors: TcpErrors,
-    pub host: VhostCtx,
 }
 
 impl TlsAccept {
@@ -145,39 +135,20 @@ impl TlsAccept {
         Ok(TlsPolicy { by_host, protocols: tcp.protocols.clone() })
     }
 
-    pub(crate) async fn accept(
+    /// The TLS configuration and host a ClientHello's server name selects.
+    /// Both belong to this captured publication.
+    pub(super) fn select(
         &self,
-        stream: TcpStream,
-    ) -> io::Result<AcceptedTls> {
-        // Both host routing and TLS policy belong to this captured publication.
-        let hosts = &self.hosts;
-        let policy = &self.policy;
-        let (stream, errors) = TcpIo::split(stream);
-        let start = LazyConfigAcceptor::new(
-            rustls::server::Acceptor::default(),
-            stream,
-        )
-        .await?;
-        let sni = start.client_hello().server_name().map(str::to_owned);
-        tracing::debug!(
-            listener = ?self.listener,
-            server_name = sni.as_deref().unwrap_or("<absent>"),
-            offered_alpn = ?start.client_hello().alpn().map(|protocols| {
-                protocols.map(String::from_utf8_lossy).collect::<Vec<_>>()
-            }),
-            "TLS ClientHello ALPN offered",
-        );
-        let host =
-            resolve_sni_for_listener(hosts, sni.as_deref(), &self.listener)
-                .map_err(|error| {
-                    io::Error::new(
-                        io::ErrorKind::PermissionDenied,
-                        error.to_string(),
-                    )
-                })?;
+        sni: Option<&str>,
+    ) -> io::Result<(Arc<rustls::ServerConfig>, VhostCtx)> {
+        let host = resolve_sni_for_listener(&self.hosts, sni, &self.listener)
+            .map_err(|error| {
+            io::Error::new(io::ErrorKind::PermissionDenied, error.to_string())
+        })?;
         // Named, so a refusal says which host was asked for: the name is the
         // only thing that tells a misrouted client from a missing binding.
-        let config = policy
+        let config = self
+            .policy
             .by_host
             .get(host.vhost_key.0.as_ref())
             .map(|host| host.config.clone())
@@ -187,15 +158,11 @@ impl TlsAccept {
                     format!(
                         "host {} (SNI {}) is not enabled on this listener",
                         host.vhost_key.0,
-                        sni.as_deref().unwrap_or("none")
+                        sni.unwrap_or("none")
                     ),
                 )
             })?;
-        Ok(AcceptedTls {
-            stream: start.into_stream(config).await?,
-            errors,
-            host,
-        })
+        Ok((config, host))
     }
 }
 

@@ -17,6 +17,11 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 default = []
 # TCP bind, admission and drain; Hyper HTTP/1.1 settings and socket I/O.
 tcp = ["dep:claviron-sys", "dep:hyper", "dep:hyper-util", "dep:socket2"]
+# TLS accept, ALPN selection and HTTP/2 over TCP.
+tls = [
+    "tcp", "dep:claviron-tls", "dep:claviron-types", "claviron-types/ssl",
+    "dep:tokio-rustls",
+]
 # HTTP/3 stream and connection handling over QUIC. The H3 error variants this
 # reads are public only with the WebTransport crate selected, so the two go
 # together.
@@ -35,6 +40,8 @@ claviron-geoip = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
 claviron-runtime.workspace = true
 claviron-sys = { workspace = true, optional = true }
+claviron-tls = { workspace = true, optional = true }
+claviron-types = { workspace = true, optional = true }
 
 arc-swap.workspace = true
 bytes.workspace = true
@@ -46,6 +53,7 @@ socket2 = { workspace = true, optional = true }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 tracing.workspace = true
+tokio-rustls = { workspace = true, optional = true }
 
 h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, features = ["datagram"], optional = true }
@@ -53,5 +61,6 @@ h3-webtransport = { workspace = true, optional = true }
 
 [dev-dependencies]
 http.workspace = true
+rcgen.workspace = true
 serde_yaml.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
