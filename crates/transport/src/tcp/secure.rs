@@ -17,7 +17,7 @@ use std::sync::Arc;
 use claviron_http::OtherHandler;
 use claviron_http::config::transport::TransportPolicy;
 use claviron_http::config::{
-    H2Config, ListenerConfig, ListenerSettings, TcpListenerConfig, TcpSecurity,
+    ListenerConfig, ListenerSettings, TcpListenerConfig, TcpSecurity,
 };
 use claviron_http::ext::{ClientAuthStatus, ConnCtx, TlsInfo};
 #[cfg(feature = "metrics")]
@@ -26,9 +26,8 @@ use claviron_http::session::{ConnectionScope, SessionSpawner};
 use claviron_runtime::registry::{Error, Result};
 use claviron_tls::Proto::{self, H1, H2};
 use claviron_types::ssl::peer::peer_identity;
-use hyper::server::conn::http2;
 use hyper::service::service_fn;
-use hyper_util::rt::{TokioExecutor, TokioIo, TokioTimer};
+use hyper_util::rt::TokioIo;
 use tokio::net::TcpStream;
 use tokio_rustls::LazyConfigAcceptor;
 use tokio_rustls::rustls;
@@ -136,32 +135,6 @@ impl Display for ConnectionError {
             }
         }
     }
-}
-
-/// Build the hyper HTTP/2 connection builder from a snapshot config slice.
-fn make_h2_builder(
-    h2_cfg: &H2Config,
-    enable_connect_protocol: bool,
-) -> http2::Builder<TokioExecutor> {
-    let mut builder = http2::Builder::new(TokioExecutor::new());
-    builder
-        .auto_date_header(true)
-        .timer(TokioTimer::new())
-        .keep_alive_timeout(h2_cfg.keep_alive_timeout)
-        .keep_alive_interval(h2_cfg.keep_alive_interval)
-        .max_concurrent_streams(h2_cfg.max_concurrent_streams)
-        .adaptive_window(true)
-        .max_frame_size(h2_cfg.max_frame_size)
-        .max_header_list_size(h2_cfg.max_header_list_size)
-        .max_pending_accept_reset_streams(
-            h2_cfg.max_pending_accept_reset_streams,
-        )
-        .max_local_error_reset_streams(h2_cfg.max_local_error_reset_streams)
-        .max_send_buf_size(h2_cfg.max_send_buf_size);
-    if enable_connect_protocol {
-        builder.enable_connect_protocol();
-    }
-    builder
 }
 
 /// A TLS listener that gives every connection one TLS configuration and every
@@ -383,8 +356,9 @@ async fn handle_stream<S: Secure>(
     let serving = async {
         match proto {
             H2 => {
-                let conn_fut = make_h2_builder(&cfg.h2, h2_connect_protocol)
-                    .serve_connection(stream, vhost_service);
+                let conn_fut =
+                    super::protocol::h2(&cfg.h2, h2_connect_protocol)
+                        .serve_connection(stream, vhost_service);
                 tokio::pin!(conn_fut);
 
                 tokio::select! {

@@ -1,6 +1,6 @@
-use claviron_http::config::{H1Config, HeaderReadTimeout, TcpConfig};
-use hyper::server::conn::http1;
-use hyper_util::rt::TokioTimer;
+use claviron_http::config::{H1Config, H2Config, HeaderReadTimeout, TcpConfig};
+use hyper::server::conn::{http1, http2};
+use hyper_util::rt::{TokioExecutor, TokioTimer};
 use tokio::net::TcpStream;
 
 pub fn h1(config: &H1Config) -> http1::Builder {
@@ -27,6 +27,32 @@ pub fn h1(config: &H1Config) -> http1::Builder {
         HeaderReadTimeout::After(duration) => {
             builder.header_read_timeout(duration);
         }
+    }
+    builder
+}
+
+/// The HTTP/2 connection builder for one set of declared settings.
+pub fn h2(
+    config: &H2Config,
+    enable_connect_protocol: bool,
+) -> http2::Builder<TokioExecutor> {
+    let mut builder = http2::Builder::new(TokioExecutor::new());
+    builder
+        .auto_date_header(true)
+        .timer(TokioTimer::new())
+        .keep_alive_timeout(config.keep_alive_timeout)
+        .keep_alive_interval(config.keep_alive_interval)
+        .max_concurrent_streams(config.max_concurrent_streams)
+        .adaptive_window(true)
+        .max_frame_size(config.max_frame_size)
+        .max_header_list_size(config.max_header_list_size)
+        .max_pending_accept_reset_streams(
+            config.max_pending_accept_reset_streams,
+        )
+        .max_local_error_reset_streams(config.max_local_error_reset_streams)
+        .max_send_buf_size(config.max_send_buf_size);
+    if enable_connect_protocol {
+        builder.enable_connect_protocol();
     }
     builder
 }

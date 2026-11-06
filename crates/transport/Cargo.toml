@@ -62,7 +62,7 @@ http-body.workspace = true
 futures-util.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, optional = true, features = ["http1", "http2", "server"] }
-hyper-util = { workspace = true, optional = true, features = ["tokio"] }
+hyper-util = { workspace = true, optional = true, features = ["server-auto", "tokio"] }
 serde = { workspace = true, optional = true, features = ["derive"] }
 socket2 = { workspace = true, optional = true }
 thiserror.workspace = true
@@ -80,6 +80,8 @@ h3-webtransport = { workspace = true, optional = true }
 [dev-dependencies]
 orbitive = { workspace = true, features = ["rustls"] }
 tokio-util.workspace = true
+hyper = { workspace = true, features = ["client", "http2"] }
 rcgen.workspace = true
+tempfile = "3"
 serde_yaml.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }

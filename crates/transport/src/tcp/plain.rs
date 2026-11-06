@@ -25,6 +25,7 @@ use tracing::{debug, warn};
 use super::HandlerRequests;
 pub use super::Requests;
 use super::listener::TcpListenerSnapshot;
+use super::prior::PriorKnowledge;
 
 /// What one cleartext listener serves, published as a whole and retained by
 /// the connections accepted under it.
@@ -34,6 +35,12 @@ pub trait Cleartext: TcpListenerSnapshot + Send + Sync + 'static {
 
     fn tcp(&self) -> &TcpConfig;
     fn h1(&self) -> &H1Config;
+
+    /// What this listener accepts besides plain HTTP/1.1. A listener without
+    /// any keeps the HTTP/1.1 driver alone.
+    fn prior_knowledge(&self) -> Option<&PriorKnowledge> {
+        None
+    }
 
     /// Called once for each accepted connection, with its completed facts and
     /// before its first request. Work done here is not repeated per request.
@@ -56,6 +63,7 @@ pub struct Single<H> {
     listener: Arc<ListenerConfig>,
     tcp: TcpConfig,
     h1: H1Config,
+    prior: Option<PriorKnowledge>,
     handler: Arc<H>,
 }
 
@@ -79,7 +87,29 @@ impl<H: OtherHandler> Single<H> {
             )));
         }
         let (tcp, h1) = (config.tcp.clone(), config.h1.clone());
-        Ok(Self { listener, tcp, h1, handler: Arc::new(handler) })
+        Ok(Self { listener, tcp, h1, prior: None, handler: Arc::new(handler) })
+    }
+}
+
+impl<H: OtherHandler> Single<H> {
+    /// Accept cleartext HTTP/2 from clients that speak it from their first
+    /// byte; `h1` keeps HTTP/1.1 on the same socket.
+    pub fn prior_knowledge(
+        mut self,
+        h1: bool,
+    ) -> Self {
+        let ListenerSettings::Tcp(config) = &self.listener.settings else {
+            unreachable!("checked when constructed");
+        };
+        self.prior = Some(PriorKnowledge { h2: config.h2.clone(), h1 });
+        self
+    }
+
+    pub(crate) fn requests(
+        &self,
+        sessions: SessionSpawner,
+    ) -> HandlerRequests<H> {
+        HandlerRequests { handler: self.handler.clone(), sessions }
     }
 }
 
@@ -103,7 +133,10 @@ impl<H: OtherHandler> Cleartext for Single<H> {
         _facts: Arc<ConnCtx>,
         sessions: SessionSpawner,
     ) -> Self::Requests {
-        HandlerRequests { handler: self.handler.clone(), sessions }
+        self.requests(sessions)
+    }
+    fn prior_knowledge(&self) -> Option<&PriorKnowledge> {
+        self.prior.as_ref()
     }
 }
 
@@ -141,6 +174,15 @@ pub async fn serve<S: Cleartext>(
     });
     let requests = snapshot.connection(ctx, scope.sessions());
     let service = service_fn(move |request| requests.call(request));
+    if let Some(prior) = snapshot.prior_knowledge() {
+        let result =
+            super::prior::drive(stream, service, prior, snapshot.h1(), &scope)
+                .await;
+        if let Some(Err(error)) = result {
+            debug!(%listener, %error, "cleartext connection ended");
+        }
+        return;
+    }
     let (stream, errors) = super::io::TcpIo::split(stream);
     let connection = super::protocol::h1(snapshot.h1())
         .serve_connection(TokioIo::new(stream), service);

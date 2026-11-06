@@ -37,7 +37,12 @@ connection facts (`ConnCtx`), request policy and the body types.
 - [`body.rs`](src/tcp/body.rs) — Lazy body erasure and proven-empty-body handling; preserve trailers.
 - [`mod.rs`](src/tcp/mod.rs) — `Requests`, the owner of one connection's requests, and `HandlerRequests`, which gives them all to one `OtherHandler`.
 - [`plain.rs`](src/tcp/plain.rs) — Drive one cleartext HTTP/1.1 connection: socket setup, connection facts, Hyper and graceful/forced drain. `Cleartext` is what a listener publishes; `Single` is its host-free implementation.
+- [`prior.rs`](src/tcp/prior.rs) — Cleartext HTTP/2 by prior knowledge, alone or beside HTTP/1.1 on one socket. The YAML listener declaration still refuses it, so Edge's cleartext listeners stay HTTP/1.1; `Single::prior_knowledge` opts in.
 - [`secure.rs`](src/tcp/secure.rs) — TLS handshake deadline, ALPN and protocol choice, connection facts, H1/H2 driving and graceful/forced drain. `Secure` selects a TLS configuration and a `SecureHost` from the ClientHello; `Single` is its host-free implementation.
+
+### `unix.rs`
+
+HTTP over a Unix socket with the same drain and HTTP settings as TCP. `Unix` is what such a listener publishes; `tcp::plain::Single` implements it. It removes the socket file it created and refuses a path a live process answers on.
 
 ### `quic/`
 

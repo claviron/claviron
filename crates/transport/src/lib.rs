@@ -17,3 +17,5 @@ pub mod instances;
 pub mod quic;
 #[cfg(feature = "tcp")]
 pub mod tcp;
+#[cfg(all(feature = "tcp", unix))]
+pub mod unix;
