@@ -5,20 +5,15 @@
 use std::sync::Arc;
 
 use claviron_http::config::HttpSnapshot;
-use claviron_http::ext::PathPrefix;
 use claviron_pipeline::compile::{CompileHooks, CompileInput, compile};
-use claviron_pipeline::extension::PreparedScope;
 #[cfg(feature = "orbit")]
 use claviron_pipeline::extension::RouteContext;
-use claviron_runtime::{
-    AppState,
-    registry::{Error, Result},
-};
+use claviron_runtime::{AppState, registry::Result};
 use claviron_types::Host;
 
 #[cfg(any(feature = "orbit", feature = "websocket"))]
 use super::BackendHandler;
-use super::{HostExecution, HostPipelineBuilder, LayerContext};
+use super::HostExecution;
 use crate::config::HostConfig;
 use crate::pipeline::apps::{HostAppRegistry, HostContributions};
 use crate::pipeline::{RouteProtocol, RustRouter};
@@ -36,16 +31,11 @@ pub(crate) struct HostCompileTarget<'a> {
 }
 
 /// What a virtual host adds to each scope of its site.
-struct HostHooks<'a> {
-    state: &'a AppState,
-    host: &'a Host,
-    site: &'a crate::Site,
-    protocol: Option<RouteProtocol>,
-    listener: Option<&'a claviron_http::config::ListenerConfig>,
-    registry: Option<&'a HostAppRegistry>,
-}
+#[cfg(feature = "orbit")]
+struct HostHooks;
 
-impl CompileHooks for HostHooks<'_> {
+#[cfg(feature = "orbit")]
+impl CompileHooks for HostHooks {
     #[cfg(feature = "orbit")]
     fn scope_backends(
         &self,
@@ -63,30 +53,6 @@ impl CompileHooks for HostHooks<'_> {
         .collect()
     }
 
-    fn scope_layers(
-        &self,
-        prefix: &PathPrefix,
-        scope: PreparedScope<'_>,
-        builder: &mut HostPipelineBuilder,
-    ) -> Result<()> {
-        let Some(registry) = self.registry else {
-            return Ok(());
-        };
-        registry
-            .prepare_registered_layers(
-                &LayerContext {
-                    state: self.state,
-                    host: self.host,
-                    host_config: self.site,
-                    prefix,
-                    protocol: self.protocol,
-                    listener: self.listener,
-                    scope,
-                },
-                builder,
-            )
-            .map_err(|error| Error::msg(error.to_string()))
-    }
 }
 
 impl HostCompiler<'_> {
@@ -145,14 +111,6 @@ impl HostCompiler<'_> {
         .map(|stage| stage as Arc<dyn BackendHandler>);
         #[cfg(not(feature = "websocket"))]
         let upgrades = None;
-        let hooks = HostHooks {
-            state,
-            host,
-            site: &host_config,
-            protocol,
-            listener,
-            registry: registry.as_deref(),
-        };
         compile(CompileInput {
             state,
             host: Some(host),
@@ -175,7 +133,10 @@ impl HostCompiler<'_> {
                     )
                 })
                 .unwrap_or_default(),
-            hooks: &hooks,
+            #[cfg(feature = "orbit")]
+            hooks: &HostHooks,
+            #[cfg(not(feature = "orbit"))]
+            hooks: &claviron_pipeline::compile::NoHooks,
             #[cfg(feature = "rate-limit")]
             quotas,
             upgrades,

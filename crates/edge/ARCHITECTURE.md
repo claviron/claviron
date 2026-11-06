@@ -58,10 +58,8 @@ nothing; the builder retains no runtime node for an empty layer. Requests execut
 the prepared actions without checking whether each capability is enabled.
 
 A scoped route layer prepares against the selected file view and effective HTTP
-policy. Inherited directives establish policy before local directives, direct
-code registrations and provider layers. `register_layer` accepts the shared
-RouteLayer contract; `register_pipeline` accepts a factory producing a builder
-or compiled pipeline. Selectors run only during preparation. Appending a plan
+policy. Inherited directives establish policy before local directives and
+provider layers. Selectors run only during preparation. Appending a plan
 moves its actions into the same flat arrays and preserves reached reply scopes.
 An exchange action can defer work on the same request's reply.
 Plans without exchange actions use the dispatch owner without reply-hook state.
@@ -152,7 +150,7 @@ connections have no host until a request names one and run no layer.
 | 6 | Quota admission | Prepared host quota rules. |
 | 7 | CORS admission / preflight | Effective host/prefix CORS declaration. |
 | 8 | Request-body bounds | Effective listener → host → prefix size/idle policy; both off installs no layer. |
-| 9 | Directive layers → code registrations → Routable layers | Inherited directives first, then local directives; matching code and provider contributions in registration order. |
+| 9 | Directive layers → Routable layers | Inherited directives first, then local directives; matching code and provider contributions in registration order. |
 | 10 | Identity | Required by a prepared Backend; absent from native file-only plans. |
 | 11 | H1 WebSocket endpoints | H1 upgrades enabled and registered endpoints present. |
 | 12 | Rust contributions and scope handler | Matching Routables or a handler directive. |
@@ -392,7 +390,6 @@ may retain a direct Rust call; selecting Other never bypasses host layers.
 Disabled file steps allocate no prepared file owner.
 
 - [`host.rs`](src/pipeline/host.rs) — HostLayer/HostPipeline types and typed request/reply capabilities.
-- [`registration.rs`](src/pipeline/host/registration.rs) — Direct code-defined layers and pipeline factories, selected per host/protocol at preparation.
 - [`binding.rs`](src/pipeline/host/binding.rs) — Accepted connection facts and narrowed declaration data; no implicit actions.
 - [`compile.rs`](src/pipeline/host/compile.rs) — Compile prefix scopes, conditions, Rust contributions and backend owners.
 - [`backend.rs`](src/pipeline/host/backend.rs) — Backend handoff actions and native Link/file fallback preparation.
@@ -482,7 +479,6 @@ ownership and isolated state transitions without provider boot or live listeners
 
 ### `pipeline/host/`
 
-- [`registration.rs`](tests/pipeline/host/registration.rs) — Config-free selection, effective scope input, router ordering and failed preparation.
 - [`compile.rs`](tests/pipeline/host/compile.rs) — Scope conditions and Static/TryFiles/backend precedence.
 - [`compile/defense.rs`](tests/pipeline/host/compile/defense.rs) — Defense order, CORS/quota replies, body-policy narrowing and absent-rule direct calls.
 - [`compile/redirect.rs`](tests/pipeline/host/compile/redirect.rs) — Scoped redirects after contributions, terminal router ordering and unread body ownership.

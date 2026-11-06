@@ -8,7 +8,6 @@ use claviron_http::config::{
     HttpPolicy, HttpSnapshot, ListenerConfig, routes::RouteTable,
 };
 use claviron_http::dispatch::{ConfiguredRoute, RouteDispatch};
-use claviron_http::ext::PathPrefix;
 use claviron_runtime::{
     AppState,
     registry::{Error, Result},
@@ -161,15 +160,6 @@ pub trait CompileHooks: Send + Sync {
         Vec::new()
     }
 
-    /// Layers registered outside the site for this scope.
-    fn scope_layers(
-        &self,
-        _prefix: &PathPrefix,
-        _scope: PreparedScope<'_>,
-        _builder: &mut HostPipelineBuilder,
-    ) -> Result<()> {
-        Ok(())
-    }
 }
 
 /// No additions: a site served as itself.
@@ -194,7 +184,6 @@ struct Compiler<'a> {
     applications: &'a [Arc<dyn HostHandler>],
     layers: &'a [Arc<dyn RouteLayer>],
     registry: Option<&'a SiteRegistry>,
-    hooks: &'a dyn CompileHooks,
     proxy: Option<ProxyLayer>,
     deny: Option<DenyLayer>,
     acl: Option<AclLayer>,
@@ -311,9 +300,6 @@ impl Compiler<'_> {
                 ))
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
-        self.hooks
-            .scope_layers(prefix, prepared_scope, &mut extensions)
-            .map_err(|error| Error::msg(error.to_string()))?;
         for layer in self.layers {
             extensions
                 .layer(crate::layers::ScopedExtension(
@@ -642,7 +628,6 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
         applications,
         layers,
         registry,
-        hooks,
         proxy: listener.and_then(ProxyLayer::for_listener),
         deny: http.and_then(|http| DenyLayer::from_matcher(&http.deny)),
         acl: AclLayer::for_host(&config),

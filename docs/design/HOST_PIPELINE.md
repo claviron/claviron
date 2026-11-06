@@ -80,63 +80,6 @@ These contributions precede custom `redirect` and the terminal `RustRouter`
 the next action. A custom redirect terminates that scope before router, file or
 backend dispatch. Plain `non_ssl: redirect` remains a separate listener policy.
 
-## Code-defined layers
-
-`HostAppRegistry::register_layer(select, layer)` installs a `RouteLayer` directly.
-The selector receives the canonical host, its declaration and the listener
-protocol at boot/reload. The same layer may also be returned by a configured
-`RouteExtension`. Both enter the scope compiler before Rust router execution.
-
-```mermaid
-flowchart LR
-    Policy[Native admission and body bounds] --> Inherited[Inherited directive layers]
-    Inherited --> Local[Local directive layers]
-    Local --> Code[Direct code registrations]
-    Code --> Providers[Routable layers]
-    Providers --> Owners[Request owners]
-```
-
-The full conditional sequence is listed in
-[HostPipeline order](../../crates/edge/ARCHITECTURE.md#hostpipeline-order).
-
-```rust
-use std::ops::ControlFlow;
-use claviron::edge::{Host, HostAppRegistry};
-use claviron::edge::extension::{HostLayerBuilder, RouteLayer};
-
-#[derive(Clone)]
-struct RequestMarker;
-
-struct MarkRequest;
-
-impl RouteLayer for MarkRequest {
-    fn prepare(&self, layer: &mut HostLayerBuilder) -> claviron::edge::Result<()> {
-        layer.before(|head, _| {
-            head.extensions.insert(RequestMarker);
-            ControlFlow::Continue(())
-        });
-        Ok(())
-    }
-}
-
-// After registering Edge, before preparing hosts.
-let hosts = state.registry_ref().resolve::<HostAppRegistry>()
-    .expect("Edge has been registered");
-let host: Host = "app.example.test".parse().expect("valid canonical host");
-hosts.register_layer(move |key, _, _| key == &host, MarkRequest);
-```
-
-`register_pipeline(select, prepare)` accepts a factory returning a
-`HostPipelineBuilder` or a compiled `HostPipeline`. Its `LayerContext` supplies
-the selected file view, effective policy, prefix and listener. The factory runs
-for each selected serving scope. An empty result adds no action. Registrations
-precede the first publication and remain available for reloads. Unbound lookups
-include only registrations accepted on every protocol family.
-
-`HostPipelineBuilder::append` moves either form into the current flat plan.
-Both plans use the same request state and reply type. Action order, reached
-response scopes and one-time identity export survive composition. Host/listener
-eligibility and route-prefix selection remain with the host compiler.
 
 ## Execution and ownership
 
@@ -206,7 +149,6 @@ layers, never transport snapshot attributes.
 - [Types and contracts](../../crates/edge/src/pipeline/host.rs)
 - [Backend contracts and factories](../../crates/edge/src/pipeline/backend.rs)
 - [Builder](../../crates/edge/src/pipeline/host/builder.rs)
-- [Code registration](../../crates/edge/src/pipeline/host/registration.rs)
 - [Execution and body ownership](../../crates/edge/src/pipeline/host/request.rs)
 - [Response scopes](../../crates/edge/src/pipeline/host/response.rs)
 - [Scope compiler](../../crates/edge/src/pipeline/host/compile.rs)

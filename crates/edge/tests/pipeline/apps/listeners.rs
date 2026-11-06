@@ -228,8 +228,8 @@ fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
     }
     let calls = Arc::new(AtomicUsize::new(0));
     let interception = Arc::new(Interception(calls.clone()));
-    registry.bind_non_serving_interception(interception.clone()).unwrap();
-    assert!(registry.bind_non_serving_interception(interception).is_err());
+    bind_interception(&registry, interception.clone()).unwrap();
+    assert!(bind_interception(&registry, interception).is_err());
     let intercepted =
         registry.prepare_listener(&state, &table, &input, None).unwrap();
     let binding = intercepted
@@ -314,7 +314,7 @@ fn non_serving_factory_is_cold_optional_and_retains_published_generations() {
         })
         .unwrap();
     assert!(
-        registry.bind_non_serving_interception(interception.clone()).is_err()
+        bind_interception(&registry, interception.clone()).is_err()
     );
     let input = crate::transport::publication::select_listener(
         &http,
@@ -379,4 +379,13 @@ fn non_serving_factory_is_cold_optional_and_retains_published_generations() {
         );
     }
     assert_eq!(calls.load(Ordering::Relaxed), before);
+}
+
+fn bind_interception(
+    registry: &HostAppRegistry,
+    interception: Arc<dyn crate::InterceptsNonServing>,
+) -> claviron_runtime::registry::Result<()> {
+    registry.bind_non_serving_interception_with(move |_| {
+        Ok(Some(interception.clone()))
+    })
 }

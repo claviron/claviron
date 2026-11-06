@@ -27,24 +27,12 @@ pub use connect::{
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
 };
 pub use host::{
-    ApplicationHandler, AsyncHeadAction, Backend, BackendContract,
-    BackendHandler, BackendIdentity, BackendReply, DispatchCall,
-    DispatchFuture, DispatchResult, DispatchStep, HostExecution, HostHandler,
-    HostHandlerFuture, HostHandlerResult, HostLayerBuilder, HostPipeline,
-    HostPipelineBuilder, HostRequest, LayerContext,
+    ApplicationHandler, Backend, BackendContract, BackendHandler,
+    BackendIdentity, BackendReply, DispatchCall, DispatchResult, DispatchStep,
+    HostExecution, HostHandler, HostHandlerFuture, HostHandlerResult,
+    HostLayerBuilder, HostPipelineBuilder, HostRequest,
 };
-#[cfg(feature = "websocket")]
-pub use layers::WebSocketStage;
-#[cfg(feature = "access-log")]
-pub use layers::{AccessLogLayer, AccessLogState};
-pub use layers::{
-    AclLayer, CorsLayer, CorsState, DenyLayer, HeaderClearLayer,
-    HeaderSetLayer, HostLayer, IdentityPolicy, ProxyLayer, RedirectLayer,
-    ReplyPolicy, RequestBodyLayer, RouteSelectionLayer, StaticStage,
-    TryFilesStage, prepare_headers,
-};
-#[cfg(feature = "rate-limit")]
-pub use layers::{QuotaPolicy, QuotaState};
+pub use layers::{HostLayer, IdentityPolicy};
 #[cfg(feature = "tcp")]
 pub use non_serving::NonServingPipeline;
 pub use non_serving::{InterceptsNonServing, NonServingContext};

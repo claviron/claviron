@@ -370,8 +370,6 @@ pub struct HostAppRegistry {
     non_serving_interception: RwLock<Option<Arc<NonServingFactory>>>,
     site: claviron_pipeline::SiteRegistry,
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
-    pub(in crate::pipeline) layer_registrations:
-        RwLock<Vec<Arc<dyn super::host::LayerRegistration>>>,
     pub(in crate::pipeline) accept_registrations:
         RwLock<Vec<Arc<super::accept::AcceptRegistration>>>,
     #[cfg(feature = "rate-limit")]
@@ -379,17 +377,6 @@ pub struct HostAppRegistry {
 }
 
 impl HostAppRegistry {
-    /// Bind the single request interceptor for non-serving plain HTTP hosts.
-    /// Register before preparation. This hook does not change host/listener admission.
-    pub fn bind_non_serving_interception(
-        &self,
-        interception: Arc<dyn InterceptsNonServing>,
-    ) -> Result<()> {
-        self.bind_non_serving_interception_with(move |_| {
-            Ok(Some(interception.clone()))
-        })
-    }
-
     /// Prepare the optional interceptor once per plain-listener publication.
     /// Read configuration already staged for this boot/reload. Returning None
     /// installs no hook, request context or body adapter. Errors keep the

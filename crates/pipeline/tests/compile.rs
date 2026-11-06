@@ -1,3 +1,5 @@
+use claviron_http::ext::PathPrefix;
+
 use super::*;
 
 /// A scope that redirects serves nothing: no owner and no file fallback are

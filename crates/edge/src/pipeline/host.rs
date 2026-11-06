@@ -2,8 +2,5 @@
 //! `claviron_pipeline::plan`.
 
 pub(crate) mod compile;
-mod registration;
 
 pub use claviron_pipeline::plan::*;
-pub use registration::LayerContext;
-pub(in crate::pipeline) use registration::LayerRegistration;

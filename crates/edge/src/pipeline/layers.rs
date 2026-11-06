@@ -3,8 +3,6 @@
 
 pub use claviron_pipeline::layers::*;
 
-#[cfg(feature = "orbit")]
-mod link;
 #[cfg(feature = "websocket")]
 mod websocket;
 
