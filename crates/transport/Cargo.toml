@@ -35,7 +35,7 @@ quic = [
     "dep:h3", "dep:h3-webtransport", "dep:h3-quinn", "dep:quinn",
     "dep:quinn-deferred-config", "dep:rustls", "dep:claviron-sys",
     "dep:claviron-tls", "dep:claviron-types", "claviron-types/ssl",
-    "claviron-edge?/quic",
+    "claviron-http/http3", "claviron-edge?/quic",
 ]
 webtransport = ["quic", "claviron-edge?/webtransport"]
 # Fill a connection's country from the peer address.

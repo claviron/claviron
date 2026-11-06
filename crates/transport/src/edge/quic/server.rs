@@ -27,10 +27,11 @@ use claviron_runtime::registry::{
     Component, Error, Reloadable, Resolve, Runnable, priority,
 };
 use claviron_runtime::{AppState, Register, RunContext, RunnableInstance};
+use claviron_tls::Proto::H3;
 use claviron_tls::orbit::{FleetServerSessions, FleetServerSessionsProvider};
 use claviron_tls::resolver::CertResolver;
 use claviron_tls::revocation::Revocations;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 use crate::edge::quic::tls::H3TlsAccept;
 
@@ -40,6 +41,68 @@ pub(crate) struct ServerSnapshot {
     pub(crate) listener: Arc<ListenerConfig>,
     pub(crate) config: QuicListenerConfig,
     pub(crate) tls_accept: H3TlsAccept,
+    state: AppState,
+    vhost_resolver: Arc<VhostResolver>,
+    web_transport: Arc<WebTransportRegistry>,
+}
+
+impl crate::quic::Quic for ServerSnapshot {
+    type Host = super::conn::SelectedHost;
+
+    fn listener(&self) -> &ListenerConfig {
+        &self.listener
+    }
+    fn settings(&self) -> &QuicListenerConfig {
+        &self.config
+    }
+    fn endpoint_config(&self) -> quinn::ServerConfig {
+        self.tls_accept.base_config()
+    }
+    fn handshake_config(&self) -> Arc<quinn::ServerConfig> {
+        self.tls_accept.handshake_config()
+    }
+
+    fn select(
+        self: &Arc<Self>,
+        server_name: Option<&str>,
+    ) -> Result<Self::Host, crate::quic::Refusal> {
+        use crate::quic::Refusal;
+        use quinn::VarInt;
+        let stopped = VarInt::from_u32(0);
+        let vctx = claviron_edge::transport::resolve_sni_for_listener(
+            self.tls_accept.hosts(),
+            server_name,
+            &self.listener.id,
+        )
+        .map_err(|error| {
+            #[cfg(feature = "metrics")]
+            claviron_http::metrics::SERVER_METRICS.vhost_rejected();
+            debug!("H3 vhost resolution failed: {error}, dropping connection");
+            Refusal { code: stopped, reason: b"SNI required" }
+        })?;
+        if !vctx.vhost_config.allows_transport(&self.listener.id, H3) {
+            warn!(
+                "H3 not allowed for vhost '{}', dropping connection",
+                server_name.unwrap_or("unknown")
+            );
+            let code =
+                VarInt::try_from(h3::error::Code::H3_REQUEST_REJECTED.value())
+                    .unwrap_or(stopped);
+            return Err(Refusal { code, reason: b"HTTP/3 not allowed" });
+        }
+        let Some(app) = vctx.application.clone() else {
+            warn!("H3 vhost key has no registered app: {:?}", vctx.vhost_key);
+            return Err(Refusal { code: stopped, reason: b"vhost has no app" });
+        };
+        Ok(super::conn::SelectedHost {
+            vctx,
+            app,
+            listener: self.listener.clone(),
+            state: self.state.clone(),
+            vhost_resolver: self.vhost_resolver.clone(),
+            web_transport: self.web_transport.clone(),
+        })
+    }
 }
 
 /// What the listeners serve with, each a hard requirement.
@@ -179,6 +242,7 @@ impl H3Server {
 }
 
 pub(crate) fn build_snapshots(
+    state: &AppState,
     http: &HttpSnapshot,
     deps: &Deps,
     hosts: Arc<VhostTable>,
@@ -202,6 +266,9 @@ pub(crate) fn build_snapshots(
                 listener: listener.clone(),
                 config: config.clone(),
                 tls_accept,
+                state: state.clone(),
+                vhost_resolver: deps.vhost_resolver.clone(),
+                web_transport: deps.web_transport.clone(),
             }),
         );
     }
@@ -389,11 +456,11 @@ impl H3Server {
 }
 
 pub(super) struct H3Listener {
-    pub(super) id: ListenerId,
-    pub(super) name: Arc<str>,
-    pub(super) state: AppState,
-    pub(super) current: Arc<ArcSwapOption<ServerSnapshot>>,
-    pub(super) input: ArcSwap<HttpSnapshot>,
+    id: ListenerId,
+    name: Arc<str>,
+    state: AppState,
+    current: Arc<ArcSwapOption<ServerSnapshot>>,
+    input: ArcSwap<HttpSnapshot>,
 }
 
 impl H3Listener {
@@ -415,15 +482,21 @@ impl H3Listener {
             )
             .map_err(claviron_edge::Error::other)?,
         );
-        let snapshot = build_snapshots(input, deps, hosts, previous.as_deref())
-            .map_err(claviron_edge::Error::other)?
-            .remove(&self.id)
-            .ok_or_else(|| {
-                claviron_edge::Error::other(format!(
-                    "listener '{}' is not QUIC",
-                    self.id
-                ))
-            })?;
+        let snapshot = build_snapshots(
+            &self.state,
+            input,
+            deps,
+            hosts,
+            previous.as_deref(),
+        )
+        .map_err(claviron_edge::Error::other)?
+        .remove(&self.id)
+        .ok_or_else(|| {
+            claviron_edge::Error::other(format!(
+                "listener '{}' is not QUIC",
+                self.id
+            ))
+        })?;
         publication::resolver(&self.state)
             .map_err(claviron_edge::Error::other)?
             .validate_listener_binding(snapshot.listener.clone())?;
@@ -498,10 +571,11 @@ impl Runnable<AppState, ServerDeps> for H3Listener {
                     )?;
                 deps.vhost_resolver.start_listener_binding(listener)
             })?;
-        self.serve_groups(
+        crate::quic::listener::serve(
+            &self.current,
             self.current.load_full().expect("QUIC listener prepared"),
-            deps.clone(),
-            context,
+            &context,
+            self.state.run_mode(),
         )
         .await
     }

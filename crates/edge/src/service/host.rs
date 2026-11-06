@@ -23,12 +23,7 @@ mod cache;
 #[cfg(feature = "tcp")]
 pub use cache::CleartextHostCache;
 
-/// A fact supplied by the native transport, never by a request header.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RequestArrival {
-    Established,
-    EarlyData,
-}
+pub use claviron_http::ext::RequestArrival;
 
 /// Shared decision; native transports retain their wire response/close mechanics.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -41,12 +36,6 @@ pub enum RequestRejection {
     AmbiguousPath,
     InvalidRedirect,
     TooEarly,
-}
-
-impl AsRef<RequestArrival> for RequestArrival {
-    fn as_ref(&self) -> &RequestArrival {
-        self
-    }
 }
 
 impl RequestRejection {

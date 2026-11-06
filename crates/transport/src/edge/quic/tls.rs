@@ -12,7 +12,7 @@ use claviron_tls::orbit::{FleetServerSessions, SessionDomain};
 use claviron_tls::resolver::CertResolver;
 use claviron_tls::revocation::Revocations;
 use claviron_types::Host;
-use quinn::{Connection, Incoming, ServerConfig};
+use quinn::ServerConfig;
 use quinn_deferred_config::{ClientHelloView, DeferredServerConfig};
 use rustls::ServerConfig as RustlsServerConfig;
 
@@ -40,10 +40,6 @@ pub(crate) struct H3TlsPolicy {
     config: Arc<ServerConfig>,
 }
 
-pub(crate) struct AcceptedQuic {
-    pub connection: Connection,
-    pub hosts: Arc<VhostTable>,
-}
 /// QUIC derives its Initial packet keys from AES-128-GCM (RFC 9001 §5.2), so a
 /// cipher policy that filters that suite out leaves QUIC with no way to start a
 /// connection. rustls reports it as `NoInitialCipherSuite`, which does not say
@@ -199,19 +195,9 @@ impl H3TlsAccept {
     pub(crate) fn base_config(&self) -> ServerConfig {
         self.template.endpoint.clone()
     }
-    pub(crate) async fn accept(
-        &self,
-        incoming: Incoming,
-    ) -> Result<AcceptedQuic> {
-        // Move this owner through the handshake; routing cannot load a newer view.
-        let hosts = self.hosts.clone();
-        let policy = &self.policy;
-        let connection = incoming
-            .accept_with(policy.config.clone())
-            .map_err(|error| Error::msg(format!("H3 accept: {error}")))?
-            .await
-            .map_err(|error| Error::msg(format!("H3 handshake: {error}")))?;
-        Ok(AcceptedQuic { connection, hosts })
+    /// The configuration this publication completes a handshake with.
+    pub(crate) fn handshake_config(&self) -> Arc<ServerConfig> {
+        self.policy.config.clone()
     }
 }
 
@@ -230,7 +216,7 @@ fn handshake_config(
             }
             Error::msg(format!("H3 deferred config: {error:?}"))
         })?;
-    build_quinn_server_config_with_crypto(Arc::new(crypto), config)
+    crate::quic::config::server_config(Arc::new(crypto), config)
 }
 #[derive(Debug)]
 struct RejectCertificates;
@@ -269,26 +255,4 @@ impl EarlyDataTransport {
             Self::Disabled => 0,
         }
     }
-}
-
-fn build_quinn_server_config_with_crypto(
-    crypto: Arc<dyn quinn::crypto::ServerConfig>,
-    cfg: &QuicConfig,
-) -> Result<ServerConfig> {
-    let mut server_cfg = ServerConfig::with_crypto(crypto);
-    let transport =
-        Arc::get_mut(&mut server_cfg.transport).ok_or_else(|| {
-            Error::msg("H3Server: failed to mutate QUIC transport config")
-        })?;
-    transport
-        .max_concurrent_bidi_streams(cfg.max_concurrent_bidi_streams.into())
-        .max_concurrent_uni_streams(cfg.max_concurrent_uni_streams.into())
-        .max_idle_timeout(Some(
-            cfg.idle_timeout.try_into().map_err(|e| {
-                Error::msg(format!("H3Server: idle_timeout: {e}"))
-            })?,
-        ))
-        .keep_alive_interval(cfg.keep_alive_interval);
-
-    Ok(server_cfg)
 }

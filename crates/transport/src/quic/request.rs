@@ -1,14 +1,14 @@
 //! Native H3 body adaptation, response framing and stream completion.
-//! Host admission/identity/application dispatch live in claviron-edge.
+//! What a request is answered with belongs to the connection's request owner.
 
+use std::future::Future;
 use std::pin::Pin;
 
 use super::error::{log_stream_error, request_interrupted};
 use bytes::{Buf, Bytes};
-use claviron_edge::config::EarlyDataPolicy;
-use claviron_edge::transport::{HostService, RequestArrival, RequestRejection};
-use claviron_http::boxed_body;
-use futures_util::future::poll_fn;
+use claviron_http::config::transport::EarlyDataPolicy;
+use claviron_http::{RouteBody, RouteResponse, boxed_body};
+use futures_util::future::{Either, poll_fn};
 use futures_util::stream::try_unfold;
 use http::{HeaderMap, Request, Response, StatusCode};
 use http_body::{Body as HttpBody, Frame};
@@ -304,12 +304,12 @@ where
     }
 }
 
-/// Applied only to native 0-RTT streams, after listener/SNI host admission.
+/// Applied only to native 0-RTT streams, after the connection's host is known.
 /// The listener chooses DenyAll here when it cannot accept early data.
 pub(super) fn check_early_data(
     policy: EarlyDataPolicy,
     method: &http::Method,
-) -> Result<(), RequestRejection> {
+) -> Result<(), StatusCode> {
     let allowed = match policy {
         EarlyDataPolicy::AllowAll => true,
         EarlyDataPolicy::DenyAll => false,
@@ -318,56 +318,52 @@ pub(super) fn check_early_data(
             http::Method::GET | http::Method::HEAD | http::Method::OPTIONS
         ),
     };
-    if allowed { Ok(()) } else { Err(RequestRejection::TooEarly) }
+    if allowed { Ok(()) } else { Err(StatusCode::TOO_EARLY) }
 }
 
-/// Connection-bound host; native receive/send streams keep their ownership.
-#[derive(Clone)]
-pub(crate) struct H3RequestHandler {
-    host: HostService,
-}
-
-impl H3RequestHandler {
-    pub(crate) const fn new(host: HostService) -> Self {
-        Self { host }
-    }
-
-    pub(crate) async fn serve<Q>(
-        &self,
-        head: Request<()>,
-        mut stream: H3RequestStream<Q>,
-        arrival: RequestArrival,
-    ) where
-        Q: h3::quic::Connection<Bytes>,
-        H3BidiStream<Q>: h3::quic::BidiStream<Bytes> + Send + 'static,
-        <H3BidiStream<Q> as h3::quic::BidiStream<Bytes>>::RecvStream:
-            Send + 'static,
-    {
-        let prepared = self.host.request(head, arrival);
-        // WebTransport has its native accept path in the listener. WebSocket
-        // CONNECT is not implemented over H3; it must not enter body buffering.
-        if unsupported_websocket_connect(prepared.request()) {
-            send_status_response(&mut stream, StatusCode::NOT_IMPLEMENTED)
-                .await;
-            stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
-            return;
-        }
-        if let Err(error) =
-            checked_request_framing(prepared.request().headers())
-        {
-            if let Some(status) = error.response_status() {
+/// Validate one request's head and hand it to `call` with its lazily adapted
+/// body. The returned future owns the native streams and completes the reply.
+pub(super) fn serve<Q, F, A>(
+    head: Request<()>,
+    mut stream: H3RequestStream<Q>,
+    call: F,
+) -> impl Future<Output = ()> + Send + 'static
+where
+    Q: h3::quic::Connection<Bytes>,
+    H3BidiStream<Q>: h3::quic::BidiStream<Bytes> + Send + 'static,
+    <H3BidiStream<Q> as h3::quic::BidiStream<Bytes>>::RecvStream:
+        Send + 'static,
+    <H3BidiStream<Q> as h3::quic::BidiStream<Bytes>>::SendStream:
+        Send + 'static,
+    F: FnOnce(Request<RouteBody>) -> A,
+    A: Future<Output = RouteResponse> + Send + 'static,
+{
+    // WebTransport has its native accept path in the listener. WebSocket
+    // CONNECT is not implemented over H3; it must not enter body buffering.
+    let refused = if unsupported_websocket_connect(&head) {
+        Some(Some(StatusCode::NOT_IMPLEMENTED))
+    } else {
+        checked_request_framing(head.headers())
+            .err()
+            .map(RequestBodyError::response_status)
+    };
+    if let Some(status) = refused {
+        return Either::Left(async move {
+            if let Some(status) = status {
                 send_status_response(&mut stream, status).await;
             }
             stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
-            return;
-        }
-        let (mut send, recv) = stream.split();
-        let body = boxed_body(StreamBody::new(into_request_body_stream(recv)));
-        let response = prepared.map_body(|()| body).dispatch().await;
+        });
+    }
+    let (mut send, recv) = stream.split();
+    let body = boxed_body(StreamBody::new(into_request_body_stream(recv)));
+    let answering = call(head.map(|()| body));
+    Either::Right(async move {
+        let response = answering.await;
         if send_response_body(&mut send, response).await {
             finish_response_stream(&mut send, "sending response body").await;
         }
-    }
+    })
 }
 
 fn unsupported_websocket_connect(request: &Request<()>) -> bool {
@@ -377,5 +373,5 @@ fn unsupported_websocket_connect(request: &Request<()>) -> bool {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/edge/quic/request.rs"]
+#[path = "../../tests/quic/request.rs"]
 mod tests;

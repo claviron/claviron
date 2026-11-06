@@ -91,11 +91,11 @@ fn early_data_host_policy_rejects_replay_before_body_or_backend_work() {
             matches!(method, Method::GET | Method::HEAD | Method::OPTIONS);
         assert_eq!(
             check_early_data(EarlyDataPolicy::AllowIdempotent, &method),
-            if safe { Ok(()) } else { Err(RequestRejection::TooEarly) }
+            if safe { Ok(()) } else { Err(StatusCode::TOO_EARLY) }
         );
         assert_eq!(
             check_early_data(EarlyDataPolicy::DenyAll, &method),
-            Err(RequestRejection::TooEarly)
+            Err(StatusCode::TOO_EARLY)
         );
         assert_eq!(
             check_early_data(EarlyDataPolicy::AllowAll, &method),

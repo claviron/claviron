@@ -41,9 +41,15 @@ connection facts (`ConnCtx`), request policy and the body types.
 
 ### `quic/`
 
+- [`mod.rs`](src/quic/mod.rs) — HTTP/3 module exports.
+- [`listener.rs`](src/quic/listener.rs) — Endpoint groups, connection capacity, handshake deadline and concurrent request/session stream driving. `Quic` is what a listener publishes, `QuicHost` the owner a connection was accepted for and `QuicRequests` its request owner.
+- [`single.rs`](src/quic/single.rs) — `Single`: the host-free implementation that gives every request to one `OtherHandler`.
+- [`request.rs`](src/quic/request.rs) — H3 replay/framing checks, lazy frame/trailer adaptation and response IO.
+- [`config.rs`](src/quic/config.rs) — QUIC transport parameters from a listener's settings.
+- [`wt.rs`](src/quic/wt.rs) — Recognize a WebTransport CONNECT, authorize it beside the connection's other work and hand the session to its `QuicSession` owner.
+- [`wt/streams.rs`](src/quic/wt/streams.rs) — Bounded per-session input; a saturated session never blocks the shared driver.
 - [`error.rs`](src/quic/error.rs) — Normal closure and interrupted-stream classification.
 - [`drain.rs`](src/quic/drain.rs) — Join connection-owned children on completion, explicit force or panic.
-- [`wt/streams.rs`](src/quic/wt/streams.rs) — Bounded per-session input; a saturated session never blocks the shared driver.
 
 ### `edge/` (feature `edge`)
 
@@ -61,9 +67,7 @@ connection facts (`ConnCtx`), request policy and the body types.
 - [`tcp/secure/error.rs`](src/edge/tcp/secure/error.rs) — Why a selected host refuses an accepted connection.
 - [`quic/server.rs`](src/edge/quic/server.rs) — `H3Server`: configuration owner, snapshots and named listener lifetimes.
 - [`quic/tls.rs`](src/edge/quic/tls.rs) — Deferred SNI authentication and coherent host/TLS selector views.
-- [`quic/listener.rs`](src/edge/quic/listener.rs) — Endpoint groups, connection capacity, concurrent request/session stream driving.
-- [`quic/request.rs`](src/edge/quic/request.rs) — H3 replay/framing checks, lazy frame/trailer adaptation and response IO.
-- [`quic/wt.rs`](src/edge/quic/wt.rs) — Authorize and hand native WebTransport sessions to the handlers Edge's registry binds.
+- [`quic/conn.rs`](src/edge/quic/conn.rs) — The SNI host as `QuicHost`: early-data and WebTransport policy, retirement, the handoff to its execution, and sessions for the handlers Edge's registry binds.
 
 ## The contract with a host selector
 
@@ -92,22 +96,18 @@ The `edge` module implements both with Edge's virtual-host table. `Single` imple
 with one handler: it selects nothing, applies no request policy, attaches
 nothing to the request and never retires a connection.
 
-## What is not host-free yet
+## Owners without a host
 
-HTTP/1.1 and HTTP/2 over TCP run without Edge. HTTP/3 does not: its listener,
-request adaptation and WebTransport handoff are written against Edge's types
-and live under `edge/quic`. Their host-free parts (closure, drain, session
-stream routing) are already in `quic/`.
+Every driver runs without Edge: `tcp::plain::Single`, `tcp::secure::Single` and
+`quic::Single` serve a listener with one handler. They are composed from the
+driver's own serve functions; nothing here reads a configuration file for them.
 
-The H3 listener is pinned over a real QUIC connection by
-`tests/edge/quic/listener.rs`: SNI selection, a request's head and body, the 421
-for another authority, H3's framing rule, a refused name and the drain. A
-WebTransport session is not exercised there; no H3 WebTransport client is in
-the dependency tree.
+The listener owners that do read one (`HttpServer`, `HttpsServer`, `H3Server`)
+live under `edge/`, because they publish against Edge's host table.
 
-The listener owners (`HttpServer`, `HttpsServer`, `H3Server`) also live under
-`edge/`, because they publish against Edge's host table. A host-free listener
-is composed today from `tcp::listener::serve` and a `Single` snapshot.
+The listeners are pinned over real connections, cleartext, TLS and QUIC, with
+and without Edge. A WebTransport session is not exercised that way; no H3
+WebTransport client is in the dependency tree.
 
 ## Tests
 

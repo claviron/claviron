@@ -14,15 +14,9 @@
 //! or the axum-free native dispatch chain. There is no sidecar proxy between QUIC and
 //! the application pipeline.
 
-use crate::quic::error;
-
-mod listener;
+mod conn;
 mod server;
 mod tls;
-
-// Native request/response stream adapter; host dispatch lives in vhosts.
-mod request;
-mod wt;
 
 use claviron_runtime::{AppState, Register};
 pub use server::H3Server;

@@ -207,6 +207,19 @@ impl ConnCtx {
     }
 }
 
+/// A fact supplied by the native transport, never by a request header.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RequestArrival {
+    Established,
+    EarlyData,
+}
+
+impl AsRef<RequestArrival> for RequestArrival {
+    fn as_ref(&self) -> &RequestArrival {
+        self
+    }
+}
+
 #[cfg(test)]
 #[path = "../../tests/ext/conn.rs"]
 mod tests;
