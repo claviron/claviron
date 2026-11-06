@@ -1,5 +1,4 @@
 use super::*;
-use crate::config::HostConfig;
 use claviron_http::ext::RealIpExt;
 use claviron_orbit::quota::{QuotaBacking, QuotaTable};
 use std::num::{NonZeroU64, NonZeroUsize};
@@ -26,14 +25,19 @@ fn definition() -> RateLimitConfig {
     }
 }
 
-fn config() -> HostConfig {
-    let mut host = HostConfig::new("public");
+fn config() -> Site {
+    let mut host = Site::new("public");
     host.rate_limit = Some(definition());
     host
 }
 
-fn table(host: Arc<HostConfig>) -> VhostTable {
-    VhostTable::from_host_map([("example.test".into(), host)]).unwrap()
+fn one(host: &Site) -> [(&Host, &Site); 1] {
+    [(example(), host)]
+}
+
+fn example() -> &'static Host {
+    static EXAMPLE: std::sync::OnceLock<Host> = std::sync::OnceLock::new();
+    EXAMPLE.get_or_init(|| "example.test".parse().unwrap())
 }
 
 fn request(
@@ -81,11 +85,11 @@ fn aliases_share_one_prepared_budget_and_other_definitions_are_independent() {
 #[test]
 fn specific_prefix_selects_one_store_without_charging_its_parent() {
     let mut config = config();
-    let mut child = HostConfig::new("public");
+    let mut child = Site::new("public");
     child.rate_limit = Some(definition());
     config.routes = claviron_http::config::routes::RouteTable::new([(
         serde_yaml::from_str("/api").unwrap(),
-        Arc::new(child.into_site()),
+        Arc::new(child),
     )]);
     let quotas = QuotaRegistrations::default()
         .prepare(false, &"example.test".parse().unwrap(), &config, None)
@@ -120,21 +124,18 @@ fn config_checks_do_not_open_fleet_stores_and_resource_collisions_are_rejected()
         };
     let config = Arc::new(config);
     let mut registry = QuotaRegistrations::default();
-    registry.seal("runtime", &table(config.clone())).unwrap();
+    registry.seal("runtime", one(&config)).unwrap();
     assert!(
         registry
             .prepare(true, &"example.test".parse().unwrap(), &config, None)
             .unwrap()
             .is_none()
     );
-    let two = VhostTable::from_host_map([
-        ("example.test".into(), config.clone()),
-        ("other.test".into(), config.clone()),
-    ])
-    .unwrap();
-    assert!(QuotaRegistrations::default().seal("runtime", &two).is_err());
+    let other: Host = "other.test".parse().unwrap();
+    let two = [(example(), config.as_ref()), (&other, config.as_ref())];
+    assert!(QuotaRegistrations::default().seal("runtime", two).is_err());
     assert!(
-        QuotaRegistrations::default().seal("example", &table(config)).is_err()
+        QuotaRegistrations::default().seal("example", one(&config)).is_err()
     );
 }
 
@@ -165,9 +166,9 @@ fn rust_registration_and_config_use_the_same_boundary_and_conflicts_fail() {
             )
             .is_err()
     );
-    assert!(registry.seal("runtime", &table(Arc::new(config()))).is_err());
-    let host = Arc::new(HostConfig::new("public"));
-    registry.seal("runtime", &table(host.clone())).unwrap();
+    assert!(registry.seal("runtime", one(&config())).is_err());
+    let host = Arc::new(Site::new("public"));
+    registry.seal("runtime", one(&host)).unwrap();
     assert!(
         registry
             .register(
@@ -212,7 +213,7 @@ fn unchanged_preparation_keeps_debt_and_changed_limits_require_restart() {
 
 #[test]
 fn route_normalization_keeps_builtin_limits_outside_extension_resolution() {
-    let config: HostConfig = serde_yaml::from_str("root: public\nrate_limit:\n  namespace: test\n  cost: 1\n  quota:\n    units: 1\n    period: 1h\n    burst: 1\n    table: {slots: 8, shards: 1, key_bytes: 64, probes: 8}\n    cas_attempts: 64\n    store: {mode: local_guard}\nroutes:\n  /api:\n    rate_limit:\n      namespace: api\n      cost: 1\n      quota:\n        units: 1\n        period: 1h\n        burst: 1\n        table: {slots: 8, shards: 1, key_bytes: 64, probes: 8}\n        cas_attempts: 64\n        store: {mode: local_guard}\n").unwrap();
+    let config: Site = serde_yaml::from_str("root: public\nrate_limit:\n  namespace: test\n  cost: 1\n  quota:\n    units: 1\n    period: 1h\n    burst: 1\n    table: {slots: 8, shards: 1, key_bytes: 64, probes: 8}\n    cas_attempts: 64\n    store: {mode: local_guard}\nroutes:\n  /api:\n    rate_limit:\n      namespace: api\n      cost: 1\n      quota:\n        units: 1\n        period: 1h\n        burst: 1\n        table: {slots: 8, shards: 1, key_bytes: 64, probes: 8}\n        cas_attempts: 64\n        store: {mode: local_guard}\n").unwrap();
     assert!(config.directive("rate_limit").is_none());
     assert!(!config.rate_limit.as_ref().unwrap().headers);
     assert_eq!(declarations(&config).len(), 2);
@@ -221,13 +222,13 @@ fn route_normalization_keeps_builtin_limits_outside_extension_resolution() {
 #[test]
 fn header_opt_in_belongs_to_the_selected_definition_and_defaults_off() {
     let mut config = config();
-    let mut child = HostConfig::new("public");
+    let mut child = Site::new("public");
     let mut explicit = definition();
     explicit.headers = true;
     child.rate_limit = Some(explicit);
     config.routes = claviron_http::config::routes::RouteTable::new([(
         serde_yaml::from_str("/api").unwrap(),
-        Arc::new(child.into_site()),
+        Arc::new(child),
     )]);
     let quotas = QuotaRegistrations::default()
         .prepare(false, &"example.test".parse().unwrap(), &config, None)

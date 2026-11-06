@@ -9,14 +9,13 @@ use http::request::Parts as RequestParts;
 use std::ops::ControlFlow;
 
 use super::*;
-use crate::pipeline::host::HostContext;
-use crate::service::{HostResponse, RequestRejection};
-use claviron_pipeline::plan::{HostLayerBuilder, HostPipelineBuilder};
+use crate::plan::HostContext;
+use crate::response::{HostResponse, RequestRejection};
 
 mod prepare;
 
 pub use prepare::HostQuotas;
-pub(crate) use prepare::QuotaRegistrations;
+pub use prepare::QuotaRegistrations;
 use prepare::RegisteredQuota;
 
 /// The committed admission snapshot, retained without a second store read.
@@ -112,8 +111,7 @@ impl QuotaPolicy {
         head: &RequestParts,
         context: Option<HostContext<'_>>,
     ) -> Result<Option<Snapshot>, HostResponse> {
-        let paths =
-            claviron_pipeline::layers::acl::comparison_paths(head.uri.path())?;
+        let paths = super::acl::comparison_paths(head.uri.path())?;
         let selected = self.select(&paths.separated);
         if let Some(literal) = &paths.literal
             && selected.map(|rule| rule as *const _)
@@ -192,5 +190,5 @@ impl<S: AsMut<QuotaState>, R: From<HostResponse>> HostLayer<S, R>
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/layers/quota.rs"]
+#[path = "../../tests/layers/quota.rs"]
 mod tests;

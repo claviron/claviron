@@ -38,9 +38,9 @@ pub fn register(state: &AppState) -> Result<()> {
                 .app_for_state(config.name(), context.state)
                 .ok_or_else(|| {
                     Error::msg(format!(
-                        "unknown upstream '{}' for host '{}'",
+                        "unknown upstream '{}' at '{}'",
                         config.name(),
-                        context.host
+                        context.prefix
                     ))
                 })?;
             let transport = context.transport;

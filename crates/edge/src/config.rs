@@ -143,13 +143,6 @@ impl<'de> Deserialize<'de> for HostConfig {
 }
 
 impl HostConfig {
-    /// The site alone: a route scope has no connection terms of its own.
-    #[cfg(test)]
-    pub(crate) fn into_site(self) -> Site {
-        Arc::into_inner(self.site)
-            .expect("a site is not shared while it is being declared")
-    }
-
     /// Equality of handshake inputs, excluding request and application policy.
     pub fn same_tls_policy(
         &self,

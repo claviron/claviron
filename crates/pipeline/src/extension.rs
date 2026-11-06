@@ -17,8 +17,9 @@ pub use claviron_http::dispatch::{RouteCondition, RuleContext};
 
 pub struct RouteContext<'a> {
     pub state: &'a AppState,
-    pub host: &'a Host,
-    /// Canonical host declaration, before path selection.
+    /// The canonical host name, when the site is served as a virtual host.
+    pub host: Option<&'a Host>,
+    /// The whole site, before path selection.
     pub config: &'a Site,
     /// Prepared declaration selected by this URL prefix.
     pub route: &'a Site,

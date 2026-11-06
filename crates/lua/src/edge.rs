@@ -266,7 +266,7 @@ impl claviron_edge::pipeline::backend::BackendFactory for Factory {
         let policy = claviron_edge::extension::RouteContext {
             state: context.state,
             host: context.host,
-            config: context.host_config,
+            config: context.site,
             route: context.route,
             prefix: context.prefix,
         }

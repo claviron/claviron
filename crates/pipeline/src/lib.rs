@@ -12,6 +12,7 @@ pub mod accept;
 #[cfg(feature = "axum")]
 pub mod axum;
 mod backend;
+pub mod compile;
 mod context;
 mod dispatch;
 pub mod error;
@@ -22,6 +23,7 @@ pub mod layers;
 #[cfg(feature = "access-log")]
 pub mod log;
 pub mod plan;
+pub mod registry;
 pub mod response;
 pub mod site;
 #[cfg(feature = "warp")]
@@ -38,4 +40,5 @@ pub use error::{Error, Result};
 pub use handler::{
     HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest,
 };
+pub use registry::SiteRegistry;
 pub use site::Site;

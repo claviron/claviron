@@ -2,19 +2,18 @@ use std::num::{NonZeroU64, NonZeroUsize};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use crate::pipeline::host::HostContext;
-use crate::service::RequestArrival;
+use crate::plan::HostContext;
 use claviron_http::ServiceResult;
-use claviron_http::ext::ConnCtx;
+use claviron_http::ext::{ConnCtx, RequestArrival};
 use claviron_orbit::quota::{QuotaBacking, QuotaConfig, QuotaTable};
 use http::Request;
 
 use super::*;
-use crate::config::HostConfig;
-use crate::config::quota::RateLimitConfig;
+use crate::Site;
+use crate::site::quota::RateLimitConfig;
 
 fn quotas() -> Arc<HostQuotas> {
-    let mut host = HostConfig::new("public");
+    let mut host = Site::new("public");
     host.rate_limit = Some(RateLimitConfig {
         namespace: "test".into(),
         cost: NonZeroU64::new(1).unwrap(),

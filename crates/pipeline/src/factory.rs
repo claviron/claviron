@@ -20,8 +20,9 @@ use crate::{BackendHandler, Site};
 /// No registry lookup or configuration decoding is performed by dispatch.
 pub struct BackendContext<'a> {
     pub state: &'a AppState,
-    pub host: &'a Host,
-    pub host_config: &'a Site,
+    /// The canonical host name, when the site is served as a virtual host.
+    pub host: Option<&'a Host>,
+    pub site: &'a Site,
     pub route: &'a Site,
     pub prefix: &'a PathPrefix,
     pub policy: HttpPolicy,

@@ -133,7 +133,9 @@ impl Routable for HttpOnly {
             "plain_only",
             |_, enabled| {
                 assert!(enabled);
-                Ok(RouteEffect::Layer(Arc::new(Deny)))
+                Ok(crate::pipeline::extension::RouteEffect::Layer(Arc::new(
+                    Deny,
+                )))
             },
         )]
     }

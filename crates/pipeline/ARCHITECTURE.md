@@ -29,9 +29,19 @@ all depend on this crate, and it depends only on `claviron-http`.
 - `response`: the replies decided before dispatch.
 - `log`: access records, behind the `access-log` feature.
 
+## How a site is served
+
+`compile::compile` turns a `Site` into a `HostExecution`. What depends on how the
+site is served comes in through `CompileInput`: a host name when there is one,
+the connection's terms, the listener, the `SiteRegistry` its directives resolve
+against, and `CompileHooks` for what the serving side adds to a scope. `NoHooks`
+serves a site as itself.
+
+`claviron-edge` is one such serving side: its `HostCompiler` adds registered
+layers, host-selected providers, Link dispatch and H1 upgrade endpoints.
+
 ## What is still in `claviron-edge`
 
-Compiling a `Site` into a plan (`pipeline/host/compile.rs`) and the registry it
-reads (`HostAppRegistry`) are keyed by host, so nothing can serve a `Site` without
-Edge yet. Link dispatch, quotas and H1 upgrade stages stay beside them for now.
+Link dispatch and its session bindings, the host-keyed `HostAppRegistry`,
+`Routable`, H2 CONNECT and WebTransport registries, and the H1 upgrade stage.
 Lua, broadcast and upstream reach this crate through Edge's re-exports.

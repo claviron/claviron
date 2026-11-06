@@ -11,10 +11,10 @@ use claviron_http::rate_limit::{
 use claviron_orbit::quota::{Quota, QuotaConfig, QuotaResource};
 use claviron_runtime::registry::{Error, Result};
 
-use crate::Host;
-use crate::config::{Site, quota::RateLimitConfig};
-use crate::loader::table::VhostTable;
-use crate::service::HostResponse;
+use crate::Site;
+use crate::response::HostResponse;
+use crate::site::quota::RateLimitConfig;
+use claviron_types::Host;
 
 trait Admission: Send + Sync {
     fn check(
@@ -56,13 +56,13 @@ impl RegisteredQuota {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct QuotaRegistrations {
+pub struct QuotaRegistrations {
     sealed: bool,
     entries: HashMap<Host, Vec<(PathPrefix, RegisteredQuota)>>,
 }
 
 impl QuotaRegistrations {
-    pub(crate) fn register<K: KeyProvider + 'static>(
+    pub fn register<K: KeyProvider + 'static>(
         &mut self,
         host: Host,
         prefix: PathPrefix,
@@ -86,21 +86,22 @@ impl QuotaRegistrations {
 
     /// Validate all resource identities before opening any configured store.
     /// Quota resources use explicitly dedicated namespaces, never core kinds.
-    pub(crate) fn seal(
+    pub fn seal<'a>(
         &mut self,
         runtime_fleet: &str,
-        table: &VhostTable,
+        sites: impl IntoIterator<Item = (&'a Host, &'a Site)> + Clone,
     ) -> Result<()> {
         let mut used = HashMap::<QuotaResource, String>::new();
         for host in self.entries.keys() {
-            if table.canonical_config(host).is_none() {
+            if !sites.clone().into_iter().any(|(declared, _)| declared == host)
+            {
                 return Err(Error::msg(format!(
                     "quota host '{host}' has no canonical declaration"
                 )));
             }
         }
-        for (host, record) in table.canonical_entries() {
-            let declarations = declarations(&record.config);
+        for (host, site) in sites {
+            let declarations = declarations(site);
             let registered =
                 self.entries.get(host).map(Vec::as_slice).unwrap_or_default();
             for (prefix, definition) in &declarations {
@@ -137,7 +138,7 @@ impl QuotaRegistrations {
         Ok(())
     }
 
-    pub(crate) fn prepare(
+    pub fn prepare(
         &self,
         config_check: bool,
         host: &Host,
@@ -232,5 +233,5 @@ pub struct HostQuotas {
 }
 
 #[cfg(test)]
-#[path = "../../../../tests/pipeline/layers/quota/prepare.rs"]
+#[path = "../../../tests/layers/quota/prepare.rs"]
 mod tests;

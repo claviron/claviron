@@ -34,12 +34,16 @@ pub struct AccessLogLayer {
 
 impl AccessLogLayer {
     pub fn new(
-        canonical: &Host,
+        canonical: Option<&Host>,
         channel: Option<&str>,
     ) -> Option<Self> {
         Some(Self {
             target: AccessLogTarget::prepare(channel)?,
-            canonical: canonical.to_cow_str().into(),
+            // A site served without a host table has no name to record.
+            canonical: canonical.map_or_else(
+                || Arc::from("-"),
+                |canonical| canonical.to_cow_str().into(),
+            ),
         })
     }
 }

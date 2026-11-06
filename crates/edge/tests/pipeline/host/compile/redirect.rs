@@ -1,6 +1,6 @@
 use super::*;
 use crate::config::HostConfig;
-use crate::pipeline::{HostHandlerFuture, HostRequest};
+use crate::pipeline::{HostHandler, HostHandlerFuture, HostRequest};
 use claviron_http::{
     OtherHandler, OtherService, RouteBody, RouteFuture, ServiceResult,
 };
@@ -54,16 +54,6 @@ routes:
     )
     .unwrap();
     let host = "example.test".parse().unwrap();
-    let root = claviron_http::ext::PathPrefix::root();
-    let plan = BackendPlan::prepare(&RouteContext {
-        state: &state,
-        host: &host,
-        config: &config,
-        route: &config,
-        prefix: &root,
-    });
-    assert!(plan.steps.is_empty());
-    assert!(plan.fallback.is_none());
     let mut contributions = HostContributions::default();
     contributions.applications.push(Arc::new(Contribution));
     let owner = HostCompiler { state: &state, http: None, protocol: None }

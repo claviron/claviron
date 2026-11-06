@@ -23,6 +23,8 @@ mod log;
 #[cfg(feature = "metrics")]
 mod metrics;
 mod proxy;
+#[cfg(feature = "rate-limit")]
+mod quota;
 mod redirect;
 mod reply;
 mod selection;
@@ -41,6 +43,8 @@ pub use log::{AccessLogLayer, AccessLogState};
 #[cfg(feature = "metrics")]
 pub use metrics::{MetricsLayer, MetricsState};
 pub use proxy::ProxyLayer;
+#[cfg(feature = "rate-limit")]
+pub use quota::{HostQuotas, QuotaPolicy, QuotaRegistrations, QuotaState};
 pub use redirect::RedirectLayer;
 pub use reply::ReplyPolicy;
 pub use selection::RouteSelectionLayer;
