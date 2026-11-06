@@ -7,7 +7,6 @@ mod ctx;
 pub mod deadline;
 pub mod dispatch;
 mod error;
-#[cfg(feature = "server")]
 pub mod ext;
 pub mod forwarding;
 #[cfg(feature = "server")]

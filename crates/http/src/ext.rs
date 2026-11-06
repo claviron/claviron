@@ -1,8 +1,10 @@
 #[cfg(all(feature = "axum", feature = "cache"))]
 mod cache;
+#[cfg(feature = "server")]
 mod conn;
 #[cfg(feature = "axum")]
 mod env;
+#[cfg(feature = "server")]
 mod host;
 #[cfg(feature = "axum")]
 mod inject;
@@ -16,9 +18,11 @@ mod xapp;
 
 #[cfg(all(feature = "axum", feature = "cache"))]
 pub use cache::*;
+#[cfg(feature = "server")]
 pub use conn::*;
 #[cfg(feature = "axum")]
 pub use env::*;
+#[cfg(feature = "server")]
 pub use host::*;
 #[cfg(feature = "axum")]
 pub use inject::*;
