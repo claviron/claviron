@@ -4,12 +4,12 @@ use std::sync::Arc;
 
 use crate::pipeline::extension::RouteContext;
 
-use super::{DispatchCall, DispatchStep, HostLayerBuilder, HostRequest};
-use crate::pipeline::{HostHandler, HostLayer, IdentityPolicy, RustRouter};
+use super::{DispatchStep, HostLayerBuilder};
+use crate::pipeline::{HostLayer, IdentityPolicy};
 use claviron_http::{RouteBody, policy::HttpPolicy};
 use http::Request;
 
-pub use crate::pipeline::backend::{
+pub use claviron_pipeline::{
     BackendContract, BackendHandler, BackendIdentity, BackendReply,
 };
 
@@ -94,63 +94,6 @@ impl<B: BackendHandler, S> HostLayer<S> for Backend<B> {
     }
 }
 
-impl DispatchStep for RustRouter {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-        _context: Option<super::HostContext<'_>>,
-    ) -> DispatchCall {
-        DispatchCall::response(self.handle(request))
-    }
-}
-impl BackendHandler for RustRouter {
-    fn contract(&self) -> BackendContract {
-        BackendContract {
-            identity: if RustRouter::reads_identity(self) {
-                BackendIdentity::Request
-            } else {
-                BackendIdentity::None
-            },
-            reply: BackendReply::Owner,
-        }
-    }
-}
-
-impl DispatchStep for Arc<dyn HostHandler> {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-        _context: Option<super::HostContext<'_>>,
-    ) -> DispatchCall {
-        DispatchCall::application(HostHandler::call(
-            self.as_ref(),
-            HostRequest::new(request),
-        ))
-    }
-}
-impl BackendHandler for Arc<dyn HostHandler> {
-    fn contract(&self) -> BackendContract {
-        BackendContract {
-            identity: BackendIdentity::None,
-            reply: BackendReply::Owner,
-        }
-    }
-}
-
-impl DispatchStep for Arc<dyn BackendHandler> {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-        context: Option<super::HostContext<'_>>,
-    ) -> DispatchCall {
-        self.as_ref().call(request, context)
-    }
-}
-impl BackendHandler for Arc<dyn BackendHandler> {
-    fn contract(&self) -> BackendContract {
-        self.as_ref().contract()
-    }
-}
 use crate::pipeline::layers::prepare_fallback;
 
 #[derive(Clone)]

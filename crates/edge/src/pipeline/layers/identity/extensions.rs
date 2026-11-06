@@ -33,7 +33,7 @@ pub(super) fn inject(
     set_context(extensions, policy);
     if let Some(context) = context {
         set_context(extensions, context.connection.clone());
-        if let Some((hostname, _)) = context.host {
+        if let Some(hostname) = context.hostname() {
             set_context(extensions, hostname.clone());
         }
     }

@@ -1,0 +1,26 @@
+[package]
+autotests = false
+name = "claviron-pipeline"
+version.workspace = true
+publish.workspace = true
+edition.workspace = true
+description = "The request execution contract for Claviron: what an application or embedded runtime implements, independent of hosts and listeners"
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+include.workspace = true
+keywords = ["http", "pipeline", "backend"]
+categories = ["web-programming::http-server", "asynchronous"]
+
+[features]
+default = []
+
+[dependencies]
+claviron-http = { workspace = true, features = ["server"] }
+http.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+bytes.workspace = true
+http-body.workspace = true

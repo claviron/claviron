@@ -240,12 +240,7 @@ routes:
                     .header("x-real-ip", "203.0.113.1")
                     .body(claviron_http::empty_body())
                     .unwrap(),
-                Some(HostContext {
-                    host: None,
-                    policy: None,
-                    connection: &untrusted,
-                    arrival: RequestArrival::Established,
-                }),
+                Some(HostContext::new(&untrusted, RequestArrival::Established)),
             )
             .now_or_never()
             .expect("head-only fixture is ready")
@@ -265,12 +260,7 @@ routes:
                     .header("x-real-ip", forwarded)
                     .body(claviron_http::boxed_body(Unread(drops.clone())))
                     .unwrap(),
-                Some(HostContext {
-                    host: None,
-                    policy: None,
-                    connection: &accepted,
-                    arrival: RequestArrival::Established,
-                }),
+                Some(HostContext::new(&accepted, RequestArrival::Established)),
             )
             .now_or_never()
             .expect("head-only fixture is ready")
@@ -318,12 +308,7 @@ fn an_allow_all_child_still_overrides_a_deny_all_parent() {
                     .uri(path)
                     .body(claviron_http::empty_body())
                     .unwrap(),
-                Some(HostContext {
-                    host: None,
-                    policy: None,
-                    connection: &accepted,
-                    arrival: RequestArrival::Established,
-                }),
+                Some(HostContext::new(&accepted, RequestArrival::Established)),
             )
             .now_or_never()
             .expect("head-only fixture is ready")
@@ -486,12 +471,7 @@ fn cors_preflight_spends_quota_and_quota_refusal_keeps_cors_headers() {
                 request
                     .body(claviron_http::boxed_body(Unread(drops.clone())))
                     .unwrap(),
-                Some(HostContext {
-                    host: None,
-                    policy: None,
-                    connection: &accepted,
-                    arrival: RequestArrival::Established,
-                }),
+                Some(HostContext::new(&accepted, RequestArrival::Established)),
             )
             .now_or_never()
             .expect("head fixture must be ready")

@@ -2,14 +2,14 @@
 
 use std::sync::Arc;
 
-use claviron_edge::pipeline::{
-    BackendContract, BackendHandler, BackendIdentity, BackendReply,
-    DispatchCall, DispatchStep,
-};
 use claviron_http::{
     RouteBody, RouteResponse, ServiceResult, bytes_body, empty_body,
 };
 use claviron_php::PhpRuntime;
+use claviron_pipeline::{
+    BackendContract, BackendHandler, BackendIdentity, BackendReply,
+    DispatchCall, DispatchStep,
+};
 use claviron_runtime::{AppState, registry::Result};
 use http::{Request, Response, StatusCode};
 
@@ -58,7 +58,7 @@ impl DispatchStep for UnavailableApplication {
     fn call(
         &self,
         request: Request<RouteBody>,
-        _context: Option<claviron_edge::pipeline::host::HostContext<'_>>,
+        _context: Option<claviron_pipeline::HostContext<'_>>,
     ) -> DispatchCall {
         drop(request);
         DispatchCall::ready(ServiceResult::Handled(

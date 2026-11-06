@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use claviron_edge::pipeline::{
+use claviron_http::{RouteBody, ServiceResult, bytes_body};
+use claviron_php::PhpRuntime;
+use claviron_pipeline::{
     BackendContract, BackendHandler, BackendIdentity, BackendReply,
     DispatchCall, DispatchStep,
 };
-use claviron_http::{RouteBody, ServiceResult, bytes_body};
-use claviron_php::PhpRuntime;
 use claviron_runtime::{
     AppState,
     registry::{Error, Result},
@@ -44,7 +44,7 @@ impl DispatchStep for Fcgi {
     fn call(
         &self,
         request: Request<RouteBody>,
-        _context: Option<claviron_edge::pipeline::host::HostContext<'_>>,
+        _context: Option<claviron_pipeline::HostContext<'_>>,
     ) -> DispatchCall {
         let service = self.service.clone();
         let runtime = self.runtime.clone();

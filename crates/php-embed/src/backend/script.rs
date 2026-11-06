@@ -20,7 +20,7 @@ impl DispatchStep for Script {
     fn call(
         &self,
         request: Request<RouteBody>,
-        _context: Option<claviron_edge::pipeline::host::HostContext<'_>>,
+        _context: Option<claviron_pipeline::HostContext<'_>>,
     ) -> DispatchCall {
         let adapter = self.0.clone();
         DispatchCall::new(async move {

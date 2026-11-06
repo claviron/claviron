@@ -22,10 +22,7 @@ mod backend;
 mod binding;
 mod builder;
 pub(crate) mod compile;
-mod context;
-mod dispatch;
 mod execution;
-mod handler;
 mod owner;
 mod registration;
 mod request;
@@ -36,14 +33,12 @@ pub use backend::{
     Backend, BackendContract, BackendHandler, BackendIdentity, BackendReply,
 };
 pub(crate) use binding::HostPolicy;
-pub use context::{ContextFuture, ContextHandler, HostContext};
-pub use dispatch::{
-    DispatchCall, DispatchFuture, DispatchResult, DispatchStep,
+pub use claviron_pipeline::{
+    ContextFuture, ContextHandler, DispatchCall, DispatchFuture,
+    DispatchResult, DispatchStep, HostContext, HostHandler, HostHandlerFuture,
+    HostHandlerResult, HostRequest,
 };
 pub use execution::HostExecution;
-pub use handler::{
-    HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest,
-};
 pub use registration::LayerContext;
 pub(in crate::pipeline) use registration::LayerRegistration;
 pub use response::ReplyHooks;
@@ -181,3 +176,7 @@ pub struct PreparedReply<'p, S = (), R = RouteResponse> {
 #[cfg(test)]
 #[path = "../../tests/pipeline/host.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "../../tests/pipeline/host/handler.rs"]
+mod handler_tests;

@@ -1,4 +1,6 @@
 //! Configured execution owners, independent of route controls and hooks.
+//! What such an owner implements is `claviron_pipeline`; this is how a host
+//! declaration selects it.
 
 use std::sync::Arc;
 
@@ -12,44 +14,8 @@ use claviron_runtime::{
 use claviron_types::Host;
 use serde::de::DeserializeOwned;
 
-use super::{DispatchStep, RouteProtocol};
+use super::{BackendHandler, RouteProtocol};
 use crate::HostConfig;
-
-/// An application, embedded runtime or remote execution owner.
-/// Internal Static/TryFiles operations implement only `DispatchStep`.
-/// Register this owner through `Backend`, so its metadata contract is prepared
-/// with the host plan rather than rediscovered during request execution.
-pub trait BackendHandler: DispatchStep {
-    /// Declared once during preparation. There is no implicit identity export
-    /// or response-lifetime policy for a newly registered backend.
-    fn contract(&self) -> BackendContract;
-}
-
-/// Request metadata exported at the application boundary.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum BackendIdentity {
-    /// Keep the request unchanged; native layers can borrow HostContext.
-    None,
-    /// Export the prepared policy, connection and selected hostname.
-    Request,
-}
-
-/// Who completes a streaming response when execution is draining.
-#[derive(Clone)]
-pub enum BackendReply {
-    /// The execution owner cooperatively completes its own output.
-    Owner,
-    /// End this edge's external SSE body on the supplied owner's shutdown.
-    /// Finite responses retain their normal completion and drain.
-    ExternalEventStream(tokio_util::sync::CancellationToken),
-}
-
-/// Mandatory cold declaration of the request and response handoff.
-#[derive(Clone)]
-pub struct BackendContract {
-    pub identity: BackendIdentity,
-    pub reply: BackendReply,
-}
 
 /// Effective input borrowed while preparing one listener/host/prefix backend.
 /// No registry lookup or configuration decoding is performed by dispatch.

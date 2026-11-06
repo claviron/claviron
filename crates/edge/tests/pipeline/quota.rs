@@ -74,12 +74,10 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
         country_code: None,
         tls: None,
     });
-    let context = Some(crate::pipeline::host::HostContext {
-        host: None,
-        policy: None,
-        connection: &connection,
-        arrival: crate::service::RequestArrival::Established,
-    });
+    let context = Some(crate::pipeline::host::HostContext::new(
+        &connection,
+        crate::service::RequestArrival::Established,
+    ));
     let run = |snapshot: &HostAppSnapshot, key: &str| {
         use futures_util::FutureExt;
         let owner = snapshot.resolve(&key.parse().unwrap()).unwrap();

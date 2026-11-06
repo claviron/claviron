@@ -23,7 +23,8 @@ build = "build.rs"
 autotests = false
 
 [features]
-edge = ["dep:claviron-edge"]
+# The native Backend owner: the request contract alone, not Edge.
+backend = ["dep:claviron-pipeline"]
 default = ["opcache-intercept"]
 # APCu hooks are opt-in; OPcache propagation stays enabled for persistent
 # applications and multi-worker execution. Neither feature is facade-forwarded.
@@ -60,7 +61,7 @@ postgres = [
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
-claviron-edge = { workspace = true, optional = true }
+claviron-pipeline = { workspace = true, optional = true }
 claviron-app.workspace = true
 claviron-auth = { workspace = true, features = ["orbit"], optional = true }
 claviron-cache = { workspace = true, optional = true }

@@ -79,17 +79,7 @@ impl DispatchStep for WebSocketStage {
     }
 }
 
-impl DispatchStep for Arc<WebSocketStage> {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-        context: Option<crate::pipeline::host::HostContext<'_>>,
-    ) -> DispatchCall {
-        self.as_ref().call(request, context)
-    }
-}
-
-impl crate::pipeline::host::BackendHandler for Arc<WebSocketStage> {
+impl crate::pipeline::host::BackendHandler for WebSocketStage {
     fn contract(&self) -> crate::pipeline::BackendContract {
         crate::pipeline::BackendContract {
             identity: crate::pipeline::BackendIdentity::Request,

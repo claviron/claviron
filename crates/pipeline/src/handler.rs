@@ -10,14 +10,14 @@ use http::{Request, request::Parts};
 ///
 /// Head inspection/changes do not expose or poll the body. To handle the body,
 /// consume this value with `into_request`; it cannot then be returned as
-/// Unhandled. Only the pipeline constructs this capability.
+/// Unhandled.
 pub struct HostRequest {
     head: Parts,
     body: RouteBody,
 }
 
 impl HostRequest {
-    pub(in crate::pipeline) fn new(request: Request<RouteBody>) -> Self {
+    pub fn new(request: Request<RouteBody>) -> Self {
         let (head, body) = request.into_parts();
         Self { head, body }
     }
@@ -56,7 +56,3 @@ pub trait HostHandler: Send + Sync + 'static {
         request: HostRequest,
     ) -> HostHandlerFuture;
 }
-
-#[cfg(test)]
-#[path = "../../../tests/pipeline/host/handler.rs"]
-mod tests;

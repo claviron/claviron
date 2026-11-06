@@ -47,20 +47,22 @@ impl BackendFactory for PhpFactory {
             .rev()
             .map(|runtime| match runtime.php_runner {
                 #[cfg(feature = "php_embed")]
-                PhpRunner::Script => claviron_php_embed::edge::prepare_script(
-                    context.state,
-                    runtime,
-                ),
+                PhpRunner::Script => {
+                    claviron_php_embed::backend::prepare_script(
+                        context.state,
+                        runtime,
+                    )
+                }
                 #[cfg(feature = "php_embed")]
                 PhpRunner::Application => {
-                    Ok(claviron_php_embed::edge::prepare_application(
+                    Ok(claviron_php_embed::backend::prepare_application(
                         context.state,
                         runtime,
                     ))
                 }
                 #[cfg(feature = "php_fcgi")]
                 PhpRunner::Fcgi => {
-                    claviron_php_fcgi::edge::prepare(context.state, runtime)
+                    claviron_php_fcgi::backend::prepare(context.state, runtime)
                 }
             })
             .collect()

@@ -1,17 +1,17 @@
 use claviron_runtime::AppState;
 
+#[cfg(feature = "backend")]
+pub mod backend;
 mod balancer;
 pub mod config;
 pub(crate) mod connection;
-#[cfg(feature = "edge")]
-pub mod edge;
 pub(crate) mod error;
 pub(crate) mod events;
 #[cfg(feature = "metrics")]
 pub(crate) mod metrics;
 pub(crate) mod ping;
 pub(crate) mod pool;
-#[cfg(feature = "edge")]
+#[cfg(feature = "backend")]
 mod proxy;
 pub mod service;
 #[cfg(feature = "tasks")]

@@ -74,12 +74,8 @@ fn quota_layer_borrows_accepted_identity_and_cancellation_does_not_refund_admiss
         .build();
     drop(quotas);
     let connection = connection();
-    let context = Some(HostContext {
-        host: None,
-        policy: None,
-        connection: &connection,
-        arrival: RequestArrival::Established,
-    });
+    let context =
+        Some(HostContext::new(&connection, RequestArrival::Established));
     let drops = Arc::new(AtomicUsize::new(0));
     let request = || {
         Request::builder()
@@ -117,12 +113,8 @@ fn quota_snapshot_headers_come_from_the_admission_that_produced_the_reply() {
         .unwrap()
         .build();
     let connection = connection();
-    let context = Some(HostContext {
-        host: None,
-        policy: None,
-        connection: &connection,
-        arrival: RequestArrival::Established,
-    });
+    let context =
+        Some(HostContext::new(&connection, RequestArrival::Established));
     let ServiceResult::Unhandled(prepared) = pipeline.prepare_in(
         Request::new(claviron_http::empty_body()),
         QuotaState::default(),

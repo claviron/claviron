@@ -1,5 +1,5 @@
-#[cfg(feature = "edge")]
-pub mod edge;
+#[cfg(feature = "backend")]
+pub mod backend;
 use claviron_runtime::AppState;
 
 #[cfg(feature = "auth")]

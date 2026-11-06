@@ -62,6 +62,7 @@ claviron-hosting = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
 claviron-logging = { workspace = true, optional = true }
 claviron-orbit = { workspace = true, optional = true }
+claviron-pipeline.workspace = true
 claviron-runtime.workspace = true
 claviron-tls.workspace = true
 claviron-types.workspace = true

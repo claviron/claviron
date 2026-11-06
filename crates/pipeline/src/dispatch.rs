@@ -7,7 +7,7 @@ use std::task::{Context, Poll};
 use claviron_http::{RouteBody, RouteResponse, ServiceResult};
 use http::Request;
 
-use super::{HostContext, HostHandlerFuture};
+use crate::{HostContext, HostHandlerFuture};
 
 pub type DispatchResult = ServiceResult<RouteResponse, Request<RouteBody>>;
 
@@ -51,7 +51,8 @@ impl DispatchCall {
         Self::Pending(DispatchFuture { inner: Work::Request(Box::pin(work)) })
     }
 
-    pub(in crate::pipeline) fn application(work: HostHandlerFuture) -> Self {
+    /// Reuse an application's erased future without another allocation.
+    pub fn application(work: HostHandlerFuture) -> Self {
         Self::Pending(DispatchFuture { inner: Work::Application(work) })
     }
 }
@@ -102,5 +103,5 @@ pub trait DispatchStep: Send + Sync + 'static {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/host/dispatch.rs"]
+#[path = "../tests/dispatch.rs"]
 mod tests;

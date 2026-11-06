@@ -5,12 +5,10 @@ use std::sync::Arc;
 
 use claviron_http::{
     RouteBody, RouteFuture, RouteResponse,
-    ext::{ConnCtx, HostKey, HostName},
+    ext::{ConnCtx, HostKey, HostName, RequestArrival},
     policy::HttpPolicy,
 };
 use http::Request;
-
-use crate::service::RequestArrival;
 
 /// Accepted transport facts borrowed for one pipeline execution, and, once a
 /// backend is reached, the effective policy of the scope that selected it.
@@ -21,8 +19,8 @@ use crate::service::RequestArrival;
 pub struct HostContext<'a> {
     pub connection: &'a Arc<ConnCtx>,
     pub arrival: RequestArrival,
-    pub(crate) host: Option<(&'a HostName, &'a HostKey)>,
-    pub(crate) policy: Option<&'a HttpPolicy>,
+    host: Option<(&'a HostName, &'a HostKey)>,
+    policy: Option<&'a HttpPolicy>,
 }
 
 impl<'a> HostContext<'a> {
@@ -43,7 +41,7 @@ impl<'a> HostContext<'a> {
     }
 
     /// Bind the policy of the scope whose backend is about to be called.
-    pub(in crate::pipeline) fn with_policy(
+    pub fn with_policy(
         mut self,
         policy: &'a HttpPolicy,
     ) -> Self {
@@ -54,6 +52,12 @@ impl<'a> HostContext<'a> {
     /// The host name the request was accepted for, when one was selected.
     pub fn hostname(&self) -> Option<&'a HostName> {
         self.host.map(|(hostname, _)| hostname)
+    }
+
+    /// The canonical host key the request was accepted for, when one was
+    /// selected.
+    pub fn host_key(&self) -> Option<&'a HostKey> {
+        self.host.map(|(_, key)| key)
     }
 
     /// What was prepared for this connection while it was accepted.

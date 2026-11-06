@@ -54,6 +54,10 @@ pub use claviron_php_fcgi as fcgi;
 pub use claviron_resolver as resolver;
 #[cfg(feature = "runner")]
 pub mod runner;
+/// Socket acceptance and HTTP connection driving. Its `edge` module holds the
+/// listeners that serve Edge's virtual hosts.
+#[cfg(feature = "edge")]
+pub use claviron_pipeline as pipeline;
 #[cfg(feature = "runtime")]
 pub use claviron_runtime as runtime;
 #[cfg(feature = "metrics")]
@@ -68,8 +72,6 @@ pub use claviron_sys as sys;
 pub use claviron_tasks as tasks;
 #[cfg(feature = "tls")]
 pub use claviron_tls as tls;
-/// Socket acceptance and HTTP connection driving. Its `edge` module holds the
-/// listeners that serve Edge's virtual hosts.
 #[cfg(feature = "edge")]
 pub use claviron_transport as transport;
 #[cfg(feature = "ssl")]

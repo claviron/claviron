@@ -41,7 +41,7 @@ unused entries. First request to a pool name materialises it.
 Host admission -> Rust Application -> Static -> TryFiles -> prepared FCGI Backend
 -> script resolution -> FPM connection/lease -> reply.
 
-`edge::prepare` supplies one native Backend owner behind the `edge` feature.
+`backend::prepare` supplies one native Backend owner behind the `backend` feature, on `claviron-pipeline` alone: it does not depend on Edge.
 The facade composes selected PHP engines in declaration order. The common Edge
 handoff exports identity and applies external SSE shutdown; the FPM body retains
 lease ownership. Script-resolution misses return the original unread body before

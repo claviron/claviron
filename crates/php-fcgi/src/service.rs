@@ -108,7 +108,7 @@ fn fpm_config_path(state: &AppState) -> PathBuf {
 impl PhpFcgiService {
     /// The process's shutdown, for the replies that end at it
     /// ([`claviron_http::body::EndsAtShutdown`]).
-    #[cfg(feature = "edge")]
+    #[cfg(feature = "backend")]
     pub(crate) fn shutdown_token(&self) -> CancellationToken {
         self.state.shutdown_token()
     }

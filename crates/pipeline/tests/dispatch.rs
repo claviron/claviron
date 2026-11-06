@@ -7,7 +7,7 @@ use bytes::Bytes;
 use http_body::{Body, Frame};
 
 use super::*;
-use crate::pipeline::host::HostRequest;
+use crate::HostRequest;
 
 struct UnreadBody(Arc<AtomicUsize>);
 

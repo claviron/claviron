@@ -101,13 +101,14 @@ supervisor = ["server", "dep:claviron-supervisor", "claviron-runner?/supervisor"
 edge = [
     "claviron-broadcast?/edge",
     "claviron-lua?/edge",
-    "claviron-php-embed?/edge",
-    "claviron-php-fcgi?/edge",
+    "claviron-php-embed?/backend",
+    "claviron-php-fcgi?/backend",
     "supervisor",
     "http",
     "files",
     "claviron-http/server",
     "dep:claviron-edge",
+    "dep:claviron-pipeline",
     "claviron-edge/tcp",
     # The listeners that serve Edge's hosts live in the transport.
     "dep:claviron-transport",
@@ -205,6 +206,7 @@ claviron-runtime = { workspace = true, optional = true }
 claviron-supervisor = { workspace = true, optional = true }
 claviron-sys = { workspace = true, optional = true }
 claviron-tasks = { workspace = true, optional = true }
+claviron-pipeline = { workspace = true, optional = true }
 claviron-tls = { workspace = true, optional = true }
 claviron-transport = { workspace = true, optional = true }
 claviron-types = { workspace = true, optional = true }
@@ -388,6 +390,7 @@ members = [
     "crates/lua",
     "crates/macros",
     "crates/orbit",
+    "crates/pipeline",
     "crates/php",
     "crates/php-embed",
     "crates/php-fcgi",
@@ -442,6 +445,7 @@ claviron-logging = { version = "0.2.0-alpha.24", path = "crates/logging" }
 claviron-lua = { version = "0.2.0-alpha.24", path = "crates/lua" }
 claviron-macros = { version = "0.2.0-alpha.24", path = "crates/macros" }
 claviron-orbit = { version = "0.2.0-alpha.24", path = "crates/orbit" }
+claviron-pipeline = { version = "0.2.0-alpha.24", path = "crates/pipeline" }
 claviron-php = { version = "0.2.0-alpha.24", path = "crates/php" }
 claviron-php-embed = { version = "0.2.0-alpha.24", path = "crates/php-embed" }
 claviron-php-fcgi = { version = "0.2.0-alpha.24", path = "crates/php-fcgi" }
