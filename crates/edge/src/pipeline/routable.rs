@@ -12,45 +12,8 @@ use super::apps::other::Factory as OtherFactory;
 use super::host::HostHandler;
 use crate::config::HostConfig;
 
-/// Listener protocol family used while preparing host contributions.
-/// HTTP and HTTPS are distinct even when both carry HTTP/1.1.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum RouteProtocol {
-    /// Cleartext HTTP over TCP.
-    Http,
-    /// HTTP/1.1 or HTTP/2 over TLS/TCP.
-    Https,
-    /// HTTP/3 over QUIC, including its TLS handshake.
-    Quic,
-}
-
-impl From<&claviron_http::config::ListenerConfig> for RouteProtocol {
-    fn from(listener: &claviron_http::config::ListenerConfig) -> Self {
-        use claviron_http::config::{ListenerSettings, TcpSecurity};
-        match &listener.settings {
-            ListenerSettings::Tcp(tcp) => match tcp.security {
-                TcpSecurity::Cleartext { .. } => Self::Http,
-                TcpSecurity::Tls { .. } => Self::Https,
-            },
-            ListenerSettings::Quic(_) => Self::Quic,
-        }
-    }
-}
-
-// An unbound plan retains only contributions valid on every protocol family.
-pub(crate) fn matches_protocol(
-    protocol: Option<RouteProtocol>,
-    matches: impl Fn(RouteProtocol) -> bool,
-) -> bool {
-    match protocol {
-        Some(protocol) => matches(protocol),
-        None => {
-            [RouteProtocol::Http, RouteProtocol::Https, RouteProtocol::Quic]
-                .into_iter()
-                .all(matches)
-        }
-    }
-}
+pub use claviron_pipeline::factory::RouteProtocol;
+pub(crate) use claviron_pipeline::factory::matches_protocol;
 
 /// Provider contributions prepared for selected hosts and listener protocols.
 /// Handlers, layers, directives and native upgrades enter the host plan before

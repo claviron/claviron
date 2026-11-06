@@ -1,8 +1,8 @@
 pub mod accept;
 pub mod apps;
-pub mod backend;
+pub use claviron_pipeline::factory as backend;
 mod connect;
-pub mod extension;
+pub use claviron_pipeline::extension;
 pub mod host;
 pub mod layers;
 #[cfg(feature = "orbit")]
@@ -13,7 +13,6 @@ pub mod routing;
 #[cfg(feature = "webtransport")]
 mod wt;
 
-pub use accept::{AcceptLayer, Accepted};
 pub use apps::{HostAppRegistry, HostAppResolver, HostAppSnapshot, RustRouter};
 #[cfg(feature = "websocket")]
 pub use claviron_http::upgrade::{
@@ -22,6 +21,7 @@ pub use claviron_http::upgrade::{
     H1UpgradeResult, H1UpgradeRoute, H1UpgradeState, is_h1_header_upgrade,
     websocket_accept_key, websocket_response_headers,
 };
+pub use claviron_pipeline::accept::{AcceptLayer, Accepted};
 pub use connect::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,

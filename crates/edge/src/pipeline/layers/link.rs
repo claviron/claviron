@@ -1,5 +1,6 @@
-use super::{HostLayer, HostLayerBuilder};
+use super::HostLayer;
 use crate::pipeline::link::LinkBackend;
+use claviron_pipeline::plan::HostLayerBuilder;
 
 impl<S> HostLayer<S> for LinkBackend {
     fn prepare(

@@ -6,9 +6,12 @@ use claviron_http::ext::PathPrefix;
 use claviron_http::rate_limit::{RequestHead, Snapshot};
 use http::request::Parts as RequestParts;
 
+use std::ops::ControlFlow;
+
 use super::*;
 use crate::pipeline::host::HostContext;
 use crate::service::{HostResponse, RequestRejection};
+use claviron_pipeline::plan::{HostLayerBuilder, HostPipelineBuilder};
 
 mod prepare;
 
@@ -109,7 +112,8 @@ impl QuotaPolicy {
         head: &RequestParts,
         context: Option<HostContext<'_>>,
     ) -> Result<Option<Snapshot>, HostResponse> {
-        let paths = super::acl::comparison_paths(head.uri.path())?;
+        let paths =
+            claviron_pipeline::layers::acl::comparison_paths(head.uri.path())?;
         let selected = self.select(&paths.separated);
         if let Some(literal) = &paths.literal
             && selected.map(|rule| rule as *const _)

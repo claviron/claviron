@@ -15,6 +15,12 @@ categories = ["web-programming::http-server", "asynchronous"]
 
 [features]
 default = []
+# One access record per request, to the log channel logging.yaml names.
+access-log = ["dep:claviron-logging", "claviron-logging/pipeline"]
+# Optional Rust application adapter.
+axum = ["dep:axum", "claviron-http/axum"]
+metrics = ["claviron-http/metrics"]
+warp = ["claviron-http/warp"]
 # Link route declarations.
 orbit = ["claviron-http/orbit"]
 # Admission quotas declared by a site or route.
@@ -24,12 +30,28 @@ rate-limit = ["claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/
 claviron-files.workspace = true
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
+claviron-logging = { workspace = true, optional = true }
 claviron-orbit = { workspace = true, optional = true }
+claviron-runtime.workspace = true
+claviron-types.workspace = true
+
+async-trait.workspace = true
+axum = { workspace = true, optional = true }
+bytes.workspace = true
+futures-util.workspace = true
 http.workspace = true
+http-body.workspace = true
+http-body-util.workspace = true
+regex.workspace = true
 serde = { workspace = true, features = ["derive", "rc"] }
 serde_yaml.workspace = true
-tokio-util.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util", "macros", "rt", "sync", "time"] }
+tokio-util = { workspace = true, features = ["rt"] }
+tower = { workspace = true, features = ["util"] }
+tracing.workspace = true
 
 [dev-dependencies]
-bytes.workspace = true
-http-body.workspace = true
+axum.workspace = true
+tempfile = "3"
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }

@@ -104,12 +104,14 @@ fn a_selected_host_prepares_once_at_acceptance_and_its_requests_read_it() {
             country_code: None,
             tls: None,
         };
-        connection.state = snapshot.resolve(&host).unwrap().accept(&Accepted {
-            connection: &connection,
-            hostname: &HostName(Arc::new(host.clone())),
-            host: &HostKey(Arc::new(host.clone())),
-            config: &config,
-        });
+        connection.state = snapshot.resolve(&host).unwrap().accept(
+            &crate::pipeline::Accepted::new(
+                &connection,
+                &HostName(Arc::new(host.clone())),
+                &HostKey(Arc::new(host.clone())),
+                &config,
+            ),
+        );
         // Once for a connection of the selected host, never for another's,
         // and a connection nothing was prepared for holds nothing.
         let ran = usize::from(prepared);

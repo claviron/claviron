@@ -12,7 +12,8 @@ HTTP host selection, native dispatch and optional TCP/QUIC drivers.
   application serves, is `claviron-pipeline`'s. A route
   is a `Site`; the pipeline prepares from a `Site` and reads no connection terms
   except those handed to it explicitly.
-- `pipeline` prepares host actions and request owners. Axum is a Rust application
+- `pipeline` compiles a host's `Site` into `claviron-pipeline`'s plan and owns the
+  registries keyed by host. Axum is a Rust application
   adapter; files, Embed, Upstream and Link use native dispatch.
 - Wire framing, native body adaptation, accepted connections and sessions belong
   to `claviron-transport`, which borrows this crate; this crate opens no socket.
@@ -348,7 +349,6 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`lib.rs`](src/lib.rs) — Public exports and registration; master/serving-process composition.
 - [`config.rs`](src/config.rs) — Host identity, transport policy and normalized route views; read-only backend accessors.
 - [`provider.rs`](src/provider.rs) — Congif HTTP configuration owner; validate capabilities and atomically publish HttpSnapshot.
-- [`log`](src/log.rs) — Optional access-record producer; retained metadata, response progress and body/drop accounting.
 - [`listener.rs`](src/listener.rs) — Hosting alias notifications and atomic candidate updates; PostgreSQL NOTIFY or hosting events.
 - [`transport.rs`](src/transport.rs) — What `claviron-transport` may use of this crate: host selection, request handoff and connection-level handlers; loader and service stay internal behind it.
 - [`transport/publication.rs`](src/transport/publication.rs) — Listener input selection, host compilation, weak publication contract and shared bind geometry.
@@ -361,7 +361,6 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`authority.rs`](src/loader/authority.rs) — Prepare shared public client-auth CA material for host publications.
 - [`loader.rs`](src/loader.rs) — Module boundary for declaration loading and host publication.
 - [`config.rs`](src/loader/config.rs) — VhostDocument, recursive includes, partial reads and unchanged declaration reuse.
-- [`error.rs`](src/loader/error.rs) — Declaration and load errors.
 - [`table.rs`](src/loader/table.rs) — Canonical names, validated aliases, shared listener-plan selection and prepared dependencies.
 - [`snapshot.rs`](src/loader/snapshot.rs) — Candidate host/alias edits and optional database alias hydration.
 - [`resolver.rs`](src/loader/resolver.rs) — Retained sources, dependent preparation, atomic table publication and binding retirement.
@@ -383,8 +382,6 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`apps.rs`](src/pipeline/apps.rs) — Retained factories, directives and per-host application snapshot preparation/reuse.
 - [`routable.rs`](src/pipeline/routable.rs) — Provider-owned contributions, native layers and exclusive host bindings.
 - [`non_serving.rs`](src/pipeline/non_serving.rs) — Fixed plain redirect/reject flow and the optional single request interceptor.
-- [`backend.rs`](src/pipeline/backend.rs) — BackendFactory, effective preparation input and mandatory identity/reply ownership.
-- [`extension.rs`](src/pipeline/extension.rs) — Typed directives and boot-time RouteContext; borrow inherited settings and prepare effective policy.
 - [`routing.rs`](src/pipeline/routing.rs) — Shared prefix dispatch and route-extension re-exports.
 - [`apps/axum.rs`](src/pipeline/apps/axum.rs) — Axum host registration and ApplicationHandler/HostHandler adaptation.
 - [`apps/warp.rs`](src/pipeline/apps/warp.rs) — Warp host registration and native handler adaptation.
@@ -403,17 +400,8 @@ may retain a direct Rust call; selecting Other never bypasses host layers.
 Disabled file steps allocate no prepared file owner.
 
 - [`host.rs`](src/pipeline/host.rs) — HostLayer/HostPipeline types and typed request/reply capabilities.
-- [`context.rs`](src/pipeline/host/context.rs) — Borrowed connection, selected-host and arrival facts.
-- [`owner.rs`](src/pipeline/host/owner.rs) — Retain prepared owners while direct calls await.
-- [`builder.rs`](src/pipeline/host/builder.rs) — Prepare flat action arrays; append builders or compiled plans; preserve atomic layer preparation and response scopes.
 - [`registration.rs`](src/pipeline/host/registration.rs) — Direct code-defined layers and pipeline factories, selected per host/protocol at preparation.
-- [`request.rs`](src/pipeline/host/request.rs) — Flat head/async/request execution, unread body transfer and reached response scopes.
-- [`response.rs`](src/pipeline/host/response.rs) — Run only reached response/body actions, in reverse registration order.
 - [`binding.rs`](src/pipeline/host/binding.rs) — Accepted connection facts and narrowed declaration data; no implicit actions.
-- [`application.rs`](src/pipeline/host/application.rs) — Consuming terminal call with its concrete future.
-- [`handler.rs`](src/pipeline/host/handler.rs) — Routable contributions; Unhandled retains the unread body capability.
-- [`dispatch.rs`](src/pipeline/host/dispatch.rs) — Consume synchronous DispatchCall decisions before await; only compact pending futures enter suspended state, reusing existing application erasure.
-- [`execution.rs`](src/pipeline/host/execution.rs) — Published host execution; separate from the Axum/Other router choice.
 - [`compile.rs`](src/pipeline/host/compile.rs) — Compile prefix scopes, conditions, Rust contributions and backend owners.
 - [`backend.rs`](src/pipeline/host/backend.rs) — Backend handoff actions and native Link/file fallback preparation.
 
@@ -441,31 +429,11 @@ and their preparation paths:
 | `Arc<WebSocketStage>` | Registered H1 endpoints through `Backend`, gated by host and listener capabilities. |
 | `RedirectLayer` | First effective custom redirect, after contributions and before the terminal router. |
 
-- [`metrics.rs`](src/pipeline/layers/metrics.rs) — Optional request activity guard for serving host scopes.
-- [`deny.rs`](src/pipeline/layers/deny.rs) — Explicit nonempty URI matcher; no transport snapshot or proof wrapper.
-- [`proxy.rs`](src/pipeline/layers/proxy.rs) — Trusted-peer forwarding layer; only request RealIpExt changes.
-- [`acl.rs`](src/pipeline/layers/acl.rs) — Explicit ACL layer; borrow accepted identity or a selected forwarding result.
-- [`acl/path.rs`](src/pipeline/layers/acl/path.rs) — Compiled segment ACLs and unambiguous comparison paths.
-- [`redirect.rs`](src/pipeline/layers/redirect.rs) — Scoped redirects and prepared Location values; URL selection belongs to the common route table.
 - [`quota.rs`](src/pipeline/layers/quota.rs) — Rate-admission layer for typed or native replies and its committed snapshot.
 - [`quota/prepare.rs`](src/pipeline/layers/quota/prepare.rs) — Config/Rust quota bindings, resource validation and store lifetime.
-- [`selection.rs`](src/pipeline/layers/selection.rs) — Prefix/condition selection as a HostLayer; single-scope hosts omit it.
-- [`files.rs`](src/pipeline/layers/files.rs) — Separate Static and TryFiles steps using the shared files API.
-- [`extension.rs`](src/pipeline/layers/extension.rs) — Route-layer preparation adapter.
 - [`websocket.rs`](src/pipeline/layers/websocket.rs) — Prepared exact H1 endpoints before Rust/file/backend dispatch.
 - [`layers.rs`](src/pipeline/layers.rs) — HostLayer preparation contract and concrete exports.
-- [`app.rs`](src/pipeline/layers/app.rs) — RustRouter and HostHandler builder adapters.
-- [`call.rs`](src/pipeline/layers/call.rs) — Shared DispatchStep builder adapter.
 - [`link.rs`](src/pipeline/layers/link.rs) — Link Backend builder adapter.
-- [`fallback.rs`](src/pipeline/layers/fallback.rs) — Index/SPA fallback without repeating Static or TryFiles.
-- [`identity.rs`](src/pipeline/layers/identity.rs) — Explicit accepted-connection and selected-host metadata; scheme, protocol and TLS remain in ConnCtx.
-- [`identity/extensions.rs`](src/pipeline/layers/identity/extensions.rs) — One metadata export at Backend entry; preserve existing boxes and request-local forwarding.
-- [`headers.rs`](src/pipeline/layers/headers.rs) — Effective response edits folded before publication; no implicit Server header.
-- [`reply.rs`](src/pipeline/layers/reply.rs) — Boot-selected response size/idle guards; absent bounds install no action.
-- [`body.rs`](src/pipeline/layers/body.rs) — Cold size/idle selection and one lazy body guard after CORS admission.
-- [`cors.rs`](src/pipeline/layers/cors.rs) — Boot-compiled origin selection, early response context and post-quota admission.
-- [`cors/rules.rs`](src/pipeline/layers/cors/rules.rs) — Preflight detection, response headers and Vary token selection without String/Vec assembly.
-- [`log.rs`](src/pipeline/layers/log.rs) — Access-record hooks borrow accepted facts; inactive channels install no layer.
 
 
 
@@ -491,7 +459,6 @@ ownership and isolated state transitions without provider boot or live listeners
 
 ### Entry and configuration
 
-- [`log.rs`](tests/log.rs) — Active body accounting, original frames, gRPC trailers, cancellation and empty/error responses without logger boot.
 
 - [`sni.rs`](tests/sni.rs) — SNI/catchall lookup and bounded name churn.
 - [`provider.rs`](tests/provider.rs) — Prepared HTTP values, capability rejection and invalid-candidate retention.
@@ -515,7 +482,6 @@ ownership and isolated state transitions without provider boot or live listeners
 - [`apps/protocol.rs`](tests/pipeline/apps/protocol.rs) — Cold protocol selection, listener name/alias/default admission, inactive directives and plan isolation.
 - [`apps/listeners.rs`](tests/pipeline/apps/listeners.rs) — Explicit listener selection, static non-serving policy, interception and unread-body ownership.
 - [`apps/reply.rs`](tests/pipeline/apps/reply.rs) — Listener/prefix reply bounds, early responses, lazy frames and cancellation.
-- [`host.rs`](tests/pipeline/host.rs) — Layer preparation, response scope, body ownership, wakeup and cancellation.
 - [`apps/warp.rs`](tests/pipeline/apps/warp.rs) — Warp rejection remains a terminal handled response.
 - [`quota.rs`](tests/pipeline/quota.rs) — Public quota registration shared by canonical names and aliases.
 - [`wt.rs`](tests/pipeline/wt.rs) — Exact native bindings precede Link fallback.
@@ -525,11 +491,6 @@ ownership and isolated state transitions without provider boot or live listeners
 ### `pipeline/host/`
 
 - [`registration.rs`](tests/pipeline/host/registration.rs) — Config-free selection, effective scope input, router ordering and failed preparation.
-- [`composition.rs`](tests/pipeline/host/composition.rs) — Flat append, early response boundaries, frame/trailer ownership, identity deduplication and cancellation.
-- [`application.rs`](tests/pipeline/host/application.rs) — Deferred calls, cancellation and payload/response scope.
-- [`backend.rs`](tests/pipeline/host/backend.rs) — Native-step exclusion, one-time metadata handoff, fallthrough and cancellation.
-- [`dispatch.rs`](tests/pipeline/host/dispatch.rs) — Compact pending state, synchronous unread-body transfer, existing erasure and cancellation.
-- [`handler.rs`](tests/pipeline/host/handler.rs) — Rust fallthrough, terminal status, cancellation and optional Axum adapter.
 - [`compile.rs`](tests/pipeline/host/compile.rs) — Scope conditions and Static/TryFiles/backend precedence.
 - [`compile/defense.rs`](tests/pipeline/host/compile/defense.rs) — Defense order, CORS/quota replies, body-policy narrowing and absent-rule direct calls.
 - [`compile/redirect.rs`](tests/pipeline/host/compile/redirect.rs) — Scoped redirects after contributions, terminal router ordering and unread body ownership.
@@ -537,18 +498,8 @@ ownership and isolated state transitions without provider boot or live listeners
 
 ### `pipeline/layers/`
 
-- [`body.rs`](tests/pipeline/layers/body.rs) — Early declared-size refusal, lazy byte accounting and unchanged frame/trailer ownership.
-- [`cors.rs`](tests/pipeline/layers/cors.rs) — Origin matching, preflight/OPTIONS ownership, early refusals, Vary and cancellation.
-- [`identity.rs`](tests/pipeline/layers/identity.rs) — Accepted identity reuse and unchanged body ownership.
-- [`identity/extensions.rs`](tests/pipeline/layers/identity/extensions.rs) — Runtime metadata, existing box reuse, independent maps and no host-configuration retention.
-- [`acl/path.rs`](tests/pipeline/layers/acl/path.rs) — Segment specificity, escaped paths and ambiguous slashes.
 - [`quota.rs`](tests/pipeline/layers/quota.rs) — Borrowed connection identity, shared debt, cancellation and committed reply headers.
 - [`quota/prepare.rs`](tests/pipeline/layers/quota/prepare.rs) — Resource collisions, prefix selection, config checks and reload restrictions.
-- [`redirect.rs`](tests/pipeline/layers/redirect.rs) — Ordered path redirects and literal request data in templates.
-- [`deny.rs`](tests/pipeline/layers/deny.rs) — Empty declarations omit the layer; active rules match the path.
-- [`headers.rs`](tests/pipeline/layers/headers.rs) — Explicit header overrides and rejected invalid values.
-- [`reply.rs`](tests/pipeline/layers/reply.rs) — Declared response guards, frames/trailers and drop ownership.
-- [`files.rs`](tests/pipeline/layers/files.rs) — File misses, dynamic-name exclusion and unread backend bodies.
 - [`websocket.rs`](tests/pipeline/layers/websocket.rs) — Protocol-gated exact endpoints and ordinary request passthrough.
 
 ### `service/`

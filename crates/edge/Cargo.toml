@@ -15,17 +15,19 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 
 [features]
 default = []
-warp = ["claviron-http/warp"]
+warp = ["claviron-http/warp", "claviron-pipeline/warp"]
 rate-limit = ["claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/quota", "claviron-pipeline/rate-limit"]
 # Optional Rust application/router adapters; native host compilation is independent.
 axum = [
     "dep:axum",
     "claviron-http/axum",
+    "claviron-pipeline/axum",
 ]
 # One access record per request, to the log channel logging.yaml names.
 access-log = [
     "dep:claviron-logging",
     "claviron-logging/pipeline",
+    "claviron-pipeline/access-log",
 ]
 websocket = ["tcp", "claviron-http/websocket"]
 # Pure host declarations only; Broadcast owns its opt-in execution/session adapter.
@@ -44,7 +46,7 @@ orbit = [
 # Weak forwarding must not select Lua for unrelated WebSocket users.
 db = ["dep:claviron-db", "dep:claviron-hosting", "claviron-hosting/server"]
 postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
-metrics = ["axum", "claviron-http/metrics"]
+metrics = ["axum", "claviron-http/metrics", "claviron-pipeline/metrics"]
 http3 = ["claviron-http/http3"]
 webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport"]
 # What a transport's native drivers need from host selection. The drivers

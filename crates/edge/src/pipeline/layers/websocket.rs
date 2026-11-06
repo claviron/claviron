@@ -11,7 +11,7 @@ use claviron_runtime::AppState;
 use claviron_types::Host;
 use http::Request;
 
-use super::{DispatchCall, DispatchStep, HostLayer, HostLayerBuilder};
+use claviron_pipeline::{DispatchCall, DispatchStep};
 
 /// One host generation's exact HTTP/1 WebSocket endpoints.
 ///
@@ -83,19 +83,6 @@ impl crate::pipeline::host::BackendHandler for WebSocketStage {
             identity: crate::pipeline::BackendIdentity::Request,
             reply: crate::pipeline::BackendReply::Owner,
         }
-    }
-}
-
-impl<S> HostLayer<S> for Arc<WebSocketStage> {
-    fn prepare(
-        self,
-        layer: &mut HostLayerBuilder<S>,
-    ) -> crate::Result<()> {
-        crate::pipeline::host::Backend::new(
-            self,
-            claviron_http::policy::HttpPolicy::unlimited(),
-        )
-        .prepare(layer)
     }
 }
 

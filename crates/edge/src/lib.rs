@@ -9,7 +9,7 @@
 
 pub mod config;
 #[cfg(feature = "access-log")]
-mod log;
+use claviron_pipeline::log;
 
 #[cfg(feature = "db")]
 mod listener;

@@ -14,12 +14,24 @@ does not read one runs the same under one application or many hosts.
 Nothing depends upward: `claviron-edge`, `claviron-transport` and the backends
 all depend on this crate, and it depends only on `claviron-http`.
 
-## What is here and what is on its way
+## What is here
 
-Here: the request contract, which PHP's backends are written against alone; the
-`Site`, what one application serves, with its normalization from a flat YAML
-declaration; and the replies a host decides before dispatch.
+- The request contract: `DispatchStep`, `BackendHandler`, `HostContext`.
+- `site`: what one application serves, with its normalization from a flat YAML
+  declaration.
+- `plan`: the flat request plan (`HostPipelineBuilder`, `HostPipeline`,
+  `HostExecution`, `Backend`), built once and visited in declaration order.
+- `layers`: the request and reply steps a plan is built from, none of which
+  knows how many hosts exist.
+- `factory`, `extension`: how a backend or a route directive is prepared from a
+  scope of a `Site`.
+- `accept`: work done once while a connection is accepted.
+- `response`: the replies decided before dispatch.
+- `log`: access records, behind the `access-log` feature.
 
-The plan that runs these steps (`HostPipelineBuilder`, the layers) and the
-factory a backend registers with are still in `claviron-edge`. Lua, broadcast
-and upstream wait for those.
+## What is still in `claviron-edge`
+
+Compiling a `Site` into a plan (`pipeline/host/compile.rs`) and the registry it
+reads (`HostAppRegistry`) are keyed by host, so nothing can serve a `Site` without
+Edge yet. Link dispatch, quotas and H1 upgrade stages stay beside them for now.
+Lua, broadcast and upstream reach this crate through Edge's re-exports.
