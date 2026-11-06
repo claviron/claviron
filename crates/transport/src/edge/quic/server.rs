@@ -389,11 +389,11 @@ impl H3Server {
 }
 
 pub(super) struct H3Listener {
-    id: ListenerId,
-    name: Arc<str>,
+    pub(super) id: ListenerId,
+    pub(super) name: Arc<str>,
     pub(super) state: AppState,
     pub(super) current: Arc<ArcSwapOption<ServerSnapshot>>,
-    input: ArcSwap<HttpSnapshot>,
+    pub(super) input: ArcSwap<HttpSnapshot>,
 }
 
 impl H3Listener {

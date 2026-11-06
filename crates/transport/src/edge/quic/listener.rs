@@ -632,3 +632,7 @@ fn h3_tls_info(
 fn country_code_for(remote: SocketAddr) -> Option<Arc<str>> {
     crate::geo::country_code(remote.ip())
 }
+
+#[cfg(test)]
+#[path = "../../../tests/edge/quic/listener.rs"]
+mod tests;

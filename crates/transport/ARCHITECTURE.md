@@ -99,6 +99,12 @@ request adaptation and WebTransport handoff are written against Edge's types
 and live under `edge/quic`. Their host-free parts (closure, drain, session
 stream routing) are already in `quic/`.
 
+The H3 listener is pinned over a real QUIC connection by
+`tests/edge/quic/listener.rs`: SNI selection, a request's head and body, the 421
+for another authority, H3's framing rule, a refused name and the drain. A
+WebTransport session is not exercised there; no H3 WebTransport client is in
+the dependency tree.
+
 The listener owners (`HttpServer`, `HttpsServer`, `H3Server`) also live under
 `edge/`, because they publish against Edge's host table. A host-free listener
 is composed today from `tcp::listener::serve` and a `Single` snapshot.

@@ -78,6 +78,8 @@ rustls = { workspace = true, optional = true, features = ["std"] }
 h3-webtransport = { workspace = true, optional = true }
 
 [dev-dependencies]
+orbitive = { workspace = true, features = ["rustls"] }
+tokio-util.workspace = true
 rcgen.workspace = true
 serde_yaml.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
