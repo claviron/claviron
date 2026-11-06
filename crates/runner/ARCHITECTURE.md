@@ -16,7 +16,7 @@ Every runner has grown the same skeleton:
 | piece | what it is |
 |---|---|
 | options | application name, fleet name, TCP / Unix socket / Orbit ingress, request and response policy |
-| socket ingress | accept, HTTP/1 and HTTP/2, graceful drain |
+| socket ingress | the application behind `claviron-transport`'s drivers: accept, HTTP/1 and HTTP/2, graceful drain |
 | Orbit ingress | a lane in the configured fleet, advertised under the application name, a reactor-native receiver, drain |
 | TLS | one certificate, optional client CA |
 | proxy trust | which peers' forwarding headers count |
@@ -264,8 +264,11 @@ before server construction, not a panic from converting an unchecked string.
 
 ## Ingress
 
-- **Socket** — TCP and Unix sockets, all bound before any is served;
-  HTTP/1 and HTTP/2 on one handler; TLS on TCP with ALPN from the protocols
+- **Socket** — TCP and Unix sockets on `claviron-transport`'s drivers, the same
+  ones an edge runs; one that cannot be bound ends the others at boot. The
+  launch's options are declared as a listener the way `http.yaml` declares one,
+  without a header-read deadline of its own. HTTP/1 and HTTP/2 on one handler,
+  HTTP/2 by prior knowledge on cleartext; TLS on TCP with ALPN from the protocols
   served; upgrades the owner claims (an ASGI WebSocket) handed to it with the
   connection's upgrade handle, others refused; forwarded headers applied only
   from trusted peers (a Unix socket is trusted, as opening it already

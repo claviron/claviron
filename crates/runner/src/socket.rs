@@ -1,11 +1,12 @@
 //! The runner's own sockets: TCP and Unix, HTTP/1 and HTTP/2, TLS on TCP.
 //!
-//! It turns a connection into [`AppRequest`]s for the one [`Application`] and
-//! writes back what it answers; everything between is the application's, which
-//! is why the same service runs unchanged under the Orbit ingress, where there
-//! is no socket at all. There is no vhost and no HTTP/3 here: one application,
-//! reached over a loopback, a private network or a Unix socket, where QUIC
-//! would buy a UDP stack and a congestion controller for nothing.
+//! Accepting and driving connections is `claviron-transport`'s, the same code
+//! an edge's listeners run. What is here is what makes them this runner's
+//! doors: every request goes to the one [`Application`], with no vhost, and
+//! the same service runs unchanged under the Orbit ingress, where there is no
+//! socket at all. There is no HTTP/3 here: one application, reached over a
+//! loopback, a private network or a Unix socket, where QUIC would buy a UDP
+//! stack and a congestion controller for nothing.
 //!
 //! What it attaches is the edge's: the accepted connection's facts in
 //! `ConnCtx` (none for a Unix socket, which has no addresses), the client
@@ -16,33 +17,38 @@
 //! and the sessions they started, with no deadline of its own.
 
 use std::convert::Infallible;
+use std::future::Future;
 use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 
+use arc_swap::ArcSwapOption;
 use async_trait::async_trait;
-use claviron_http::ext::{ConnCtx, RealIpExt, ReceivedAt, TlsInfo};
-use claviron_http::session::{ConnectionScope, SessionOwner};
+use claviron_http::RouteResponse;
+use claviron_http::config::{
+    H1Config, HttpSnapshot, ListenerConfig, ListenerSettings, TcpConfig,
+    TcpListenerConfig,
+};
+use claviron_http::ext::{ConnCtx, RealIpExt, ReceivedAt};
+use claviron_http::session::SessionSpawner;
 use claviron_http::trust::Trust;
 use claviron_runtime::{
-    AppState, Component, Gate, RunContext, RunMode, Runnable,
-    ServiceStartPolicy, registry,
+    AppState, Component, RunContext, RunMode, Runnable, ServiceStartPolicy,
+    registry,
 };
-use claviron_sys::net::{
-    AcceptErrorClass, PortSharing, classify_accept_error, create_tcp_listener,
-};
+use claviron_transport::tcp::Requests;
+use claviron_transport::tcp::listener::TcpListenerSnapshot;
+use claviron_transport::tcp::plain::{self, Cleartext};
+use claviron_transport::tcp::prior::PriorKnowledge;
 use http::Request;
 use hyper::body::Incoming;
-use hyper::service::service_fn;
-use hyper_util::rt::{TokioExecutor, TokioIo};
-use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::{TcpListener, UnixListener};
 use tokio::task::JoinSet;
-use tokio_util::sync::CancellationToken;
 
 use crate::routing::{AppRequest, Application, RequestBody};
+
+const LISTENER: &str = "runner";
 
 /// Where a listener listens.
 #[derive(Clone, Debug)]
@@ -97,6 +103,15 @@ impl Protocols {
         }
         alpn
     }
+
+    #[cfg(feature = "tls")]
+    fn declared(self) -> &'static str {
+        match (self.h1, self.h2) {
+            (true, false) => "[h1]",
+            (false, true) => "[h2]",
+            _ => "[h2, h1]",
+        }
+    }
 }
 
 /// Every socket the application answers on, as one runnable: they share a
@@ -118,7 +133,7 @@ impl SocketIngress {
         Self {
             binds,
             protocols,
-            tcp_backlog: claviron_http::config::TcpConfig::default().backlog,
+            tcp_backlog: TcpConfig::default().backlog,
             #[cfg(feature = "tls")]
             tls: None,
         }
@@ -144,6 +159,67 @@ impl SocketIngress {
     ) -> Self {
         self.tls = tls;
         self
+    }
+
+    /// The transport's listener for one address, from the launch's options.
+    /// Declared the way `http.yaml` is, so its defaults are the same ones. A
+    /// runner sets no deadline of its own: a slow client's header read is the
+    /// proxy's or the operator's to bound.
+    fn listener(
+        &self,
+        address: Option<SocketAddr>,
+        secure: bool,
+    ) -> Result<Arc<ListenerConfig>, String> {
+        let listen = address.map_or_else(
+            || "127.0.0.1:0".to_owned(),
+            |address| address.to_string(),
+        );
+        #[cfg(feature = "tls")]
+        let protocols = if secure { self.protocols.declared() } else { "h1" };
+        #[cfg(not(feature = "tls"))]
+        let protocols = "h1";
+        let backlog = self.tcp_backlog;
+        let document = format!(
+            "listeners:\n  {LISTENER}:\n    transport: tcp\n    tls: {secure}\n    protocols: {protocols}\n    listen: '{listen}'\n    tcp: {{backlog: {backlog}}}\n    requests: {{max_body_size: off, body_read_timeout: off}}\n    h1: {{header_read_timeout: null}}\n",
+        );
+        let snapshot: HttpSnapshot = serde_yaml::from_str(&document)
+            .map_err(|error| error.to_string())?;
+        snapshot
+            .listeners
+            .into_values()
+            .next()
+            .ok_or_else(|| "the listener was not declared".to_owned())
+    }
+
+    /// The application behind one address. Cleartext has no ALPN: HTTP/2 is
+    /// by prior knowledge, beside HTTP/1.1 unless the launch named HTTP/2 alone.
+    fn door(
+        &self,
+        address: Option<SocketAddr>,
+        secure: bool,
+        application: Arc<Application>,
+        trust: Arc<Trust>,
+    ) -> Result<Arc<Door>, String> {
+        let listener = self.listener(address, secure)?;
+        let ListenerSettings::Tcp(config) = &listener.settings else {
+            return Err("the runner declares TCP listeners".to_owned());
+        };
+        let config = config.clone();
+        let prior = (!secure && self.protocols.h2).then(|| PriorKnowledge {
+            h2: config.h2.clone(),
+            h1: self.protocols.h1,
+        });
+        Ok(Arc::new(Door {
+            listener,
+            config,
+            prior,
+            application,
+            trust,
+            #[cfg(feature = "tls")]
+            tls: None,
+            #[cfg(feature = "tls")]
+            transport: Default::default(),
+        }))
     }
 }
 
@@ -181,67 +257,147 @@ impl Component<AppState> for SocketIngress {
     }
 }
 
-/// A Unix socket file this ingress made. Removed on the way out only if it is
-/// still the same file: a later process may have put its own in its place.
-struct SocketFile {
-    path: PathBuf,
-    device: u64,
-    inode: u64,
+/// One application behind one listener's declared settings.
+struct Door {
+    listener: Arc<ListenerConfig>,
+    config: TcpListenerConfig,
+    prior: Option<PriorKnowledge>,
+    application: Arc<Application>,
+    trust: Arc<Trust>,
+    #[cfg(feature = "tls")]
+    tls: Option<Arc<rustls::ServerConfig>>,
+    #[cfg(feature = "tls")]
+    transport: claviron_http::config::transport::TransportPolicy,
 }
 
-impl SocketFile {
-    fn owned(path: PathBuf) -> std::io::Result<Self> {
-        use std::os::unix::fs::MetadataExt;
-        let meta = std::fs::symlink_metadata(&path)?;
-        Ok(Self { path, device: meta.dev(), inode: meta.ino() })
+impl Door {
+    fn requests(
+        self: &Arc<Self>,
+        connection: Option<Arc<ConnCtx>>,
+        sessions: SessionSpawner,
+    ) -> ApplicationRequests {
+        ApplicationRequests { door: self.clone(), connection, sessions }
     }
 }
 
-impl Drop for SocketFile {
-    fn drop(&mut self) {
-        use std::os::unix::fs::MetadataExt;
-        if let Ok(meta) = std::fs::symlink_metadata(&self.path)
-            && meta.dev() == self.device
-            && meta.ino() == self.inode
-        {
-            let _ = std::fs::remove_file(&self.path);
-        }
+impl TcpListenerSnapshot for Door {
+    fn listener(&self) -> &ListenerConfig {
+        &self.listener
     }
 }
 
-/// Bind a Unix socket. A file already at the path is left alone if something
-/// answers on it — it belongs to a live process — and removed if nothing
-/// does: a process that is gone left it behind.
-fn bind_unix(path: &PathBuf) -> std::io::Result<UnixListener> {
-    if std::fs::symlink_metadata(path).is_ok() {
-        match std::os::unix::net::UnixStream::connect(path) {
-            Ok(_) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::AddrInUse,
-                    format!(
-                        "{}: a live process is listening on it",
-                        path.display()
-                    ),
-                ));
-            }
-            Err(error)
-                if error.kind() == std::io::ErrorKind::ConnectionRefused =>
-            {
-                std::fs::remove_file(path)?;
-            }
-            Err(error) => return Err(error),
-        }
+impl Cleartext for Door {
+    type Requests = ApplicationRequests;
+
+    fn tcp(&self) -> &TcpConfig {
+        &self.config.tcp
     }
-    UnixListener::bind(path)
+    fn h1(&self) -> &H1Config {
+        &self.config.h1
+    }
+    fn prior_knowledge(&self) -> Option<&PriorKnowledge> {
+        self.prior.as_ref()
+    }
+    fn connection(
+        self: &Arc<Self>,
+        facts: Arc<ConnCtx>,
+        sessions: SessionSpawner,
+    ) -> ApplicationRequests {
+        self.requests(Some(facts), sessions)
+    }
 }
 
-enum Listener {
-    Tcp(TcpListener),
-    /// The file is held for its `Drop`: it goes when the listener does.
-    Uds {
-        listener: UnixListener,
-        _file: SocketFile,
-    },
+#[cfg(unix)]
+impl claviron_transport::unix::Unix for Door {
+    type Requests = ApplicationRequests;
+
+    fn h1(&self) -> &H1Config {
+        &self.config.h1
+    }
+    fn prior_knowledge(&self) -> Option<&PriorKnowledge> {
+        self.prior.as_ref()
+    }
+    fn connection(
+        self: &Arc<Self>,
+        sessions: SessionSpawner,
+    ) -> ApplicationRequests {
+        self.requests(None, sessions)
+    }
+}
+
+#[cfg(feature = "tls")]
+impl claviron_transport::tcp::secure::Secure for Door {
+    type Host = OneHost;
+
+    fn config(&self) -> &TcpListenerConfig {
+        &self.config
+    }
+    fn select(
+        self: &Arc<Self>,
+        _server_name: Option<&str>,
+    ) -> std::io::Result<(Arc<rustls::ServerConfig>, OneHost)> {
+        let tls = self.tls.clone().ok_or_else(|| {
+            std::io::Error::other("this listener has no TLS configuration")
+        })?;
+        Ok((tls, OneHost(self.clone())))
+    }
+}
+
+/// A runner has one application, whatever name a client asks for.
+#[cfg(feature = "tls")]
+struct OneHost(Arc<Door>);
+
+#[cfg(feature = "tls")]
+impl claviron_transport::tcp::secure::SecureHost for OneHost {
+    type Requests = ApplicationRequests;
+    type Rejection = Infallible;
+
+    fn admit(&self) -> Result<(), Infallible> {
+        Ok(())
+    }
+    fn transport(&self) -> &claviron_http::config::transport::TransportPolicy {
+        &self.0.transport
+    }
+    fn require_alpn(&self) -> bool {
+        false
+    }
+    fn retired(
+        &self,
+        _protocol: claviron_tls::Proto,
+    ) -> impl Future<Output = ()> + Send + 'static {
+        std::future::pending()
+    }
+    fn bind(
+        self,
+        facts: ConnCtx,
+        sessions: SessionSpawner,
+    ) -> Result<ApplicationRequests, Infallible> {
+        Ok(self.0.requests(Some(Arc::new(facts)), sessions))
+    }
+}
+
+/// One connection's requests, on their way to the application.
+struct ApplicationRequests {
+    door: Arc<Door>,
+    connection: Option<Arc<ConnCtx>>,
+    sessions: SessionSpawner,
+}
+
+impl Requests for ApplicationRequests {
+    fn call(
+        &self,
+        request: Request<Incoming>,
+    ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
+    {
+        let request = prepare(
+            request,
+            self.connection.clone(),
+            &self.door.trust,
+            self.sessions.clone(),
+        );
+        let answering = self.door.application.call(request);
+        async move { Ok(answering.await) }
+    }
 }
 
 #[async_trait]
@@ -270,340 +426,115 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for SocketIngress {
         // Read the certificate before any socket opens: a bad path or a key
         // that does not match is a boot failure, not a failed handshake later.
         #[cfg(feature = "tls")]
-        let acceptor = self
+        let tls = self
             .tls
             .as_ref()
-            .map(|tls| tls.acceptor(&self.protocols.alpn()))
+            .map(|tls| tls.config(&self.protocols.alpn()))
             .transpose()
             .map_err(failure)?;
+        #[cfg(feature = "tls")]
+        let secure = tls.is_some();
+        #[cfg(not(feature = "tls"))]
+        let secure = false;
 
-        // Workers share a TCP port, as Claviron's own do; one process holds it
-        // alone.
-        let sharing = match state.run_mode() {
-            RunMode::Worker(_) => PortSharing::Shared,
-            RunMode::Standalone | RunMode::Master => PortSharing::Exclusive,
-        };
-
-        // Every socket is bound before any is served, so one already taken is
-        // a boot failure rather than a process that half serves.
-        let mut listeners = Vec::with_capacity(self.binds.len());
+        let run_mode = state.run_mode();
+        let trusted =
+            if trust.is_empty() { "nobody" } else { "registered peers" };
+        // One socket that cannot be bound ends the others: a boot failure,
+        // rather than a process that half serves.
+        let owned = context.child();
+        let mut serving = JoinSet::new();
         for bind in &self.binds {
-            let listener = match bind {
-                Bind::Tcp(address) => Listener::Tcp(
-                    create_tcp_listener(*address, sharing, self.tcp_backlog)
-                        .await
-                        .map_err(failure)?,
-                ),
+            let (address, tls_here) = match bind {
+                Bind::Tcp(address) => (Some(*address), secure),
+                Bind::Uds(_) => (None, false),
+            };
+            #[cfg_attr(not(feature = "tls"), allow(unused_mut))]
+            let mut door = self
+                .door(address, tls_here, application.clone(), trust.clone())
+                .map_err(failure)?;
+            #[cfg(feature = "tls")]
+            if tls_here {
+                Arc::get_mut(&mut door)
+                    .expect("the door is not shared yet")
+                    .tls = tls.clone();
+            }
+            tracing::info!(trusted, "listening on {}", bind.describe(tls_here));
+            let context = owned.child();
+            match bind.clone() {
+                Bind::Tcp(_) => {
+                    serving.spawn(serve_tcp(door, context, run_mode, tls_here));
+                }
                 Bind::Uds(path) => {
-                    let listener = bind_unix(path).map_err(failure)?;
-                    Listener::Uds {
-                        listener,
-                        _file: SocketFile::owned(path.clone())
-                            .map_err(failure)?,
-                    }
-                }
-            };
-            let bound = match &listener {
-                // Port zero becomes a real port; report the one taken.
-                Listener::Tcp(listener) => {
-                    Bind::Tcp(listener.local_addr().map_err(failure)?)
-                }
-                Listener::Uds { .. } => bind.clone(),
-            };
-            #[cfg(feature = "tls")]
-            let secure = acceptor.is_some() && matches!(bound, Bind::Tcp(_));
-            #[cfg(not(feature = "tls"))]
-            let secure = false;
-            tracing::info!(
-                trusted = if trust.is_empty() {
-                    "nobody"
-                } else {
-                    "registered peers"
-                },
-                "listening on {}",
-                bound.describe(secure)
-            );
-            listeners.push(listener);
-        }
-
-        let sessions = Arc::new(SessionOwner::new(
-            "runner".parse().expect("a valid listener name"),
-        ));
-        // Never waits: the gate carries shutdown, and keeps a connection's
-        // lease alive past an upgrade.
-        let gate = Gate::new(None, std::time::Duration::ZERO);
-        let stop = CancellationToken::new();
-        let _stop_on_drop = stop.clone().drop_guard();
-        let shared =
-            Arc::new(Shared { application, trust, protocols: self.protocols });
-
-        let mut accepting = JoinSet::new();
-        for listener in listeners {
-            let shared = Arc::clone(&shared);
-            let stop = stop.clone();
-            let sessions = Arc::clone(&sessions);
-            let gate = gate.clone();
-            #[cfg(feature = "tls")]
-            let acceptor = acceptor.clone();
-            accepting.spawn(async move {
-                accept_loop(
-                    listener,
-                    shared,
-                    stop,
-                    sessions,
-                    gate,
-                    #[cfg(feature = "tls")]
-                    acceptor,
-                )
-                .await
-            });
-        }
-
-        let mut failure_seen = None;
-        tokio::select! {
-            () = context.cancelled() => {}
-            Some(finished) = accepting.join_next() => {
-                if let Ok(Err(error)) | Err(error) = finished.map_err(std::io::Error::other) {
-                    failure_seen = Some(error);
-                }
-            }
-        }
-        // Stop accepting, ask every connection to finish, then join them and
-        // the sessions they started.
-        stop.cancel();
-        while let Some(finished) = accepting.join_next().await {
-            if let Ok(Err(error)) = finished
-                && failure_seen.is_none()
-            {
-                failure_seen = Some(error);
-            }
-        }
-        gate.graceful_shutdown(None);
-        // Every accept loop has returned, so this is the last holder.
-        if let Some(sessions) = Arc::into_inner(sessions) {
-            sessions.close().join().await;
-        }
-        match failure_seen {
-            Some(error) => Err(failure(error)),
-            None => Ok(()),
-        }
-    }
-}
-
-struct Shared {
-    application: Arc<Application>,
-    trust: Arc<Trust>,
-    protocols: Protocols,
-}
-
-async fn accept_loop(
-    listener: Listener,
-    shared: Arc<Shared>,
-    stop: CancellationToken,
-    sessions: Arc<SessionOwner>,
-    gate: Gate,
-    #[cfg(feature = "tls")] acceptor: Option<crate::tls::TlsAcceptor>,
-) -> std::io::Result<()> {
-    let mut connections = JoinSet::new();
-    let result = loop {
-        let accepted = tokio::select! {
-            biased;
-            () = stop.cancelled() => break Ok(()),
-            Some(done) = connections.join_next(), if !connections.is_empty() => {
-                report(done);
-                continue;
-            }
-            accepted = accept(&listener) => accepted
-        };
-        let (stream, peer) = match accepted {
-            Ok(accepted) => accepted,
-            Err(error) => match classify_accept_error(&error) {
-                // A peer gone before its accept completed: the listener is fine.
-                AcceptErrorClass::Transient => continue,
-                AcceptErrorClass::ResourcePressure
-                | AcceptErrorClass::Fatal => break Err(error),
-            },
-        };
-        let scope = match gate.try_enter() {
-            Ok(permit) => sessions.bind(permit),
-            // The gate closes only on shutdown.
-            Err(_) => break Ok(()),
-        };
-        let shared = Arc::clone(&shared);
-        let stop = stop.clone();
-        match stream {
-            Accepted::Tcp(stream, local) => {
-                #[cfg(feature = "tls")]
-                if let Some(acceptor) = acceptor.clone() {
-                    connections.spawn(async move {
-                        // The handshake belongs to this loop's tasks too, and
-                        // cancellation ends an idle one with no guessed timeout.
-                        let stream = tokio::select! {
-                            biased;
-                            () = stop.cancelled() => return Ok(()),
-                            result = acceptor.accept(stream) => result?
-                        };
-                        let tls =
-                            crate::tls::connection_info(stream.get_ref().1);
-                        let connection = connection(peer, local, Some(tls));
-                        serve(stream, peer, connection, shared, stop, scope)
+                    #[cfg(unix)]
+                    serving.spawn(async move {
+                        claviron_transport::unix::serve(&path, door, &context)
                             .await
                     });
-                    continue;
+                    #[cfg(not(unix))]
+                    return Err(failure(format!(
+                        "unix:{}: this platform has no Unix sockets",
+                        path.display()
+                    )));
                 }
-                let connection = connection(peer, local, None);
-                connections.spawn(serve(
-                    stream, peer, connection, shared, stop, scope,
-                ));
-            }
-            Accepted::Uds(stream) => {
-                connections
-                    .spawn(serve(stream, None, None, shared, stop, scope));
             }
         }
-    };
-    // Every connection was asked to finish when `stop` fired; wait for them.
-    while let Some(done) = connections.join_next().await {
-        report(done);
-    }
-    drop(listener);
-    result
-}
 
-enum Accepted {
-    Tcp(tokio::net::TcpStream, Option<SocketAddr>),
-    Uds(tokio::net::UnixStream),
-}
-
-async fn accept(
-    listener: &Listener
-) -> std::io::Result<(Accepted, Option<SocketAddr>)> {
-    Ok(match listener {
-        Listener::Tcp(listener) => {
-            let (stream, peer) = listener.accept().await?;
-            let local = stream.local_addr().ok();
-            (Accepted::Tcp(stream, local), Some(peer))
+        let mut failed = None;
+        while let Some(finished) = serving.join_next().await {
+            let result = finished.map_err(failure).and_then(|result| result);
+            if let Err(error) = result {
+                owned.cancellation_token().cancel();
+                failed.get_or_insert(error);
+            }
         }
-        Listener::Uds { listener, .. } => {
-            let (stream, _) = listener.accept().await?;
-            (Accepted::Uds(stream), None)
-        }
-    })
-}
-
-fn report(done: Result<std::io::Result<()>, tokio::task::JoinError>) {
-    if !matches!(done, Ok(Ok(()))) {
-        tracing::debug!(?done, "connection ended");
+        failed.map_or(Ok(()), Err)
     }
 }
 
-/// The accepted connection's own facts, the edge's type for them. A Unix
-/// socket has no addresses and gets none rather than placeholders.
-fn connection(
-    peer: Option<SocketAddr>,
-    local: Option<SocketAddr>,
-    tls: Option<TlsInfo>,
-) -> Option<Arc<ConnCtx>> {
-    let (Some(remote), Some(local)) = (peer, local) else { return None };
-    Some(Arc::new(ConnCtx {
-        state: Default::default(),
-        listener: "runner".parse().expect("a valid listener name"),
-        proto: None,
-        remote,
-        local_ip: local.ip(),
-        local_port: local.port(),
-        real_ip: None,
-        country_code: None,
-        tls,
-    }))
+async fn serve_tcp(
+    door: Arc<Door>,
+    context: RunContext,
+    run_mode: RunMode,
+    secure: bool,
+) -> registry::Result<()> {
+    let snapshots = ArcSwapOption::from(Some(door.clone()));
+    #[cfg(feature = "tls")]
+    if secure {
+        return claviron_transport::tcp::listener::serve(
+            &snapshots,
+            door,
+            &context,
+            run_mode,
+            |door, stream, peer, scope| {
+                claviron_transport::tcp::secure::serve(
+                    stream, peer, door, scope,
+                )
+            },
+        )
+        .await;
+    }
+    #[cfg(not(feature = "tls"))]
+    let _ = secure;
+    claviron_transport::tcp::listener::serve(
+        &snapshots,
+        door,
+        &context,
+        run_mode,
+        |door, stream, peer, scope| plain::serve(stream, peer, door, scope),
+    )
+    .await
 }
 
-async fn serve<I>(
-    stream: I,
-    peer: Option<SocketAddr>,
-    connection: Option<Arc<ConnCtx>>,
-    shared: Arc<Shared>,
-    stop: CancellationToken,
-    scope: ConnectionScope,
-) -> std::io::Result<()>
-where
-    I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
-{
-    let spawner = scope.sessions();
-    let protocols = shared.protocols;
-    let service = service_fn(move |request: Request<Incoming>| {
-        let shared = Arc::clone(&shared);
-        let connection = connection.clone();
-        let spawner = spawner.clone();
-        async move {
-            let request =
-                prepare(request, peer, connection, &shared.trust, spawner);
-            Ok::<_, Infallible>(shared.application.call(request).await)
-        }
-    });
-    let io = TokioIo::new(stream);
-    let result = match (protocols.h1, protocols.h2) {
-        (true, false) => {
-            let connection = hyper::server::conn::http1::Builder::new()
-                .serve_connection(io, service)
-                .with_upgrades();
-            tokio::pin!(connection);
-            tokio::select! {
-                result = &mut connection => result.map_err(std::io::Error::other),
-                () = stop.cancelled() => {
-                    connection.as_mut().graceful_shutdown();
-                    connection.await.map_err(std::io::Error::other)
-                }
-            }
-        }
-        (false, true) => {
-            let connection =
-                hyper::server::conn::http2::Builder::new(TokioExecutor::new())
-                    .serve_connection(io, service);
-            tokio::pin!(connection);
-            tokio::select! {
-                result = &mut connection => result.map_err(std::io::Error::other),
-                () = stop.cancelled() => {
-                    connection.as_mut().graceful_shutdown();
-                    connection.await.map_err(std::io::Error::other)
-                }
-            }
-        }
-        // Whatever the client speaks: HTTP/1 with an upgrade, or HTTP/2 with
-        // prior knowledge.
-        _ => {
-            let builder = hyper_util::server::conn::auto::Builder::new(
-                TokioExecutor::new(),
-            );
-            let connection =
-                builder.serve_connection_with_upgrades(io, service);
-            tokio::pin!(connection);
-            tokio::select! {
-                result = &mut connection => result.map_err(|error| std::io::Error::other(error.to_string())),
-                () = stop.cancelled() => {
-                    connection.as_mut().graceful_shutdown();
-                    connection.await.map_err(|error| std::io::Error::other(error.to_string()))
-                }
-            }
-        }
-    };
-    drop(scope);
-    result
-}
-
-/// The request as the application sees it, with what the connection and a
-/// trusted proxy say about it in its extensions.
 fn prepare(
     request: Request<Incoming>,
-    peer: Option<SocketAddr>,
     connection: Option<Arc<ConnCtx>>,
     trust: &Trust,
-    sessions: claviron_http::session::SessionSpawner,
+    sessions: SessionSpawner,
 ) -> AppRequest {
+    let peer = connection.as_ref().map(|connection| connection.remote);
     let resolved = trust.resolve(peer, request.headers());
     let (mut parts, body) = request.into_parts();
-    // A trusted proxy reported the host the client asked for; an application
-    // reads `Host`, and behind a proxy the socket's is the proxy's own.
     if let Some(host) = resolved.host.as_deref()
         && let Ok(value) = http::HeaderValue::from_str(host)
     {
@@ -628,3 +559,7 @@ fn prepare(
 fn failure(error: impl std::fmt::Display) -> registry::Error {
     registry::Error::msg(error.to_string())
 }
+
+#[cfg(all(test, unix))]
+#[path = "../tests/socket.rs"]
+mod tests;

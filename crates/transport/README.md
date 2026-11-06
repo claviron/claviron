@@ -7,6 +7,7 @@ to a service. What that service is belongs to how the listener is composed:
 `tcp::plain::Single`, `tcp::secure::Single` and `quic::Single` give every
 request to one handler with no host table; with the `edge` feature the crate borrows
 `claviron-edge` and serves its virtual hosts through the same drivers.
+`claviron-runner` composes them with its own application.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for the contract a host selector
 implements and what lives where.

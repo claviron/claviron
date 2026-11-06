@@ -20,7 +20,7 @@ rust = []
 axum = ["dep:axum", "claviron-http/routing"]
 warp = ["dep:warp", "claviron-http/warp"]
 # HTTPS on the runner's TCP listener, optionally requiring a client certificate.
-tls = ["dep:claviron-tls", "dep:rustls", "dep:thiserror", "dep:tokio-rustls"]
+tls = ["claviron-transport/tls", "dep:claviron-tls", "dep:rustls", "dep:thiserror"]
 # Explicit static mounts in front of the owner, from Claviron's file service.
 files = [
     "axum",
@@ -49,10 +49,11 @@ claviron-http = { workspace = true, features = ["server"] }
 claviron-orbit.workspace = true
 claviron-runtime.workspace = true
 claviron-supervisor = { workspace = true, optional = true }
-claviron-sys.workspace = true
+claviron-transport = { workspace = true, features = ["tcp", "websocket"] }
 claviron-tls = { workspace = true, optional = true }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
+arc-swap.workspace = true
 async-trait.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync"] }
 tokio-util = { workspace = true, features = ["rt"] }
@@ -69,7 +70,6 @@ http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["http1", "http2", "server"] }
-hyper-util = { workspace = true, features = ["server-auto", "tokio"] }
 
 # ── Web framework (axum + tower) ────────────────────────────────────────
 axum = { workspace = true, optional = true }
@@ -78,7 +78,6 @@ tower = { workspace = true, features = ["util"] }
 
 # ── TLS / certificates ──────────────────────────────────────────────────
 rustls = { workspace = true, optional = true, features = ["std"] }
-tokio-rustls = { workspace = true, optional = true }
 
 # ── System / OS bindings ────────────────────────────────────────────────
 notify = { version = "8.2", optional = true }
@@ -91,6 +90,7 @@ tracing.workspace = true
 bytes.workspace = true
 
 [dev-dependencies]
+tokio-rustls.workspace = true
 # ── Async runtime & primitives ──────────────────────────────────────────
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util"] }
 

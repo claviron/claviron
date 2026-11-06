@@ -23,13 +23,10 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use claviron_http::ext::{ClientAuthStatus, TlsInfo};
 use claviron_tls::TlsError;
 use claviron_tls::auth::create_client_cert_verifier;
 use claviron_tls::pem::{load_der_certs, load_private_key};
 use rustls::ServerConfig;
-use rustls::server::ServerConnection;
-pub(crate) use tokio_rustls::TlsAcceptor;
 
 /// The certificate a listener serves, and optionally the CA a client must be
 /// signed by.
@@ -63,12 +60,13 @@ impl Tls {
         self
     }
 
-    /// Build the acceptor, reading every file named here. `alpn` is what the
-    /// listener serves, in preference order — `h2` only if it speaks HTTP/2.
-    pub(crate) fn acceptor(
+    /// Build the configuration, reading every file named here. `alpn` is what
+    /// the listener serves, in preference order — `h2` only if it speaks
+    /// HTTP/2.
+    pub(crate) fn config(
         &self,
         alpn: &[&[u8]],
-    ) -> Result<TlsAcceptor, Error> {
+    ) -> Result<Arc<ServerConfig>, Error> {
         let chain = load_der_certs(&self.certificate)?;
         if chain.is_empty() {
             return Err(Error::NoCertificate(self.certificate.clone()));
@@ -89,7 +87,7 @@ impl Tls {
             builder.with_single_cert(chain, key).map_err(Error::KeyMismatch)?;
         config.alpn_protocols =
             alpn.iter().map(|protocol| protocol.to_vec()).collect();
-        Ok(TlsAcceptor::from(Arc::new(config)))
+        Ok(Arc::new(config))
     }
 }
 
@@ -103,24 +101,6 @@ pub enum Error {
     NoCertificate(PathBuf),
     #[error("certificate and key do not match: {0}")]
     KeyMismatch(rustls::Error),
-}
-
-/// What a handshake established, for the request's context.
-pub(crate) fn connection_info(connection: &ServerConnection) -> TlsInfo {
-    let verified =
-        connection.peer_certificates().is_some_and(|certs| !certs.is_empty());
-    TlsInfo {
-        protocol_version: connection.protocol_version(),
-        cipher_suite: connection
-            .negotiated_cipher_suite()
-            .map(|suite| suite.suite()),
-        client_auth: if verified {
-            ClientAuthStatus::Verified
-        } else {
-            ClientAuthStatus::NotProvided
-        },
-        client_cert: None,
-    }
 }
 
 #[cfg(test)]

@@ -81,19 +81,20 @@ async fn tls_negotiates_http_and_mtls_requires_a_trusted_client() {
         if !mutual {
             tls.client_ca = None;
         }
-        let acceptor = tls.acceptor(&[b"h2", b"http/1.1"]).unwrap();
+        let acceptor = tokio_rustls::TlsAcceptor::from(
+            tls.config(&[b"h2", b"http/1.1"]).unwrap(),
+        );
         let connector = fixture.client(authenticated, alpn);
         let (server, client) = tokio::io::duplex(65536);
         let (server, client) = tokio::join!(
             async {
                 let mut stream = acceptor.accept(server).await?;
                 assert_eq!(stream.get_ref().1.alpn_protocol(), Some(alpn));
-                let info = connection_info(stream.get_ref().1);
                 assert_eq!(
-                    info.ssl_client_verify(),
-                    if authenticated { "SUCCESS" } else { "NONE" }
+                    stream.get_ref().1.peer_certificates().is_some(),
+                    authenticated
                 );
-                assert!(info.protocol_version.is_some());
+                assert!(stream.get_ref().1.protocol_version().is_some());
                 let mut byte = [0];
                 stream.read_exact(&mut byte).await?;
                 stream.write_all(b"y").await?;
