@@ -8,7 +8,9 @@ use http::{Request, StatusCode};
 use http_body_util::BodyExt;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::pipeline::host::{HostHandlerFuture, HostLayerBuilder, HostRequest};
+use claviron_pipeline::plan::{
+    HostHandlerFuture, HostLayerBuilder, HostRequest,
+};
 
 #[cfg(any(feature = "tcp", feature = "quic"))]
 #[path = "apps/protocol.rs"]
@@ -29,7 +31,7 @@ mod reply;
 fn duplicate_snapshot_binding_keeps_the_original_execution() {
     use futures_util::FutureExt;
     struct Reply(StatusCode);
-    impl crate::pipeline::apps::other::OtherHandler for Reply {
+    impl crate::host::apps::other::OtherHandler for Reply {
         fn call(
             &self,
             request: Request<claviron_http::RouteBody>,
@@ -39,7 +41,8 @@ fn duplicate_snapshot_binding_keeps_the_original_execution() {
         }
     }
     let compile = |status| {
-        let mut builder = claviron_pipeline::plan::HostPipelineBuilder::<()>::new();
+        let mut builder =
+            claviron_pipeline::plan::HostPipelineBuilder::<()>::new();
         builder
             .layer(RustRouter::Other(OtherService::new(Reply(status))))
             .unwrap();
@@ -134,7 +137,7 @@ impl RouteLayer for Inactive {
 fn inactive_provider_layers_keep_the_direct_axum_call_boundary() {
     let state = AppState::standalone("inactive-layers", ".");
     let owner = build_host(
-        &crate::pipeline::host::compile::HostCompiler {
+        &crate::host::compile::HostCompiler {
             state: &state,
             http: None,
             protocol: None,
@@ -227,7 +230,7 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
     let prepared =
         registry.routable_binding(&state, &host, config.clone(), None).unwrap();
     let native = build_host(
-        &crate::pipeline::host::compile::HostCompiler {
+        &crate::host::compile::HostCompiler {
             state: &state,
             http: None,
             protocol: None,
@@ -242,7 +245,7 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
     )
     .unwrap();
     let axum = build_host(
-        &crate::pipeline::host::compile::HostCompiler {
+        &crate::host::compile::HostCompiler {
             state: &state,
             http: None,
             protocol: None,
@@ -285,8 +288,8 @@ async fn provider_layers_surround_native_files_and_explicit_axum_without_an_axum
 #[tokio::test]
 async fn explicit_rust_routers_observe_scoped_layers_and_unread_body_ownership()
 {
-    use crate::pipeline::extension::{RouteEffect, directive};
     use bytes::Bytes;
+    use claviron_pipeline::extension::{RouteEffect, directive};
     use http_body::{Body, Frame};
     use std::pin::Pin;
     use std::task::{Context, Poll};
@@ -306,7 +309,7 @@ async fn explicit_rust_routers_observe_scoped_layers_and_unread_body_ownership()
         }
     }
     struct Reply(Arc<AtomicUsize>);
-    impl crate::pipeline::apps::other::OtherHandler for Reply {
+    impl crate::host::apps::other::OtherHandler for Reply {
         fn call(
             &self,
             request: Request<claviron_http::RouteBody>,
@@ -462,7 +465,7 @@ listeners:
     );
     let config = Arc::new(config);
     let (shared, plans) = build_host(
-        &crate::pipeline::host::compile::HostCompiler {
+        &crate::host::compile::HostCompiler {
             state: &state,
             http: Some(&http),
             protocol: None,

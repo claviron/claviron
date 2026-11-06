@@ -365,7 +365,7 @@ unavailable directives fail preparation rather than being silently ignored.
 Request handling uses the prepared route layers, not a per-request extension
 registry lookup.
 
-`claviron::edge::extension` exposes host-owned directive, condition and layer
+`claviron::pipeline::extension` exposes host-owned directive, condition and layer
 contracts without requiring Axum. Applications and frameworks own directives such as AJAX
 admission and CSRF, including their errors and response policy. Built-in rate
 admission uses the separate host quota boundary described above.

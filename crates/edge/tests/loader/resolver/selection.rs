@@ -1,14 +1,12 @@
 use super::*;
+use crate::host::apps::other::{OtherHandler, OtherService};
+use crate::host::{HostAppSnapshot, RustRouter};
 use crate::loader::selection::{
     VhostCtx, resolve_request_authority, resolve_sni_from_table,
 };
-use crate::pipeline::apps::other::{OtherHandler, OtherService};
-use crate::pipeline::{
-    HostAppSnapshot, RustRouter,
-};
-use claviron_pipeline::plan::{HostExecution, HostPipelineBuilder};
 use claviron_http::authority::RequestAuthority;
 use claviron_http::{RouteBody, RouteFuture};
+use claviron_pipeline::plan::{HostExecution, HostPipelineBuilder};
 use http::{HeaderValue, Request};
 use std::future::Future;
 use std::pin::pin;

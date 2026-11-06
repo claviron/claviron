@@ -116,8 +116,7 @@ fn only_declared_hosts_and_protocols_prepare_a_websocket_step() {
             enabled
         );
     }
-    transport.protocols =
-        Some(vec![claviron_http::listener::HttpProtocol::H2]);
+    transport.protocols = Some(vec![claviron_http::listener::HttpProtocol::H2]);
     assert!(
         WebSocketStage::prepare(
             &state,

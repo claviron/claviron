@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use claviron_edge::pipeline::HostAppRegistry;
+use claviron_edge::host::HostAppRegistry;
 use claviron_edge::transport::{
     OtherHandler, OtherService, VhostResolver, VhostTable,
 };

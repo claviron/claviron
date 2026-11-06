@@ -1,17 +1,17 @@
 use super::*;
 use crate::config::HostConfig;
 
-#[cfg(feature = "rate-limit")]
-use crate::pipeline::extension::{RouteEffect, RouteLayer};
-use claviron_pipeline::HostContext;
-#[cfg(feature = "rate-limit")]
-use claviron_pipeline::plan::HostLayerBuilder;
 use claviron_http::config::{HttpSnapshot, HttpYaml};
 use claviron_http::ext::ConnCtx;
 #[cfg(feature = "rate-limit")]
 use claviron_http::ext::RealIpExt;
 use claviron_http::ext::RequestArrival;
 use claviron_http::{OtherHandler, OtherService, RouteBody, RouteFuture};
+use claviron_pipeline::HostContext;
+#[cfg(feature = "rate-limit")]
+use claviron_pipeline::extension::{RouteEffect, RouteLayer};
+#[cfg(feature = "rate-limit")]
+use claviron_pipeline::plan::HostLayerBuilder;
 use http::StatusCode;
 #[cfg(feature = "rate-limit")]
 use std::ops::ControlFlow;
@@ -149,9 +149,9 @@ fn absent_or_ineffective_defenses_keep_the_direct_router_path() {
 #[cfg(feature = "rate-limit")]
 #[test]
 fn forwarding_and_acl_precede_quota_which_protects_all_extension_layers() {
-    use claviron_pipeline::site::quota::RateLimitConfig;
-    use crate::pipeline::layers::QuotaRegistrations;
     use claviron_orbit::quota::{QuotaBacking, QuotaConfig, QuotaTable};
+    use claviron_pipeline::layers::QuotaRegistrations;
+    use claviron_pipeline::site::quota::RateLimitConfig;
     use futures_util::FutureExt;
     use std::num::{NonZeroU64, NonZeroUsize};
     use std::time::Duration;
@@ -163,7 +163,7 @@ fn forwarding_and_acl_precede_quota_which_protects_all_extension_layers() {
     let registry = Arc::new(HostAppRegistry::default());
     let observed = directive_calls.clone();
     registry
-        .register_route_extension(crate::pipeline::extension::directive::<
+        .register_route_extension(claviron_pipeline::extension::directive::<
             bool,
             _,
         >("observe", move |_, _| {
@@ -411,9 +411,9 @@ fn cors_absence_keeps_the_direct_router_and_scoped_policies_inherit_at_boot() {
 #[cfg(feature = "rate-limit")]
 #[test]
 fn cors_preflight_spends_quota_and_quota_refusal_keeps_cors_headers() {
-    use claviron_pipeline::site::quota::RateLimitConfig;
-    use crate::pipeline::layers::QuotaRegistrations;
     use claviron_orbit::quota::{QuotaBacking, QuotaConfig, QuotaTable};
+    use claviron_pipeline::layers::QuotaRegistrations;
+    use claviron_pipeline::site::quota::RateLimitConfig;
     use futures_util::FutureExt;
     use std::num::{NonZeroU64, NonZeroUsize};
     use std::time::Duration;

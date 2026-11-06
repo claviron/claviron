@@ -192,8 +192,8 @@ and permission to execute remain separate
 ## Implementation
 
 - [HostPipeline order and module index](../../crates/edge/ARCHITECTURE.md#hostpipeline-order)
-- [Backend handoff](../../crates/edge/src/pipeline/host/backend.rs)
-- [Scope compiler](../../crates/edge/src/pipeline/host/compile.rs)
+- [Backend handoff](../../crates/pipeline/src/factory.rs)
+- [Scope compiler](../../crates/edge/src/host/compile.rs)
 - [Body delivery policy](../../crates/http/src/policy.rs)
 - [H3 request/response adapter](../../crates/edge/src/quic/request.rs)
 - PHP input contract

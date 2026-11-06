@@ -57,23 +57,23 @@ fn unregistered_backend_directives_fail_during_host_preparation() {
     }
 }
 
-impl super::super::BackendHandler for RegisteredBackend {
-    fn contract(&self) -> super::super::BackendContract {
-        super::super::BackendContract {
-            identity: super::super::BackendIdentity::None,
-            reply: super::super::BackendReply::Owner,
+impl claviron_pipeline::BackendHandler for RegisteredBackend {
+    fn contract(&self) -> claviron_pipeline::BackendContract {
+        claviron_pipeline::BackendContract {
+            identity: claviron_pipeline::BackendIdentity::None,
+            reply: claviron_pipeline::BackendReply::Owner,
         }
     }
 }
 
-impl super::super::DispatchStep for RegisteredBackend {
+impl claviron_pipeline::DispatchStep for RegisteredBackend {
     fn call(
         &self,
         request: Request<claviron_http::RouteBody>,
         _context: Option<claviron_pipeline::HostContext<'_>>,
-    ) -> super::super::DispatchCall {
+    ) -> claviron_pipeline::DispatchCall {
         assert!(request.extensions().is_empty());
-        super::super::DispatchCall::ready(
+        claviron_pipeline::DispatchCall::ready(
             claviron_http::ServiceResult::Handled(http::Response::new(
                 request.into_body(),
             )),
@@ -91,19 +91,21 @@ fn backend_factories_resolve_only_during_preparation_and_preserve_body_ownership
     let preparations = Arc::new(AtomicUsize::new(0));
     let count = preparations.clone();
     registry
-        .register_backend_factory(crate::pipeline::backend::factory::<bool, _>(
-            "execute",
-            crate::pipeline::backend::BackendPlacement::AfterFiles,
-            move |context, enabled| {
-                assert_eq!(context.policy, HttpPolicy::unlimited());
-                count.fetch_add(1, Ordering::Relaxed);
-                Ok(if enabled {
-                    vec![Arc::new(RegisteredBackend)]
-                } else {
-                    Vec::new()
-                })
-            },
-        ))
+        .register_backend_factory(
+            claviron_pipeline::factory::factory::<bool, _>(
+                "execute",
+                claviron_pipeline::factory::BackendPlacement::AfterFiles,
+                move |context, enabled| {
+                    assert_eq!(context.policy, HttpPolicy::unlimited());
+                    count.fetch_add(1, Ordering::Relaxed);
+                    Ok(if enabled {
+                        vec![Arc::new(RegisteredBackend)]
+                    } else {
+                        Vec::new()
+                    })
+                },
+            ),
+        )
         .unwrap();
     state.registry_ref().insert(registry).unwrap();
     let config =
@@ -160,7 +162,7 @@ fn backend_factories_resolve_only_during_preparation_and_preserve_body_ownership
 
 #[tokio::test]
 async fn backend_placement_preserves_explicit_precedence_with_static_files() {
-    use crate::pipeline::backend::{BackendPlacement, factory};
+    use claviron_pipeline::factory::{BackendPlacement, factory};
     use http_body_util::BodyExt;
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(directory.path().join("entry.txt"), "static").unwrap();
@@ -217,7 +219,7 @@ async fn backend_placement_preserves_explicit_precedence_with_static_files() {
 /// under any route of that host, not only under its root.
 #[test]
 fn a_backend_under_a_route_sees_the_hosts_connection_terms() {
-    use crate::pipeline::backend::{BackendPlacement, factory};
+    use claviron_pipeline::factory::{BackendPlacement, factory};
     let state = AppState::standalone("backend-terms", ".");
     let registry = Arc::new(HostAppRegistry::default());
     let seen = Arc::new(AtomicUsize::new(0));
@@ -255,7 +257,7 @@ fn a_backend_under_a_route_sees_the_hosts_connection_terms() {
 }
 
 fn two_backends() -> AppState {
-    use crate::pipeline::backend::{BackendPlacement, factory};
+    use claviron_pipeline::factory::{BackendPlacement, factory};
     let state = AppState::standalone("backend-owners", ".");
     let registry = Arc::new(HostAppRegistry::default());
     for name in ["first", "second"] {
@@ -428,19 +430,19 @@ async fn an_empty_child_scope_does_not_inherit_the_root_file_probe() {
 }
 
 struct UnavailableBackend;
-impl super::super::BackendHandler for UnavailableBackend {
-    fn contract(&self) -> super::super::BackendContract {
+impl claviron_pipeline::BackendHandler for UnavailableBackend {
+    fn contract(&self) -> claviron_pipeline::BackendContract {
         RegisteredBackend.contract()
     }
 }
-impl super::super::DispatchStep for UnavailableBackend {
+impl claviron_pipeline::DispatchStep for UnavailableBackend {
     fn call(
         &self,
         request: Request<claviron_http::RouteBody>,
         _context: Option<claviron_pipeline::HostContext<'_>>,
-    ) -> super::super::DispatchCall {
+    ) -> claviron_pipeline::DispatchCall {
         drop(request);
-        super::super::DispatchCall::ready(
+        claviron_pipeline::DispatchCall::ready(
             claviron_http::ServiceResult::Handled(claviron_http::err_status(
                 http::StatusCode::SERVICE_UNAVAILABLE,
             )),
@@ -468,17 +470,19 @@ async fn try_files_precedes_a_registered_backend() {
     let state = AppState::standalone("native-backend-files", directory.path());
     let registry = Arc::new(HostAppRegistry::default());
     registry
-        .register_backend_factory(crate::pipeline::backend::factory::<bool, _>(
-            "execute",
-            crate::pipeline::backend::BackendPlacement::AfterFiles,
-            |_, enabled| {
-                Ok(if enabled {
-                    vec![Arc::new(UnavailableBackend)]
-                } else {
-                    Vec::new()
-                })
-            },
-        ))
+        .register_backend_factory(
+            claviron_pipeline::factory::factory::<bool, _>(
+                "execute",
+                claviron_pipeline::factory::BackendPlacement::AfterFiles,
+                |_, enabled| {
+                    Ok(if enabled {
+                        vec![Arc::new(UnavailableBackend)]
+                    } else {
+                        Vec::new()
+                    })
+                },
+            ),
+        )
         .unwrap();
     state.registry_ref().insert(registry).unwrap();
     let owner = HostCompiler { state: &state, http: None, protocol: None }
@@ -524,8 +528,8 @@ async fn try_files_precedes_a_registered_backend() {
 #[tokio::test]
 async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
 {
-    use crate::pipeline::extension::{RouteCondition, RouteEffect};
     use axum::{Router, routing::any};
+    use claviron_pipeline::extension::{RouteCondition, RouteEffect};
     struct Reject;
     impl RouteCondition for Reject {
         fn accepts(
@@ -539,7 +543,7 @@ async fn rejected_entry_skips_its_rust_application_and_keeps_the_original_body()
     let state = AppState::standalone("native-condition", directory.path());
     let registry = Arc::new(HostAppRegistry::default());
     registry
-        .register_route_extension(crate::pipeline::extension::directive::<
+        .register_route_extension(claviron_pipeline::extension::directive::<
             bool,
             _,
         >("allowed", |_, _| {

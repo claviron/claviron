@@ -8,7 +8,7 @@ use std::future::Future;
 use std::sync::Arc;
 
 use crate::edge::service::HostService;
-use claviron_edge::pipeline::{H3WebTransportSession, WebTransportHandler};
+use claviron_edge::host::{H3WebTransportSession, WebTransportHandler};
 use claviron_pipeline::plan::HostExecution;
 use claviron_edge::transport::{
     AnyAuthenticated, AuthContext, VhostCtx, VhostResolver,

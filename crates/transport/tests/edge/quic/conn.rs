@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use arc_swap::ArcSwapOption;
-use claviron_edge::pipeline::HostAppRegistry;
+use claviron_edge::host::HostAppRegistry;
 use claviron_edge::transport::{OtherHandler, OtherService, VhostTable};
 use claviron_http::config::HttpSnapshot;
 use claviron_http::{RouteFuture, bytes_body};

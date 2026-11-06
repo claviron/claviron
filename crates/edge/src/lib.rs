@@ -13,12 +13,12 @@ use claviron_pipeline::log;
 
 #[cfg(feature = "db")]
 mod listener;
-// `pipeline` prepares native host plans and optional Rust application adapters.
+// `host` prepares native host plans and optional Rust application adapters.
 // `transport` is what a transport driver resolves a host with.
 // `loader` combines host declarations and selects among them; it is no one
 // else's business, so it is not public. See `transport`.
+pub mod host;
 pub(crate) mod loader;
-pub mod pipeline;
 mod provider;
 pub mod transport;
 
@@ -36,7 +36,7 @@ pub use provider::{
     register_http_config_with_capabilities,
 };
 
-use crate::pipeline::HostAppResolver;
+use crate::host::HostAppResolver;
 
 /// Code-owned alternative to a host's `rate_limit` configuration. The supplied
 /// limiter is already prepared and owns its KeyProvider and store lifetime.
@@ -172,7 +172,7 @@ where
     let registry = state.registry_ref();
     registry.register(provider.clone())?;
     let host_apps = registry
-        .resolve::<pipeline::HostAppRegistry>()
+        .resolve::<host::HostAppRegistry>()
         .ok_or_else(|| RegistryError::msg("HostAppRegistry not registered"))?;
     host_apps.register_routable(provider);
     Ok(())
@@ -189,25 +189,25 @@ where
     let registry = state.registry_ref();
     registry.register(provider.clone())?;
     let host_apps = registry
-        .resolve::<pipeline::HostAppRegistry>()
+        .resolve::<host::HostAppRegistry>()
         .ok_or_else(|| RegistryError::msg("HostAppRegistry not registered"))?;
     host_apps.register_binding_provider(provider);
     Ok(())
 }
 
 /// Prepare connection state for the selected hosts' connections, once each,
-/// when they are accepted. See [`pipeline::AcceptLayer`].
+/// when they are accepted. See [`host::AcceptLayer`].
 pub fn register_accept_layer(
     state: &AppState,
-    select: impl Fn(&Host, &Site, pipeline::RouteProtocol) -> bool
+    select: impl Fn(&Host, &Site, host::RouteProtocol) -> bool
     + Send
     + Sync
     + 'static,
-    layer: impl pipeline::AcceptLayer,
+    layer: impl host::AcceptLayer,
 ) -> RegistryResult<()> {
     state
         .registry_ref()
-        .resolve::<pipeline::HostAppRegistry>()
+        .resolve::<host::HostAppRegistry>()
         .ok_or_else(|| RegistryError::msg("HostAppRegistry not registered"))?
         .register_accept_layer(select, layer);
     Ok(())
@@ -216,23 +216,23 @@ pub fn register_accept_layer(
 pub use claviron_types::Host;
 pub use config::HostConfig;
 pub(crate) use config::Site;
-pub use pipeline::Routable;
-pub use pipeline::apps::other::{OtherHandler, OtherService};
-pub use pipeline::{
+pub use host::Routable;
+pub use host::apps::other::{OtherHandler, OtherService};
+pub use host::{
     AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
     H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
     HostAppRegistry, HostBindingProvider, InterceptsNonServing,
     NonServingContext, RouteBinding, RustRouter,
 };
 #[cfg(feature = "websocket")]
-pub use pipeline::{
+pub use host::{
     H1UpgradeAccept, H1UpgradeAuthenticated, H1UpgradeBinding,
     H1UpgradeContext, H1UpgradeHandler, H1UpgradeRegistry, H1UpgradeReject,
     H1UpgradeResult, H1UpgradeRoute, H1UpgradeState, is_h1_header_upgrade,
     websocket_accept_key, websocket_response_headers,
 };
 #[cfg(feature = "webtransport")]
-pub use pipeline::{
+pub use host::{
     H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,
     WebTransportBinding, WebTransportHandler, WebTransportRegistry,
     WebTransportReject, WebTransportResult, webtransport_session_ended,

@@ -39,7 +39,7 @@ pub(super) struct ServerSnapshot {
     pub(super) tcp: TcpConfig,
     pub(super) h1: H1Config,
     pub(super) hosts: Arc<VhostTable>,
-    pub(super) non_serving: claviron_edge::pipeline::NonServingPipeline,
+    pub(super) non_serving: claviron_edge::host::NonServingPipeline,
 }
 impl crate::edge::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
     fn listener(&self) -> &ListenerConfig {
@@ -208,10 +208,10 @@ pub(super) fn build_snapshots(
                 tcp: config.tcp.clone(),
                 h1: config.h1.clone(),
                 hosts: hosts.clone(),
-                non_serving: claviron_edge::pipeline::NonServingPipeline::new(
+                non_serving: claviron_edge::host::NonServingPipeline::new(
                     *redirect_port,
                     hosts
-                        .prepared::<claviron_edge::pipeline::HostAppSnapshot>()
+                        .prepared::<claviron_edge::host::HostAppSnapshot>()
                         .and_then(|apps| apps.non_serving_interception()),
                 ),
             }),

@@ -110,9 +110,9 @@ its inputs are known, and how is a later change published safely?**
 
 ## Follow the implementation
 
-- [Host snapshots, preparation and unchanged-host reuse](../../crates/edge/src/pipeline/apps.rs).
+- [Host snapshots, preparation and unchanged-host reuse](../../crates/edge/src/host/apps.rs).
 - [TLS policy preparation](../../crates/edge/src/tcp/secure/tls.rs).
-- [Accept layers and connection state](../../crates/edge/src/pipeline/accept.rs).
+- [Accept layers and connection state](../../crates/edge/src/host/accept.rs).
 - [Request-time admission](../../crates/edge/src/service/host.rs).
 - [Managed cell binding and operations](../../crates/orbit/src/cell/orbital.rs).
 

@@ -12,13 +12,13 @@ use futures_util::FutureExt;
 use http::{Request, Response, StatusCode};
 
 use crate::HostConfig;
-use crate::pipeline::host::{
+use crate::host::HostAppRegistry;
+use claviron_http::ext::RequestArrival;
+use claviron_pipeline::accept::Accepted;
+use claviron_pipeline::plan::{
     Backend, BackendHandler, DispatchCall, DispatchStep, HostContext,
     HostPipelineBuilder,
 };
-use crate::pipeline::HostAppRegistry;
-use claviron_pipeline::accept::Accepted;
-use claviron_http::ext::RequestArrival;
 
 /// What the layer derives from the accepted facts.
 struct PeerPort(u16);
@@ -52,7 +52,7 @@ impl DispatchStep for Reader {
 }
 
 struct Application;
-impl crate::pipeline::apps::other::OtherHandler for Application {
+impl crate::host::apps::other::OtherHandler for Application {
     fn call(
         &self,
         _request: Request<RouteBody>,
@@ -105,14 +105,13 @@ fn a_selected_host_prepares_once_at_acceptance_and_its_requests_read_it() {
             country_code: None,
             tls: None,
         };
-        connection.state = snapshot.resolve(&host).unwrap().accept(
-            &Accepted::new(
+        connection.state =
+            snapshot.resolve(&host).unwrap().accept(&Accepted::new(
                 &connection,
                 &HostName(Arc::new(host.clone())),
                 &HostKey(Arc::new(host.clone())),
                 &config,
-            ),
-        );
+            ));
         // Once for a connection of the selected host, never for another's,
         // and a connection nothing was prepared for holds nothing.
         let ran = usize::from(prepared);

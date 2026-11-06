@@ -57,6 +57,6 @@ the host snapshot rather than interpreting configuration on each request.
 
 Start with `crates/edge/README.md`, `crates/runner/README.md`, and
 `crates/http/README.md`. For exact contracts inspect
-`crates/edge/src/pipeline/routable.rs` and the relevant configured/Other or Runner
+`crates/edge/src/host/routable.rs` and the relevant configured/Other or Runner
 implementation. Use local architecture documents when present; public usage
 must also be understandable from the exported API and README.

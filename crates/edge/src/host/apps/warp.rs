@@ -25,5 +25,5 @@ impl super::HostAppRegistry {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/apps/warp.rs"]
+#[path = "../../../tests/host/apps/warp.rs"]
 mod tests;

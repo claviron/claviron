@@ -9,8 +9,8 @@ use claviron_types::Host;
 #[cfg(feature = "axum")]
 use super::apps::axum::Factory as AxumRouterFactory;
 use super::apps::other::Factory as OtherFactory;
-use claviron_pipeline::HostHandler;
 use crate::config::HostConfig;
+use claviron_pipeline::HostHandler;
 
 pub(crate) use claviron_pipeline::factory::RouteProtocol;
 pub(crate) use claviron_pipeline::factory::matches_protocol;
@@ -36,7 +36,7 @@ pub trait Routable: AnyComponent<AppState> {
     /// Native host extensions do not require the Axum application capability.
     fn route_extensions(
         &self
-    ) -> Vec<Arc<dyn super::extension::RouteExtension>> {
+    ) -> Vec<Arc<dyn claviron_pipeline::extension::RouteExtension>> {
         Vec::new()
     }
 
@@ -82,7 +82,7 @@ pub trait Routable: AnyComponent<AppState> {
         _state: &AppState,
         _key: &Host,
         _host: Arc<HostConfig>,
-    ) -> Result<Vec<Arc<dyn super::extension::RouteLayer>>> {
+    ) -> Result<Vec<Arc<dyn claviron_pipeline::extension::RouteLayer>>> {
         Ok(Vec::new())
     }
 

@@ -168,7 +168,6 @@ pub trait CompileHooks: Send + Sync {
     ) -> Vec<Arc<dyn BackendHandler>> {
         Vec::new()
     }
-
 }
 
 /// No additions: a site served as itself.

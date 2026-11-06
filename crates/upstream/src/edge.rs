@@ -9,7 +9,7 @@ use claviron_http::{RouteBody, ServiceResult, err_status};
 use claviron_runtime::AppState;
 use http::{Request, StatusCode};
 
-use claviron_edge::pipeline::HostAppRegistry;
+use claviron_edge::host::HostAppRegistry;
 use claviron_pipeline::factory::{BackendPlacement, factory};
 use claviron_pipeline::{
     BackendContract, BackendHandler, BackendIdentity, BackendReply,

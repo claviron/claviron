@@ -12,7 +12,7 @@ use crate::Site;
 
 type Select = dyn Fn(&Host, &Site, RouteProtocol) -> bool + Send + Sync;
 
-pub(in crate::pipeline) struct AcceptRegistration {
+pub(in crate::host) struct AcceptRegistration {
     select: Box<Select>,
     layer: Arc<dyn AcceptLayer>,
 }
@@ -38,7 +38,7 @@ impl HostAppRegistry {
     }
 
     /// The layers this host's connections run on `protocol`, or none.
-    pub(in crate::pipeline) fn accept_layers(
+    pub(in crate::host) fn accept_layers(
         &self,
         host: &Host,
         config: &Site,
@@ -63,7 +63,7 @@ impl HostAppRegistry {
 impl HostAppRegistry {
     /// Give a newly built host's executions the layers selected for them.
     /// `shared` is the protocol family the shared execution was built for.
-    pub(in crate::pipeline) fn with_accept_layers(
+    pub(in crate::host) fn with_accept_layers(
         &self,
         host: &Host,
         config: &Site,
@@ -73,7 +73,10 @@ impl HostAppRegistry {
         ),
         app: claviron_pipeline::plan::HostExecution,
         plans: Option<super::apps::ListenerPlans>,
-    ) -> (claviron_pipeline::plan::HostExecution, Option<super::apps::ListenerPlans>) {
+    ) -> (
+        claviron_pipeline::plan::HostExecution,
+        Option<super::apps::ListenerPlans>,
+    ) {
         use super::apps::ListenerHostPlan;
         let app = app.with_accept(self.accept_layers(host, config, shared));
         let plans = plans.map(|plans| {

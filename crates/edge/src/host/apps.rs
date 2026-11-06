@@ -19,17 +19,17 @@ use tracing::error;
 
 use crate::VhostResolver;
 use crate::config::HostConfig;
-use crate::pipeline::InterceptsNonServing;
-use crate::pipeline::backend::BackendFactory;
-use crate::pipeline::host::{HostExecution, HostHandler};
-use crate::pipeline::routable::Routable;
-use crate::pipeline::routable::{
+use crate::host::InterceptsNonServing;
+use crate::host::routable::Routable;
+use crate::host::routable::{
     HostBindingProvider, RouteBinding, RouteProtocol, matches_protocol,
 };
+use claviron_pipeline::factory::BackendFactory;
+use claviron_pipeline::plan::{HostExecution, HostHandler};
 
 pub use claviron_http::RustRouter;
 
-use crate::pipeline::extension::{RouteExtension, RouteLayer};
+use claviron_pipeline::extension::{RouteExtension, RouteLayer};
 
 /// Prepared host executions and declaration identities for one publication.
 /// Canonical names and aliases retain the same execution owners. Reload builds
@@ -44,7 +44,7 @@ pub struct HostAppSnapshot {
     non_serving_interception: Option<Arc<dyn InterceptsNonServing>>,
     #[cfg(feature = "rate-limit")]
     quotas:
-        Arc<HashMap<Host, Option<Arc<crate::pipeline::layers::HostQuotas>>>>,
+        Arc<HashMap<Host, Option<Arc<claviron_pipeline::layers::HostQuotas>>>>,
 }
 
 pub(crate) type ListenerPlans =
@@ -347,10 +347,10 @@ type NonServingFactory = dyn Fn(&AppState) -> Result<Option<Arc<dyn InterceptsNo
 /// # Example
 ///
 /// ```
-/// use claviron_edge::pipeline::{HostAppRegistry, apps::other::OtherService};
+/// use claviron_edge::host::{HostAppRegistry, apps::other::OtherService};
 ///
 /// struct Handler;
-/// impl claviron_edge::pipeline::apps::other::OtherHandler for Handler {
+/// impl claviron_edge::host::apps::other::OtherHandler for Handler {
 ///     fn call(&self, request: http::Request<claviron_http::RouteBody>) -> claviron_http::RouteFuture {
 ///         Box::pin(async move {
 ///             drop(request);
@@ -370,10 +370,10 @@ pub struct HostAppRegistry {
     non_serving_interception: RwLock<Option<Arc<NonServingFactory>>>,
     site: claviron_pipeline::SiteRegistry,
     binding_providers: RwLock<Vec<Arc<dyn HostBindingProvider>>>,
-    pub(in crate::pipeline) accept_registrations:
+    pub(in crate::host) accept_registrations:
         RwLock<Vec<Arc<super::accept::AcceptRegistration>>>,
     #[cfg(feature = "rate-limit")]
-    quotas: RwLock<crate::pipeline::layers::QuotaRegistrations>,
+    quotas: RwLock<claviron_pipeline::layers::QuotaRegistrations>,
 }
 
 impl HostAppRegistry {
@@ -704,7 +704,7 @@ impl HostAppRegistry {
     ) -> Result<HostAppSnapshot> {
         let http_unchanged =
             previous.is_some_and(|previous| previous.http == http);
-        let compiler = super::host::compile::HostCompiler {
+        let compiler = crate::host::compile::HostCompiler {
             state,
             http: http.as_deref(),
             protocol: http
@@ -1030,14 +1030,14 @@ fn listener_plan(
 }
 
 fn build_host(
-    compiler: &super::host::compile::HostCompiler<'_>,
+    compiler: &crate::host::compile::HostCompiler<'_>,
     canonical: &Host,
     host_cfg: Arc<HostConfig>,
     router: Option<RustRouter>,
     contributions: HostContributions,
     protocols: &HashMap<RouteProtocol, HostInput>,
     #[cfg(feature = "rate-limit")] quotas: Option<
-        &crate::pipeline::layers::HostQuotas,
+        &claviron_pipeline::layers::HostQuotas,
     >,
 ) -> Result<(HostExecution, Option<ListenerPlans>)> {
     let common = HostInput::new(canonical, router, contributions)?;
@@ -1071,13 +1071,13 @@ fn build_host(
         }
         let protocol = RouteProtocol::from(listener.as_ref());
         let input = protocols.get(&protocol).unwrap_or(&common);
-        let selected = super::host::compile::HostCompiler {
+        let selected = crate::host::compile::HostCompiler {
             state: compiler.state,
             http: compiler.http,
             protocol: Some(protocol),
         };
         let app = selected.prepare_target(
-            super::host::compile::HostCompileTarget {
+            crate::host::compile::HostCompileTarget {
                 host: canonical,
                 listener: Some(listener),
             },
@@ -1116,9 +1116,9 @@ fn build_h1_upgrade_registry(
 }
 
 #[cfg(all(test, feature = "rate-limit"))]
-#[path = "../../tests/pipeline/quota.rs"]
+#[path = "../../tests/host/quota.rs"]
 mod quota_tests;
 
 #[cfg(all(test, feature = "axum"))]
-#[path = "../../tests/pipeline/apps.rs"]
+#[path = "../../tests/host/apps.rs"]
 mod application_tests;

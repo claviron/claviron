@@ -26,6 +26,9 @@ all depend on this crate, and it depends only on `claviron-http`.
 - `factory`, `extension`: how a backend or a route directive is prepared from a
   scope of a `Site`.
 - `accept`: work done once while a connection is accepted.
+- `link`: dispatch to an application process over Orbit Link, behind `orbit`.
+  `compile` prepares it from a scope's `orbit:` declaration, so a site served by
+  one listener or by a runner reaches its applications the same way a host does.
 - `response`: the replies decided before dispatch.
 - `routing`: host-free Axum route contributions, `Routable` and
   `RoutableRegistry`, behind the `axum` feature.
@@ -48,6 +51,6 @@ host-selected providers, Link dispatch and H1 upgrade endpoints.
 
 ## What is still in `claviron-edge`
 
-Link dispatch and its session bindings, the host-keyed `HostAppRegistry`,
-`Routable`, H2 CONNECT and WebTransport registries, and the H1 upgrade stage.
-Upstream reaches this crate through Edge's re-exports.
+The host-keyed `HostAppRegistry`, `Routable` bindings, H2 CONNECT and WebTransport
+registries, and Link's WebTransport sessions, which bind through that registry.
+Edge does not re-export this crate: its consumers depend on it directly.

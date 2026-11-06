@@ -56,10 +56,10 @@ fn explicit_listener_requires_selection_without_weakening_host_filters() {
 #[cfg(feature = "tcp")]
 fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
     use crate::loader::selection::resolve_sni_for_listener;
-    use claviron_pipeline::HostContext;
     use claviron_http::ext::ConnCtx;
     use claviron_http::ext::RequestArrival;
     use claviron_http::listener::HttpProtocol;
+    use claviron_pipeline::HostContext;
     use http_body::{Body, Frame};
     use std::convert::Infallible;
     use std::pin::Pin;
@@ -125,9 +125,9 @@ fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
     let drops = Arc::new(AtomicUsize::new(0));
     let policy = input.listeners[&id].policy();
     let pipeline =
-        crate::pipeline::NonServingPipeline::new(443.try_into().unwrap(), None);
+        crate::host::NonServingPipeline::new(443.try_into().unwrap(), None);
     let respond = |hosts: &crate::transport::VhostTable,
-                   pipeline: &crate::pipeline::NonServingPipeline,
+                   pipeline: &crate::host::NonServingPipeline,
                    name: &str| {
         let mut selected =
             resolve_sni_for_listener(hosts, Some(name), &id).unwrap();
@@ -178,10 +178,8 @@ fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
     let next = registry
         .prepare_listener(&state, &table, &input, Some(&prepared))
         .unwrap();
-    let next_pipeline = crate::pipeline::NonServingPipeline::new(
-        8443.try_into().unwrap(),
-        None,
-    );
+    let next_pipeline =
+        crate::host::NonServingPipeline::new(8443.try_into().unwrap(), None);
     assert_eq!(
         respond(&next, &next_pipeline, "alias.test").headers()["location"],
         "https://alias.test:8443/a%2Fb?x=1"
@@ -236,10 +234,8 @@ fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
         .prepared::<HostAppSnapshot>()
         .unwrap()
         .non_serving_interception();
-    let pipeline = crate::pipeline::NonServingPipeline::new(
-        8443.try_into().unwrap(),
-        binding,
-    );
+    let pipeline =
+        crate::host::NonServingPipeline::new(8443.try_into().unwrap(), binding);
     assert_eq!(
         respond(&intercepted, &pipeline, "reject.test").status(),
         StatusCode::FORBIDDEN
@@ -273,8 +269,8 @@ fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
 #[test]
 #[cfg(feature = "tcp")]
 fn non_serving_factory_is_cold_optional_and_retains_published_generations() {
-    use claviron_pipeline::{HostHandlerResult, HostRequest};
     use crate::{InterceptsNonServing, NonServingContext};
+    use claviron_pipeline::{HostHandlerResult, HostRequest};
     struct Interception;
     impl InterceptsNonServing for Interception {
         fn intercept<'a>(
@@ -313,9 +309,7 @@ fn non_serving_factory_is_cold_optional_and_retains_published_generations() {
             }
         })
         .unwrap();
-    assert!(
-        bind_interception(&registry, interception.clone()).is_err()
-    );
+    assert!(bind_interception(&registry, interception.clone()).is_err());
     let input = crate::transport::publication::select_listener(
         &http,
         &"plain".parse().unwrap(),

@@ -49,7 +49,7 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
     .unwrap();
     let state = AppState::standalone("quota-composition", ".");
     struct Reply;
-    impl crate::pipeline::apps::other::OtherHandler for Reply {
+    impl crate::host::apps::other::OtherHandler for Reply {
         fn call(
             &self,
             request: http::Request<claviron_http::RouteBody>,

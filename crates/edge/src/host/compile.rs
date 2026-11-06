@@ -9,12 +9,12 @@ use claviron_pipeline::compile::{CompileInput, NoHooks, compile};
 use claviron_runtime::{AppState, registry::Result};
 use claviron_types::Host;
 
-#[cfg(feature = "websocket")]
-use super::BackendHandler;
-use super::HostExecution;
 use crate::config::HostConfig;
-use crate::pipeline::apps::{HostAppRegistry, HostContributions};
-use crate::pipeline::{RouteProtocol, RustRouter};
+use crate::host::apps::{HostAppRegistry, HostContributions};
+use crate::host::{RouteProtocol, RustRouter};
+#[cfg(feature = "websocket")]
+use claviron_pipeline::BackendHandler;
+use claviron_pipeline::plan::HostExecution;
 
 /// One cold host compilation batch borrows one listener-policy publication.
 pub(crate) struct HostCompiler<'a> {
@@ -37,10 +37,10 @@ impl HostCompiler<'_> {
         router: Option<RustRouter>,
         contributions: &HostContributions,
         #[cfg(feature = "rate-limit")] quotas: Option<
-            &crate::pipeline::layers::HostQuotas,
+            &claviron_pipeline::layers::HostQuotas,
         >,
         #[cfg(feature = "websocket")] websocket: Option<
-            Arc<crate::pipeline::H1UpgradeRegistry>,
+            Arc<crate::host::H1UpgradeRegistry>,
         >,
     ) -> Result<HostExecution> {
         self.prepare_target(
@@ -62,10 +62,10 @@ impl HostCompiler<'_> {
         router: Option<RustRouter>,
         contributions: &HostContributions,
         #[cfg(feature = "rate-limit")] quotas: Option<
-            &crate::pipeline::layers::HostQuotas,
+            &claviron_pipeline::layers::HostQuotas,
         >,
         #[cfg(feature = "websocket")] websocket: Option<
-            Arc<crate::pipeline::H1UpgradeRegistry>,
+            Arc<crate::host::H1UpgradeRegistry>,
         >,
     ) -> Result<HostExecution> {
         let HostCompileTarget { host, listener } = target;
@@ -75,7 +75,7 @@ impl HostCompiler<'_> {
         // Only the upgrade decision reads the connection terms; everything
         // prepared below serves this host's site.
         #[cfg(feature = "websocket")]
-        let upgrades = crate::pipeline::layers::WebSocketStage::prepare(
+        let upgrades = claviron_pipeline::layers::WebSocketStage::prepare(
             state,
             host,
             &host_config.transport,
@@ -117,5 +117,5 @@ impl HostCompiler<'_> {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/pipeline/host/compile.rs"]
+#[path = "../../tests/host/compile.rs"]
 mod tests;

@@ -146,10 +146,10 @@ layers, never transport snapshot attributes.
 
 ## Code
 
-- [Types and contracts](../../crates/edge/src/pipeline/host.rs)
-- [Backend contracts and factories](../../crates/edge/src/pipeline/backend.rs)
-- [Builder](../../crates/edge/src/pipeline/host/builder.rs)
-- [Execution and body ownership](../../crates/edge/src/pipeline/host/request.rs)
-- [Response scopes](../../crates/edge/src/pipeline/host/response.rs)
-- [Scope compiler](../../crates/edge/src/pipeline/host/compile.rs)
+- [Types and contracts](../../crates/edge/src/host/host.rs)
+- [Backend contracts and factories](../../crates/edge/src/host/backend.rs)
+- [Builder](../../crates/edge/src/host/builder.rs)
+- [Execution and body ownership](../../crates/edge/src/host/request.rs)
+- [Response scopes](../../crates/edge/src/host/response.rs)
+- [Scope compiler](../../crates/edge/src/host/compile.rs)
 - [Module index](../../crates/edge/ARCHITECTURE.md)

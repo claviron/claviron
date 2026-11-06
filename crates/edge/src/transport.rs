@@ -21,6 +21,17 @@ pub mod publication;
 /// A single host's configuration, read by the TLS layer for its certificate
 /// and protocol policy.
 pub use crate::config::HostConfig;
+/// Application-owned Rust handler registration, without Axum.
+pub use crate::host::apps::other::{OtherHandler, OtherService};
+/// Applications mounted on a host, and the connection-level handlers a
+/// transport dispatches to before routing: CONNECT and WebTransport.
+pub use crate::host::{
+    AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
+    H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
+    HostAppRegistry, HostAppResolver, RustRouter,
+};
+#[cfg(feature = "webtransport")]
+pub use crate::host::{WebTransportBinding, WebTransportRegistry};
 /// Hosts as the runtime registry hands them out.
 pub use crate::loader::resolver::{HostBinding, VhostResolver};
 /// Selecting a published host for a server name or a request's authority.
@@ -30,14 +41,3 @@ pub use crate::loader::selection::{
 };
 /// The set of hosts a listener serves, as SNI and authority resolution read it.
 pub use crate::loader::table::VhostTable;
-/// Application-owned Rust handler registration, without Axum.
-pub use crate::pipeline::apps::other::{OtherHandler, OtherService};
-/// Applications mounted on a host, and the connection-level handlers a
-/// transport dispatches to before routing: CONNECT and WebTransport.
-pub use crate::pipeline::{
-    AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
-    H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
-    HostAppRegistry, HostAppResolver, RustRouter,
-};
-#[cfg(feature = "webtransport")]
-pub use crate::pipeline::{WebTransportBinding, WebTransportRegistry};

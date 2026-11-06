@@ -129,11 +129,11 @@ impl Routable for HttpOnly {
     }
 
     fn route_extensions(&self) -> Vec<Arc<dyn RouteExtension>> {
-        vec![crate::pipeline::extension::directive::<bool, _>(
+        vec![claviron_pipeline::extension::directive::<bool, _>(
             "plain_only",
             |_, enabled| {
                 assert!(enabled);
-                Ok(crate::pipeline::extension::RouteEffect::Layer(Arc::new(
+                Ok(claviron_pipeline::extension::RouteEffect::Layer(Arc::new(
                     Deny,
                 )))
             },

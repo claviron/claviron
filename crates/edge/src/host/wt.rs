@@ -309,5 +309,5 @@ impl WebTransportRegistry {
 }
 
 #[cfg(all(test, feature = "orbit"))]
-#[path = "../../tests/pipeline/wt.rs"]
+#[path = "../../tests/host/wt.rs"]
 mod tests;

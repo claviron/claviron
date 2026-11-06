@@ -18,7 +18,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::Site;
-use crate::pipeline::{
+use crate::host::{
     AnyAuthenticated, AuthContext, H3WebTransportSession, WebTransportAccept,
     WebTransportHandler, WebTransportRegistry, WebTransportReject,
     WebTransportResult,
@@ -163,7 +163,10 @@ impl WebTransportHandler for Handler {
             path: claviron_pipeline::link::percent_decoded(ctx.uri.path()),
             raw_path: ctx.uri.path().as_bytes().to_vec(),
             query: ctx.uri.query().unwrap_or_default().as_bytes().to_vec(),
-            headers: claviron_pipeline::link::exchange_headers(&ctx.uri, &ctx.headers),
+            headers: claviron_pipeline::link::exchange_headers(
+                &ctx.uri,
+                &ctx.headers,
+            ),
             client: Some(ctx.conn.remote),
             server: Some(std::net::SocketAddr::new(
                 ctx.conn.local_ip,
@@ -311,7 +314,7 @@ where
 }
 
 #[cfg(test)]
-#[path = "../../tests/pipeline/link_webtransport.rs"]
+#[path = "../../tests/host/link_webtransport.rs"]
 mod tests;
 
 /// One bounded buffer per direction. A shutdown stops new reads but finishes

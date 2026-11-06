@@ -20,14 +20,14 @@ pub struct VhostRecord {
 struct VhostEntry {
     record: Arc<VhostRecord>,
     application: Option<claviron_pipeline::plan::HostExecution>,
-    listener_plans: Option<crate::pipeline::apps::ListenerPlans>,
+    listener_plans: Option<crate::host::apps::ListenerPlans>,
 }
 
 impl VhostEntry {
     fn listener_plan(
         &self,
         listener: &claviron_http::ListenerId,
-    ) -> Option<&crate::pipeline::apps::ListenerHostPlan> {
+    ) -> Option<&crate::host::apps::ListenerHostPlan> {
         self.listener_plans
             .as_ref()?
             .iter()
@@ -88,8 +88,7 @@ impl VhostTable {
         id: std::any::TypeId,
         value: Arc<dyn std::any::Any + Send + Sync>,
     ) {
-        if let Some(apps) =
-            value.downcast_ref::<crate::pipeline::HostAppSnapshot>()
+        if let Some(apps) = value.downcast_ref::<crate::host::HostAppSnapshot>()
         {
             // Bind against this candidate before it publishes. Request-time
             // selection then needs neither TypeId nor a second Host lookup.
@@ -210,7 +209,8 @@ impl VhostTable {
         &self,
         host: &Host,
         listener: Option<&claviron_http::ListenerId>,
-    ) -> Option<(&VhostRecord, Option<&claviron_pipeline::plan::HostExecution>)> {
+    ) -> Option<(&VhostRecord, Option<&claviron_pipeline::plan::HostExecution>)>
+    {
         let entry = self.resolve_entry(host)?;
         let application = match listener {
             Some(listener) => entry.listener_plan(listener)?.application(),

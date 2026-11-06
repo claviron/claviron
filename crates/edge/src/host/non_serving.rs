@@ -3,10 +3,10 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use claviron_pipeline::{HostHandlerResult, HostRequest};
 use crate::HostConfig;
 use claviron_http::ext::{ConnCtx, HostKey};
 use claviron_http::policy::HttpPolicy;
+use claviron_pipeline::{HostHandlerResult, HostRequest};
 
 /// Borrowed input to the optional non-serving interceptor.
 #[derive(Clone, Copy)]

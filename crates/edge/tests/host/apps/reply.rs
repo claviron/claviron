@@ -212,7 +212,7 @@ fn compiled_reply_guard_covers_an_early_registered_layer_response() {
     );
     let mut contributions = HostContributions::default();
     contributions.layers.push(Arc::new(Early));
-    let owner = crate::pipeline::host::compile::HostCompiler {
+    let owner = crate::host::compile::HostCompiler {
         state: &state,
         http: None,
         protocol: None,

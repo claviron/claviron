@@ -61,7 +61,7 @@ use claviron::hosting::{HostingStore, VhostImport};
 
 ## The server module
 
-Custom host directives use `claviron::edge::extension::RouteExtension` and
+Custom host directives use `claviron::pipeline::extension::RouteExtension` and
 `Server::with_edge_extension`, without Axum. The builder registers their
 compilers in HostAppRegistry before provider boot. Configuration is decoded
 while preparing host snapshots; request dispatch uses only prepared conditions,
