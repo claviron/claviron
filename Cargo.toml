@@ -49,7 +49,7 @@ log-pipeline = [
 log-otlp = ["log-pipeline", "claviron-logging/otlp"]
 # The shared shell of a language runner: one application, its owner last.
 # See crates/runner/ARCHITECTURE.md.
-runner = ["server", "http", "dep:claviron-pipeline", "dep:claviron-runner"]
+runner = ["server", "http", "dep:serde", "dep:claviron-pipeline", "dep:claviron-runner"]
 # The application's TCP and Unix sockets on the runner.
 runner-socket = ["runner", "claviron-runner/socket"]
 # The door with no socket: an edge reaches the runner over Orbit shared memory.

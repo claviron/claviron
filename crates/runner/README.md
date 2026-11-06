@@ -65,6 +65,13 @@ For Warp, select `rust` and `warp`, then use `with_warp(filter)` or return
 `claviron::http::warp::router(filter)` from `with_router`. The adapter runs the
 filter without Warp's listener. `OtherService` is the low-level handler choice.
 
+## Composing a runner
+
+`claviron::runner::Composition` is the launch every language runner makes alike:
+it checks the launch, hands it to the workers, registers the owner, routing, the
+application's own registrations, trust and doors in that order, and serves. A
+runner gives it its launch, name, lane runtime and owner.
+
 ## Language owners
 
 The shared routing path runs admission guards first, then explicit static mounts, Rust routes, and finally the application owner.
