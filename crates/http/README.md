@@ -151,11 +151,10 @@ without Axum or an execution engine. Longest segment prefix wins; a rejected
 entry selects its explicit rejection owner rather than trying a shorter prefix.
 Selection neither clones the owner nor takes or adapts the request body.
 
-The implementation's `routing` capability adds the host-free `Routable`
-contract, provider-owned Axum composition, typed extension codecs, and the Axum
-invocation adapter for that same selector. Edge has a separate host-aware
-`Routable` contract. Extensions are compiled during composition rather than
-looked up dynamically per request.
+Provider-owned Axum composition is `claviron_pipeline::routing`, with the
+host-free `Routable` contract. Edge has a separate host-aware `Routable`
+contract. Extensions are compiled during composition rather than looked up
+dynamically per request.
 
 The server-only `session` module owns native upgrade/CONNECT hand-offs for a
 listener generation. These are transport sessions, not login sessions or cookie
@@ -166,7 +165,7 @@ not become listener-owned automatically.
 ## Optional capabilities
 
 The implementation has no default features. `axum` enables framework adapters
-and runtime-DI extractors; `routing` adds route composition; `server` adds
+and runtime-DI extractors; `server` adds
 listener/connection context and native session ownership. `cache` adds the
 configured cache extractor. `metrics` adds HTTP/server observations and metrics
 integration; watchdog configuration remains an explicit runtime policy.

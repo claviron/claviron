@@ -91,7 +91,7 @@ async fn routables_stand_between_the_application_and_the_owner() {
             "Contributed"
         }
     }
-    impl claviron_http::routing::Routable for Contributed {
+    impl claviron_pipeline::routing::Routable for Contributed {
         fn routes(
             self: Arc<Self>,
             _: &AppState,
@@ -118,9 +118,12 @@ async fn routables_stand_between_the_application_and_the_owner() {
         .registry_ref()
         .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
         .unwrap();
-    claviron_http::routing::register(&state).unwrap();
-    claviron_http::routing::register_routable(&state, Arc::new(Contributed))
-        .unwrap();
+    claviron_pipeline::routing::register(&state).unwrap();
+    claviron_pipeline::routing::register_routable(
+        &state,
+        Arc::new(Contributed),
+    )
+    .unwrap();
     register_router(&state, |_| {
         axum::Router::new().route("/shared", get(|| async { "application" }))
     })
@@ -150,11 +153,11 @@ async fn rust_axum_needs_no_owner_and_keeps_its_fallback() {
         .registry_ref()
         .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
         .unwrap();
-    claviron_http::routing::register(&state).unwrap();
+    claviron_pipeline::routing::register(&state).unwrap();
     assert!(
         state
             .registry_ref()
-            .resolve::<claviron_http::routing::RoutableRegistry>()
+            .resolve::<claviron_pipeline::routing::RoutableRegistry>()
             .unwrap()
             .build(&state)
             .unwrap()
@@ -196,7 +199,7 @@ async fn rust_other_keeps_body_bytes_and_orbit_session_without_an_owner() {
         .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
         .unwrap();
     #[cfg(feature = "axum")]
-    claviron_http::routing::register(&state).unwrap();
+    claviron_pipeline::routing::register(&state).unwrap();
     let session: crate::orbit::OrbitSession =
         Arc::new(|_, _, _| Box::pin(async {}));
     let service = tower::service_fn(|request: AppRequest| async move {
@@ -253,7 +256,7 @@ fn rust_other_cancellation_drops_the_owned_request_body() {
         .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
         .unwrap();
     #[cfg(feature = "axum")]
-    claviron_http::routing::register(&state).unwrap();
+    claviron_pipeline::routing::register(&state).unwrap();
     let service = tower::service_fn(|request: AppRequest| async move {
         let _request = request;
         std::future::pending::<Result<AppResponse, Infallible>>().await
@@ -286,7 +289,7 @@ async fn warp_routes_select_before_body_and_keep_rejections_terminal() {
         .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
         .unwrap();
     #[cfg(feature = "axum")]
-    claviron_http::routing::register(&state).unwrap();
+    claviron_pipeline::routing::register(&state).unwrap();
     let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let observed = calls.clone();
     register_owner(

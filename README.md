@@ -262,7 +262,7 @@ embedded application, PHP-FPM, an HTTP upstream, or an Orbit-linked application.
 Host admission still applies. Authentication, CSRF, and authorization for the
 intercepted routes must be composed explicitly; native handlers do not inherit
 an external framework's middleware automatically. The separate
-`claviron::http::routing::Routable` contract constructs host-independent routes
+`claviron::pipeline::routing::Routable` contract constructs host-independent routes
 for single-application composition rather than selecting Edge vhosts.
 
 Independent runner projects include [Gufi](https://crates.io/crates/gufi) for

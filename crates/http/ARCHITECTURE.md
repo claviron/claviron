@@ -76,8 +76,6 @@ selector is exposed. Edge and runner own joining and execution.
    │   error         HTTP Error / Result, public response metadata,  │
    │                 private diagnostic sources                      │
    │                                                                 │
-   │   routing       Routable, RoutableRegistry                     │
-   │                                                                 │
    │   ext           PathPrefix, Env, RealIpExt,                     │
    │                 ClavironApplication                             │
    │   ext (server)  ConnCtx, HostName, VhostKey                     │
@@ -179,9 +177,9 @@ Path selection and fallback ownership belong to the composition that calls it.
 
 ### 1.3 Application route capabilities
 
-The opt-in `routing` feature enables Axum and exposes `routing::Routable`
-and `RoutableRegistry`. Raw HTTP and Axum-only consumers do not compile
-the Axum route-composition registry. The pure
+`routing::Routable` and `RoutableRegistry` are `claviron_pipeline`'s, behind its
+`axum` feature. Raw HTTP and Axum-only consumers do not compile the Axum
+route-composition registry. The pure
 dispatch::RuleContext, RouteCondition, ConfiguredRoute<H> and RouteDispatch<H>
 types require no feature and do not depend on Axum.
 Application composition registers provider-owned Rust routes once; a

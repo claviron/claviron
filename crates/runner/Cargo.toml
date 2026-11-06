@@ -17,7 +17,7 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 default = []
 rust = []
 # `register_router`: the application's axum router, the owner as its fallback.
-axum = ["dep:axum", "claviron-http/routing"]
+axum = ["dep:axum", "claviron-http/axum", "claviron-pipeline/axum"]
 warp = ["dep:warp", "claviron-http/warp"]
 # HTTPS on the runner's TCP listener, optionally requiring a client certificate.
 tls = ["claviron-transport/tls", "dep:claviron-tls", "dep:rustls", "dep:thiserror"]
@@ -46,6 +46,7 @@ claviron-broadcast = { workspace = true, optional = true }
 claviron-files = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
+claviron-pipeline.workspace = true
 claviron-orbit.workspace = true
 claviron-runtime.workspace = true
 claviron-supervisor = { workspace = true, optional = true }

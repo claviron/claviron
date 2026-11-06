@@ -33,7 +33,7 @@ fn application() -> Arc<Application> {
         .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
         .unwrap();
     #[cfg(feature = "axum")]
-    claviron_http::routing::register(&state).unwrap();
+    claviron_pipeline::routing::register(&state).unwrap();
     ensure_application(&state).unwrap();
     state.registry_ref().resolve::<Application>().unwrap()
 }

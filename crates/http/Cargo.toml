@@ -25,7 +25,6 @@ server = ["dep:arc-swap", "dep:claviron-tls", "dep:rustls", "dep:futures-util"]
 metrics = ["axum", "claviron-runtime/metrics", "dep:claviron-orbit", "dep:orbitive", "orbitive/metrics"]
 cache = ["axum", "dep:claviron-cache"]
 axum = ["dep:axum", "dep:serde_json", "dep:tower"]
-routing = ["axum"]
 warp = ["dep:warp", "dep:sync_wrapper", "dep:tower"]
 websocket = ["server", "dep:hyper", "dep:sha1"]
 

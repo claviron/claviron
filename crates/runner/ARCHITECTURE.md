@@ -150,7 +150,7 @@ that, only that runners use what Claviron already shares instead of their
 own copies:
 
 - **Registration** is a provider that builds a `Router<AppState>` and knows
-  no host, listener or process shape — `claviron::http::routing::Routable`.
+  no host, listener or process shape — `claviron::pipeline::routing::Routable`.
 `register_router(state, build)` composes an interceptor over a language owner.
   The edge's own `Routable` is the one in use today: host selection
   (`match_host`) and the same router (`routes`, whose host arguments its

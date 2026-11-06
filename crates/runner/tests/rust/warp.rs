@@ -16,7 +16,7 @@ async fn warp_filter_receives_the_original_request_body() {
         )))
         .unwrap();
     #[cfg(feature = "axum")]
-    claviron_http::routing::register(&state).unwrap();
+    claviron_pipeline::routing::register(&state).unwrap();
     let filter = ::warp::path("echo")
         .and(::warp::body::bytes())
         .map(|body: Bytes| http::Response::new(body));

@@ -20,8 +20,6 @@ pub mod rate_limit;
 pub mod resolvers;
 mod router;
 pub use router::{OtherHandler, OtherService, RustRouter};
-#[cfg(feature = "routing")]
-pub mod routing;
 #[cfg(feature = "server")]
 pub mod session;
 pub mod trust;

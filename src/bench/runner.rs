@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use claviron_http::routing::{Routable, register_routable};
+use claviron_pipeline::routing::{Routable, register_routable};
 use claviron_runtime::registry::Component;
 use claviron_runtime::{AppState, Register, registry};
 

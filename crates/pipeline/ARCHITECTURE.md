@@ -27,6 +27,8 @@ all depend on this crate, and it depends only on `claviron-http`.
   scope of a `Site`.
 - `accept`: work done once while a connection is accepted.
 - `response`: the replies decided before dispatch.
+- `routing`: host-free Axum route contributions, `Routable` and
+  `RoutableRegistry`, behind the `axum` feature.
 - `log`: access records, behind the `access-log` feature.
 
 ## How a site is served

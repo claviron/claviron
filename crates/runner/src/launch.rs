@@ -159,10 +159,10 @@ pub fn register_routing(
             .map(|files| Arc::new(files.under(root))),
     );
     state.registry_ref().insert(Arc::new(routing))?;
-    // Where `claviron::http::routing::register_routable` collects host-free
+    // Where `claviron::pipeline::routing::register_routable` collects host-free
     // routables, before the application's registrations add theirs.
     #[cfg(feature = "axum")]
-    claviron_http::routing::register(state)?;
+    claviron_pipeline::routing::register(state)?;
     Ok(())
 }
 

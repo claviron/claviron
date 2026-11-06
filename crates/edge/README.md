@@ -276,7 +276,7 @@ router is called. The compiled host plan is a separate `HostExecution`.
 Services can implement the host-aware `Routable` contract and register the same
 shared service instance with `register_routable`. This connects component
 lifecycle to per-host route construction. It is distinct from the host-free
-`claviron::http::routing::Routable` contract used by single-application routing.
+`claviron::pipeline::routing::Routable` contract used by single-application routing.
 
 `Routable::application` prepares a native `HostHandler` without Axum.
 It receives a `HostRequest` whose head can be inspected or changed while

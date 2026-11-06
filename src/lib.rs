@@ -56,7 +56,7 @@ pub use claviron_resolver as resolver;
 pub mod runner;
 /// Socket acceptance and HTTP connection driving. Its `edge` module holds the
 /// listeners that serve Edge's virtual hosts.
-#[cfg(feature = "edge")]
+#[cfg(any(feature = "edge", feature = "runner"))]
 pub use claviron_pipeline as pipeline;
 #[cfg(feature = "runtime")]
 pub use claviron_runtime as runtime;

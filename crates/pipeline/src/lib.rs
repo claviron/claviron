@@ -25,6 +25,8 @@ pub mod log;
 pub mod plan;
 pub mod registry;
 pub mod response;
+#[cfg(feature = "axum")]
+pub mod routing;
 pub mod site;
 #[cfg(feature = "warp")]
 pub mod warp;

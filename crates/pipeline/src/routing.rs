@@ -1,8 +1,5 @@
 //! Host-free Axum application route composition.
 
-pub use crate::config::routes::RouteTable;
-pub use crate::dispatch::{RouteCondition, RuleContext};
-
 use std::sync::{Arc, RwLock};
 
 use axum::Router;
@@ -90,7 +87,7 @@ where
 {
     let routes = state.registry_ref().resolve::<RoutableRegistry>().ok_or_else(|| {
         Error::msg(
-            "RoutableRegistry is not registered; call claviron_http::routing::register first"
+            "RoutableRegistry is not registered; call claviron_pipeline::routing::register first"
         )
     })?;
     state.registry_ref().register(routable.clone())?;

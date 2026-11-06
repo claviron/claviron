@@ -615,7 +615,7 @@ pub(crate) fn register_prepared_router(
     compose_service(state, service, true, sessions)
 }
 
-/// The routables registered through `claviron::http::routing`, in front of the
+/// The routables registered through `claviron::pipeline::routing`, in front of the
 /// owner: what a request the application's own routes leave unmatched meets
 /// next. A path no routable declares, and a declared path reached with an
 /// undeclared method, both go on to the owner. The owner's upgrades and Orbit
@@ -627,7 +627,7 @@ fn routables_over(
 ) -> registry::Result<Owner> {
     let routables = state
         .registry_ref()
-        .resolve::<claviron_http::routing::RoutableRegistry>()
+        .resolve::<claviron_pipeline::routing::RoutableRegistry>()
         .ok_or_else(|| {
             registry::Error::msg(
                 "the runner registers RoutableRegistry before configure",
@@ -671,7 +671,7 @@ fn contributed_routes(
 ) -> registry::Result<Option<axum::Router>> {
     let registry = state
         .registry_ref()
-        .resolve::<claviron_http::routing::RoutableRegistry>()
+        .resolve::<claviron_pipeline::routing::RoutableRegistry>()
         .ok_or_else(|| {
             registry::Error::msg("RoutableRegistry is not registered")
         })?;
@@ -719,7 +719,7 @@ where
 /// ```
 ///
 /// Handed the function that builds the router, called with the application's
-/// state. The routables registered through `claviron::http::routing` stand
+/// state. The routables registered through `claviron::pipeline::routing` stand
 /// behind it, so a routable written once serves under any runner, and the
 /// application's own route wins where both declare one. A path the router
 /// does not declare, and a declared path reached with an undeclared method,
