@@ -5,21 +5,18 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use claviron_helpers::de::opt_one_or_many;
-use claviron_http::config::cors::CorsConfig;
 pub use claviron_http::config::host::{
     DEFAULT_SERVER_HEADER, HostHeadersConfig,
 };
 #[cfg(feature = "orbit")]
 pub use claviron_http::config::routes::OrbitRouteConfig;
 pub use claviron_http::config::routes::RouteRule;
-use claviron_http::config::routes::RouteTable;
 pub use claviron_http::config::statics::{
     DYNAMIC_FILE_EXTS, StaticConfig, is_dynamic_file,
 };
 pub use claviron_http::config::{
     acl, caching as policy, cors, response, transport,
 };
-use claviron_http::ext::PathPrefix;
 pub use claviron_http::policy::{
     HttpPolicyOverride, RequestPolicyOverride, ResponsePolicyOverride,
 };
@@ -30,45 +27,15 @@ pub use policy::{
     CachingConfig, CompressionAlgorithm, CompressionConfig, RulesConfig,
 };
 pub use response::{LocationTemplate, RedirectConfig, RedirectStatus};
-use serde::Deserialize;
+use serde::de::Error as _;
+use serde::{Deserialize, Deserializer};
+use serde_yaml::{Mapping, Value};
 
-mod routing;
-pub use routing::RouteConfig;
-pub(crate) use routing::is_builtin_directive;
 #[cfg(feature = "rate-limit")]
-pub mod quota;
+pub use claviron_pipeline::site::quota;
 #[cfg(feature = "rate-limit")]
-pub use quota::RateLimitConfig;
-
-/// What one application serves: its request and file declarations, its route
-/// scopes and the directives its owners decode. A route is a `Site` of its own,
-/// and so is a virtual host's root; nothing here knows how a request found it.
-pub struct Site {
-    pub routing: RouteConfig,
-    pub routes: RouteTable<Arc<Site>>,
-    entry_rules: Vec<PathPrefix>,
-    fallback: Option<Arc<Site>>,
-    pub(crate) extensions:
-        std::collections::BTreeMap<String, serde_yaml::Value>,
-    /// The static mounts here were taken from the closest declaring ancestor,
-    /// not declared on this scope. A scope with an application owner is
-    /// prepared without them.
-    pub(crate) statics_inherited: bool,
-}
-
-impl Deref for Site {
-    type Target = RouteConfig;
-
-    fn deref(&self) -> &Self::Target {
-        &self.routing
-    }
-}
-
-impl std::ops::DerefMut for Site {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.routing
-    }
-}
+pub use claviron_pipeline::site::quota::RateLimitConfig;
+pub use claviron_pipeline::site::{RouteConfig, Site};
 
 /// A virtual host: how a connection finds a [`Site`] and on what terms. Its
 /// names and listeners select it; its handshake and protocol policy hold before
@@ -106,14 +73,9 @@ impl std::ops::DerefMut for HostConfig {
 pub use transport::{EarlyDataPolicy, H3Policy};
 pub use transport::{H1Policy, H2Policy, NonSslPolicy, TransportPolicy};
 
-/// One flat declaration as written: inactive sections and unknown top-level
-/// keys are retained as extension directives; fixed nested policies retain
-/// strict parsing. Directive resolution validates names at boot.
+/// What a declaration says about the connection rather than what it serves.
 #[derive(Deserialize)]
-pub(crate) struct HostFields {
-    /// Request/file declarations shared by the root and every route scope.
-    #[serde(flatten)]
-    pub(crate) routing: RouteConfig,
+struct HostTerms {
     #[serde(default, deserialize_with = "opt_one_or_many")]
     listeners: Option<Vec<claviron_http::ListenerId>>,
     #[serde(default, alias = "names", alias = "name", alias = "alias")]
@@ -124,148 +86,65 @@ pub(crate) struct HostFields {
     /// deserialize alias.
     #[serde(default, alias = "https")]
     transport: TransportPolicy,
-    /// Provider-defined root directives, decoded only during route preparation.
-    #[serde(flatten)]
-    pub(super) directives:
-        std::collections::BTreeMap<String, serde_yaml::Value>,
 }
 
-impl Site {
-    /// An empty site with an explicit file root and the same policy defaults
-    /// as a deserialized one.
-    pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self {
-            routing: RouteConfig {
-                files: claviron_http::config::files::FilesConfig {
-                    root: root.into(),
-                    mapping: None,
-                    index: Vec::new(),
-                    try_files: false,
-                    spa: None,
-                    statics: None,
-                },
-                access_log: None,
-                redirect: None,
-                acl: None,
-                #[cfg(feature = "rate-limit")]
-                rate_limit: None,
-                requests: RequestPolicyOverride::default(),
-                responses: ResponsePolicyOverride::default(),
-                cors: None,
-                headers: None,
-                #[cfg(feature = "orbit")]
-                orbit: None,
-            },
-            routes: RouteTable::default(),
-            entry_rules: Vec::new(),
-            fallback: None,
-            extensions: Default::default(),
-            statics_inherited: false,
+const TERMS: [&str; 8] = [
+    "listeners",
+    "aliases",
+    "names",
+    "name",
+    "alias",
+    "tls",
+    "transport",
+    "https",
+];
+
+/// Take the connection's terms out of a flat declaration and its explicit `/`
+/// route, which name the same scope. What remains is the site.
+fn take_terms(source: &mut Mapping) -> Result<Mapping, String> {
+    let mut terms = Mapping::new();
+    for name in TERMS {
+        if let Some(value) = source.remove(name) {
+            terms.insert(Value::String(name.to_owned()), value);
         }
     }
-
-    /// A custom directive declared on this site or route, before inheritance.
-    pub fn directive(
-        &self,
-        name: &str,
-    ) -> Option<&serde_yaml::Value> {
-        self.extensions.get(name)
+    let root = source
+        .get_mut("routes")
+        .and_then(Value::as_mapping_mut)
+        .and_then(|routes| routes.get_mut("/"))
+        .and_then(Value::as_mapping_mut);
+    if let Some(root) = root {
+        for name in TERMS {
+            if let Some(value) = root.remove(name) {
+                let name = Value::String(name.to_owned());
+                if terms.contains_key(&name) {
+                    return Err(format!(
+                        "flat host field {name:?} conflicts with route '/'"
+                    ));
+                }
+                terms.insert(name, value);
+            }
+        }
     }
+    Ok(terms)
+}
 
-    pub fn entry_rules(&self) -> &[PathPrefix] {
-        &self.entry_rules
-    }
-
-    pub(crate) fn fallback(&self) -> Option<&Arc<Site>> {
-        self.fallback.as_ref()
-    }
-
-    /// One declaration view: flat fields are the root; explicit children keep
-    /// their route-table prefix. An explicit `/` is already merged into self.
-    pub fn scopes(&self) -> impl Iterator<Item = (Option<&PathPrefix>, &Site)> {
-        std::iter::once((None, self)).chain(
-            self.routes
-                .iter()
-                .filter(|(prefix, _)| prefix.as_str() != "/")
-                .map(|(prefix, route)| (Some(prefix), route.as_ref())),
-        )
-    }
-
-    /// Boot/reload lookup over declared ancestors; values retain one owner.
-    pub fn setting_at<'a, T: ?Sized>(
-        &'a self,
-        prefix: &PathPrefix,
-        setting: impl Fn(&'a RouteConfig) -> Option<&'a T>,
-    ) -> Option<&'a T> {
-        self.routes
-            .iter()
-            .filter(|(ancestor, _)| ancestor.has_path_segment(prefix.as_str()))
-            .find_map(|(_, scope)| setting(&scope.routing))
-            .or_else(|| setting(&self.routing))
-    }
-
-    /// Narrow one listener's request/reply policy through root and ancestors
-    /// at boot/reload. Limits never widen in a more specific scope.
-    pub(crate) fn policy_at(
-        &self,
-        prefix: &PathPrefix,
-        listener: claviron_http::policy::HttpPolicy,
-    ) -> claviron_http::policy::HttpPolicy {
-        self.scopes_at(prefix)
-            .fold(listener, |policy, scope| policy.narrow(&scope.policy()))
-    }
-
-    /// Borrow root and matching prefix declarations from outermost to nearest.
-    pub(crate) fn scopes_at<'a>(
-        &'a self,
-        prefix: &'a PathPrefix,
-    ) -> impl DoubleEndedIterator<Item = &'a RouteConfig> {
-        std::iter::once(&self.routing).chain(
-            self.routes.iter().rev().filter_map(move |(ancestor, scope)| {
-                (ancestor.as_str() != "/"
-                    && ancestor.has_path_segment(prefix.as_str()))
-                .then_some(&scope.routing)
-            }),
-        )
-    }
-
-    /// Every Link destination needed by host-level lifecycle coordination.
-    #[cfg(feature = "orbit")]
-    pub(crate) fn link_routes(
-        &self
-    ) -> impl Iterator<Item = (Option<&PathPrefix>, &OrbitRouteConfig)> {
-        self.scopes().flat_map(|(prefix, scope)| {
-            scope.orbit().iter().map(move |route| (prefix, route))
-        })
+impl<'de> Deserialize<'de> for HostConfig {
+    fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        let mut source = Mapping::deserialize(de)?;
+        let terms = take_terms(&mut source).map_err(D::Error::custom)?;
+        let terms: HostTerms = serde_yaml::from_value(Value::Mapping(terms))
+            .map_err(D::Error::custom)?;
+        let site: Site = serde_yaml::from_value(Value::Mapping(source))
+            .map_err(D::Error::custom)?;
+        let HostTerms { listeners, aliases, tls, transport } = terms;
+        Ok(Self { site: Arc::new(site), listeners, aliases, tls, transport })
     }
 }
 
 impl HostConfig {
-    /// One normalized declaration, split into what connects and what serves.
-    pub(crate) fn from_fields(
-        fields: HostFields,
-        entry_rules: Vec<PathPrefix>,
-        extensions: std::collections::BTreeMap<String, serde_yaml::Value>,
-    ) -> Self {
-        let HostFields { routing, listeners, aliases, tls, transport, .. } =
-            fields;
-        Self {
-            site: Arc::new(Site {
-                routing,
-                routes: RouteTable::default(),
-                entry_rules,
-                fallback: None,
-                extensions,
-                statics_inherited: false,
-            }),
-            listeners,
-            aliases,
-            tls,
-            transport,
-        }
-    }
-
     /// The site alone: a route scope has no connection terms of its own.
+    #[cfg(test)]
     pub(crate) fn into_site(self) -> Site {
         Arc::into_inner(self.site)
             .expect("a site is not shared while it is being declared")
@@ -334,47 +213,12 @@ impl HostConfig {
     }
 }
 
-/// The file service reads a host through this view; it does not know hosts.
-impl claviron_files::FileSite for Site {
-    fn root(&self) -> PathBuf {
-        self.files.mapping.as_ref().map_or_else(
-            || self.routing.root(),
-            |mapping| mapping.directory().to_path_buf(),
-        )
-    }
-    fn mapping(&self) -> Option<&claviron_http::config::mapping::RouteMapping> {
-        self.files.mapping.as_ref()
-    }
-    fn route_for(
-        &self,
-        path: &str,
-    ) -> Option<&dyn claviron_files::FileSite> {
-        self.routes
-            .find(path)
-            .map(|route| route.as_ref() as &dyn claviron_files::FileSite)
-    }
-    fn indexes(&self) -> &[String] {
-        self.routing.indexes()
-    }
-    fn try_files(&self) -> bool {
-        self.try_files
-    }
-    fn spa(&self) -> Option<&str> {
-        self.spa.as_ref().and_then(|spa| spa.entry.to_str())
-    }
-    fn spa_config(&self) -> Option<&claviron_http::config::spa::SpaConfig> {
-        self.spa.as_ref()
-    }
-    fn statics(&self) -> Option<&[StaticConfig]> {
-        self.routing.statics()
-    }
-    fn has_static_index(&self) -> bool {
-        self.routing.has_static_index()
-    }
-}
-
 /// File/application view already selected by Edge's route table. Native Rust
 /// intercepts use this instead of reselecting a route or reusing the original
 /// host-wide file policy. Canonical host metadata remains a separate handle.
 #[derive(Clone)]
 pub struct SelectedRoute(pub Arc<HostConfig>);
+
+#[cfg(test)]
+#[path = "../tests/config/routing.rs"]
+mod routing_tests;

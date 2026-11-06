@@ -1,4 +1,6 @@
 use super::*;
+use claviron_http::config::mapping::RouteMapping;
+use claviron_http::ext::PathPrefix;
 
 #[test]
 fn file_routes_apply_default_root_before_normalizing_any_route_shape() {
@@ -8,7 +10,7 @@ fn file_routes_apply_default_root_before_normalizing_any_route_shape() {
         for (_, route) in config.routes.iter() {
             assert_eq!(route.files.root, std::path::Path::new("."), "{source}");
         }
-        if let Some(fallback) = config.fallback.as_ref() {
+        if let Some(fallback) = config.fallback() {
             assert_eq!(
                 fallback.files.root,
                 std::path::Path::new("."),

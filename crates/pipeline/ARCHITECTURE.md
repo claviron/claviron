@@ -16,10 +16,10 @@ all depend on this crate, and it depends only on `claviron-http`.
 
 ## What is here and what is on its way
 
-The request contract is here, and PHP's backends are written against it alone.
+Here: the request contract, which PHP's backends are written against alone; the
+`Site`, what one application serves, with its normalization from a flat YAML
+declaration; and the replies a host decides before dispatch.
 
-The plan that runs these steps (`HostPipelineBuilder`, the layers), the factory
-a backend registers with, and the scope declaration it reads
-(`Site`, already separate from the virtual host's `HostConfig`) are still in
-`claviron-edge`. Lua, broadcast and upstream wait for those: they decode their
-declarations from a scope and bind session registries.
+The plan that runs these steps (`HostPipelineBuilder`, the layers) and the
+factory a backend registers with are still in `claviron-edge`. Lua, broadcast
+and upstream wait for those.

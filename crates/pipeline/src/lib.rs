@@ -12,6 +12,8 @@ mod backend;
 mod context;
 mod dispatch;
 mod handler;
+pub mod response;
+pub mod site;
 
 pub use backend::{
     BackendContract, BackendHandler, BackendIdentity, BackendReply,
@@ -23,3 +25,4 @@ pub use dispatch::{
 pub use handler::{
     HostHandler, HostHandlerFuture, HostHandlerResult, HostRequest,
 };
+pub use site::Site;

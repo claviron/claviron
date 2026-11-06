@@ -630,7 +630,7 @@ impl HostAppRegistry {
                 }
                 // The edge decodes its own directives before any extension
                 // could see them.
-                if crate::config::is_builtin_directive(name) {
+                if claviron_pipeline::site::is_builtin_directive(name) {
                     return Err(Error::msg(format!(
                         "route extension '{name}' names a directive the edge owns"
                     )));

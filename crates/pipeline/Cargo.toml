@@ -15,10 +15,19 @@ categories = ["web-programming::http-server", "asynchronous"]
 
 [features]
 default = []
+# Link route declarations.
+orbit = ["claviron-http/orbit"]
+# Admission quotas declared by a site or route.
+rate-limit = ["claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/quota"]
 
 [dependencies]
+claviron-files.workspace = true
+claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
+claviron-orbit = { workspace = true, optional = true }
 http.workspace = true
+serde = { workspace = true, features = ["derive", "rc"] }
+serde_yaml.workspace = true
 tokio-util.workspace = true
 
 [dev-dependencies]

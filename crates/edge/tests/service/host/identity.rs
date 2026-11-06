@@ -6,6 +6,7 @@ use crate::pipeline::{
 };
 use claviron_http::ext::{ClientAuthStatus, TlsInfo};
 use futures_util::FutureExt;
+use http::StatusCode;
 
 /// What an owner that is handed identity finds in its request.
 #[cfg(feature = "axum")]

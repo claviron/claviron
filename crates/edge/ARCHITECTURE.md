@@ -7,9 +7,9 @@ HTTP host selection, native dispatch and optional TCP/QUIC drivers.
 - `loader` prepares host declarations and publishes names, policy and applications
   together. Congif owns configuration reads and source watching.
 - `service` binds an accepted transport/request to a ready host plan.
-- `config` separates a `Site` (what one application serves: request and file
-  declarations, route scopes, owner directives) from a `HostConfig` (how a
-  connection finds it: names, listeners, handshake and protocol terms). A route
+- `config` keeps a `HostConfig`: how a connection finds a `Site` (names,
+  listeners, handshake and protocol terms). The `Site` itself, what one
+  application serves, is `claviron-pipeline`'s. A route
   is a `Site`; the pipeline prepares from a `Site` and reads no connection terms
   except those handed to it explicitly.
 - `pipeline` prepares host actions and request owners. Axum is a Rust application
@@ -355,9 +355,6 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 
 ### `config/`
 
-- [`routing.rs`](src/config/routing.rs) — One RouteConfig schema for root/prefix declarations; `directory` selects disk mapping. Scope settings retain one declaration owner.
-- [`routing/statics.rs`](src/config/routing/statics.rs) — Compile directory groups into static mounts with derived URL prefixes.
-- [`quota.rs`](src/config/quota.rs) — Validate the same rate-limit declaration at every scope without opening stores.
 
 ### `loader/`
 
@@ -378,7 +375,6 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`host.rs`](src/service/host.rs) — HostService and native request handoff; no fixed Ingress/Identity/Access chain.
 - [`host/cache.rs`](src/service/host/cache.rs) — Cleartext metadata cache, owner selection against the supplied publication, and reuse of the last admitted owner for a repeated authority on that same publication.
 - [`host/dispatch.rs`](src/service/host/dispatch.rs) — Execute the prepared host owner; retain the direct-call optimization only for a plan without preceding actions.
-- [`response.rs`](src/service/response.rs) — Typed early host replies, before native wire framing.
 
 ### `pipeline/`
 
@@ -499,7 +495,7 @@ ownership and isolated state transitions without provider boot or live listeners
 
 - [`sni.rs`](tests/sni.rs) — SNI/catchall lookup and bounded name churn.
 - [`provider.rs`](tests/provider.rs) — Prepared HTTP values, capability rejection and invalid-candidate retention.
-- [`config/routing.rs`](tests/config/routing.rs) — Route normalization, inheritance, mappings and unavailable capability rejection.
+- [`config/routing.rs`](tests/config/routing.rs) — A host's site as `claviron-pipeline` normalizes it: route normalization, inheritance, mappings and unavailable capability rejection.
 - [`fixtures/http/base.yaml`](tests/fixtures/http/base.yaml) — Valid HTTP preparation input.
 - [`fixtures/http/changed.yaml`](tests/fixtures/http/changed.yaml) — Changed listener-policy input.
 - [`fixtures/http/invalid.yaml`](tests/fixtures/http/invalid.yaml) — Invalid listener-address input.

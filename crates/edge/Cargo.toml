@@ -16,7 +16,7 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 [features]
 default = []
 warp = ["claviron-http/warp"]
-rate-limit = ["claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/quota"]
+rate-limit = ["claviron-http/rate-limit", "dep:claviron-orbit", "claviron-orbit/quota", "claviron-pipeline/rate-limit"]
 # Optional Rust application/router adapters; native host compilation is independent.
 axum = [
     "dep:axum",
@@ -32,6 +32,7 @@ websocket = ["tcp", "claviron-http/websocket"]
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
     "claviron-http/orbit",
+    "claviron-pipeline/orbit",
     "dep:claviron-orbit",
     "dep:percent-encoding",
     "tokio-util/io",

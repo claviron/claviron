@@ -3,6 +3,7 @@ use crate::pipeline::apps::other::{OtherHandler, OtherService};
 use crate::service::resolve_sni_from_table;
 use bytes::Bytes;
 use claviron_http::{RouteFuture, empty_body};
+use http::StatusCode;
 use std::future::Future;
 use std::pin::pin;
 use std::sync::atomic::{AtomicUsize, Ordering};

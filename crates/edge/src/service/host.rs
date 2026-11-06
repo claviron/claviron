@@ -7,14 +7,15 @@ use claviron_http::ext::ConnCtx;
 #[cfg(test)]
 use claviron_http::listener::HttpProtocol;
 use claviron_http::{RouteBody, RouteResponse};
-use http::{Request, StatusCode};
+use http::Request;
 
-use super::AuthorityError;
 #[cfg(feature = "tcp")]
 use super::CleartextRequest;
 use super::ctx::VhostCtx;
 use crate::pipeline::host::HostPolicy;
 use crate::pipeline::{AuthContext, HostExecution};
+#[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+use claviron_pipeline::response::RequestRejection;
 
 mod dispatch;
 
@@ -24,35 +25,6 @@ mod cache;
 pub use cache::CleartextHostCache;
 
 pub use claviron_http::ext::RequestArrival;
-
-/// Shared decision; native transports retain their wire response/close mechanics.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum RequestRejection {
-    MissingProtocol,
-    MissingIdentity,
-    InvalidAuthority(AuthorityError),
-    Misdirected,
-    AccessDenied,
-    AmbiguousPath,
-    InvalidRedirect,
-    TooEarly,
-}
-
-impl RequestRejection {
-    pub fn status(self) -> StatusCode {
-        match self {
-            Self::MissingProtocol
-            | Self::MissingIdentity
-            | Self::InvalidRedirect => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Misdirected => StatusCode::MISDIRECTED_REQUEST,
-            Self::AccessDenied => StatusCode::FORBIDDEN,
-            Self::AmbiguousPath | Self::InvalidAuthority(_) => {
-                StatusCode::BAD_REQUEST
-            }
-            Self::TooEarly => StatusCode::TOO_EARLY,
-        }
-    }
-}
 
 /// An accepted connection bound to a published request owner. This handoff
 /// retains transport facts and declarations; it installs no host actions.

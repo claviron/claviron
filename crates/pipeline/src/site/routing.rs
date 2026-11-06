@@ -1,19 +1,22 @@
 //! Boot-time normalization of flat host applications and prefix-keyed routes.
 
-#[cfg(feature = "orbit")]
-use super::OrbitRouteConfig;
+use super::Site;
 #[cfg(feature = "rate-limit")]
 use super::quota;
-use super::{
-    CorsConfig, DEFAULT_SERVER_HEADER, HostHeadersConfig, HttpPolicyOverride,
-    RedirectConfig, RequestPolicyOverride, ResponsePolicyOverride,
-    StaticConfig, acl, is_dynamic_file,
-};
-use super::{HostConfig, HostFields};
 use claviron_helpers::de::opt_one_or_many;
+use claviron_http::config::acl;
+use claviron_http::config::cors::CorsConfig;
+use claviron_http::config::host::{DEFAULT_SERVER_HEADER, HostHeadersConfig};
 use claviron_http::config::mapping::RouteMapping;
+use claviron_http::config::response::RedirectConfig;
+#[cfg(feature = "orbit")]
+use claviron_http::config::routes::OrbitRouteConfig;
 use claviron_http::config::routes::RouteTable;
+use claviron_http::config::statics::{StaticConfig, is_dynamic_file};
 use claviron_http::ext::PathPrefix;
+use claviron_http::policy::{
+    HttpPolicyOverride, RequestPolicyOverride, ResponsePolicyOverride,
+};
 use serde::de::Error;
 use serde::{Deserialize, Deserializer};
 use serde_yaml::{Mapping, Value};
@@ -141,18 +144,30 @@ impl std::ops::DerefMut for RouteConfig {
     }
 }
 
-impl<'de> Deserialize<'de> for HostConfig {
+impl<'de> Deserialize<'de> for Site {
     fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
         let source = Mapping::deserialize(de)?;
         normalize(source).map_err(D::Error::custom)
     }
 }
 
+/// One flat declaration as written: inactive sections and unknown top-level
+/// keys are retained as directives; fixed nested policies retain strict parsing.
+/// Directive resolution validates names at boot.
+#[derive(Deserialize)]
+struct SiteFields {
+    #[serde(flatten)]
+    routing: RouteConfig,
+    /// Provider-defined directives, decoded only during route preparation.
+    #[serde(flatten)]
+    directives: std::collections::BTreeMap<String, Value>,
+}
+
 fn key(name: &str) -> Value {
     Value::String(name.to_owned())
 }
 
-fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
+fn normalize(mut source: Mapping) -> Result<Site, String> {
     if source.contains_key(key("path")) {
         return Err("path is not a directory setting; use root on the host or directory in a route".into());
     }
@@ -274,8 +289,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
             leaf(source.clone(), Vec::new())?
         } else {
             leaf(route, Vec::new())?
-        }
-        .into_site();
+        };
         config.extensions.extend(extensions);
         config.files.mapping = Some(mapping);
         entries.push((prefix.clone(), Arc::new(config)));
@@ -348,7 +362,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
     if !host.extensions.is_empty()
         && !entries.iter().any(|(prefix, _)| prefix.as_str() == "/")
     {
-        let root = leaf(source, Vec::new())?.into_site();
+        let root = leaf(source, Vec::new())?;
         host.entry_rules.push(PathPrefix::root());
         entries.push((PathPrefix::root(), Arc::new(root)));
     }
@@ -357,7 +371,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
         fallback
             .entry(key("root"))
             .or_insert_with(|| Value::String(".".into()));
-        let mut fallback = leaf(fallback, Vec::new())?.into_site();
+        let mut fallback = leaf(fallback, Vec::new())?;
         if routes.find("/").is_some() {
             fallback.files.mapping =
                 Some(file_mapping(&host_root, &PathPrefix::root(), &routes)?);
@@ -371,7 +385,7 @@ fn normalize(mut source: Mapping) -> Result<HostConfig, String> {
 /// as written for whoever registered it: a backend or a route extension. The
 /// edge does not know those names, so what they mean, and whether a scope has
 /// one application owner, is settled when the scope is prepared.
-pub(crate) fn is_builtin_directive(name: &str) -> bool {
+pub fn is_builtin_directive(name: &str) -> bool {
     name == "orbit"
         || matches!(
             name,
@@ -413,22 +427,22 @@ fn validate_feature(
 fn leaf(
     source: Mapping,
     entry_rules: Vec<PathPrefix>,
-) -> Result<HostConfig, String> {
+) -> Result<Site, String> {
     #[cfg(not(feature = "rate-limit"))]
     if source.contains_key(key("rate_limit")) {
         return Err("rate_limit requires the rate-limit feature".into());
     }
-    let mut fields: HostFields = serde_yaml::from_value(Value::Mapping(source))
-        .map_err(|error| error.to_string())?;
-    let mut extensions = std::mem::take(&mut fields.directives);
+    let SiteFields { routing, directives: mut extensions } =
+        serde_yaml::from_value(Value::Mapping(source))
+            .map_err(|error| error.to_string())?;
     #[cfg(feature = "rate-limit")]
-    if let Some(rate_limit) = &fields.routing.rate_limit {
+    if let Some(rate_limit) = &routing.rate_limit {
         rate_limit.validate()?;
     }
     // Nested flattened structs may leave their recognized keys visible to a
     // sibling flattened map. Only provider directives belong to that map.
     extensions.retain(|name, _| !is_builtin_directive(name));
-    Ok(HostConfig::from_fields(fields, entry_rules, extensions))
+    Ok(Site::from_parts(routing, entry_rules, extensions))
 }
 
 fn validate(
@@ -588,7 +602,3 @@ fn directory_suffix<'a>(
     }
     Ok(suffix)
 }
-
-#[cfg(test)]
-#[path = "../../tests/config/routing.rs"]
-mod tests;

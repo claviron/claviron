@@ -1,5 +1,6 @@
 use super::*;
 use crate::service::AcceptedAuthority;
+use claviron_http::authority::AuthorityError;
 use http::{Version, header};
 
 #[test]

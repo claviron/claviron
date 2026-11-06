@@ -3,7 +3,36 @@
 use http::header::LOCATION;
 use http::{HeaderValue, Response, StatusCode};
 
-use super::RequestRejection;
+use claviron_http::authority::AuthorityError;
+
+/// Shared decision; native transports retain their wire response/close mechanics.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RequestRejection {
+    MissingProtocol,
+    MissingIdentity,
+    InvalidAuthority(AuthorityError),
+    Misdirected,
+    AccessDenied,
+    AmbiguousPath,
+    InvalidRedirect,
+    TooEarly,
+}
+
+impl RequestRejection {
+    pub fn status(self) -> StatusCode {
+        match self {
+            Self::MissingProtocol
+            | Self::MissingIdentity
+            | Self::InvalidRedirect => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::Misdirected => StatusCode::MISDIRECTED_REQUEST,
+            Self::AccessDenied => StatusCode::FORBIDDEN,
+            Self::AmbiguousPath | Self::InvalidAuthority(_) => {
+                StatusCode::BAD_REQUEST
+            }
+            Self::TooEarly => StatusCode::TOO_EARLY,
+        }
+    }
+}
 
 /// A completed host decision, not necessarily an error. No request body or
 /// transport IO is retained; Hyper/H3 own sending and finishing the reply.
