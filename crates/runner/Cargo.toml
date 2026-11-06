@@ -33,7 +33,7 @@ cli = ["dep:clap"]
 # Workers under Claviron's supervisor, and its section of the launch.
 supervisor = ["dep:claviron-supervisor"]
 # An owner's WebSocket on the runner's own sockets, spoken with fastwebsockets.
-websocket = ["dep:fastwebsockets"]
+websocket = ["claviron-transport/websocket-session"]
 # Development's reload: native source notifications, the owner's reaction.
 watch = ["dep:notify"]
 
@@ -60,7 +60,6 @@ serde_json.workspace = true
 serde_yaml.workspace = true
 
 # ── HTTP core ───────────────────────────────────────────────────────────
-fastwebsockets = { workspace = true, features = ["upgrade"], optional = true }
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true

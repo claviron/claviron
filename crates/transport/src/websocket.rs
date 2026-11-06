@@ -1,7 +1,7 @@
-//! An owner's WebSocket on the runner's own sockets.
+//! An owner's WebSocket on a listener's own sockets.
 //!
 //! Over Orbit the edge speaks the WebSocket protocol and the owner sees whole
-//! messages; on the runner's sockets this speaks it, with `fastwebsockets`,
+//! messages; on the sockets this speaks it, with `fastwebsockets`,
 //! and hands the owner the same [`Message`]s — fragments joined, pings
 //! answered, closes echoed here — so an owner never knows which door a socket
 //! came through. What the owner decides is whether to accept, and what it
@@ -14,6 +14,7 @@
 use std::future::Future;
 
 use bytes::Bytes;
+use claviron_http::RouteResponse as AppResponse;
 use claviron_http::session::SessionSpawner;
 pub use claviron_orbit::link::application::Message;
 use fastwebsockets::upgrade::UpgradeFut;
@@ -22,7 +23,7 @@ use http::{Response, StatusCode};
 use http_body_util::BodyExt;
 use tokio::sync::mpsc;
 
-use crate::routing::{AppRequest, AppResponse};
+use crate::owner::AppRequest;
 
 /// Where the client's messages go: the owner's side of the socket.
 pub trait Deliver: Send + Sync + 'static {

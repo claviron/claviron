@@ -35,10 +35,18 @@ connection facts (`ConnCtx`), request policy and the body types.
   only by an H1 connection with half-close on.
 - [`protocol.rs`](src/tcp/protocol.rs) — Hyper H1 builder and TCP socket options from resolved config.
 - [`body.rs`](src/tcp/body.rs) — Lazy body erasure and proven-empty-body handling; preserve trailers.
-- [`mod.rs`](src/tcp/mod.rs) — `Requests`, the owner of one connection's requests, and `HandlerRequests`, which gives them all to one `OtherHandler`.
+- [`mod.rs`](src/tcp/mod.rs) — `Requests`, the owner of one connection's requests, and `OwnerRequests`, which gives them all to one `OtherHandler`.
 - [`plain.rs`](src/tcp/plain.rs) — Drive one cleartext HTTP/1.1 connection: socket setup, connection facts, Hyper and graceful/forced drain. `Cleartext` is what a listener publishes; `Single` is its host-free implementation.
 - [`prior.rs`](src/tcp/prior.rs) — Cleartext HTTP/2 by prior knowledge, alone or beside HTTP/1.1 on one socket. The YAML listener declaration still refuses it, so Edge's cleartext listeners stay HTTP/1.1; `Single::prior_knowledge` opts in.
 - [`secure.rs`](src/tcp/secure.rs) — TLS handshake deadline, ALPN and protocol choice, connection facts, H1/H2 driving and graceful/forced drain. `Secure` selects a TLS configuration and a `SecureHost` from the ClientHello; `Single` is its host-free implementation.
+
+### Doors for one owner
+
+- [`owner.rs`](src/owner.rs) — `Owner`, who answers a listener that selects no host, and `RequestBody`, the body every door hands over.
+- [`doors.rs`](src/doors.rs) — `Bind`, `Protocols` and `Doors`: the TCP and Unix sockets of one owner, declared the way `http.yaml` declares a listener.
+- [`tcp/tls.rs`](src/tcp/tls.rs) — `Tls`: one certificate, optionally a client CA, for such a listener.
+- [`orbit.rs`](src/orbit.rs) — `OrbitDoor`: the door with no socket. A lane in the fleet, the exchange it receives, the reply it publishes, and the Link events around it.
+- [`websocket.rs`](src/websocket.rs) — An owner's WebSocket on the sockets, handing over the same whole messages Link does.
 
 ### `unix.rs`
 

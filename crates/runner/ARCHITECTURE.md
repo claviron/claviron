@@ -16,9 +16,8 @@ Every runner has grown the same skeleton:
 | piece | what it is |
 |---|---|
 | options | application name, fleet name, TCP / Unix socket / Orbit ingress, request and response policy |
-| socket ingress | the application behind `claviron-transport`'s drivers: accept, HTTP/1 and HTTP/2, graceful drain |
-| Orbit ingress | a lane in the configured fleet, advertised under the application name, a reactor-native receiver, drain |
-| TLS | one certificate, optional client CA |
+| socket ingress | the application and its proxy trust behind `claviron_transport::doors` |
+| Orbit ingress | the application behind `claviron_transport::orbit`, as a runnable in every process kind |
 | proxy trust | which peers' forwarding headers count |
 | request guards | framing, body bounds and response-head deadlines |
 | static mounts | explicit `statics` in front of the application |
@@ -68,7 +67,7 @@ a second architecture.
 - Claviron still knows no language. This crate holds no interpreter, no PHP,
   no ASGI; a language runner depends on this crate directly. Lumenize follows
   this boundary; Gufi still uses the legacy facade adapter pending migration.
-- It composes lower crates — `http`, `files`, `tls`, `orbit`,
+- It composes lower crates — `http`, `files`, `transport`, `orbit`,
   `runtime` — and none of `edge`, vhosts or the hosting store.
 - The lifecycle stays Claviron's: `Server`, the registry, runnable
   generations, drain and finalize. The runner adds providers, not a sequence.
@@ -263,8 +262,8 @@ before server construction, not a panic from converting an unchecked string.
 
 ## Ingress
 
-- **Socket** — TCP and Unix sockets on `claviron-transport`'s drivers, the same
-  ones an edge runs; one that cannot be bound ends the others at boot. The
+- **Socket** — TCP and Unix sockets on `claviron_transport::doors`, the same
+  drivers an edge runs; one that cannot be bound ends the others at boot. The
   launch's options are declared as a listener the way `http.yaml` declares one,
   without a header-read deadline of its own. HTTP/1 and HTTP/2 on one handler,
   HTTP/2 by prior knowledge on cleartext; TLS on TCP with ALPN from the protocols

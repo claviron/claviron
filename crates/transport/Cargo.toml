@@ -46,6 +46,8 @@ axum = ["claviron-pipeline/axum", "claviron-edge?/axum"]
 orbit = ["dep:claviron-app", "dep:claviron-orbit", "dep:tokio-util"]
 # Let an HTTP/1.1 connection be upgraded.
 websocket = ["tcp", "claviron-edge?/websocket"]
+# An owner's WebSocket spoken on the sockets, with whole messages like Link's.
+websocket-session = ["websocket", "orbit", "dep:fastwebsockets"]
 # Count accepted and open connections per listener.
 metrics = ["claviron-http/metrics"]
 
@@ -79,6 +81,7 @@ tracing.workspace = true
 tokio-rustls = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true }
 
+fastwebsockets = { workspace = true, optional = true, features = ["upgrade"] }
 h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, features = ["datagram"], optional = true }
 quinn = { workspace = true, optional = true, features = ["runtime-tokio", "rustls-aws-lc-rs"] }

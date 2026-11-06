@@ -22,7 +22,7 @@ pub use claviron_transport::tcp::tls;
 #[cfg(feature = "watch")]
 pub mod watch;
 #[cfg(feature = "websocket")]
-pub mod websocket;
+pub use claviron_transport::websocket;
 
 pub use options::{EdgeShutdownPolicy, RunnerOptions};
 pub use orbit::{

@@ -24,3 +24,5 @@ pub mod quic;
 pub mod tcp;
 #[cfg(all(feature = "tcp", unix))]
 pub mod unix;
+#[cfg(feature = "websocket-session")]
+pub mod websocket;

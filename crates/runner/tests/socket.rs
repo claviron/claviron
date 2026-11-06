@@ -16,22 +16,19 @@ use crate::routing::{Owner, Routing, ensure_application, register_owner};
 /// The application, reporting what the door attached to its request.
 fn application() -> Arc<Application> {
     let state = AppState::standalone("runner-socket", ".");
-    register_owner(
-        &state,
-        Owner::new(tower::service_fn(|request: AppRequest| async move {
-            let extensions = request.extensions();
-            let answer = format!(
-                "facts={} sessions={} received={}",
-                extensions.get::<Arc<ConnCtx>>().is_some(),
-                extensions.get::<SessionSpawner>().is_some(),
-                extensions.get::<ReceivedAt>().is_some(),
-            );
-            Ok::<_, Infallible>(Response::new(claviron_http::bytes_body(
-                Bytes::from(answer),
-            )))
-        })),
-    )
-    .unwrap();
+    let reports = tower::service_fn(|request: AppRequest| async move {
+        let extensions = request.extensions();
+        let answer = format!(
+            "facts={} sessions={} received={}",
+            extensions.get::<Arc<ConnCtx>>().is_some(),
+            extensions.get::<SessionSpawner>().is_some(),
+            extensions.get::<ReceivedAt>().is_some(),
+        );
+        Ok::<_, Infallible>(Response::new(claviron_http::bytes_body(
+            Bytes::from(answer),
+        )))
+    });
+    register_owner(&state, Owner::new(reports).upgrades(reports)).unwrap();
     state
         .registry_ref()
         .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
@@ -42,10 +39,16 @@ fn application() -> Arc<Application> {
     state.registry_ref().resolve::<Application>().unwrap()
 }
 
-async fn ask<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S) -> String {
+async fn ask<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
+    extra: &str,
+) -> String {
     stream
         .write_all(
-            b"GET / HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n",
+            format!(
+                "GET / HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n{extra}\r\n"
+            )
+            .as_bytes(),
         )
         .await
         .unwrap();
@@ -56,7 +59,8 @@ async fn ask<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S) -> String {
 
 /// What each door gives the application: a TCP connection its facts, a Unix
 /// one none because it has no addresses. An ordinary request carries no owner
-/// of sessions; only one that can take its connection over does.
+/// of sessions; one that can take its connection over does, or an owner's
+/// WebSocket could not start.
 #[tokio::test]
 async fn each_door_gives_the_application_what_it_knows() {
     let door = Doors::new(Vec::new(), Protocols::default())
@@ -83,10 +87,24 @@ async fn each_door_gives_the_application_what_it_knows() {
     let (stream, peer) = accepted.unwrap();
     let scope = sessions.bind(gate.try_enter().unwrap());
     let serving = tokio::spawn(plain::serve(stream, peer, door.clone(), scope));
-    let answer = ask(client.unwrap()).await;
+    let answer = ask(client.unwrap(), "").await;
     serving.await.unwrap();
     assert!(
         answer.ends_with("facts=true sessions=false received=true"),
+        "{answer}"
+    );
+
+    let (client, accepted) = tokio::join!(
+        TcpStream::connect(socket.local_addr().unwrap()),
+        socket.accept()
+    );
+    let (stream, peer) = accepted.unwrap();
+    let scope = sessions.bind(gate.try_enter().unwrap());
+    let serving = tokio::spawn(plain::serve(stream, peer, door.clone(), scope));
+    let answer = ask(client.unwrap(), "Upgrade: websocket\r\n").await;
+    serving.await.unwrap();
+    assert!(
+        answer.ends_with("facts=true sessions=true received=true"),
         "{answer}"
     );
 
@@ -95,7 +113,7 @@ async fn each_door_gives_the_application_what_it_knows() {
     let serving = tokio::spawn(claviron_transport::unix::serve_stream(
         stream, door, scope,
     ));
-    let answer = ask(client).await;
+    let answer = ask(client, "").await;
     serving.await.unwrap();
     assert!(
         answer.ends_with("facts=false sessions=false received=true"),
