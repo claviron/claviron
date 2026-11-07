@@ -29,6 +29,7 @@ use http::Request;
 use crate::{DispatchCall, DispatchStep};
 use claviron_http::ext::{ConnCtx, PathPrefix};
 use claviron_http::policy::{BodyNeed, RequestPolicy, RequestPolicyOverride};
+use claviron_http::socket::Offer;
 use claviron_orbit::link::application::{
     ApplicationService, ApplicationTarget, Exchange, HttpVersion,
     LINK_BUFFER_BYTES,
@@ -171,23 +172,22 @@ async fn dispatch(
     connection: Option<Arc<ConnCtx>>,
     request: Request<RouteBody>,
 ) -> RouteResponse {
-    let handshake = match websocket::Handshake::from_request(&request) {
-        Ok(handshake) => handshake,
-        Err(status) => return err_status(status),
+    // Taken before the application hears of it: once this owner has the attempt
+    // it alone can answer it, and an attempt someone else holds is not its own.
+    let offer = request.extensions().get::<Offer>().cloned();
+    let claim = match &offer {
+        Some(offer) => match offer.claim() {
+            Some(claim) => Some(claim),
+            None => return err_status(StatusCode::FORBIDDEN),
+        },
+        None => None,
     };
-    let websocket = handshake.is_some();
-    let (mut parts, body) = request.into_parts();
-    // What completing an upgrade needs, taken before the parts are spent:
-    // Hyper's handle on the connection, the owner of the session that
-    // outlives this request, and the key the handshake answers.
-    let upgrade = handshake.map(|handshake| websocket::Upgrade {
-        on_upgrade: parts.extensions.remove::<hyper::upgrade::OnUpgrade>(),
-        sessions: parts
-            .extensions
-            .get::<claviron_http::session::SessionSpawner>()
-            .cloned(),
-        handshake,
-    });
+    let websocket = claim.is_some();
+    let (parts, body) = request.into_parts();
+    let sessions = parts
+        .extensions
+        .get::<claviron_http::session::SessionSpawner>()
+        .cloned();
     let exchange = Exchange {
         // The caller fills these three; they are its own address book.
         correlation: 0,
@@ -265,14 +265,15 @@ async fn dispatch(
         }
     };
 
-    if let Some(upgrade) = upgrade
+    if let Some(claim) = claim
         && head.status == StatusCode::SWITCHING_PROTOCOLS.as_u16()
         && let Some(to_application) = to_application
     {
         return websocket::accept_websocket(
             correlation,
             &head,
-            upgrade,
+            claim,
+            sessions,
             to_application,
             response_body,
         );

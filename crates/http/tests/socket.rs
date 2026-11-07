@@ -120,3 +120,79 @@ fn finishing_twice_is_one_decision() {
     *repeat.extensions_mut() = again;
     assert_eq!(offer.finish(repeat).status(), StatusCode::FORBIDDEN);
 }
+
+#[test]
+fn an_h2_handshake_answers_200_with_only_the_owners_headers() {
+    let mut request = http::Request::builder()
+        .method(http::Method::CONNECT)
+        .version(http::Version::HTTP_2)
+        .uri("https://example.test/socket")
+        .header("sec-websocket-version", "13")
+        .body(())
+        .unwrap();
+    request
+        .extensions_mut()
+        .insert(hyper::ext::Protocol::from_static("websocket"));
+    let handshake = Handshake::from_request(&request).unwrap().unwrap();
+
+    let mut response = answered(StatusCode::SWITCHING_PROTOCOLS);
+    for (name, value) in [
+        ("connection", "Upgrade"),
+        ("upgrade", "websocket"),
+        ("sec-websocket-accept", "untrusted"),
+        ("content-length", "0"),
+        ("sec-websocket-protocol", "chat"),
+        ("set-cookie", "session=example"),
+    ] {
+        response.headers_mut().insert(name, value.parse().unwrap());
+    }
+    handshake.commit(&mut response);
+
+    assert_eq!(response.status(), StatusCode::OK);
+    for header in
+        ["connection", "upgrade", "sec-websocket-accept", "content-length"]
+    {
+        assert!(!response.headers().contains_key(header));
+    }
+    assert_eq!(response.headers()["sec-websocket-protocol"], "chat");
+    assert_eq!(response.headers()["set-cookie"], "session=example");
+
+    request.headers_mut().remove("sec-websocket-version");
+    assert_eq!(
+        Handshake::from_request(&request).unwrap_err(),
+        StatusCode::BAD_REQUEST
+    );
+}
+
+#[test]
+fn an_h1_handshake_answers_101_with_its_own_accept() {
+    let request = http::Request::builder()
+        .uri("/socket")
+        .header("connection", "Upgrade")
+        .header("upgrade", "websocket")
+        .header("sec-websocket-version", "13")
+        .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+        .body(())
+        .unwrap();
+    let mut response = answered(StatusCode::OK);
+    response
+        .headers_mut()
+        .insert("sec-websocket-accept", "untrusted".parse().unwrap());
+    Handshake::from_request(&request).unwrap().unwrap().commit(&mut response);
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    assert_eq!(
+        response.headers()["sec-websocket-accept"],
+        "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    );
+}
+
+#[test]
+fn an_upgrade_to_anything_else_is_an_ordinary_request() {
+    let request = http::Request::builder()
+        .uri("/")
+        .header("connection", "Upgrade, HTTP2-Settings")
+        .header("upgrade", "h2c")
+        .body(())
+        .unwrap();
+    assert!(Handshake::from_request(&request).unwrap().is_none());
+}

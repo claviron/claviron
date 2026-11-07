@@ -324,12 +324,17 @@ impl Door for HttpDoor {
         deferred: Deferred,
     ) -> RouteResponse {
         let Self { on_upgrade, sessions, handshake } = *self;
+        let shutdown = sessions.clone();
         let session = async move {
-            match on_upgrade.await {
-                Ok(upgraded) => deferred(SocketIo::Stream(upgraded)).await,
-                Err(error) => {
-                    tracing::debug!("session upgrade failed: {error}");
-                }
+            tokio::select! {
+                biased;
+                () = shutdown.wait_graceful_shutdown() => {}
+                upgraded = on_upgrade => match upgraded {
+                    Ok(upgraded) => deferred(SocketIo::Stream(upgraded)).await,
+                    Err(error) => {
+                        tracing::debug!("session upgrade failed: {error}");
+                    }
+                },
             }
         };
         // Held by the owner that joins it at shutdown before the handshake is
