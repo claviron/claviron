@@ -1,7 +1,7 @@
 //! The one component a process's modules live behind: the registry takes one
 //! instance per Rust type, and every native component would be the same type.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::c_void;
 use std::mem::ManuallyDrop;
 use std::path::PathBuf;
@@ -16,6 +16,7 @@ use claviron_runtime::{
 use libloading::os::unix::{Library, RTLD_LOCAL, RTLD_NOW};
 
 use crate::abi;
+use crate::application::{Controller, ModuleApplication, ModuleBackend};
 use crate::config::{CONFIG_FILE, ModulesConfig};
 use crate::registrar::{Registration, contained, register};
 use crate::service::{ModuleService, SendPtr};
@@ -58,6 +59,7 @@ struct Modules {
     loaded: Vec<Loaded>,
     booted: usize,
     services: Vec<RunnableInstance<AppState>>,
+    applications: BTreeMap<String, Arc<ModuleApplication>>,
 }
 
 pub struct ModuleProvider {
@@ -139,6 +141,25 @@ impl ModuleProvider {
                     RunnableInstance::new(name, service).placed(placement),
                 );
             }
+            for (name, application, http) in registration.applications {
+                let Some(settings) = config.applications.get(&name) else {
+                    return Err(error(format!(
+                        "{library_name} registered application '{name}', which {CONFIG_FILE} does not declare"
+                    )));
+                };
+                runs_here = runs_here || !role_is_master;
+                let module = Arc::new(ModuleApplication::new(
+                    name.clone(),
+                    application,
+                    http,
+                    settings.clone(),
+                ));
+                if modules.applications.insert(name.clone(), module).is_some() {
+                    return Err(error(format!(
+                        "application '{name}' is registered by more than one module"
+                    )));
+                }
+            }
             modules.loaded.push(Loaded {
                 name: library_name,
                 // A process with nothing of this module to run boots nothing of it.
@@ -156,7 +177,32 @@ impl ModuleProvider {
                 )));
             }
         }
+        for name in config.applications.keys() {
+            if !modules.applications.contains_key(name) {
+                return Err(error(format!(
+                    "{CONFIG_FILE} declares application '{name}', which no module registered"
+                )));
+            }
+        }
         Ok(modules)
+    }
+
+    /// The owner a route's `module:` selects. Called while hosts compile, after
+    /// this provider has booted; it is called many times and only looks up.
+    pub(crate) fn backend(
+        &self,
+        name: &str,
+    ) -> registry::Result<Arc<dyn claviron_pipeline::BackendHandler>> {
+        let modules = self.modules.lock().expect("modules lock");
+        let application = modules.applications.get(name).ok_or_else(|| {
+            error(format!("no module registered an application '{name}'"))
+        })?;
+        Ok(Arc::new(ModuleBackend(Arc::clone(application))))
+    }
+
+    fn applications(&self) -> Vec<Arc<ModuleApplication>> {
+        let modules = self.modules.lock().expect("modules lock");
+        modules.applications.values().cloned().collect()
     }
 
     /// Load every library the file lists and hold them against it.
@@ -294,6 +340,32 @@ impl Bootable<AppState, ()> for ModuleProvider {
             }
             self.modules.lock().expect("modules lock").booted += 1;
         }
+        // A master serves nothing. Its workers list and run the applications.
+        if state.is_master() {
+            return Ok(());
+        }
+        let applications =
+            self.modules.lock().expect("modules lock").applications.clone();
+        if applications.is_empty() {
+            return Ok(());
+        }
+        for application in applications.values() {
+            application
+                .serve()
+                .map_err(|failure| error(failure.to_string()))?;
+            application.begin().await.map_err(error)?;
+        }
+        let manager = state
+            .registry_ref()
+            .resolve::<claviron_app::ApplicationManager>()
+            .ok_or_else(|| {
+                error("the application manager is not registered")
+            })?;
+        let controller = Controller::new(applications)
+            .ok_or_else(|| error("the module runtime name is invalid"))?;
+        manager
+            .add(Arc::new(controller))
+            .map_err(|failure| error(failure.to_string()))?;
         Ok(())
     }
 }
@@ -328,6 +400,16 @@ impl Finalizable<AppState> for ModuleProvider {
         &self,
         _: &AppState,
     ) -> registry::Result<()> {
+        // Whatever is still running has drained by now; a handler that hung
+        // holds this up, since a native call cannot be interrupted.
+        for application in self.applications() {
+            if let Err(failure) = application.end().await {
+                tracing::error!(%failure, "module application did not stop cleanly");
+            }
+            tokio::task::spawn_blocking(move || application.shutdown_threads())
+                .await
+                .map_err(|failure| error(failure.to_string()))?;
+        }
         for (_, lifecycle) in self.take_booted() {
             let Some(finalize) = lifecycle.finalize else { continue };
             tokio::task::spawn_blocking(move || {

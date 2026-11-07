@@ -7,11 +7,24 @@ pub const ABI_VERSION: u32 = 1;
 
 pub const OK: u32 = 0;
 pub const INVALID_ARGUMENT: u32 = 2;
+pub const CLOSED: u32 = 3;
+pub const BUSY: u32 = 4;
+pub const UNSUPPORTED: u32 = 5;
 pub const PANIC: u32 = 6;
 
 pub const LOG_ERROR: u32 = 1;
 pub const LOG_WARN: u32 = 2;
 pub const LOG_INFO: u32 = 3;
+
+pub const FIELD_METHOD: u32 = 1;
+pub const FIELD_SCHEME: u32 = 2;
+pub const FIELD_PATH: u32 = 3;
+pub const FIELD_QUERY: u32 = 4;
+pub const FIELD_PEER: u32 = 5;
+pub const FIELD_LOCAL: u32 = 6;
+pub const FIELD_VERSION: u32 = 7;
+pub const FIELD_HEADER_NAME: u32 = 8;
+pub const FIELD_HEADER_VALUE: u32 = 9;
 
 pub const ABI_VERSION_SYMBOL: &[u8] = b"claviron_module_abi_version\0";
 pub const REGISTER_SYMBOL: &[u8] = b"claviron_module_register\0";
@@ -77,6 +90,44 @@ pub struct Service {
     pub run: Option<unsafe extern "C" fn(*mut Cancel, *mut c_void) -> u32>,
 }
 
+/// Opaque to a module; see `request::Exchange`.
+pub struct Request {
+    _private: [u8; 0],
+}
+
+pub type RequestFn = unsafe extern "C" fn(*mut Request, *mut c_void) -> u32;
+pub type BodyFn =
+    unsafe extern "C" fn(*mut Request, *const u8, u64, u32, *mut c_void) -> u32;
+pub type ClosedFn = unsafe extern "C" fn(*mut Request, u32, *mut c_void);
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct HttpHandler {
+    pub struct_size: u32,
+    pub request: Option<RequestFn>,
+    pub body: Option<BodyFn>,
+    pub writable: Option<RequestFn>,
+    pub closed: Option<ClosedFn>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Application {
+    pub struct_size: u32,
+    pub context: *mut c_void,
+    pub start: Option<unsafe extern "C" fn(*mut c_void) -> u32>,
+    pub stop: Option<unsafe extern "C" fn(*mut c_void) -> u32>,
+    pub http: *const HttpHandler,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct RequestPolicy {
+    pub struct_size: u32,
+    pub max_request_body: u64,
+    pub max_response_body: u64,
+}
+
 #[repr(C)]
 pub struct Host {
     pub struct_size: u32,
@@ -85,6 +136,8 @@ pub struct Host {
         unsafe extern "C" fn(*mut Registrar, *const Lifecycle) -> u32,
     pub register_service:
         unsafe extern "C" fn(*mut Registrar, Slice, *const Service) -> u32,
+    pub register_application:
+        unsafe extern "C" fn(*mut Registrar, Slice, *const Application) -> u32,
     pub log: unsafe extern "C" fn(u32, Slice),
     pub cancelled: unsafe extern "C" fn(*const Cancel) -> u32,
     pub cancel_wait: unsafe extern "C" fn(*const Cancel) -> u32,
@@ -93,4 +146,18 @@ pub struct Host {
         Option<unsafe extern "C" fn(*mut c_void)>,
         *mut c_void,
     ) -> u32,
+    pub request_field:
+        unsafe extern "C" fn(*const Request, u32, u64, *mut Slice) -> u32,
+    pub request_header_count: unsafe extern "C" fn(*const Request) -> u64,
+    pub request_policy:
+        unsafe extern "C" fn(*const Request, *mut RequestPolicy) -> u32,
+    pub request_set_data:
+        unsafe extern "C" fn(*mut Request, *mut c_void) -> u32,
+    pub request_data: unsafe extern "C" fn(*const Request) -> *mut c_void,
+    pub request_read_body: unsafe extern "C" fn(*mut Request) -> u32,
+    pub response_begin: unsafe extern "C" fn(*mut Request, u32) -> u32,
+    pub response_header:
+        unsafe extern "C" fn(*mut Request, Slice, Slice) -> u32,
+    pub response_write: unsafe extern "C" fn(*mut Request, Slice) -> u32,
+    pub response_finish: unsafe extern "C" fn(*mut Request) -> u32,
 }

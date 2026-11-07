@@ -434,6 +434,12 @@ pub fn register(state: &AppState) -> Result<()> {
 
     #[cfg(feature = "edge")]
     claviron_edge::register(state)?;
+    #[cfg(all(feature = "module", feature = "edge"))]
+    if let Some(hosts) =
+        state.registry_ref().resolve::<claviron_edge::HostAppRegistry>()
+    {
+        claviron_module::register_routes(state, hosts.site())?;
+    }
     #[cfg(feature = "upstream")]
     claviron_upstream::edge::register(state)?;
     // The static file cache learns about changed files from a reload, not

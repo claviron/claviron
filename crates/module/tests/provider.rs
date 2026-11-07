@@ -50,6 +50,7 @@ unsafe extern "C" fn fails(
 fn declared(names: &[&str]) -> ModulesConfig {
     ModulesConfig {
         modules: Vec::new(),
+        applications: Default::default(),
         services: names
             .iter()
             .map(|name| {

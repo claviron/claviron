@@ -5,9 +5,12 @@
 #![cfg(unix)]
 
 pub(crate) mod abi;
+mod application;
 pub mod config;
+mod pool;
 mod provider;
 mod registrar;
+mod request;
 mod service;
 
 use std::sync::Arc;
@@ -25,4 +28,21 @@ pub fn register(state: &AppState) -> registry::Result<()> {
     }
     state.registry_ref().register(Arc::new(ModuleProvider::new(state)))?;
     Ok(())
+}
+
+/// Let this site registry prepare `module:` routes: a site, a host's or a
+/// runner's, selects an application a library registered by its name.
+pub fn register_routes(
+    state: &AppState,
+    site: &claviron_pipeline::SiteRegistry,
+) -> registry::Result<()> {
+    let Some(provider) = state.registry_ref().resolve::<ModuleProvider>()
+    else {
+        return Ok(());
+    };
+    site.register_backend(claviron_pipeline::factory::factory::<String, _>(
+        "module",
+        claviron_pipeline::factory::BackendPlacement::AfterFiles,
+        move |_, name| provider.backend(&name).map(|backend| vec![backend]),
+    ))
 }

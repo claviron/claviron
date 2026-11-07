@@ -4,13 +4,16 @@
 use std::collections::BTreeSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
-use crate::abi::{self, Host, Lifecycle, Registrar, Service, Slice};
+use crate::abi::{
+    self, Application, Host, HttpHandler, Lifecycle, Registrar, Service, Slice,
+};
 
 /// A library's registrations, filled while its register function runs.
 #[derive(Default)]
 pub(crate) struct Registration {
     pub lifecycle: Option<Lifecycle>,
     pub services: Vec<(String, Service)>,
+    pub applications: Vec<(String, Application, HttpHandler)>,
     pub error: Option<String>,
 }
 
@@ -89,6 +92,54 @@ unsafe extern "C" fn register_service(
     })
 }
 
+unsafe extern "C" fn register_application(
+    registrar: *mut Registrar,
+    name: Slice,
+    application: *const Application,
+) -> u32 {
+    contained(|| {
+        if registrar.is_null() || application.is_null() {
+            return abi::INVALID_ARGUMENT;
+        }
+        // Safety: as in `register_lifecycle`; tables are copied here and the
+        // module's pointers are not kept.
+        let registration = unsafe { &mut *registrar.cast::<Registration>() };
+        let application = unsafe { *application };
+        let checked = name_of(name).and_then(|name| {
+            if application.struct_size as usize != size_of::<Application>() {
+                return Err(format!(
+                    "application '{name}': claviron_application has the wrong struct_size"
+                ));
+            }
+            if application.http.is_null() {
+                return Err(format!("application '{name}' has no http handler"));
+            }
+            let http = unsafe { *application.http };
+            if http.struct_size as usize != size_of::<HttpHandler>() {
+                return Err(format!(
+                    "application '{name}': claviron_http_handler has the wrong struct_size"
+                ));
+            }
+            if http.request.is_none() {
+                return Err(format!(
+                    "application '{name}': its http handler has no request"
+                ));
+            }
+            Ok((name, http))
+        });
+        match checked {
+            Ok((name, http)) => {
+                registration.applications.push((name, application, http));
+                abi::OK
+            }
+            Err(error) => {
+                registration.error = Some(error);
+                abi::INVALID_ARGUMENT
+            }
+        }
+    })
+}
+
 unsafe extern "C" fn log(
     level: u32,
     message: Slice,
@@ -118,10 +169,21 @@ pub(crate) static HOST: Host = Host {
     abi_version: abi::ABI_VERSION,
     register_lifecycle,
     register_service,
+    register_application,
     log,
     cancelled: crate::service::cancelled,
     cancel_wait: crate::service::cancel_wait,
     cancel_notify: crate::service::cancel_notify,
+    request_field: crate::request::request_field,
+    request_header_count: crate::request::request_header_count,
+    request_policy: crate::request::request_policy,
+    request_set_data: crate::request::request_set_data,
+    request_data: crate::request::request_data,
+    request_read_body: crate::request::request_read_body,
+    response_begin: crate::request::response_begin,
+    response_header: crate::request::response_header,
+    response_write: crate::request::response_write,
+    response_finish: crate::request::response_finish,
 };
 
 /// Run one library's register function.
