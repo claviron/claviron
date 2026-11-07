@@ -76,6 +76,7 @@ impl AnyAuthenticated {
     }
 }
 
+#[cfg(feature = "webtransport")]
 pub(super) fn normalize_connect_path(path: Arc<str>) -> Result<Arc<str>> {
     if path.starts_with('/') {
         Ok(path)
