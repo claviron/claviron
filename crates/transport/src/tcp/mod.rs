@@ -79,9 +79,7 @@ pub(crate) fn finished(
 ) -> RouteResponse {
     #[cfg(any(feature = "websocket", feature = "edge"))]
     if let Some(offer) = attempt {
-        // While owners still answer upgrades themselves, an attempt nobody
-        // claimed keeps their answer.
-        return if offer.claimed() { offer.finish(response) } else { response };
+        return offer.finish(response);
     }
     #[cfg(not(any(feature = "websocket", feature = "edge")))]
     let _ = attempt;

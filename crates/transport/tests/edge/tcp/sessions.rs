@@ -59,8 +59,10 @@ async fn ask<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
+    // An upgrade to anything but a session this offers: HTTP lets it be answered
+    // as an ordinary request, and what took it over would still need the owner.
     let upgrade = if upgrade {
-        "Connection: Upgrade, close\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Connection: Upgrade, close\r\nUpgrade: example\r\n"
     } else {
         "Connection: close\r\n"
     };

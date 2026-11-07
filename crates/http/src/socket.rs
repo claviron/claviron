@@ -146,14 +146,6 @@ impl Offer {
         }
     }
 
-    /// Whether an owner has taken this attempt.
-    pub fn claimed(&self) -> bool {
-        !matches!(
-            *self.attempt.slot.lock().expect("socket offer"),
-            Slot::Waiting(_)
-        )
-    }
-
     /// End the attempt with the response that came back from the plan: commit
     /// it if this is still a proposal for this attempt, refuse it otherwise.
     pub fn finish(

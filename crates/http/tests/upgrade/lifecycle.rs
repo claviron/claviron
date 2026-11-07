@@ -117,9 +117,42 @@ fn request<B>(body: B) -> Request<B> {
         .header(header::HOST, "app.test")
         .header(header::CONNECTION, "upgrade")
         .header(header::UPGRADE, "websocket")
+        .header(header::SEC_WEBSOCKET_VERSION, "13")
+        .header(header::SEC_WEBSOCKET_KEY, "dGhlIHNhbXBsZSBub25jZQ==")
         .extension(context())
         .body(body)
         .unwrap()
+}
+
+/// One connection, as a door serves it: an attempt is offered, the router answers
+/// and the door finishes the attempt with that answer.
+async fn serve(
+    router: Router,
+    sessions: SessionSpawner,
+    io: tokio::io::DuplexStream,
+) {
+    let service = hyper::service::service_fn(
+        move |mut request: Request<hyper::body::Incoming>| {
+            request.extensions_mut().insert(context());
+            request.extensions_mut().insert(sessions.clone());
+            let offer =
+                claviron_http::socket::attach(&mut request, &sessions).unwrap();
+            let answering = router.clone().oneshot(request);
+            async move {
+                let response =
+                    answering.await.unwrap().map(claviron_http::boxed_body);
+                Ok::<_, std::convert::Infallible>(match offer {
+                    Some(offer) => offer.finish(response),
+                    None => response,
+                })
+            }
+        },
+    );
+    hyper::server::conn::http1::Builder::new()
+        .serve_connection(TokioIo::new(io), service)
+        .with_upgrades()
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -141,19 +174,8 @@ async fn builtin_upgrade_is_owned_after_101_and_joins_on_graceful_or_forced_stop
             let sessions = scope.sessions();
             let (client_io, server_io) = tokio::io::duplex(8192);
             let server = tokio::spawn(async move {
-                let service = hyper::service::service_fn(
-                    move |mut request: Request<hyper::body::Incoming>| {
-                        request.extensions_mut().insert(context());
-                        request.extensions_mut().insert(sessions.clone());
-                        router.clone().oneshot(request)
-                    },
-                );
                 let _scope = scope;
-                hyper::server::conn::http1::Builder::new()
-                    .serve_connection(TokioIo::new(server_io), service)
-                    .with_upgrades()
-                    .await
-                    .unwrap();
+                serve(router, sessions, server_io).await;
             });
             let (mut sender, connection) =
                 hyper::client::conn::http1::handshake(TokioIo::new(client_io))
@@ -236,11 +258,21 @@ async fn missing_or_sealed_owner_never_returns_101_and_releases_accepted_state()
     let owner = SessionOwner::new("test".parse().unwrap());
     let gate = Gate::new(None, TIMEOUT);
     let scope = owner.bind(gate.try_enter().unwrap());
-    let mut req = request(Body::empty());
-    req.extensions_mut().insert::<SessionSpawner>(scope.sessions());
+    let sessions = scope.sessions();
     let drain = owner.close();
-    let response = router.oneshot(req).await.unwrap();
+    let (client_io, server_io) = tokio::io::duplex(8192);
+    let server = tokio::spawn(serve(router, sessions, server_io));
+    let (mut sender, connection) =
+        hyper::client::conn::http1::handshake(TokioIo::new(client_io))
+            .await
+            .unwrap();
+    let client = tokio::spawn(connection);
+    let response =
+        sender.send_request(request(Full::new(Bytes::new()))).await.unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    drop(sender);
+    client.await.unwrap().unwrap();
+    server.await.unwrap();
     assert_eq!(
         released.load(Ordering::SeqCst),
         1,

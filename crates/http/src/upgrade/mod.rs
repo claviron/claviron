@@ -12,9 +12,7 @@ use std::sync::{Arc, RwLock};
 
 use crate::ext::ConnCtx;
 use crate::session::SessionSpawner;
-use crate::{
-    RouteBody, RouteResponse, ServiceResult, bytes_body, empty_body, err_status,
-};
+use crate::{RouteBody, RouteResponse, ServiceResult, bytes_body, err_status};
 use async_trait::async_trait;
 #[cfg(feature = "axum")]
 use axum::{body::Body, extract::State, middleware::Next};
@@ -22,7 +20,7 @@ use claviron_runtime::AppState;
 use claviron_runtime::registry::{Error, Result};
 use claviron_types::Host;
 use http::{HeaderMap, Request, StatusCode, Uri};
-use hyper::upgrade::{self, Upgraded};
+use hyper::upgrade::Upgraded;
 use tracing::{debug, error};
 
 /// Request context captured before an HTTP/1 connection is upgraded.
@@ -415,37 +413,36 @@ pub async fn try_h1_upgrade(
         }
     };
 
+    // Only an attempt its door recognized can be accepted, and only once. The
+    // door commits the handshake and owns the session from there.
+    let Some(claim) = req
+        .extensions()
+        .get::<crate::socket::Offer>()
+        .and_then(crate::socket::Offer::claim)
+    else {
+        debug!(handler = handler.name(), "H1 upgrade has no offer to accept");
+        return ServiceResult::Handled(err_status(StatusCode::BAD_REQUEST));
+    };
     let handler_name = handler.name();
-    let response = switching_protocols_response(accepted.response_headers);
     let accepted_state = accepted.state;
-    let submitted = sessions.spawn(async move {
-        debug!(handler = handler_name, "H1 upgrade waiting");
-        match upgrade::on(req).await {
-            Ok(upgraded) => {
-                debug!(handler = handler_name, "H1 upgrade accepted");
-                // Open for as long as the session is, and never an exchange:
-                // nothing expects a WebSocket to end.
-                let _session = claviron_runtime::activity::ACTIVITY.open_session();
-                if let Err(err) =
-                    handler.handle_upgraded(app_state, ctx, accepted_state, upgraded).await
-                {
-                    error!(handler = handler_name, error = %err, "H1 upgrade handler failed");
-                }
-            }
-            Err(err) => {
-                error!(handler = handler_name, error = %err, "H1 upgrade failed");
-            }
+    let mut proposal = claim.accept_with(move |io| async move {
+        let crate::socket::SocketIo::Stream(upgraded) = io else {
+            debug!(handler = handler_name, "H1 upgrade needs a byte stream");
+            return;
+        };
+        debug!(handler = handler_name, "H1 upgrade accepted");
+        // Open for as long as the session is, and never an exchange:
+        // nothing expects a WebSocket to end.
+        let _session = claviron_runtime::activity::ACTIVITY.open_session();
+        if let Err(err) = handler
+            .handle_upgraded(app_state, ctx, accepted_state, upgraded)
+            .await
+        {
+            error!(handler = handler_name, error = %err, "H1 upgrade handler failed");
         }
     });
-
-    if let Err(error) = submitted {
-        debug!(handler = handler_name, %error, "H1 session hand-off rejected");
-        return ServiceResult::Handled(err_status(
-            StatusCode::SERVICE_UNAVAILABLE,
-        ));
-    }
-
-    ServiceResult::Handled(response)
+    *proposal.headers_mut() = accepted.response_headers;
+    ServiceResult::Handled(proposal)
 }
 
 pub fn is_h1_header_upgrade<B>(
@@ -528,23 +525,6 @@ fn normalize_upgrade_path(path: Arc<str>) -> Result<Arc<str>> {
     } else {
         Err(Error::msg(format!("H1 upgrade path must start with '/': {path}")))
     }
-}
-
-fn switching_protocols_response(headers: HeaderMap) -> RouteResponse {
-    let mut builder = http::Response::builder()
-        .status(StatusCode::SWITCHING_PROTOCOLS)
-        .header(http::header::UPGRADE, "websocket")
-        .header(http::header::CONNECTION, "Upgrade");
-
-    for (name, value) in headers {
-        if let Some(name) = name {
-            builder = builder.header(name, value);
-        }
-    }
-
-    builder
-        .body(empty_body())
-        .unwrap_or_else(|_| err_status(StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 #[cfg(test)]
