@@ -23,8 +23,6 @@ pub use claviron_edge as edge;
 /// name a listener policy of its own.
 #[cfg(feature = "edge")]
 pub use claviron_edge::config as edge_config;
-#[cfg(feature = "ffi")]
-pub use claviron_ffi as ffi;
 #[cfg(feature = "module")]
 pub use claviron_module as module;
 #[cfg(feature = "files")]

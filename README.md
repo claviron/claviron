@@ -136,7 +136,7 @@ multiple application instances can join while retaining their own runtime.
 | [types](crates/types/README.md) | Canonical host identities and optional certificate primitives. | Host types through consumers; certificate toolkit: `ssl` |
 | [macros](crates/macros/README.md) | Task registration and configuration override generation. | Task macro through `tasks`; config derive is implementation-facing |
 | [sys](crates/sys/README.md) | Native socket, process-identity, and OS resource primitives. | `sys`; older Linux support: `legacy-linux` |
-| [ffi](crates/ffi/README.md) | Foreign handler ABI, buffered responses, and streaming buffer ownership. | `ffi` |
+| [module](crates/module/README.md) | Compiled libraries loaded into the process, registering themselves as services and applications over a C ABI. | `module` |
 
 ### Combining optional capabilities
 
