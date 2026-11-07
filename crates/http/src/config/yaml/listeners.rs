@@ -258,6 +258,34 @@ impl ListenerOverrides {
 }
 
 impl ListenerDefinition {
+    /// A TCP listener declared in code. Every other choice is inherited until
+    /// it is set; [`resolve`](Self::resolve) decides whether the result is valid.
+    pub fn tcp(
+        listen: SocketAddr,
+        protocols: Vec<HttpProtocol>,
+    ) -> Self {
+        Self {
+            explicit: default_explicit(),
+            execution: Override::default(),
+            transport: ListenerTransport::Tcp,
+            listen: vec![listen],
+            protocols,
+            tls: Override::default(),
+            max_connections: Override::default(),
+            graceful_timeout: Override::default(),
+            acquire_timeout: Override::default(),
+            handshake_timeout: Override::default(),
+            proxy: Override::default(),
+            redirect_port: Override::default(),
+            tcp: Override::default(),
+            h1: Override::default(),
+            h2: Override::default(),
+            quic: Override::default(),
+            requests: RequestPolicyOverride::default(),
+            responses: ResponsePolicyOverride::default(),
+        }
+    }
+
     fn overrides(&self) -> ListenerOverrides {
         ListenerOverrides {
             execution: self.execution,
@@ -276,7 +304,8 @@ impl ListenerDefinition {
         }
     }
 
-    pub(crate) fn resolve(
+    /// This declaration over `defaults`, validated: what a listener runs with.
+    pub fn resolve(
         self,
         id: ListenerId,
         defaults: &ListenerOverrides,
