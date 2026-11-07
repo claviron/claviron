@@ -10,13 +10,17 @@
 //! Shutdown stops accepting, asks every connection to finish, and joins them
 //! and the sessions they started, with no deadline of its own.
 
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use arc_swap::ArcSwapOption;
-use claviron_http::config::{HttpSnapshot, ListenerConfig, TcpConfig};
+use claviron_http::config::{
+    H1Override, Limit, ListenerConfig, ListenerDefinition, ListenerOverrides,
+    Override, RequestPolicyOverride, TcpConfig, TcpOverride,
+};
+use claviron_http::listener::HttpProtocol;
 use claviron_runtime::registry::{Error, Result};
 use claviron_runtime::{RunContext, RunMode};
 use tokio::task::JoinSet;
@@ -84,13 +88,17 @@ impl Protocols {
         alpn
     }
 
+    /// In preference order, as ALPN offers them.
     #[cfg(feature = "tls")]
-    fn declared(self) -> &'static str {
-        match (self.h1, self.h2) {
-            (true, false) => "[h1]",
-            (false, true) => "[h2]",
-            _ => "[h2, h1]",
+    fn accepted(self) -> Vec<HttpProtocol> {
+        let mut protocols = Vec::new();
+        if self.h2 {
+            protocols.push(HttpProtocol::H2);
         }
+        if self.h1 {
+            protocols.push(HttpProtocol::H1);
+        }
+        protocols
     }
 }
 
@@ -144,31 +152,48 @@ impl Doors {
     }
 
     /// A listener for one address. No deadline of its own: a slow client's
-    /// header read is the proxy's or the operator's to bound.
+    /// header read is the proxy's or the operator's to bound. Neither does it
+    /// bound a body: the driver applies no request policy, that is the owner's.
     fn listener(
         &self,
         address: Option<SocketAddr>,
         secure: bool,
     ) -> Result<Arc<ListenerConfig>> {
-        let listen = address.map_or_else(
-            || "127.0.0.1:0".to_owned(),
-            |address| address.to_string(),
-        );
+        let address = address
+            .unwrap_or_else(|| SocketAddr::from((Ipv4Addr::LOCALHOST, 0)));
         #[cfg(feature = "tls")]
-        let protocols = if secure { self.protocols.declared() } else { "h1" };
+        let protocols = if secure {
+            self.protocols.accepted()
+        } else {
+            vec![HttpProtocol::H1]
+        };
         #[cfg(not(feature = "tls"))]
-        let protocols = "h1";
-        let backlog = self.tcp_backlog;
-        let document = format!(
-            "listeners:\n  {LISTENER}:\n    transport: tcp\n    tls: {secure}\n    protocols: {protocols}\n    listen: '{listen}'\n    tcp: {{backlog: {backlog}}}\n    requests: {{max_body_size: off, body_read_timeout: off}}\n    h1: {{header_read_timeout: null}}\n",
-        );
-        let snapshot: HttpSnapshot = serde_yaml::from_str(&document)
-            .map_err(|error| Error::msg(error.to_string()))?;
-        snapshot
-            .listeners
-            .into_values()
-            .next()
-            .ok_or_else(|| Error::msg("the listener was not declared"))
+        let protocols = vec![HttpProtocol::H1];
+        let serves_h1 = protocols.contains(&HttpProtocol::H1);
+        let mut definition = ListenerDefinition::tcp(address, protocols);
+        definition.tls = Override::Value(secure);
+        definition.tcp = Override::Value(TcpOverride {
+            backlog: Override::Value(self.tcp_backlog),
+            ..Default::default()
+        });
+        if serves_h1 {
+            definition.h1 = Override::Value(H1Override {
+                header_read_timeout: Override::Value(None),
+                ..Default::default()
+            });
+        }
+        definition.requests = RequestPolicyOverride {
+            max_body_size: Some(Limit::Off),
+            body_read_timeout: Some(Limit::Off),
+            ..Default::default()
+        };
+        definition
+            .resolve(
+                LISTENER.parse().map_err(failure)?,
+                &ListenerOverrides::default(),
+            )
+            .map(Arc::new)
+            .map_err(failure)
     }
 
     /// The owner behind one cleartext address, or a Unix socket without one.
@@ -304,3 +329,7 @@ async fn serve_secure<O: Owner>(
 fn failure(error: impl std::fmt::Display) -> Error {
     Error::msg(error.to_string())
 }
+
+#[cfg(test)]
+#[path = "../tests/doors.rs"]
+mod tests;
