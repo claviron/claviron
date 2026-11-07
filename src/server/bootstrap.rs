@@ -265,6 +265,14 @@ pub async fn start_services(
 }
 
 pub fn register(state: &AppState) -> Result<()> {
+    // Nothing in this build would read it, and its routes would simply be gone.
+    #[cfg(not(feature = "upstream"))]
+    if state.config_dir().join("upstream.yaml").exists() {
+        return Err(claviron_runtime::registry::Error::msg(
+            "upstream.yaml is present, but this build has no `upstream` feature",
+        )
+        .into());
+    }
     #[cfg(any(
         all(
             feature = "hosting",
