@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use crate::edge::service::HostService;
 use claviron_edge::host::{H3WebTransportSession, WebTransportHandler};
-use claviron_pipeline::plan::HostExecution;
 use claviron_edge::transport::{
     AnyAuthenticated, AuthContext, VhostCtx, VhostResolver,
     WebTransportBinding, WebTransportRegistry,
@@ -19,6 +18,7 @@ use claviron_http::config::ListenerConfig;
 use claviron_http::config::transport::EarlyDataPolicy;
 use claviron_http::ext::{ConnCtx, RequestArrival};
 use claviron_http::{RouteBody, RouteResponse};
+use claviron_pipeline::plan::HostExecution;
 use claviron_runtime::AppState;
 use http::{Request, StatusCode};
 use tokio::sync::mpsc;

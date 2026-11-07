@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use claviron_edge::transport::{AuthContext, VhostCtx};
-use claviron_pipeline::plan::HostExecution;
 use claviron_http::config::{HttpPolicy, RequestPolicy};
 use claviron_http::ext::{ConnCtx, RequestArrival};
 #[cfg(test)]
 use claviron_http::listener::HttpProtocol;
 use claviron_http::{RouteBody, RouteResponse};
+use claviron_pipeline::plan::HostExecution;
 use http::Request;
 
 #[cfg(feature = "tcp")]
