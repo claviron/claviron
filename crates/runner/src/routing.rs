@@ -368,7 +368,7 @@ fn reached(request: &AppRequest) -> AppResponse {
         .get::<claviron_http::socket::Offer>()
         .and_then(claviron_http::socket::Offer::claim)
     {
-        return claim.accept_with(|_| async {});
+        return claim.reach();
     }
     let _ = request;
     status(StatusCode::FORBIDDEN)

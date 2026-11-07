@@ -9,7 +9,7 @@ use std::ops::ControlFlow;
 #[cfg(feature = "websocket")]
 mod websocket;
 #[cfg(feature = "websocket")]
-pub use websocket::WebSocketStage;
+pub use websocket::{WebSocketStage, WebTransportStage};
 pub mod acl;
 mod app;
 mod body;

@@ -86,6 +86,59 @@ impl crate::BackendHandler for WebSocketStage {
     }
 }
 
+/// Where a WebTransport attempt has passed everything in front of the owners of
+/// its scope. The session itself is the transport's and its handler's to take;
+/// what this says is that the plan does not stand in its way. Anything else goes
+/// on to `next`.
+pub struct WebTransportStage {
+    next: Option<Arc<dyn crate::BackendHandler>>,
+}
+
+impl WebTransportStage {
+    pub fn new(next: Option<Arc<dyn crate::BackendHandler>>) -> Arc<Self> {
+        Arc::new(Self { next })
+    }
+}
+
+impl DispatchStep for WebTransportStage {
+    fn call(
+        &self,
+        request: Request<RouteBody>,
+        context: Option<crate::HostContext<'_>>,
+    ) -> DispatchCall {
+        use claviron_http::socket::{Offer, SocketKind};
+
+        if let Some(offer) = request.extensions().get::<Offer>()
+            && offer.info().kind == SocketKind::WebTransport
+        {
+            return DispatchCall::ready(ServiceResult::Handled(
+                match offer.claim() {
+                    Some(claim) => claim.reach(),
+                    None => {
+                        claviron_http::err_status(http::StatusCode::FORBIDDEN)
+                    }
+                },
+            ));
+        }
+        match &self.next {
+            Some(next) => next.call(request, context),
+            None => DispatchCall::ready(ServiceResult::Unhandled(request)),
+        }
+    }
+}
+
+impl crate::BackendHandler for WebTransportStage {
+    fn contract(&self) -> crate::BackendContract {
+        match &self.next {
+            Some(next) => next.contract(),
+            None => crate::BackendContract {
+                identity: crate::BackendIdentity::None,
+                reply: crate::BackendReply::Owner,
+            },
+        }
+    }
+}
+
 #[cfg(test)]
 #[path = "../../tests/layers/websocket.rs"]
 mod tests;

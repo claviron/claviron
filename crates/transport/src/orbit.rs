@@ -30,9 +30,7 @@ use claviron_app::{
     APPLICATION_EVENT_TOPIC, ApplicationEvent, EventArrayKey, EventValue,
 };
 use claviron_http::ext::{RealIpExt, RequestArrival};
-use claviron_http::socket::{
-    Carrier, Deferred, Door, Offer, OfferInfo, SocketKind, refusal,
-};
+use claviron_http::socket::{Admission, Carrier, OfferInfo, SocketKind};
 use claviron_http::trust::Forwarded;
 pub use claviron_orbit::link::application::Endpoint;
 use claviron_orbit::link::application::{
@@ -851,46 +849,21 @@ async fn before_head<T>(
     }
 }
 
-/// The Link acknowledgment is the application's to give, so a door here commits
-/// nothing: it only records that the plan let the attempt reach its owner.
-struct SessionDoor(Arc<std::sync::atomic::AtomicBool>);
-
-impl Door for SessionDoor {
-    fn commit(
-        self: Box<Self>,
-        proposal: claviron_http::RouteResponse,
-        _: Deferred,
-    ) -> claviron_http::RouteResponse {
-        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
-        proposal
-    }
-
-    fn refuse(
-        self: Box<Self>,
-        response: claviron_http::RouteResponse,
-    ) -> claviron_http::RouteResponse {
-        refusal(response)
-    }
-}
-
 /// Run a session attempt through the owner's plan. `None` lets it through;
-/// otherwise the status and headers the plan answered with, for the edge.
+/// otherwise the status and headers the plan answered with, for the edge. The
+/// Link acknowledgment is the application's to give, afterwards.
 async fn admitted<O: Owner>(
     mut attempt: AppRequest,
     version: HttpVersion,
     owner: &O,
 ) -> Option<(u16, Vec<(Vec<u8>, Vec<u8>)>)> {
-    let reached = Arc::new(std::sync::atomic::AtomicBool::new(false));
     // The version an edge marks a WebTransport stream with.
     let kind = match version {
         HttpVersion::Http3 => SocketKind::WebTransport,
         _ => SocketKind::WebSocket,
     };
-    let offer = Offer::new(
-        OfferInfo { kind, carrier: Carrier::Orbit },
-        SessionDoor(Arc::clone(&reached)),
-    );
-    attempt.extensions_mut().insert(offer.clone());
+    let admission = Admission::new(OfferInfo { kind, carrier: Carrier::Orbit });
+    attempt.extensions_mut().insert(admission.offer());
     let answered = owner
         .call(
             attempt.map(RequestBody::into_inner),
@@ -898,10 +871,7 @@ async fn admitted<O: Owner>(
             RequestArrival::Established,
         )
         .await;
-    let response = offer.finish(answered);
-    if reached.load(std::sync::atomic::Ordering::Relaxed) {
-        return None;
-    }
+    let response = admission.refused(answered)?;
     let headers = response
         .headers()
         .iter()

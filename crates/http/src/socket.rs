@@ -16,6 +16,7 @@
 
 use std::any::Any;
 use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use futures_util::FutureExt;
@@ -184,6 +185,12 @@ impl Claim {
         self.attempt.info
     }
 
+    /// Say the attempt reached its owner, under an [`Admission`], whose door
+    /// commits nothing.
+    pub fn reach(self) -> RouteResponse {
+        self.accept_with(|_| async {})
+    }
+
     /// Propose the session. `session` runs with its I/O after the handshake is
     /// committed, not before; nothing is committed or detached by this call.
     /// Headers set on the returned response cross to the handshake, except what
@@ -208,6 +215,57 @@ impl Claim {
         *response.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
         response.extensions_mut().insert(Receipt(Arc::clone(&self.attempt)));
         response
+    }
+}
+
+/// Whether a session attempt gets through a plan, where what commits it is not
+/// this response: an edge's Link acknowledgment, or a WebTransport session the
+/// transport answers itself.
+pub struct Admission {
+    offer: Offer,
+    reached: Arc<AtomicBool>,
+}
+
+/// Commits nothing; it only records that the plan let the attempt through.
+struct AdmissionDoor(Arc<AtomicBool>);
+
+impl Door for AdmissionDoor {
+    fn commit(
+        self: Box<Self>,
+        proposal: RouteResponse,
+        _: Deferred,
+    ) -> RouteResponse {
+        self.0.store(true, Ordering::Relaxed);
+        proposal
+    }
+
+    fn refuse(
+        self: Box<Self>,
+        response: RouteResponse,
+    ) -> RouteResponse {
+        refusal(response)
+    }
+}
+
+impl Admission {
+    pub fn new(info: OfferInfo) -> Self {
+        let reached = Arc::new(AtomicBool::new(false));
+        let offer = Offer::new(info, AdmissionDoor(Arc::clone(&reached)));
+        Self { offer, reached }
+    }
+
+    /// What goes in the extensions of the request that runs through the plan.
+    pub fn offer(&self) -> Offer {
+        self.offer.clone()
+    }
+
+    /// What the plan refused the attempt with. `None` when it reached its owner.
+    pub fn refused(
+        self,
+        response: RouteResponse,
+    ) -> Option<RouteResponse> {
+        let response = self.offer.finish(response);
+        (!self.reached.load(Ordering::Relaxed)).then_some(response)
     }
 }
 

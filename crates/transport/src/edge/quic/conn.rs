@@ -17,6 +17,7 @@ use claviron_http::authority::AcceptedAuthority;
 use claviron_http::config::ListenerConfig;
 use claviron_http::config::transport::EarlyDataPolicy;
 use claviron_http::ext::{ConnCtx, RequestArrival};
+use claviron_http::socket::{Admission, Carrier, OfferInfo, SocketKind};
 use claviron_http::{RouteBody, RouteResponse};
 use claviron_pipeline::plan::HostExecution;
 use claviron_runtime::AppState;
@@ -128,6 +129,8 @@ impl QuicRequests for HostRequests {
         + 'static,
         StatusCode,
     > {
+        let attempt = Self::attempt(&head);
+        let plan = self.service.clone();
         let prepared = self.service.request(head, RequestArrival::Established);
         let Some(WebTransportBinding::Handler(handler)) = self
             .web_transport
@@ -141,6 +144,20 @@ impl QuicRequests for HostRequests {
         let request = prepared.into_request();
         let state = self.state.clone();
         Ok(async move {
+            // What stands in front of the owners decides first, as it does for
+            // any other request to this scope.
+            let admission = Admission::new(OfferInfo {
+                kind: SocketKind::WebTransport,
+                carrier: Carrier::H3,
+            });
+            let mut attempt = attempt;
+            attempt.extensions_mut().insert(admission.offer());
+            let answered =
+                plan.request(attempt, RequestArrival::Established).dispatch();
+            if let Some(refused) = admission.refused(answered.await) {
+                debug!(status = %refused.status(), "WebTransport refused by the plan");
+                return Err(refused.status());
+            }
             let authenticated = match handler.accept(&state, &context).await {
                 Ok(accepted) => accepted.into_authenticated(),
                 Err(reject) => {
@@ -153,6 +170,19 @@ impl QuicRequests for HostRequests {
                 session: HostSession { handler, authenticated, state, context },
             })
         })
+    }
+}
+
+impl HostRequests {
+    /// The attempt as an ordinary request to the plan, with no body: session
+    /// streams are not one, and no HTTP body limit applies to them.
+    fn attempt(head: &Request<()>) -> Request<RouteBody> {
+        let mut attempt = Request::new(claviron_http::empty_body());
+        *attempt.method_mut() = head.method().clone();
+        *attempt.uri_mut() = head.uri().clone();
+        *attempt.version_mut() = head.version();
+        *attempt.headers_mut() = head.headers().clone();
+        attempt
     }
 }
 

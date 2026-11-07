@@ -196,3 +196,20 @@ fn an_upgrade_to_anything_else_is_an_ordinary_request() {
         .unwrap();
     assert!(Handshake::from_request(&request).unwrap().is_none());
 }
+
+#[test]
+fn an_admission_says_whether_the_plan_let_the_attempt_through() {
+    let info =
+        OfferInfo { kind: SocketKind::WebTransport, carrier: Carrier::H3 };
+    let through = Admission::new(info);
+    let reached = through.offer().claim().unwrap().reach();
+    assert!(through.refused(reached).is_none());
+
+    let refused = Admission::new(info);
+    let answer = refused.refused(answered(StatusCode::TEMPORARY_REDIRECT));
+    assert_eq!(answer.unwrap().status(), StatusCode::TEMPORARY_REDIRECT);
+
+    let unclaimed = Admission::new(info);
+    let answer = unclaimed.refused(answered(StatusCode::OK));
+    assert_eq!(answer.unwrap().status(), StatusCode::FORBIDDEN);
+}

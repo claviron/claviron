@@ -12,7 +12,7 @@ use claviron_types::Host;
 use crate::config::HostConfig;
 use crate::host::apps::{HostAppRegistry, HostContributions};
 use crate::host::{RouteProtocol, RustRouter};
-#[cfg(feature = "websocket")]
+#[cfg(any(feature = "websocket", feature = "webtransport"))]
 use claviron_pipeline::BackendHandler;
 use claviron_pipeline::plan::HostExecution;
 
@@ -85,6 +85,10 @@ impl HostCompiler<'_> {
         .map(|stage| stage as Arc<dyn BackendHandler>);
         #[cfg(not(feature = "websocket"))]
         let upgrades = None;
+        #[cfg(feature = "webtransport")]
+        let upgrades =
+            Some(claviron_pipeline::layers::WebTransportStage::new(upgrades)
+                as Arc<dyn BackendHandler>);
         compile(CompileInput {
             state,
             host: Some(host),
