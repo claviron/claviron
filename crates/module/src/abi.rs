@@ -26,6 +26,10 @@ pub const FIELD_VERSION: u32 = 7;
 pub const FIELD_HEADER_NAME: u32 = 8;
 pub const FIELD_HEADER_VALUE: u32 = 9;
 
+pub const MESSAGE_TEXT: u32 = 1;
+pub const MESSAGE_BINARY: u32 = 2;
+pub const MESSAGE_CLOSE: u32 = 3;
+
 pub const ABI_VERSION_SYMBOL: &[u8] = b"claviron_module_abi_version\0";
 pub const REGISTER_SYMBOL: &[u8] = b"claviron_module_register\0";
 
@@ -110,6 +114,25 @@ pub struct HttpHandler {
     pub closed: Option<ClosedFn>,
 }
 
+pub type MessageFn = unsafe extern "C" fn(
+    *mut Request,
+    u32,
+    u32,
+    *const u8,
+    u64,
+    *mut c_void,
+) -> u32;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SessionHandler {
+    pub struct_size: u32,
+    pub open: Option<RequestFn>,
+    pub message: Option<MessageFn>,
+    pub writable: Option<RequestFn>,
+    pub closed: Option<ClosedFn>,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Application {
@@ -118,6 +141,7 @@ pub struct Application {
     pub start: Option<unsafe extern "C" fn(*mut c_void) -> u32>,
     pub stop: Option<unsafe extern "C" fn(*mut c_void) -> u32>,
     pub http: *const HttpHandler,
+    pub websocket: *const SessionHandler,
 }
 
 #[repr(C)]
@@ -160,4 +184,7 @@ pub struct Host {
         unsafe extern "C" fn(*mut Request, Slice, Slice) -> u32,
     pub response_write: unsafe extern "C" fn(*mut Request, Slice) -> u32,
     pub response_finish: unsafe extern "C" fn(*mut Request) -> u32,
+    pub session_accept: unsafe extern "C" fn(*mut Request, u64) -> u32,
+    pub session_send:
+        unsafe extern "C" fn(*mut Request, u32, u32, Slice) -> u32,
 }

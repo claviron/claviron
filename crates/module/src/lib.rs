@@ -43,6 +43,10 @@ pub fn register_routes(
     site.register_backend(claviron_pipeline::factory::factory::<String, _>(
         "module",
         claviron_pipeline::factory::BackendPlacement::AfterFiles,
-        move |_, name| provider.backend(&name).map(|backend| vec![backend]),
+        move |context, name| {
+            provider
+                .backend(&name, context.transport.h1.upgrade)
+                .map(|backend| vec![backend])
+        },
     ))
 }

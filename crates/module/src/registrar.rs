@@ -5,7 +5,8 @@ use std::collections::BTreeSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use crate::abi::{
-    self, Application, Host, HttpHandler, Lifecycle, Registrar, Service, Slice,
+    self, Application, Host, HttpHandler, Lifecycle, Registrar, Service,
+    SessionHandler, Slice,
 };
 
 /// A library's registrations, filled while its register function runs.
@@ -13,7 +14,8 @@ use crate::abi::{
 pub(crate) struct Registration {
     pub lifecycle: Option<Lifecycle>,
     pub services: Vec<(String, Service)>,
-    pub applications: Vec<(String, Application, HttpHandler)>,
+    pub applications:
+        Vec<(String, Application, HttpHandler, Option<SessionHandler>)>,
     pub error: Option<String>,
 }
 
@@ -125,11 +127,32 @@ unsafe extern "C" fn register_application(
                     "application '{name}': its http handler has no request"
                 ));
             }
-            Ok((name, http))
+            let websocket = if application.websocket.is_null() {
+                None
+            } else {
+                let websocket = unsafe { *application.websocket };
+                if websocket.struct_size as usize != size_of::<SessionHandler>() {
+                    return Err(format!(
+                        "application '{name}': claviron_session_handler has the wrong struct_size"
+                    ));
+                }
+                if websocket.open.is_none() || websocket.message.is_none() {
+                    return Err(format!(
+                        "application '{name}': its websocket handler needs open and message"
+                    ));
+                }
+                Some(websocket)
+            };
+            Ok((name, http, websocket))
         });
         match checked {
-            Ok((name, http)) => {
-                registration.applications.push((name, application, http));
+            Ok((name, http, websocket)) => {
+                registration.applications.push((
+                    name,
+                    application,
+                    http,
+                    websocket,
+                ));
                 abi::OK
             }
             Err(error) => {
@@ -184,6 +207,8 @@ pub(crate) static HOST: Host = Host {
     response_header: crate::request::response_header,
     response_write: crate::request::response_write,
     response_finish: crate::request::response_finish,
+    session_accept: crate::request::session_accept,
+    session_send: crate::request::session_send,
 };
 
 /// Run one library's register function.

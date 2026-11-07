@@ -141,7 +141,9 @@ impl ModuleProvider {
                     RunnableInstance::new(name, service).placed(placement),
                 );
             }
-            for (name, application, http) in registration.applications {
+            for (name, application, http, websocket) in
+                registration.applications
+            {
                 let Some(settings) = config.applications.get(&name) else {
                     return Err(error(format!(
                         "{library_name} registered application '{name}', which {CONFIG_FILE} does not declare"
@@ -152,6 +154,7 @@ impl ModuleProvider {
                     name.clone(),
                     application,
                     http,
+                    websocket,
                     settings.clone(),
                 ));
                 if modules.applications.insert(name.clone(), module).is_some() {
@@ -192,12 +195,16 @@ impl ModuleProvider {
     pub(crate) fn backend(
         &self,
         name: &str,
+        h1_upgrade: bool,
     ) -> registry::Result<Arc<dyn claviron_pipeline::BackendHandler>> {
         let modules = self.modules.lock().expect("modules lock");
         let application = modules.applications.get(name).ok_or_else(|| {
             error(format!("no module registered an application '{name}'"))
         })?;
-        Ok(Arc::new(ModuleBackend(Arc::clone(application))))
+        Ok(Arc::new(ModuleBackend {
+            application: Arc::clone(application),
+            h1_upgrade,
+        }))
     }
 
     fn applications(&self) -> Vec<Arc<ModuleApplication>> {

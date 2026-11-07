@@ -12,6 +12,7 @@ use claviron_app::{
     ApplicationPoolStatus, ApplicationRuntime, ApplicationSnapshot,
 };
 use claviron_http::policy::HttpPolicy;
+use claviron_http::socket::{Carrier, Offer, OfferInfo, SocketKind};
 use claviron_http::{RouteBody, ServiceResult, err_status};
 use claviron_pipeline::{
     BackendContract, BackendHandler, BackendIdentity, BackendReply,
@@ -20,7 +21,7 @@ use claviron_pipeline::{
 use http::{Request, StatusCode};
 use tokio::sync::{oneshot, watch};
 
-use crate::abi::{self, Application, HttpHandler};
+use crate::abi::{self, Application, HttpHandler, SessionHandler};
 use crate::config::ApplicationConfig;
 use crate::pool::Pool;
 use crate::registrar::contained;
@@ -33,6 +34,7 @@ pub(crate) struct ModuleApplication {
     name: String,
     settings: ApplicationConfig,
     table: HttpHandler,
+    websocket: Option<SessionHandler>,
     context: SendPtr,
     start: Option<unsafe extern "C" fn(*mut std::ffi::c_void) -> u32>,
     stop: Option<unsafe extern "C" fn(*mut std::ffi::c_void) -> u32>,
@@ -42,6 +44,8 @@ pub(crate) struct ModuleApplication {
     generation: AtomicU64,
     waiting: AtomicUsize,
     open: watch::Sender<usize>,
+    /// Bumped when the application stops, for sessions to hear it.
+    retiring: watch::Sender<u64>,
     last_error: Mutex<Option<String>>,
 }
 
@@ -55,12 +59,14 @@ impl ModuleApplication {
         name: String,
         application: Application,
         table: HttpHandler,
+        websocket: Option<SessionHandler>,
         settings: ApplicationConfig,
     ) -> Self {
         Self {
             name,
             settings,
             table,
+            websocket,
             context: SendPtr(application.context),
             start: application.start,
             stop: application.stop,
@@ -70,12 +76,19 @@ impl ModuleApplication {
             generation: AtomicU64::new(0),
             waiting: AtomicUsize::new(0),
             open: watch::Sender::new(0),
+            retiring: watch::Sender::new(0),
             last_error: Mutex::new(None),
         }
     }
 
-    pub(crate) fn table(&self) -> (HttpHandler, SendPtr) {
-        (self.table, self.context)
+    pub(crate) fn table(
+        &self
+    ) -> (HttpHandler, Option<SessionHandler>, SendPtr) {
+        (self.table, self.websocket, self.context)
+    }
+
+    pub(crate) fn retiring(&self) -> watch::Receiver<u64> {
+        self.retiring.subscribe()
     }
 
     pub(crate) fn submit(
@@ -139,6 +152,7 @@ impl ModuleApplication {
             return Ok(());
         }
         self.accepting.store(false, Ordering::Release);
+        self.retiring.send_modify(|retiring| *retiring += 1);
         let mut open = self.open.subscribe();
         let _ = open.wait_for(|open| *open == 0).await;
         let Some(stop) = self.stop else { return Ok(()) };
@@ -212,7 +226,11 @@ impl ModuleApplication {
 }
 
 /// What a route's `module:` directive selects.
-pub(crate) struct ModuleBackend(pub Arc<ModuleApplication>);
+pub(crate) struct ModuleBackend {
+    pub application: Arc<ModuleApplication>,
+    /// The transport's `h1.upgrade`: what the connection's terms allow.
+    pub h1_upgrade: bool,
+}
 
 impl BackendHandler for ModuleBackend {
     fn contract(&self) -> BackendContract {
@@ -225,17 +243,30 @@ impl BackendHandler for ModuleBackend {
     }
 }
 
+fn answered(status: StatusCode) -> DispatchCall {
+    DispatchCall::ready(ServiceResult::Handled(err_status(status)))
+}
+
 impl DispatchStep for ModuleBackend {
     fn call(
         &self,
         request: Request<RouteBody>,
         _: Option<HostContext<'_>>,
     ) -> DispatchCall {
-        let application = &self.0;
+        let application = &self.application;
         if !application.accepting.load(Ordering::Acquire) {
-            return DispatchCall::ready(ServiceResult::Handled(err_status(
-                StatusCode::SERVICE_UNAVAILABLE,
-            )));
+            return answered(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        let offer = request.extensions().get::<Offer>().cloned();
+        if let Some(offer) = &offer {
+            let OfferInfo { kind, carrier } = offer.info();
+            if kind != SocketKind::WebSocket || application.websocket.is_none()
+            {
+                return answered(StatusCode::NOT_IMPLEMENTED);
+            }
+            if carrier == Carrier::H1 && !self.h1_upgrade {
+                return answered(StatusCode::FORBIDDEN);
+            }
         }
         let waiting = application.waiting.fetch_add(1, Ordering::AcqRel);
         if waiting >= application.settings.max_waiting {
@@ -250,7 +281,8 @@ impl DispatchStep for ModuleBackend {
             .and_then(|policy| policy.requests.queue_timeout);
         let (head, answered) = oneshot::channel();
         application.open.send_modify(|open| *open += 1);
-        let exchange = Exchange::new(request, head, Arc::clone(application));
+        let exchange =
+            Exchange::new(request, head, offer, Arc::clone(application));
         let turn = Arc::clone(&exchange);
         if !application.submit(move || turn.run()) {
             exchange.abandon();

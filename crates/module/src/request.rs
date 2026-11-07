@@ -10,13 +10,16 @@ use std::task::{Context, Poll};
 use bytes::Bytes;
 use claviron_http::ext::ConnCtx;
 use claviron_http::policy::HttpPolicy;
+use claviron_http::socket::Offer;
 use claviron_http::{RouteBody, RouteResponse, boxed_body, err_status};
+use claviron_transport::owner::RequestBody;
+use claviron_transport::websocket::{Deliver, Message, accept};
 use http::header::{HeaderName, HeaderValue};
 use http::{HeaderMap, StatusCode};
 use http_body::Frame;
 use tokio::sync::{mpsc, oneshot, watch};
 
-use crate::abi::{self, HttpHandler, Request, Slice};
+use crate::abi::{self, HttpHandler, Request, SessionHandler, Slice};
 use crate::application::ModuleApplication;
 use crate::registrar::contained;
 use crate::service::SendPtr;
@@ -52,6 +55,9 @@ pub(crate) struct Exchange {
     data: AtomicPtr<c_void>,
     table: HttpHandler,
     context: SendPtr,
+    /// A session attempt, with the table that answers it.
+    session: Option<(Offer, SessionHandler)>,
+    outbound: Mutex<Option<mpsc::Sender<Message>>>,
     application: Arc<ModuleApplication>,
     runtime: tokio::runtime::Handle,
 }
@@ -65,6 +71,7 @@ impl Exchange {
     pub(crate) fn new(
         request: http::Request<RouteBody>,
         head: oneshot::Sender<RouteResponse>,
+        offer: Option<Offer>,
         application: Arc<ModuleApplication>,
     ) -> Arc<Self> {
         let (parts, body) = request.into_parts();
@@ -91,7 +98,7 @@ impl Exchange {
             http::Version::HTTP_3 => "3",
             _ => "",
         };
-        let (table, context) = application.table();
+        let (table, websocket, context) = application.table();
         Arc::new(Self {
             parts,
             peer,
@@ -108,6 +115,8 @@ impl Exchange {
             data: AtomicPtr::new(std::ptr::null_mut()),
             table,
             context,
+            session: offer.zip(websocket),
+            outbound: Mutex::new(None),
             application,
             runtime: tokio::runtime::Handle::current(),
         })
@@ -132,7 +141,11 @@ impl Exchange {
             return;
         }
         self.application.left_queue();
-        let Some(request) = self.table.request else { return };
+        let callback = match &self.session {
+            Some((_, session)) => session.open,
+            None => self.table.request,
+        };
+        let Some(request) = callback else { return };
         let (handle, context) = (self.handle(), self.context.0);
         let status = contained(|| unsafe { request(handle, context) });
         if status != abi::OK {
@@ -172,6 +185,9 @@ impl Exchange {
         } else {
             self.aborted.store(true, Ordering::Release);
             reply.body = None;
+            drop(reply);
+            // A session closes with an error status when its owner side goes.
+            self.outbound.lock().expect("outbound").take();
         }
     }
 
@@ -188,7 +204,11 @@ impl Exchange {
         let heard = self.progress.load(Ordering::Acquire) == STARTED;
         let this = Arc::clone(self);
         let submitted = self.application.submit(move || {
-            if let (true, Some(closed)) = (heard, this.table.closed) {
+            let closed = match &this.session {
+                Some((_, session)) => session.closed,
+                None => this.table.closed,
+            };
+            if let (true, Some(closed)) = (heard, closed) {
                 let (handle, context) = (this.handle(), this.context.0);
                 contained(|| {
                     unsafe { closed(handle, status, context) };
@@ -206,7 +226,11 @@ impl Exchange {
         if !self.want_writable.swap(false, Ordering::AcqRel) {
             return;
         }
-        let Some(writable) = self.table.writable else { return };
+        let callback = match &self.session {
+            Some((_, session)) => session.writable,
+            None => self.table.writable,
+        };
+        let Some(writable) = callback else { return };
         let this = Arc::clone(self);
         self.application.submit(move || {
             let (handle, context) = (this.handle(), this.context.0);
@@ -238,7 +262,145 @@ impl Exchange {
         abi::OK
     }
 
+    /// Propose the session with the headers set so far. The door commits it, and
+    /// whatever follows runs between the socket and this exchange.
+    fn accept_session(
+        self: &Arc<Self>,
+        limit: u64,
+    ) -> u32 {
+        let Some((offer, _)) = &self.session else {
+            return abi::UNSUPPORTED;
+        };
+        let (Ok(limit), true) = (usize::try_from(limit), limit > 0) else {
+            return abi::INVALID_ARGUMENT;
+        };
+        let mut reply = self.reply.lock().expect("reply");
+        let Some(head) = reply.head.take() else {
+            return abi::INVALID_ARGUMENT;
+        };
+        let headers = std::mem::take(&mut reply.headers)
+            .iter()
+            .map(|(name, value)| {
+                (name.as_str().as_bytes().to_vec(), value.as_bytes().to_vec())
+            })
+            .collect();
+        drop(reply);
+        let (outbound, receiver) = mpsc::channel(1);
+        *self.outbound.lock().expect("outbound") = Some(outbound);
+        let mut attempt = http::Request::new(RequestBody::empty());
+        attempt.extensions_mut().insert(offer.clone());
+        let proposal = accept(
+            attempt,
+            headers,
+            Inbound(Arc::clone(self)),
+            receiver,
+            limit,
+        );
+        if head.send(proposal).is_err() {
+            return abi::CLOSED;
+        }
+        self.hear_retirement();
+        abi::OK
+    }
+
+    /// An application stopping tells its open sessions, once, as a close the
+    /// client did not send, in order with the session's other messages.
+    fn hear_retirement(self: &Arc<Self>) {
+        let this = Arc::clone(self);
+        self.runtime.spawn(async move {
+            let mut closing = this.closing.subscribe();
+            let mut retiring = this.application.retiring();
+            let retired = tokio::select! {
+                _ = closing.wait_for(|closed| *closed) => false,
+                changed = retiring.changed() => changed.is_ok(),
+            };
+            if retired {
+                this.deliver(Message::Close {
+                    code: 1001,
+                    reason: "server shutting down".to_owned(),
+                })
+                .await;
+            }
+        });
+    }
+
+    /// Hand one message to the module and wait for its callback to return.
+    async fn deliver(
+        self: &Arc<Self>,
+        message: Message,
+    ) -> bool {
+        let Some(callback) =
+            self.session.as_ref().and_then(|(_, session)| session.message)
+        else {
+            return false;
+        };
+        if self.closed.load(Ordering::Acquire) {
+            return false;
+        }
+        let (done, delivered) = oneshot::channel();
+        let this = Arc::clone(self);
+        let submitted = self.application.submit(move || {
+            let (kind, code, data): (u32, u32, &[u8]) = match &message {
+                Message::Text(text) => (abi::MESSAGE_TEXT, 0, text.as_bytes()),
+                Message::Binary(bytes) => (abi::MESSAGE_BINARY, 0, bytes),
+                Message::Close { code, reason } => {
+                    (abi::MESSAGE_CLOSE, (*code).into(), reason.as_bytes())
+                }
+            };
+            let (handle, context) = (this.handle(), this.context.0);
+            let status = contained(|| unsafe {
+                callback(
+                    handle,
+                    kind,
+                    code,
+                    data.as_ptr(),
+                    data.len() as u64,
+                    context,
+                )
+            });
+            if status != abi::OK {
+                this.fail(status);
+            }
+            let _ = done.send(status == abi::OK);
+        });
+        submitted && delivered.await.unwrap_or(false)
+    }
+
+    fn send_message(
+        self: &Arc<Self>,
+        message: Message,
+    ) -> u32 {
+        if self.closed.load(Ordering::Acquire) {
+            return abi::CLOSED;
+        }
+        let outbound = self.outbound.lock().expect("outbound");
+        let Some(sender) = outbound.as_ref() else {
+            return abi::CLOSED;
+        };
+        match sender.try_send(message) {
+            Ok(()) => abi::OK,
+            Err(mpsc::error::TrySendError::Closed(_)) => abi::CLOSED,
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                let sender = sender.clone();
+                drop(outbound);
+                // Say when room returns: what took the last message is the pump,
+                // and it knows nothing of this.
+                self.want_writable.store(true, Ordering::Release);
+                let this = Arc::clone(self);
+                self.runtime.spawn(async move {
+                    if sender.reserve().await.is_ok() {
+                        this.drained();
+                    }
+                });
+                abi::BUSY
+            }
+        }
+    }
+
     fn read_body(self: &Arc<Self>) -> u32 {
+        if self.session.is_some() {
+            return abi::UNSUPPORTED;
+        }
         let Some(callback) = self.table.body else {
             return abi::UNSUPPORTED;
         };
@@ -293,6 +455,23 @@ impl Exchange {
             }
         });
         abi::OK
+    }
+}
+
+/// The client's side of a session, as the socket's pump drives it.
+struct Inbound(Arc<Exchange>);
+
+impl Deliver for Inbound {
+    fn deliver(
+        &self,
+        message: Message,
+    ) -> impl std::future::Future<Output = bool> + Send {
+        let exchange = Arc::clone(&self.0);
+        async move { exchange.deliver(message).await }
+    }
+
+    fn end(&self) {
+        self.0.close(abi::OK);
     }
 }
 
@@ -584,6 +763,47 @@ pub(crate) unsafe extern "C" fn response_finish(request: *mut Request) -> u32 {
             // The body ends once what is queued has gone.
             reply.body = None;
             opened
+        })
+    }
+}
+
+pub(crate) unsafe extern "C" fn session_accept(
+    request: *mut Request,
+    max_message_bytes: u64,
+) -> u32 {
+    unsafe {
+        with(request, |exchange| exchange.accept_session(max_message_bytes))
+    }
+}
+
+pub(crate) unsafe extern "C" fn session_send(
+    request: *mut Request,
+    kind: u32,
+    code: u32,
+    data: Slice,
+) -> u32 {
+    unsafe {
+        with(request, |exchange| {
+            let bytes = data.bytes();
+            let message = match kind {
+                abi::MESSAGE_TEXT => match std::str::from_utf8(bytes) {
+                    Ok(text) => Message::Text(text.to_owned()),
+                    Err(_) => return abi::INVALID_ARGUMENT,
+                },
+                abi::MESSAGE_BINARY => Message::Binary(bytes.to_vec()),
+                abi::MESSAGE_CLOSE => {
+                    let Ok(code) = u16::try_from(code) else {
+                        return abi::INVALID_ARGUMENT;
+                    };
+                    let reason = String::from_utf8_lossy(bytes).into_owned();
+                    if !Message::sendable_close(code, &reason) {
+                        return abi::INVALID_ARGUMENT;
+                    }
+                    Message::Close { code, reason }
+                }
+                _ => return abi::INVALID_ARGUMENT,
+            };
+            exchange.send_message(message)
         })
     }
 }

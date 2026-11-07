@@ -107,6 +107,30 @@ typedef struct {
     claviron_closed_fn closed;
 } claviron_http_handler;
 
+typedef enum {
+    CLAVIRON_MESSAGE_TEXT = 1,
+    CLAVIRON_MESSAGE_BINARY = 2,
+    CLAVIRON_MESSAGE_CLOSE = 3
+} claviron_message_kind;
+
+/* Bytes borrowed for the call; for a close, code is set and data is the reason.
+ * A close with code 1001 that the client did not send says the application is
+ * stopping: finish what is owed and close. The next message arrives after this
+ * call returns, so a slow handler slows its client, not memory. */
+typedef uint32_t (*claviron_message_fn)(claviron_request *request, uint32_t kind, uint32_t code, const uint8_t *data, uint64_t length, void *context);
+
+/* An HTTP/1.1 upgrade or an HTTP/2 extended CONNECT to this application. open
+ * decides: session_accept, or response_begin and response_finish to refuse. It may
+ * decide later, from another thread. What stands in front of the application has
+ * already applied. */
+typedef struct {
+    uint32_t struct_size;
+    claviron_request_fn open;
+    claviron_message_fn message;
+    claviron_request_fn writable;
+    claviron_closed_fn closed;
+} claviron_session_handler;
+
 /* start runs before the application takes requests and stop after the last one
  * has closed, at boot and shutdown and for every management start and stop. */
 typedef struct {
@@ -115,6 +139,8 @@ typedef struct {
     uint32_t (*start)(void *context);
     uint32_t (*stop)(void *context);
     const claviron_http_handler *http;
+    /* Optional. Without it a session attempt is answered 501. */
+    const claviron_session_handler *websocket;
 } claviron_application;
 
 typedef enum {
@@ -174,6 +200,13 @@ typedef struct claviron_host {
     uint32_t (*response_header)(claviron_request *request, claviron_slice name, claviron_slice value);
     uint32_t (*response_write)(claviron_request *request, claviron_slice data);
     uint32_t (*response_finish)(claviron_request *request);
+
+    /* Accept a session, with any headers set by response_header. max_message_bytes
+     * bounds a text or binary message either way, and is required. session_send
+     * copies its bytes and answers CLAVIRON_BUSY while the last is unsent; writable
+     * says when to try again. A close ends the session. */
+    uint32_t (*session_accept)(claviron_request *request, uint64_t max_message_bytes);
+    uint32_t (*session_send)(claviron_request *request, uint32_t kind, uint32_t code, claviron_slice data);
 } claviron_host;
 
 #ifdef __cplusplus

@@ -19,6 +19,7 @@ claviron-app.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
 claviron-pipeline.workspace = true
 claviron-runtime.workspace = true
+claviron-transport = { workspace = true, features = ["websocket-session"] }
 continuo = { workspace = true, features = ["fleet"] }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
