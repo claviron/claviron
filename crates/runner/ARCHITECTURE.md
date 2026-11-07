@@ -72,9 +72,11 @@ a second architecture.
   `runtime` — and none of `edge`, vhosts or the hosting store.
 - The lifecycle stays Claviron's: `Server`, the registry, runnable
   generations, drain and finalize. The runner adds providers, not a sequence.
-- The doors are features too: `socket`, `orbit`, and `pipeline` for the policy
-  and files in front of the owner, all from the crates below this one. A launch
-  that declares what its build was not given is refused, not served without it.
+- The doors are features too: `socket` and `orbit`, from the crates below this
+  one. Every door calls one compiled `claviron_pipeline` site, whose owner is the
+  application, registered with `SiteRegistry::register_backend` after the site's
+  files. A launch that declares nothing compiles to the router alone, called
+  directly, with no plan to walk through. A directive nothing owns fails at boot.
 - Optional pieces are this crate's own features: `files`,
   `supervisor`, `tls`, `cli` and `watch`. A language runner forwards its
   features directly to this dependency. Its listener TLS does not enable
@@ -98,7 +100,8 @@ constructor builds the terminal service after configuration has been applied,
 then adds the shared socket/Orbit ingress and management bridge. Continuo owns
 the registered services' boot, execution and drain.
 
-Rust composition does not register a language `Owner`. Without contributed
+Rust composition does not register a language `Owner`. A language `Owner` answers
+HTTP and sessions alike, from its service and its `upgrades`. Without contributed
 routes there is no intermediate Axum router. Registered host-free Routables
 stand before the terminal service; the terminal router retains its own fallback
 and method responses. Files retain the shared composition order.

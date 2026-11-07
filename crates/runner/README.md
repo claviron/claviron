@@ -62,6 +62,15 @@ application's own sockets and over Orbit from an Edge alike. Route it with `any`
 since an HTTP/2 WebSocket is a CONNECT. Lifecycle management requires the
 application's registered controller.
 
+| Attempt | Own socket | Over Orbit from an Edge |
+| --- | --- | --- |
+| WebSocket, HTTP/1.1 and HTTP/2 | Offered through the site | Offered through the site |
+| WebTransport | Refused: the runner has no QUIC door | One reliable bidi stream as whole messages |
+| Raw HTTP/2 CONNECT | Refused | Refused |
+
+What stands in front of the owner applies to an attempt as to any request. What
+nobody claims is refused, and no status makes a session of it.
+
 For Warp, select `rust` and `warp`, then use `with_warp(filter)` or return
 `claviron::http::warp::router(filter)` from `with_router`. The adapter runs the
 filter without Warp's listener. `OtherService` is the low-level handler choice.
@@ -185,7 +194,7 @@ Independent masters must not assume they can allocate the same fleet lanes.
 ## Optional capabilities
 
 The implementation crate has no default features. Its capabilities are `rust`, `axum`, `warp`,
-`socket`, `orbit`, `pipeline`, `tls`, `files`, `cli`, `supervisor`, `websocket`, and `watch`.
+`socket`, `orbit`, `tls`, `files`, `cli`, `supervisor`, `websocket`, and `watch`.
 The root facade's `runner-cli` extends an already-selected `runner`; it does not
 enable the shell on its own. Select both for command-line launch options.
 `runner-watch` selects the runner and its watcher. Facade and implementation
