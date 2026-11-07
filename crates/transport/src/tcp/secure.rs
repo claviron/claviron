@@ -406,7 +406,7 @@ async fn handle_stream<S: Secure>(
             H1 => {
                 let conn_fut = make_h1_builder(&cfg.h1)
                     .serve_connection(stream, vhost_service);
-                #[cfg(feature = "websocket")]
+                #[cfg(any(feature = "websocket", feature = "edge"))]
                 let conn_fut = conn_fut.with_upgrades();
                 tokio::pin!(conn_fut);
 

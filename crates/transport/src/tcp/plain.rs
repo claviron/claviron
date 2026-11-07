@@ -194,7 +194,9 @@ pub async fn serve<S: Cleartext>(
     let (stream, errors) = super::io::TcpIo::split(stream);
     let connection = super::protocol::h1(snapshot.h1())
         .serve_connection(TokioIo::new(stream), service);
-    #[cfg(feature = "websocket")]
+    // Edge hosts accept upgrades by policy: Link and upstream both answer 101
+    // before the connection is handed over, so it has to survive that answer.
+    #[cfg(any(feature = "websocket", feature = "edge"))]
     let connection = connection.with_upgrades();
     tokio::pin!(connection);
     let serving = async {
