@@ -564,7 +564,8 @@ pub fn compile_with_owner(
 }
 
 /// Compile a site served as itself, by a listener that selects no host. Its
-/// directives resolve against `registry`; a directive nothing owns fails here.
+/// directives resolve against `registry`; a directive nothing owns fails here,
+/// including an `orbit:` route when `claviron_orbit::register` was not called.
 pub fn compile_site(
     state: &AppState,
     site: Arc<Site>,
@@ -616,6 +617,20 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
         upgrades,
         policy,
     } = input;
+    // An `orbit:` route this process has no Link to reach is a directive nothing
+    // owns. It fails here rather than answering every request with 503.
+    #[cfg(feature = "orbit")]
+    if config.link_routes().next().is_some()
+        && state
+            .registry_ref()
+            .resolve::<claviron_orbit::link::application::ApplicationService>()
+            .is_none()
+    {
+        return Err(Error::msg(
+            "an orbit: route needs the application link; call \
+             claviron_orbit::register while registering this server",
+        ));
+    }
     let policy = listener.map(ListenerConfig::policy).or(policy);
     let policy = policy.unwrap_or_else(HttpPolicy::unlimited);
     let protocol = listener.map(RouteProtocol::from).or(protocol);

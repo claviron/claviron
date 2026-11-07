@@ -28,7 +28,11 @@ all depend on this crate, and it depends only on `claviron-http`.
 - `accept`: work done once while a connection is accepted.
 - `link`: dispatch to an application process over Orbit Link, behind `orbit`.
   `compile` prepares it from a scope's `orbit:` declaration, so a site served by
-  one listener or by a runner reaches its applications the same way a host does.
+  one listener reaches its applications the same way a host does. It needs
+  `claviron_orbit::register`, which the full server calls; a `Single` composition
+  calls it itself, and compiling without it fails. HTTP and WebSocket work there.
+  WebTransport sessions need Edge, because `quic::Single` does not offer them. A
+  runner's site holds only its files, so a runner declares no `orbit:` route.
 - `response`: the replies decided before dispatch.
 - `routing`: host-free Axum route contributions, `Routable` and
   `RoutableRegistry`, behind the `axum` feature.
