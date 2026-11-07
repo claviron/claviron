@@ -7,13 +7,21 @@
 use std::io;
 
 mod lock;
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "macos"
+))]
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-#[cfg(not(target_os = "freebsd"))]
+#[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
 use std::time::Duration;
 
 pub use lock::ProcessLock;
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(
+    target_os = "linux",
+    target_os = "freebsd",
+    target_os = "macos"
+))]
 use tokio::io::unix::AsyncFd;
 
 /// LEGACY_LINUX (Linux < 5.3, no pidfd) — and macOS.
@@ -23,7 +31,7 @@ use tokio::io::unix::AsyncFd;
 /// 5.3, which have no `pidfd_open` (AlmaLinux 8's 4.18 among them), only for
 /// a process that is not this one's child — a child's exit arrives as
 /// `SIGCHLD` there, and nothing arrives for anyone else's.
-#[cfg(not(target_os = "freebsd"))]
+#[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
 const FALLBACK_PROCESS_POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 /// PID plus a kernel-sourced process start stamp, safe against PID reuse.
@@ -72,7 +80,7 @@ pub struct ProcessHandle {
     #[cfg(target_os = "linux")]
     notifier: Option<AsyncFd<OwnedFd>>,
     /// An unread NOTE_EXIT event remains ready for every waiter until drop.
-    #[cfg(target_os = "freebsd")]
+    #[cfg(any(target_os = "freebsd", target_os = "macos"))]
     notifier: AsyncFd<OwnedFd>,
 }
 
@@ -127,9 +135,9 @@ impl ProcessHandle {
             Ok(Self { identity, notifier: Some(notifier) })
         }
 
-        #[cfg(target_os = "freebsd")]
+        #[cfg(any(target_os = "freebsd", target_os = "macos"))]
         {
-            let notifier = freebsd_exit_notifier(identity)?;
+            let notifier = kqueue_exit_notifier(identity)?;
             if !identity.is_alive() {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
@@ -139,7 +147,11 @@ impl ProcessHandle {
             Ok(Self { identity, notifier })
         }
 
-        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
+        #[cfg(not(any(
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "macos"
+        )))]
         Ok(Self { identity })
     }
 
@@ -154,7 +166,7 @@ impl ProcessHandle {
             return wait_for_exit_ready(notifier).await;
         }
 
-        #[cfg(target_os = "freebsd")]
+        #[cfg(any(target_os = "freebsd", target_os = "macos"))]
         return wait_for_exit_ready(&self.notifier).await;
 
         // LEGACY_LINUX: no descriptor, but a child of ours — the kernel says
@@ -164,7 +176,7 @@ impl ProcessHandle {
             return wait_for_child(self.identity).await;
         }
 
-        #[cfg(not(target_os = "freebsd"))]
+        #[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
         {
             let mut ticker =
                 tokio::time::interval(FALLBACK_PROCESS_POLL_INTERVAL);
@@ -221,8 +233,8 @@ impl ProcessHandle {
     }
 }
 
-#[cfg(target_os = "freebsd")]
-fn freebsd_exit_notifier(
+#[cfg(any(target_os = "freebsd", target_os = "macos"))]
+fn kqueue_exit_notifier(
     identity: ProcessIdentity
 ) -> io::Result<AsyncFd<OwnedFd>> {
     let raw = unsafe { libc::kqueue() };
@@ -255,7 +267,7 @@ fn freebsd_exit_notifier(
     .map_err(io::Error::from)
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
 async fn wait_for_exit_ready(notifier: &AsyncFd<OwnedFd>) -> io::Result<()> {
     loop {
         let mut ready = notifier.readable().await?;
@@ -269,7 +281,7 @@ async fn wait_for_exit_ready(notifier: &AsyncFd<OwnedFd>) -> io::Result<()> {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+#[cfg(any(target_os = "linux", target_os = "freebsd", target_os = "macos"))]
 fn process_exit_ready(raw_fd: libc::c_int) -> io::Result<()> {
     let mut poll_fd =
         libc::pollfd { fd: raw_fd, events: libc::POLLIN, revents: 0 };
@@ -348,7 +360,7 @@ fn is_child_of_this_process(pid: u32) -> bool {
 /// entry and its start stamp, so identity alone would call a dead child
 /// alive until its parent reaps it — and its parent is the one waiting here
 /// before reaping. A zombie has ended; it is waiting only to be collected.
-#[cfg(not(target_os = "freebsd"))]
+#[cfg(not(any(target_os = "freebsd", target_os = "macos")))]
 fn has_exited(identity: ProcessIdentity) -> bool {
     #[cfg(all(target_os = "linux", feature = "legacy-linux"))]
     {

@@ -66,13 +66,13 @@ or transport state.
 kernel, avoiding accidental attachment or signaling after PID reuse.
 `process::ProcessHandle` waits for that incarnation and can signal it. Linux
 uses a pidfd for event-driven exit readiness and race-free
-`pidfd_send_signal`. FreeBSD registers `EVFILT_PROC/NOTE_EXIT` in a private
-kqueue before rechecking the start identity, then awaits the queue through
-Tokio readiness. The exit event stays unread so concurrent, cancelled and later
+`pidfd_send_signal`. FreeBSD and macOS register `EVFILT_PROC/NOTE_EXIT` in a
+private kqueue before rechecking the start identity, then await the queue through
+Tokio readiness. macOS can report that event just before the process has released
+its locks. The exit event stays unread so concurrent, cancelled and later
 waiters observe the same terminal state without reaping the child. Zombie
-process records are no longer live identities. macOS retains its polling
-fallback. Both platforms' numeric `kill(2)` fallback still has the OS API's
-narrow check-to-signal PID-reuse race. The higher-level
+process records are no longer live identities. Both platforms' numeric
+`kill(2)` fallback still has the OS API's narrow check-to-signal PID-reuse race. The higher-level
 meaning of attach, restart, or detach remains the owning service's policy, not
 `sys` policy.
 
