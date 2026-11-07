@@ -79,7 +79,7 @@ admitted today.
 `SHM_KIND_INDEX: UPDATE_WITH_EVERY_RESOURCE_CHANGE`
 
 This is the canonical allocation index for physical SHM kind IDs used by
-`claviron`, `claviron-extra`, and `claviron-full`, including the default
+Claviron and the backends, engines and runners built on it, including the default
 Orbitive layouts they consume. Keep the complete index here rather than
 allocating from a crate-local list: independently optional crates and downstream
 application providers can run in the same fleet and therefore share one
@@ -96,8 +96,8 @@ table and a ring with the same kind collide just as two rings do.
 index. Frame kinds/opcodes, event topics, node IDs, run IDs, and cell slot IDs
 are different namespaces and do not reserve SHM kinds.
 
-The table below records current and retired allocations, checked against the three
-repositories and the current Orbitive defaults. Definition links identify
+The table below records current and retired allocations, checked against those
+projects and the current Orbitive defaults. Definition links identify
 the owner; constants and typed layouts in source remain the executable ABI
 authority. Orbitive-owned constants are consumed through its public facade,
 not duplicated as new Claviron constants.
@@ -122,8 +122,8 @@ not duplicated as new Claviron constants.
 | `200` | Retired ring-payload cache mutation transport (protocol v2) | Ring | Replaced by `194`; retained segments are not reset or unlinked automatically |
 | `201` | Retired cache payload transport | Ring | Values now live in arena `193`; retained segments are not reset or unlinked automatically |
 | `202` | Retired application-link inbox without directory-watcher slots (orbit-link layout 4) | Ring | Replaced by `196` when the watcher table grew the segment; retained segments are not resized, reset or unlinked automatically |
-| `203` | Benchmark RSS requests | Ring | `claviron-full` [RSS_REQUEST_RING_KIND](../../../claviron-full/src/apps/benchmark/orbit/rss.rs) |
-| `204` | Benchmark RSS responses | Ring | `claviron-full` [RSS_RESPONSE_RING_KIND](../../../claviron-full/src/apps/benchmark/orbit/rss.rs) |
+| `203` | Retired benchmark RSS requests | Ring | Its application is gone; retained segments are not reset or unlinked automatically. Listed so the number is not reused blindly |
+| `204` | Retired benchmark RSS responses | Ring | See `203` |
 | `205` | Retired upstream origin connection pool v1: fleet live/creating census without a fleet-wide idle counter | Pool table | Replaced by `252`; retained deployed segments are not reset or unlinked automatically |
 | `206` | Retired FastCGI fleet connection pool table | Pool table | The `orbit-pool` FCGI integration was removed; retained deployed segments are not reset or unlinked automatically |
 | `207` | Retired FastCGI client pool event metrics | Ring | Fleet event aggregation was removed; retained deployed segments are not reset or unlinked automatically |
@@ -166,27 +166,24 @@ not duplicated as new Claviron constants.
 | `244` | Retired private PHP invalidation transport | Ring | Replaced by the inbound-only kind-220 event bridge; retirement contract. Not available for incompatible reuse; retained segments require stopped-fleet cleanup |
 | `245` | Retired upstream DNS snapshot-only v1 | Table | `upstream` [RETIRED_RESOLUTION_KIND](../upstream/src/resolve/table/layout.rs); replaced by unified kind `248`; retained deployed bytes are neither migrated nor reset/unlinked automatically |
 | `246` | Fleet byte streams: per-node lanes of stream slots, two bounded byte rings per slot, per-node doorbells and offer bitmaps | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-stream` `STREAM_KIND`; `ORBIT_STREAM_LANE_CAPACITY` / `ORBIT_STREAM_BUFFER_BYTES`; [StreamsProvider binding](src/stream.rs), reset when quiescent at boot, and a worker ends what its node's earlier lives held when it opens (`Streams::supersede`); first user: Lua's `claviron.stream` |
-| `247` | Retired fleet resource pool: key table (creation budget, members), per-node resource lanes (capacity, reserved/active units, fence), per-node doorbells, interest and claim tables | Header + doorbells + bitmaps + claims + keys + resources in one segment | Orbitive `orbit-pool` `POOL_KIND`. Claviron's opt-in binding (`pool::DefaultPoolTable`, `register_pool::<T>`) was removed 2026-09-24; nothing had ever registered it and this host's fleet holds no segment for it. Listed so the number is not reused blindly |
+| `247` | Retired fleet resource pool: key table (creation budget, members), per-node resource lanes (capacity, reserved/active units, fence), per-node doorbells, interest and claim tables | Header + doorbells + bitmaps + claims + keys + resources in one segment | Orbitive `orbit-pool` `POOL_KIND`. Claviron's opt-in binding (`pool::DefaultPoolTable`, `register_pool::<T>`) was removed 2026-09-24; nothing had ever registered it. Listed so the number is not reused blindly |
 | `248` | Authoritative upstream DNS membership, reusable named health and native IO ownership | Table | `upstream` [RESOLUTION_KIND](../upstream/src/resolve/table/layout.rs); one revision/bank commit for snapshot and eligibility, fixed canonical cells and per-native process/generation scope gates; managed `Reuse` / `Preserve`; kinds 222 and 245 unchanged |
-| `249` | Retired upstream H1 fleet exchange control | Stream table | Belonged to `upstream`'s fleet H1 exchange (`proxy/fleet.rs`), removed with that module; the `orbit::exchange` layer under it followed on 2026-09-24. This host's fleet holds no segment for it. Listed so the number is not reused blindly |
+| `249` | Retired upstream H1 fleet exchange control | Stream table | Belonged to `upstream`'s fleet H1 exchange (`proxy/fleet.rs`), removed with that module; the `orbit::exchange` layer under it followed on 2026-09-24. Listed so the number is not reused blindly |
 | `250` | Retired upstream H1 fleet exchange request payload | Payload arena | Request payload arena of the removed `upstream` fleet H1 exchange; see `249` |
 | `251` | Retired upstream H1 fleet exchange response payload | Payload arena | Response payload arena of the removed `upstream` fleet H1 exchange; see `249` |
-| `252` | Retired upstream origin connection pool v2: fleet live/creating budget plus atomically tracked fleet-wide idle capacity | Pool table | Replaced `205`, then went with `upstream`'s `proxy/fleet.rs`; the `orbit::pool` layer under it followed on 2026-09-24. This host's fleet holds no segment for it. Listed so the number is not reused blindly |
+| `252` | Retired upstream origin connection pool v2: fleet live/creating budget plus atomically tracked fleet-wide idle capacity | Pool table | Replaced `205`, then went with `upstream`'s `proxy/fleet.rs`; the `orbit::pool` layer under it followed on 2026-09-24. Listed so the number is not reused blindly |
 | `253` | Log pipeline records: per-node lanes, one producer per lane, one writer per fleet draining every lane. Full ring overwrites; the writer counts the loss from its cursor. Reuse + Preserve | Ring | `logging` [pipeline design](../logging/ARCHITECTURE.md) |
 | `254` | Fleet TLS client sessions | Table | Orbitive `orbit-rustls` client session table (`rustls_0_24`); reserved even when the optional integration is disabled |
 | `255` | Retired auth prototype: encrypted OAUTH001, then unencrypted fixed-metadata OAUTH002 | Table; OAUTH002 uses 256-byte slots | Replaced first by MAC-authenticated kind `199`, now typed kind `198`; retained segments are not resized, migrated, reset or unlinked automatically; retire outstanding one-use credentials before switching state stores |
 
-`claviron-extra` currently declares no independent physical SHM kind. Its typed
-fleet codecs, such as [chat events](../../../claviron-extra/crates/chat/src/event.rs),
-reuse the fleet event transport; a new topic is not a new segment allocation.
-`claviron-full` adds kinds `203` and `204`. Its
-[benchmark status readers](../../../claviron-full/src/apps/benchmark/orbit/status.rs)
-also attach to existing cache, event, and heartbeat kinds; these are readers of
-the same ABI, not additional allocations.
+A typed fleet codec, such as the chat service's events, reuses the fleet event
+transport: a new topic is not a new segment allocation. A status reader that
+attaches to an existing cache, event or heartbeat kind is a reader of the same ABI,
+not an additional allocation.
 
 The runtime `ShmLifecycleInventory` complements this static index: it reports
 registered descriptors and decisions for the enabled process, not every kind
-reserved across repositories. In particular, `CellsProvider` currently has one
+reserved across projects. In particular, `CellsProvider` currently has one
 descriptor under scalar kind `187` while also opening text kind `186`; both
 physical allocations must remain listed here.
 
@@ -202,7 +199,7 @@ reuse, not approval to reuse retired kinds for new incompatible resources.
 
 ### Required workflow for new SHM resources
 
-1. Consult this index **before choosing an ID**, across all three repositories
+1. Consult this index **before choosing an ID**, across every project on Claviron
    and the Orbitive defaults in the dependency version being adopted. Search
    source for `OrbitTyped`, layout kind constants, and custom table segment
    names as well. A gap in the table is not proof that an ID is safe: check
@@ -214,7 +211,7 @@ reuse, not approval to reuse retired kinds for new incompatible resources.
    when the layouts cannot coexist safely.
 3. **Update this index whenever adding, changing, or retiring a SHM ring/table**,
    and its row under *Cleanup* below,
-   including additions in `claviron-extra` or `claviron-full`. Record the numeric
+   including additions in a downstream project. Record the numeric
    ID, resource, physical shape, owning definition, and any migration/history
    note. Coordinate the core documentation change with a downstream change;
    do not leave a new downstream allocation unindexed. Keep retirement history
@@ -335,7 +332,7 @@ its index row.
 | `246` fleet streams | ResetWhenQuiescent{Reuse} (`reset_all` + new epoch) | Preserve | **a worker calls `Streams::supersede` when it opens the table** | a slot never respawned (scale-down) keeps its sides until a quiescent boot; the master's node-0 sides survive a restart that adopts live workers |
 | `248` upstream DNS | Reuse | Preserve | — | dead native owners are reclaimed at publication (PID + start stamp) |
 | `253` log records | Reuse | Preserve | overwrite | cursor at the head; frames written while no writer runs are dropped |
-| `203`/`204` benchmark RSS (`claviron-full`) | opened directly, not managed: never cleared | nothing | — | cursors start at the head |
+| `203`/`204` retired benchmark RSS | no longer opened | no automatic cleanup | — | operator cleanup only after the fleet stops |
 
 ### Files outside shared memory
 
