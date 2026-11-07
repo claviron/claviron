@@ -88,11 +88,16 @@ to the file takes a server restart.
 A service whose `run` returns an error reads failed, and the server carries on. Nothing restarts
 it implicitly.
 
+A subscriber that falls behind its `events.capacity` loses the oldest events, and each loss is logged
+as an error with the number lost. A library that fails to load or register, or whose `boot` fails,
+stops the server's boot with the reason.
+
 ## Limits
 
 A module runs in the process, with its privileges and access to its keys and shared memory: load
 only what you trust. A memory fault takes every other library with it. Native code cannot be
-interrupted, so a call that hangs holds up drain. Handlers run concurrently and share the library's
+interrupted: a call that hangs takes one instance out of use, and after a stop signal the process stays
+until its service manager kills it. Handlers run concurrently and share the library's
 globals; with `instances` above one they must be thread-safe. A library is never unloaded. Native
 WebTransport and raw HTTP/2 CONNECT are not offered to a module.
 
