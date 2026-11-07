@@ -52,8 +52,16 @@ impl crate::tcp::plain::Requests for H1Service {
         mut request: Request<hyper::body::Incoming>,
     ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
     {
-        crate::tcp::attach_sessions(&mut request, &self.sessions);
-        H1Service::call(self, request)
+        use futures_util::future::{Either, ready};
+        let attempt = match crate::tcp::attempt(&mut request, &self.sessions) {
+            Ok(attempt) => attempt,
+            Err(status) => return Either::Left(ready(Ok(err_status(status)))),
+        };
+        let answering = H1Service::call(self, request);
+        Either::Right(async move {
+            let Ok(response) = answering.await;
+            Ok(crate::tcp::finished(attempt, response))
+        })
     }
 }
 

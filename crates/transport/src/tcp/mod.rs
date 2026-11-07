@@ -48,6 +48,46 @@ pub fn attach_sessions<B>(
     }
 }
 
+/// What a request becomes at the door: its session offer when it asks for one,
+/// or an answer when what it asks for is not valid.
+#[cfg(any(feature = "websocket", feature = "edge"))]
+pub(crate) type Attempt = Option<claviron_http::socket::Offer>;
+#[cfg(not(any(feature = "websocket", feature = "edge")))]
+pub(crate) type Attempt = Option<std::convert::Infallible>;
+
+/// Attach what a session needs, and say whether this is an attempt at one.
+#[cfg_attr(
+    not(any(feature = "websocket", feature = "edge")),
+    allow(clippy::unnecessary_wraps)
+)]
+pub(crate) fn attempt<B>(
+    request: &mut Request<B>,
+    sessions: &SessionSpawner,
+) -> Result<Attempt, http::StatusCode> {
+    attach_sessions(request, sessions);
+    #[cfg(any(feature = "websocket", feature = "edge"))]
+    return claviron_http::socket::attach(request, sessions);
+    #[cfg(not(any(feature = "websocket", feature = "edge")))]
+    Ok(None)
+}
+
+/// End an attempt with what the plan answered. An ordinary request has none and
+/// is not touched.
+pub(crate) fn finished(
+    attempt: Attempt,
+    response: RouteResponse,
+) -> RouteResponse {
+    #[cfg(any(feature = "websocket", feature = "edge"))]
+    if let Some(offer) = attempt {
+        // While owners still answer upgrades themselves, an attempt nobody
+        // claimed keeps their answer.
+        return if offer.claimed() { offer.finish(response) } else { response };
+    }
+    #[cfg(not(any(feature = "websocket", feature = "edge")))]
+    let _ = attempt;
+    response
+}
+
 /// One connection of a listener whose every request has one [`Owner`].
 pub struct OwnerRequests<O> {
     owner: Arc<O>,
@@ -71,12 +111,18 @@ impl<O: Owner> Requests for OwnerRequests<O> {
         mut request: Request<Incoming>,
     ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<O>
     {
-        attach_sessions(&mut request, &self.sessions);
+        use futures_util::future::{Either, ready};
+        let attempt = match attempt(&mut request, &self.sessions) {
+            Ok(attempt) => attempt,
+            Err(status) => {
+                return Either::Left(ready(Ok(claviron_http::err_status(status))));
+            }
+        };
         let answering = self.owner.call(
             request.map(body::adapt),
             self.connection.as_ref(),
             RequestArrival::Established,
         );
-        async move { Ok(answering.await) }
+        Either::Right(async move { Ok(finished(attempt, answering.await)) })
     }
 }

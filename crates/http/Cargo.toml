@@ -26,7 +26,7 @@ metrics = ["server", "axum", "claviron-runtime/metrics", "dep:claviron-orbit", "
 cache = ["axum", "dep:claviron-cache"]
 axum = ["dep:axum", "dep:serde_json", "dep:tower"]
 warp = ["dep:warp", "dep:sync_wrapper", "dep:tower"]
-websocket = ["server", "dep:hyper", "dep:sha1"]
+websocket = ["server", "dep:hyper", "hyper/http1", "hyper/http2", "hyper/server", "dep:sha1"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────

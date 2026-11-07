@@ -145,6 +145,14 @@ impl Offer {
         }
     }
 
+    /// Whether an owner has taken this attempt.
+    pub fn claimed(&self) -> bool {
+        !matches!(
+            *self.attempt.slot.lock().expect("socket offer"),
+            Slot::Waiting(_)
+        )
+    }
+
     /// End the attempt with the response that came back from the plan: commit
     /// it if this is still a proposal for this attempt, refuse it otherwise.
     pub fn finish(
@@ -214,6 +222,164 @@ pub fn refusal(mut response: RouteResponse) -> RouteResponse {
         response.headers_mut().clear();
     }
     response
+}
+
+/// The handshake an HTTP request asks for. The door owns it: an owner's headers
+/// cross, the protocol's own never do.
+#[derive(Clone, Debug)]
+pub enum Handshake {
+    /// An `Upgrade`, answered `101` with this key's accept value.
+    H1(String),
+    /// An extended CONNECT, answered `200`.
+    H2,
+}
+
+impl Handshake {
+    /// What this request asks for. `Ok(None)` is an ordinary request, including
+    /// an `Upgrade` to anything but a WebSocket, which HTTP lets a server ignore.
+    /// An `Err` is a WebSocket request that is not a valid one.
+    pub fn from_request<B>(
+        request: &http::Request<B>
+    ) -> Result<Option<Self>, StatusCode> {
+        let h2 = request.version() == http::Version::HTTP_2
+            && request.method() == http::Method::CONNECT
+            && request
+                .extensions()
+                .get::<hyper::ext::Protocol>()
+                .is_some_and(|protocol| protocol.as_str() == "websocket");
+        let h1 = crate::upgrade::is_h1_header_upgrade(request, "websocket");
+        if !h1 && !h2 {
+            return Ok(None);
+        }
+        if request
+            .headers()
+            .get(http::header::SEC_WEBSOCKET_VERSION)
+            .is_none_or(|version| version != "13")
+        {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        if h2 {
+            return Ok(Some(Self::H2));
+        }
+        let key = request
+            .headers()
+            .get(http::header::SEC_WEBSOCKET_KEY)
+            .and_then(|key| key.to_str().ok())
+            .ok_or(StatusCode::BAD_REQUEST)?;
+        Ok(Some(Self::H1(key.to_owned())))
+    }
+
+    /// The proposal's status and framing become this handshake's own.
+    fn commit(
+        &self,
+        response: &mut RouteResponse,
+    ) {
+        let headers = response.headers_mut();
+        for name in [
+            http::header::CONNECTION,
+            http::header::UPGRADE,
+            http::header::TRANSFER_ENCODING,
+            http::header::CONTENT_LENGTH,
+            http::header::SEC_WEBSOCKET_ACCEPT,
+        ] {
+            headers.remove(name);
+        }
+        headers.remove("keep-alive");
+        headers.remove("proxy-connection");
+        let status = match self {
+            Self::H1(key) => {
+                headers.insert(
+                    http::header::UPGRADE,
+                    http::HeaderValue::from_static("websocket"),
+                );
+                headers.insert(
+                    http::header::CONNECTION,
+                    http::HeaderValue::from_static("Upgrade"),
+                );
+                if let Ok(accept) = http::HeaderValue::from_str(
+                    &crate::upgrade::websocket_accept_key(key),
+                ) {
+                    headers.insert(http::header::SEC_WEBSOCKET_ACCEPT, accept);
+                }
+                StatusCode::SWITCHING_PROTOCOLS
+            }
+            Self::H2 => StatusCode::OK,
+        };
+        *response.status_mut() = status;
+    }
+}
+
+/// An HTTP/1.1 upgrade or an HTTP/2 extended CONNECT, on a connection this
+/// process holds.
+struct HttpDoor {
+    on_upgrade: hyper::upgrade::OnUpgrade,
+    sessions: crate::session::SessionSpawner,
+    handshake: Handshake,
+}
+
+impl Door for HttpDoor {
+    fn commit(
+        self: Box<Self>,
+        mut proposal: RouteResponse,
+        deferred: Deferred,
+    ) -> RouteResponse {
+        let Self { on_upgrade, sessions, handshake } = *self;
+        let session = async move {
+            match on_upgrade.await {
+                Ok(upgraded) => deferred(SocketIo::Stream(upgraded)).await,
+                Err(error) => {
+                    tracing::debug!("session upgrade failed: {error}");
+                }
+            }
+        };
+        // Held by the owner that joins it at shutdown before the handshake is
+        // answered, so an accepted session cannot be detached from it.
+        if let Err(error) = sessions.spawn(session) {
+            tracing::debug!("session was not started: {error}");
+            return crate::err_status(StatusCode::SERVICE_UNAVAILABLE);
+        }
+        handshake.commit(&mut proposal);
+        proposal
+    }
+
+    fn refuse(
+        self: Box<Self>,
+        response: RouteResponse,
+    ) -> RouteResponse {
+        refusal(response)
+    }
+}
+
+/// Recognize a session attempt on a request this connection received, and put
+/// its offer in the request's extensions. An ordinary request is left untouched
+/// and allocates nothing.
+pub fn attach<B>(
+    request: &mut http::Request<B>,
+    sessions: &crate::session::SessionSpawner,
+) -> Result<Option<Offer>, StatusCode> {
+    if request.method() != http::Method::CONNECT
+        && !request.headers().contains_key(http::header::UPGRADE)
+    {
+        return Ok(None);
+    }
+    let Some(handshake) = Handshake::from_request(request)? else {
+        return Ok(None);
+    };
+    let Some(on_upgrade) =
+        request.extensions().get::<hyper::upgrade::OnUpgrade>().cloned()
+    else {
+        return Ok(None);
+    };
+    let carrier = match handshake {
+        Handshake::H1(_) => Carrier::H1,
+        Handshake::H2 => Carrier::H2,
+    };
+    let offer = Offer::new(
+        OfferInfo { kind: SocketKind::WebSocket, carrier },
+        HttpDoor { on_upgrade, sessions: sessions.clone(), handshake },
+    );
+    request.extensions_mut().insert(offer.clone());
+    Ok(Some(offer))
 }
 
 #[cfg(test)]

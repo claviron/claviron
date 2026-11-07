@@ -41,16 +41,26 @@ impl crate::tcp::Requests for HostRequests {
     ) -> impl Future<Output = Result<RouteResponse, Infallible>> + Send + use<>
     {
         use futures_util::future::{Either, ready};
-        crate::tcp::attach_sessions(&mut request, &self.sessions);
+        let attempt = match crate::tcp::attempt(&mut request, &self.sessions) {
+            Ok(attempt) => attempt,
+            Err(status) => {
+                return Either::Left(ready(Ok(claviron_http::err_status(
+                    status,
+                ))));
+            }
+        };
         if let Err(reason) = self
             .host
             .validate_authority(&request, &mut self.accepted.borrow_mut())
         {
             return Either::Left(ready(Ok(reason.into())));
         }
-        Either::Right(dispatch(
-            self.host.request(request, RequestArrival::Established),
-        ))
+        let answering =
+            dispatch(self.host.request(request, RequestArrival::Established));
+        Either::Right(async move {
+            let Ok(response) = answering.await;
+            Ok(crate::tcp::finished(attempt, response))
+        })
     }
 }
 
