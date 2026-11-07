@@ -31,6 +31,11 @@
 //! No timeout: a reply head that cannot be published is signalled by RESET on
 //! the exchange's existing response stream. Confirmed worker death uses that
 //! stream's recovery too; elapsed time is not a substitute for either signal.
+//!
+//! Nobody has to report a death for that to happen. An application may have no
+//! supervisor, and a dead one writes nothing, so each application this client
+//! reaches is watched through the kernel's exit notification. The notification
+//! only says when to look: the lane's lock remains the proof.
 
 use std::collections::{HashMap, VecDeque};
 use std::future::{Future, poll_fn};
@@ -411,26 +416,53 @@ impl Directory {
 /// it. Nothing iterates it on the request path.
 #[derive(Default)]
 struct Waiting {
-    senders: Mutex<HashMap<u64, oneshot::Sender<ExchangeReply>>>,
+    senders: Mutex<HashMap<u64, (LaneOwner, oneshot::Sender<ExchangeReply>)>>,
+}
+
+/// Who a request was written to. A lane is reused, and a standalone process
+/// restarts with the same incarnation, so it takes all three to say which
+/// process will never answer.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct LaneOwner {
+    lane: usize,
+    pid: Option<u32>,
+    incarnation: u64,
 }
 
 impl Waiting {
     fn insert(
         &self,
         correlation: u64,
+        owner: LaneOwner,
         sender: oneshot::Sender<ExchangeReply>,
     ) {
         self.senders
             .lock()
             .expect("waiting exchanges")
-            .insert(correlation, sender);
+            .insert(correlation, (owner, sender));
     }
 
     fn take(
         &self,
         correlation: u64,
     ) -> Option<oneshot::Sender<ExchangeReply>> {
-        self.senders.lock().expect("waiting exchanges").remove(&correlation)
+        self.senders
+            .lock()
+            .expect("waiting exchanges")
+            .remove(&correlation)
+            .map(|(_, sender)| sender)
+    }
+
+    /// End what this process will never answer. A request it had not read yet
+    /// holds no stream side of its own, so ending its streams cannot reach it.
+    fn abandon(
+        &self,
+        gone: LaneOwner,
+    ) {
+        self.senders
+            .lock()
+            .expect("waiting exchanges")
+            .retain(|_, (owner, _)| *owner != gone);
     }
 }
 
@@ -694,7 +726,16 @@ impl ApplicationClient {
         let (sender, receiver) = oneshot::channel();
         // Registered before the write, because the application may answer
         // before this function returns.
-        self.waiting.insert(correlation, sender);
+        let owner = LaneOwner {
+            lane: target,
+            pid: self.segment.inbox().owner(target).unwrap_or_default(),
+            incarnation: self
+                .segment
+                .inbox()
+                .incarnation(target)
+                .unwrap_or_default(),
+        };
+        self.waiting.insert(correlation, owner, sender);
 
         if let Err(error) = self.segment.inbox().write(target, &frame) {
             self.waiting.take(correlation);
@@ -779,7 +820,7 @@ impl ApplicationClient {
             Peers::new(self.fleet, |role| role != EDGE_RUNTIME);
         // Read after the receiver is bound: a change from here on wakes it,
         // and the applications already present are reported as found.
-        observe_applications(
+        let found = observe_applications(
             &mut applications,
             &segment,
             &edge,
@@ -802,6 +843,15 @@ impl ApplicationClient {
             });
         }
         Ok(runtime.spawn(async move {
+            // Dropped with this task, so no watch outlives the client.
+            let mut watches = tokio::task::JoinSet::new();
+            for peer in found {
+                watches.spawn(watch_application(
+                    Arc::clone(&segment),
+                    Arc::clone(&waiting),
+                    peer,
+                ));
+            }
             let mut frame = Vec::new();
             loop {
                 match receiver.next(&mut frame).await {
@@ -815,14 +865,23 @@ impl ApplicationClient {
                             "an application event arrived in reply lane {lane}, which bridges none"
                         ),
                     },
-                    Ok(Received::Directory(_)) => observe_applications(
-                        &mut applications,
-                        &segment,
-                        &edge,
-                        events.as_ref(),
-                        &last_seen,
-                        &application_states,
-                    ),
+                    Ok(Received::Directory(_)) => {
+                        while watches.try_join_next().is_some() {}
+                        for peer in observe_applications(
+                            &mut applications,
+                            &segment,
+                            &edge,
+                            events.as_ref(),
+                            &last_seen,
+                            &application_states,
+                        ) {
+                            watches.spawn(watch_application(
+                                Arc::clone(&segment),
+                                Arc::clone(&waiting),
+                                peer,
+                            ));
+                        }
+                    }
                     Err(error) => {
                         tracing::debug!(
                             "reply lane {lane} could not be read: {error}"
@@ -835,10 +894,83 @@ impl ApplicationClient {
     }
 }
 
+/// Wait for this application's process to exit, then take its lane back: its
+/// streams end, what it never read ends with them, and new requests are refused
+/// rather than queued for nobody. A lane that was already taken back is left
+/// alone, because recovery names this exact process.
+async fn watch_application(
+    segment: Arc<ApplicationSegment>,
+    waiting: Arc<Waiting>,
+    peer: super::Peer,
+) {
+    let Some(pid) = peer.pid else { return };
+    let handle = match claviron_sys::process::identity(pid)
+        .map(claviron_sys::process::ProcessHandle::open)
+    {
+        Some(Ok(handle)) => Some(handle),
+        None => None,
+        Some(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
+            None
+        }
+        Some(Err(error)) => {
+            tracing::warn!(
+                lane = peer.lane,
+                pid,
+                "🛰 cannot watch application '{}' for its exit: {error}",
+                peer.name
+            );
+            return;
+        }
+    };
+    // Looked at after the handle exists, so an exit from here on still wakes
+    // it. A number reused by another process since this lane was stamped would
+    // otherwise be waited on in place of the one that held it.
+    if let Some(handle) = handle
+        && !segment.reclaim_if_gone(peer.lane)
+        && let Err(error) = handle.wait().await
+    {
+        tracing::warn!(lane = peer.lane, pid, "🛰 exit watch failed: {error}");
+        return;
+    }
+    // The kernel can say a process exited just before it releases the lock
+    // that proves it. Its own thread: the wait cannot be cancelled, and a new
+    // owner taking the lane in between would prolong it past this task.
+    let (released, wait) = tokio::sync::oneshot::channel();
+    let lane = peer.lane;
+    let incarnation = peer.incarnation;
+    let owned = Arc::clone(&segment);
+    if let Err(error) = std::thread::Builder::new()
+        .name("orbit-lane-release".to_owned())
+        .spawn(move || {
+            let _ =
+                released.send(owned.wait_lane_released(lane, pid, incarnation));
+        })
+    {
+        tracing::error!(lane, pid, %error, "could not wait for a Link lane");
+        return;
+    }
+    match wait.await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => {
+            tracing::error!(lane, pid, %error, "could not wait for a Link lane");
+            return;
+        }
+        Err(_) => return,
+    }
+    if let Err(error) = segment.process_exited(pid, peer.incarnation) {
+        tracing::error!(lane = peer.lane, pid, %error, "could not recover Link lane");
+    }
+    waiting.abandon(LaneOwner {
+        lane: peer.lane,
+        pid: Some(pid),
+        incarnation: peer.incarnation,
+    });
+}
+
 /// Diff the directory and say what changed: in the log, and as a local event.
 /// A departure before an arrival, because a process that restarted left
 /// before it came back. Every connect and disconnect is reported, reconnects
-/// too.
+/// too. Returns who arrived.
 fn observe_applications(
     applications: &mut Peers,
     segment: &ApplicationSegment,
@@ -846,7 +978,7 @@ fn observe_applications(
     events: Option<&ProcessEventBus>,
     last_seen: &Mutex<HashMap<String, String>>,
     states: &Mutex<HashMap<usize, ApplicationBatch>>,
-) {
+) -> Vec<super::Peer> {
     let (came, went) = applications.update(segment.inbox());
     for application in went {
         states
@@ -870,7 +1002,8 @@ fn observe_applications(
             });
         }
     }
-    for application in came {
+    for application in &came {
+        let application = application.clone();
         request_application_state(segment, &application);
         last_seen
             .lock()
@@ -891,6 +1024,7 @@ fn observe_applications(
             });
         }
     }
+    came
 }
 
 fn request_application_state(

@@ -22,6 +22,7 @@ quota = ["orbitive/quota"]
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-runtime.workspace = true
+claviron-sys.workspace = true
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
@@ -65,3 +66,7 @@ tempfile = "3"
 [[test]]
 name = "counter_shm"
 path = "tests/counter_shm.rs"
+
+[[test]]
+name = "link_death"
+path = "tests/link_death.rs"

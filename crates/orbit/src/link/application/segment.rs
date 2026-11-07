@@ -202,6 +202,19 @@ impl ApplicationSegment {
         Ok(())
     }
 
+    /// Wait until the kernel has released this exited process's lane. Blocks;
+    /// see `LinkSegment::wait_lane_released`.
+    pub fn wait_lane_released(
+        &self,
+        lane: usize,
+        pid: u32,
+        incarnation: u64,
+    ) -> Result<()> {
+        self.link
+            .wait_lane_released(lane, pid, incarnation)
+            .map_err(map_link_error)
+    }
+
     fn end_streams(
         &self,
         gone: &orbitive::link::Reclaimed,

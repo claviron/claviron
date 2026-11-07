@@ -48,7 +48,8 @@ fn reply_wait() -> (ReplyWait, Endpoint, ReadHalf, Arc<Waiting>) {
     let (read, _write) = origin.split();
     let waiting = Arc::new(Waiting::default());
     let (sender, receiver) = oneshot::channel();
-    waiting.insert(1, sender);
+    let owner = LaneOwner { lane: 0, pid: None, incarnation: 1 };
+    waiting.insert(1, owner, sender);
     let reply = ReplyWait {
         reply: receiver,
         reset: read.reset_signal(),
