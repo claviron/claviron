@@ -20,6 +20,10 @@ const TEXT: u8 = 1;
 const BINARY: u8 = 2;
 const CLOSE: u8 = 8;
 
+/// A WebSocket control payload's protocol maximum. It is not a tuning value:
+/// an application whose message limit is smaller still receives every close.
+const CONTROL_BYTES: usize = 125;
+
 /// One WebSocket message, as an application sends and receives it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Message {
@@ -31,6 +35,18 @@ pub enum Message {
         code: u16,
         reason: String,
     },
+}
+
+impl Message {
+    /// Whether a close with this code and reason may be sent. 1005 and 1006
+    /// are observations an application receives, never codes on the wire.
+    pub fn sendable_close(
+        code: u16,
+        reason: &[u8],
+    ) -> bool {
+        matches!(code, 1000..=1003 | 1007..=1014 | 3000..=4999)
+            && reason.len() <= CONTROL_BYTES - 2
+    }
 }
 
 /// Write one message as one record.
@@ -106,6 +122,12 @@ impl MessageReader {
     /// storage. This does not change the shared record format.
     pub fn with_limit(limit: usize) -> Self {
         Self { buffer: BytesMut::new(), limit: Some(limit) }
+    }
+
+    /// A reader for an application's own message limit, which never refuses a
+    /// close: the record format's control payload stays readable below it.
+    pub fn for_application(limit: usize) -> Self {
+        Self::with_limit(limit.max(CONTROL_BYTES))
     }
 
     /// Read the next record. Cancel safe. `None` is a clean end of the

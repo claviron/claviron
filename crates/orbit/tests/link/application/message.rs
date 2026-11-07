@@ -63,3 +63,13 @@ async fn a_cancelled_read_keeps_its_place() {
     writer.write_all(&record[3..]).await.unwrap();
     assert_eq!(records.read(&mut reader).await.unwrap(), Some(message));
 }
+
+#[test]
+fn a_close_is_sendable_only_with_a_wire_code_and_a_control_sized_reason() {
+    assert!(Message::sendable_close(1000, b""));
+    assert!(Message::sendable_close(4999, &[b'x'; 123]));
+    assert!(!Message::sendable_close(1000, &[b'x'; 124]));
+    assert!(!Message::sendable_close(1005, b""));
+    assert!(!Message::sendable_close(1006, b""));
+    assert!(!Message::sendable_close(999, b""));
+}
