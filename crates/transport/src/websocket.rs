@@ -12,9 +12,11 @@
 //! and the listener joins it on shutdown rather than leaving it detached.
 
 use std::future::Future;
+use std::io;
 
 use bytes::Bytes;
 use claviron_http::RouteResponse as AppResponse;
+pub use claviron_http::socket::{Carrier, OfferInfo, SocketKind};
 use claviron_http::socket::{Offer, SocketIo};
 pub use claviron_orbit::link::application::Message;
 use fastwebsockets::{FragmentCollector, Frame, OpCode, Payload};
@@ -24,7 +26,13 @@ use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 use tokio::sync::mpsc;
 
+use crate::orbit::LinkSession;
 use crate::owner::AppRequest;
+
+mod link;
+
+/// The largest text or binary message either way, unless an owner says otherwise.
+pub const DEFAULT_MESSAGE_LIMIT: usize = 1024 * 1024;
 
 /// Where the client's messages go: the owner's side of the socket.
 pub trait Deliver: Send + Sync + 'static {
@@ -38,9 +46,10 @@ pub trait Deliver: Send + Sync + 'static {
     fn end(&self);
 }
 
-/// Whether a request is an attempt at a WebSocket.
-pub fn is_websocket(request: &AppRequest) -> bool {
-    request.extensions().get::<Offer>().is_some()
+/// The session this request attempts to open, if it does. `None` is an ordinary
+/// request.
+pub fn attempt(request: &AppRequest) -> Option<OfferInfo> {
+    request.extensions().get::<Offer>().map(Offer::info)
 }
 
 /// What a socket does with its owner's side, whichever way the session ends.
@@ -56,11 +65,13 @@ impl<D: Deliver> Drop for Ending<D> {
 /// committed the handshake, messages travel between the client and the owner
 /// until either side closes: the client's to `inbound`, the owner's from
 /// `outbound`. If the proposal is cancelled instead, `inbound` is told it ended.
+/// `limit` bounds a text or binary message on any door.
 pub fn accept<D: Deliver>(
     request: AppRequest,
     headers: Vec<(Vec<u8>, Vec<u8>)>,
     inbound: D,
-    outbound: mpsc::Receiver<Message>,
+    mut outbound: mpsc::Receiver<Message>,
+    limit: usize,
 ) -> AppResponse {
     let inbound = Ending(inbound);
     let Some(claim) =
@@ -70,8 +81,24 @@ pub fn accept<D: Deliver>(
         return status(StatusCode::BAD_REQUEST);
     };
     let mut proposal = claim.accept_with(move |io| async move {
-        if let Some(socket) = opened(io) {
-            pump(socket, inbound, outbound).await;
+        match opened(io, limit) {
+            Some(Opened::Socket(socket)) => {
+                pump(socket, inbound, outbound).await;
+            }
+            Some(Opened::Link(session)) => {
+                let LinkSession { mut incoming, mut outgoing, shutdown } =
+                    session;
+                link::relay(
+                    &mut incoming,
+                    &mut outgoing,
+                    &inbound.0,
+                    &mut outbound,
+                    limit,
+                    shutdown.cancelled(),
+                )
+                .await;
+            }
+            None => {}
         }
     });
     for (name, value) in headers {
@@ -87,19 +114,34 @@ pub fn accept<D: Deliver>(
 
 type Socket = fastwebsockets::WebSocket<TokioIo<Upgraded>>;
 
-/// The server's side of a handshake the door has committed.
-fn opened(io: SocketIo) -> Option<Socket> {
+/// A committed session's I/O, as this module speaks it.
+enum Opened {
+    Socket(Socket),
+    Link(LinkSession),
+}
+
+fn opened(
+    io: SocketIo,
+    limit: usize,
+) -> Option<Opened> {
     match io {
         SocketIo::Stream(upgraded) => {
-            Some(fastwebsockets::WebSocket::after_handshake(
+            let mut socket = fastwebsockets::WebSocket::after_handshake(
                 TokioIo::new(upgraded),
                 fastwebsockets::Role::Server,
-            ))
+            );
+            socket.set_max_message_size(limit);
+            Some(Opened::Socket(socket))
         }
-        SocketIo::Native(_) => {
-            tracing::debug!("a WebSocket needs a byte stream");
-            None
-        }
+        SocketIo::Native(native) => match native.downcast::<LinkSession>() {
+            Ok(session) => Some(Opened::Link(*session)),
+            Err(_) => {
+                tracing::debug!(
+                    "a WebSocket has no use for this session's I/O"
+                );
+                None
+            }
+        },
     }
 }
 
@@ -159,17 +201,33 @@ async fn pump<D: Deliver>(
     }
 }
 
-/// A WebSocket for an owner that holds the messages itself. Fragments are
-/// joined, pings answered and closes echoed here.
+/// A WebSocket for an owner that holds the messages itself, whichever door it
+/// came through. Fragments are joined, pings answered and closes echoed before
+/// it gets here.
 pub struct WebSocket {
-    socket: FragmentCollector<TokioIo<Upgraded>>,
+    io: Messages,
+}
+
+enum Messages {
+    Socket(FragmentCollector<TokioIo<Upgraded>>),
+    Link(link::LinkMessages),
 }
 
 impl WebSocket {
-    /// The next message. `None` once the connection has ended.
+    fn link(messages: link::LinkMessages) -> Self {
+        Self { io: Messages::Link(messages) }
+    }
+
+    /// The next message. `None` once the connection has ended. A close the
+    /// client did not send (1001) says this process is retiring: finish what is
+    /// owed and return.
     pub async fn recv(&mut self) -> Option<Message> {
+        let socket = match &mut self.io {
+            Messages::Socket(socket) => socket,
+            Messages::Link(messages) => return messages.recv().await,
+        };
         loop {
-            let Ok(frame) = self.socket.read_frame().await else {
+            let Ok(frame) = socket.read_frame().await else {
                 return None;
             };
             return Some(match frame.opcode {
@@ -193,8 +251,12 @@ impl WebSocket {
     pub async fn send(
         &mut self,
         message: Message,
-    ) -> Result<(), fastwebsockets::WebSocketError> {
-        self.socket
+    ) -> io::Result<()> {
+        let socket = match &mut self.io {
+            Messages::Socket(socket) => socket,
+            Messages::Link(messages) => return messages.send(message).await,
+        };
+        socket
             .write_frame(match &message {
                 Message::Text(text) => {
                     Frame::text(Payload::Borrowed(text.as_bytes()))
@@ -207,16 +269,66 @@ impl WebSocket {
                 }
             })
             .await
+            .map_err(io::Error::other)
     }
 }
 
+/// Propose a WebSocket for an owner that holds the messages itself: `session` runs
+/// with the socket once the handshake is committed. `limit` bounds a text or binary
+/// message on any door.
+pub fn accept_socket<F, Fut>(
+    offer: &Offer,
+    limit: usize,
+    session: F,
+) -> AppResponse
+where
+    F: FnOnce(WebSocket) -> Fut + Send + 'static,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let Some(claim) = offer.claim() else {
+        return status(StatusCode::BAD_REQUEST);
+    };
+    claim.accept_with(move |io| async move {
+        match opened(io, limit) {
+            Some(Opened::Socket(mut socket)) => {
+                socket.set_auto_pong(true);
+                socket.set_auto_close(true);
+                session(WebSocket {
+                    io: Messages::Socket(FragmentCollector::new(socket)),
+                })
+                .await;
+            }
+            Some(Opened::Link(link)) => {
+                link::hold(link, limit, session).await;
+            }
+            None => {}
+        }
+    })
+}
+
 /// The offer of a WebSocket, for a handler in a router. Taking it from a request
-/// that is not an attempt at one answers `426`.
+/// that is not an attempt at one answers `426`. Route it with `any`: an HTTP/2
+/// WebSocket is a CONNECT. A WebTransport stream an edge carries over Orbit is the
+/// same whole messages and arrives here too; a native WebTransport session is not
+/// one and does not.
 #[cfg(feature = "axum")]
-pub struct WebSocketOffer(Offer);
+pub struct WebSocketOffer {
+    offer: Offer,
+    limit: usize,
+}
 
 #[cfg(feature = "axum")]
 impl WebSocketOffer {
+    /// Bound a text or binary message on any door, in place of
+    /// [`DEFAULT_MESSAGE_LIMIT`].
+    pub fn limit(
+        mut self,
+        limit: usize,
+    ) -> Self {
+        self.limit = limit;
+        self
+    }
+
     /// Accept: `session` runs with the socket once the handshake is committed.
     pub fn accept<F, Fut>(
         self,
@@ -226,23 +338,8 @@ impl WebSocketOffer {
         F: FnOnce(WebSocket) -> Fut + Send + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        let Some(claim) = self.0.claim() else {
-            return claviron_http::into_axum_response(status(
-                StatusCode::BAD_REQUEST,
-            ));
-        };
-        claviron_http::into_axum_response(claim.accept_with(
-            move |io| async move {
-                if let Some(mut socket) = opened(io) {
-                    socket.set_auto_pong(true);
-                    socket.set_auto_close(true);
-                    session(WebSocket {
-                        socket: FragmentCollector::new(socket),
-                    })
-                    .await;
-                }
-            },
-        ))
+        let Self { offer, limit } = self;
+        claviron_http::into_axum_response(accept_socket(&offer, limit, session))
     }
 }
 
@@ -254,12 +351,16 @@ impl<S: Send + Sync> axum::extract::FromRequestParts<S> for WebSocketOffer {
         parts: &mut http::request::Parts,
         _: &S,
     ) -> Result<Self, Self::Rejection> {
-        parts
+        let offer = parts
             .extensions
             .get::<Offer>()
+            .filter(|offer| {
+                let OfferInfo { kind, carrier } = offer.info();
+                kind == SocketKind::WebSocket || carrier == Carrier::Orbit
+            })
             .cloned()
-            .map(Self)
-            .ok_or(StatusCode::UPGRADE_REQUIRED)
+            .ok_or(StatusCode::UPGRADE_REQUIRED)?;
+        Ok(Self { offer, limit: DEFAULT_MESSAGE_LIMIT })
     }
 }
 

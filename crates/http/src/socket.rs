@@ -282,6 +282,22 @@ pub fn refusal(mut response: RouteResponse) -> RouteResponse {
     response
 }
 
+/// What the protocol itself decides on a handshake's response, whatever an owner
+/// or a reply hook set.
+pub fn strip_protocol_headers(headers: &mut http::HeaderMap) {
+    for name in [
+        http::header::CONNECTION,
+        http::header::UPGRADE,
+        http::header::TRANSFER_ENCODING,
+        http::header::CONTENT_LENGTH,
+        http::header::SEC_WEBSOCKET_ACCEPT,
+    ] {
+        headers.remove(name);
+    }
+    headers.remove("keep-alive");
+    headers.remove("proxy-connection");
+}
+
 /// The handshake an HTTP request asks for. The door owns it: an owner's headers
 /// cross, the protocol's own never do.
 #[derive(Clone, Debug)]
@@ -333,17 +349,7 @@ impl Handshake {
         response: &mut RouteResponse,
     ) {
         let headers = response.headers_mut();
-        for name in [
-            http::header::CONNECTION,
-            http::header::UPGRADE,
-            http::header::TRANSFER_ENCODING,
-            http::header::CONTENT_LENGTH,
-            http::header::SEC_WEBSOCKET_ACCEPT,
-        ] {
-            headers.remove(name);
-        }
-        headers.remove("keep-alive");
-        headers.remove("proxy-connection");
+        strip_protocol_headers(headers);
         let status = match self {
             Self::H1(key) => {
                 headers.insert(

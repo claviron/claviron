@@ -22,26 +22,17 @@ pub fn register(
     state: &AppState,
     options: crate::RunnerOptions,
     application: ApplicationRegistration,
-    sessions: Option<crate::routing::Sessions>,
 ) -> registry::Result<()> {
     state.registry_ref().register(Arc::new(ApplicationSetup {
         options,
-        application: Mutex::new(Some(PendingApplication {
-            register: application,
-            sessions,
-        })),
+        application: Mutex::new(Some(application)),
     }))?;
     Ok(())
 }
 
 struct ApplicationSetup {
     options: crate::RunnerOptions,
-    application: Mutex<Option<PendingApplication>>,
-}
-
-struct PendingApplication {
-    register: ApplicationRegistration,
-    sessions: Option<crate::routing::Sessions>,
+    application: Mutex<Option<ApplicationRegistration>>,
 }
 
 impl Component<AppState> for ApplicationSetup {
@@ -75,7 +66,7 @@ impl Bootable<AppState, Arc<crate::Routing>> for ApplicationSetup {
             .ok_or_else(|| {
                 registry::Error::msg("Rust application is already prepared")
             })?;
-        (application.register)(state, application.sessions)?;
+        application(state)?;
         crate::launch::register_trust(state, &self.options)?;
         crate::launch::register_doors(state, &self.options, "rust", None)
     }
@@ -85,13 +76,7 @@ impl Bootable<AppState, Arc<crate::Routing>> for ApplicationSetup {
 pub type Registration =
     Box<dyn FnOnce(&AppState) -> registry::Result<()> + Send>;
 
-pub type ApplicationRegistration = Box<
-    dyn FnOnce(
-            &AppState,
-            Option<crate::routing::Sessions>,
-        ) -> registry::Result<()>
-        + Send,
->;
+pub type ApplicationRegistration = Registration;
 
 /// Select the same host-free router representation that Edge consumes.
 pub fn router<F, R>(build: F) -> ApplicationRegistration
@@ -99,11 +84,10 @@ where
     F: FnOnce(AppState) -> R + Send + 'static,
     R: Into<claviron_http::RustRouter> + 'static,
 {
-    Box::new(move |state, sessions| {
+    Box::new(move |state| {
         crate::routing::register_prepared_router(
             state,
             build(state.clone()).into(),
-            sessions,
         )
     })
 }
@@ -120,7 +104,5 @@ where
     B: http_body::Body<Data = Bytes> + Send + 'static,
     B::Error: Into<RouteBodyError>,
 {
-    Box::new(move |state, sessions| {
-        crate::routing::register_other(state, service, sessions)
-    })
+    Box::new(move |state| crate::routing::register_other(state, service))
 }

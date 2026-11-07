@@ -164,7 +164,7 @@ async fn rust_axum_needs_no_owner_and_keeps_its_fallback() {
     let router = axum::Router::new()
         .route("/", get(|| async { "rust" }))
         .fallback(|| async { (StatusCode::IM_A_TEAPOT, "custom fallback") });
-    register_prepared_router(&state, router.into(), None).unwrap();
+    register_prepared_router(&state, router.into()).unwrap();
     assert!(state.registry_ref().resolve::<Owner>().is_none());
 
     let application = state.registry_ref().resolve::<Application>().unwrap();
@@ -191,7 +191,7 @@ async fn rust_axum_needs_no_owner_and_keeps_its_fallback() {
 #[cfg(feature = "rust")]
 #[cfg(feature = "orbit")]
 #[tokio::test]
-async fn rust_other_keeps_body_bytes_and_orbit_session_without_an_owner() {
+async fn rust_other_keeps_body_bytes_without_an_owner() {
     let state = AppState::standalone("rust-service", ".");
     state
         .registry_ref()
@@ -199,15 +199,12 @@ async fn rust_other_keeps_body_bytes_and_orbit_session_without_an_owner() {
         .unwrap();
     #[cfg(feature = "axum")]
     claviron_pipeline::routing::register(&state).unwrap();
-    let session: crate::orbit::OrbitSession =
-        Arc::new(|_, _, _| Box::pin(async {}));
     let service = tower::service_fn(|request: AppRequest| async move {
         Ok::<_, Infallible>(Response::new(request.into_body().into_inner()))
     });
-    register_other(&state, service, Some(session.clone())).unwrap();
+    register_other(&state, service).unwrap();
     let application = state.registry_ref().resolve::<Application>().unwrap();
     assert!(state.registry_ref().resolve::<Owner>().is_none());
-    assert!(Arc::ptr_eq(&session, &application.orbit_session().unwrap()));
     let bytes = Bytes::from_static(b"unbuffered request");
     let data = bytes.as_ptr();
     let request = Request::builder()
@@ -260,7 +257,7 @@ fn rust_other_cancellation_drops_the_owned_request_body() {
         let _request = request;
         std::future::pending::<Result<AppResponse, Infallible>>().await
     });
-    register_other(&state, service, None).unwrap();
+    register_other(&state, service).unwrap();
     let application = state.registry_ref().resolve::<Application>().unwrap();
     let dropped = Arc::new(AtomicBool::new(false));
     {
@@ -434,31 +431,6 @@ async fn a_site_stands_in_front_of_what_takes_a_connection_over() {
     assert_eq!(
         taken.call(upgrade("/anywhere")).await.status(),
         StatusCode::ACCEPTED
-    );
-
-    // Over Orbit the plan decides first, and the application answers after it.
-    let over_orbit = |path: &str| {
-        let offer = claviron_http::socket::Offer::new(
-            claviron_http::socket::OfferInfo {
-                kind: claviron_http::socket::SocketKind::WebSocket,
-                carrier: claviron_http::socket::Carrier::Orbit,
-            },
-            Unused,
-        );
-        let mut request =
-            Request::get(path).body(RequestBody::empty()).unwrap();
-        request.extensions_mut().insert(offer.clone());
-        (offer, request)
-    };
-    let (offer, request) = over_orbit("/old");
-    assert_eq!(
-        offer.finish(taken.call(request).await).status(),
-        StatusCode::TEMPORARY_REDIRECT
-    );
-    let (offer, request) = over_orbit("/anywhere");
-    assert_eq!(
-        offer.finish(taken.call(request).await).status(),
-        StatusCode::SWITCHING_PROTOCOLS
     );
 
     let unclaimed = application(Owner::new(answers(200)));

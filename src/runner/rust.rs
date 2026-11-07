@@ -29,7 +29,6 @@ pub struct Runner {
     config_path: Option<PathBuf>,
     registrations: Vec<Registration>,
     application: Option<ApplicationRegistration>,
-    sessions: Option<claviron_runner::routing::Sessions>,
 }
 
 impl Runner {
@@ -117,33 +116,6 @@ impl Runner {
         self
     }
 
-    /// Handle message sessions forwarded by Edge over Orbit.
-    ///
-    /// The same callback receives WebSocket sessions and supported reliable
-    /// WebTransport bidi streams. Edge owns the public protocol handshake.
-    #[cfg(feature = "runner-orbit")]
-    pub fn with_orbit_sessions<F, Fut>(
-        mut self,
-        session: F,
-    ) -> Self
-    where
-        F: Fn(
-                AppRequest,
-                claviron_runner::orbit::Endpoint,
-                claviron_runner::Handshake,
-            ) -> Fut
-            + Send
-            + Sync
-            + 'static,
-        Fut: std::future::Future<Output = ()> + Send + 'static,
-    {
-        self.sessions =
-            Some(std::sync::Arc::new(move |request, endpoint, handshake| {
-                Box::pin(session(request, endpoint, handshake))
-            }));
-        self
-    }
-
     pub async fn run(self) -> crate::Result<()> {
         let config_path =
             self.config_path.clone().unwrap_or_else(|| "runner.yaml".into());
@@ -166,7 +138,6 @@ impl Runner {
         let prepared = launch.prepare(name)?;
         let definitions = launch.clone();
         let registrations = self.registrations;
-        let sessions = self.sessions;
         let server = if production {
             Server::new().production()
         } else if let Some(environment) = environment {
@@ -208,7 +179,6 @@ impl Runner {
                     state,
                     launch.runner,
                     application,
-                    sessions,
                 )
             });
         server.serve().await

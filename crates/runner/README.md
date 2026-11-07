@@ -56,10 +56,11 @@ before composition. Host-free HTTP Routables contribute routes before the
 terminal service. `with_service` accepts another compatible Rust HTTP service
 without requiring Axum.
 
-Files and session support use the existing optional capabilities.
-`with_orbit_sessions` supplies the application's WebSocket/WebTransport message
-handler over Link; it does not infer a session handler from ordinary HTTP
-routes. Lifecycle management requires the application's registered controller.
+Files use the existing optional capability. A session is a route like any
+other: a handler takes `websocket::WebSocketOffer` and accepts, on the
+application's own sockets and over Orbit from an Edge alike. Route it with `any`,
+since an HTTP/2 WebSocket is a CONNECT. Lifecycle management requires the
+application's registered controller.
 
 For Warp, select `rust` and `warp`, then use `with_warp(filter)` or return
 `claviron::http::warp::router(filter)` from `with_router`. The adapter runs the
@@ -201,10 +202,10 @@ the edge alone does not terminate the application. The default edge shutdown
 policy continues running; stopping in response to an edge shutdown is an
 explicit opt-in. No implicit drain deadline is added by the runner.
 
-Link message requests carry `orbit::SessionShutdown` in their extensions. Owners
-observe this read-only ingress retirement signal to begin a cooperative protocol
-close while accepted work drains. The signal does not authorize forced task
-termination or cancellation of another owner's work.
+A message session over Link hears its ingress retiring as a close with code 1001
+from `WebSocket::recv`, so its owner can finish its output and return while
+accepted work drains. This does not authorize forced task termination or
+cancellation of another owner's work.
 
 ## Status and license
 

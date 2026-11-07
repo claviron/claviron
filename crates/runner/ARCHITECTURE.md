@@ -106,11 +106,11 @@ Inactive request/reply body guards add no body wrapper, and existing canonical
 bodies are reused. The outer application future is concrete; terminal service
 erasure remains one request-future allocation.
 
-Orbit session handlers belong to the prepared `Application`, not its optional
-language owner. `with_orbit_sessions` uses the existing WebSocket and reliable
-WebTransport bidi message-session contract. Broadcast retains its existing
-automatic Orbit session admission when registered. No QUIC listener, datagram,
-uni-stream or server-initiated stream support is added to the runner.
+A session over Orbit is an offer through the same `Application` as any request,
+so the route that answers HTTP also answers it. What claims the offer gets the
+existing WebSocket and reliable WebTransport bidi message-session contract as
+whole messages. No QUIC listener, datagram, uni-stream or server-initiated stream
+support is added to the runner.
 
 The management bridge still requires registered application controllers for
 start/stop/restart. A ready Rust router does not imply an engine lifecycle or a
@@ -297,11 +297,12 @@ Each WebTransport bidi stream is an independent application message session,
 not a shared HTTP request body. No QUIC listener or H3 dependency is needed in
 the runner. Datagram, uni and server-initiated streams are outside this API.
 
-Each message request carries `orbit::SessionShutdown`, a read-only view of the
-ingress generation's cancellation. Owners use it to begin their cooperative
-protocol close while the ingress retains and joins accepted work. Closing lane
-admission alone is not a shutdown signal to an idle owner. The capability adds
-no deadline or authority to cancel guest tasks or another service's generation.
+Each accepted message session holds `orbit::SessionShutdown`, a read-only view of
+the ingress generation's cancellation, and delivers it to its owner as a close
+with code 1001, so the owner begins its cooperative protocol close while the
+ingress retains and joins accepted work. Closing lane admission alone is not a
+shutdown signal to an idle owner. This adds no deadline or authority to cancel
+guest tasks or another service's generation.
 
 Both call the same routed service, so an application never learns which door
 a request came through.

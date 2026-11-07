@@ -29,9 +29,7 @@ pub use claviron_transport::websocket;
 
 pub use options::{EdgeShutdownPolicy, RunnerOptions};
 #[cfg(feature = "orbit")]
-pub use orbit::{
-    EdgeShutdownInitiated, Handshake, LinkCommandReceived, OrbitIngress,
-};
+pub use orbit::{EdgeShutdownInitiated, LinkCommandReceived, OrbitIngress};
 #[cfg(feature = "axum")]
 pub use routing::register_router;
 pub use routing::{

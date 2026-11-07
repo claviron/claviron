@@ -29,13 +29,6 @@ use tower::util::{BoxCloneSyncService, ServiceExt};
 
 pub use claviron_transport::owner::{AppRequest, RequestBody};
 
-/// What answers a message session the edge carries, in a build with that door;
-/// a build without it can name none.
-#[cfg(feature = "orbit")]
-pub type Sessions = crate::orbit::OrbitSession;
-#[cfg(not(feature = "orbit"))]
-pub type Sessions = Infallible;
-
 /// What the composed service answers with.
 pub type AppResponse = Response<RouteBody>;
 
@@ -62,7 +55,6 @@ pub type Upgrades = BoxCloneSyncService<AppRequest, AppResponse, Infallible>;
 pub struct Owner {
     service: BoxCloneSyncService<AppRequest, AppResponse, Infallible>,
     upgrades: Option<Upgrades>,
-    orbit_sessions: Option<Sessions>,
 }
 
 impl Owner {
@@ -77,13 +69,12 @@ impl Owner {
         B: http_body::Body<Data = Bytes> + Send + 'static,
         B::Error: Into<RouteBodyError>,
     {
-        Self { service: boxed(service), upgrades: None, orbit_sessions: None }
+        Self { service: boxed(service), upgrades: None }
     }
 
-    /// Requests asking to take the connection over (`Upgrade:`), which the
-    /// owner answers itself — an ASGI WebSocket. The request keeps the
-    /// socket's upgrade handle in its extensions. Without this, an upgrade
-    /// nothing else claims is refused.
+    /// Requests attempting to open a session, on any door: what answers one
+    /// claims the offer in its extensions — an ASGI WebSocket. Without this, an
+    /// attempt nothing else claims is refused.
     pub fn upgrades<S, B>(
         mut self,
         service: S,
@@ -102,46 +93,10 @@ impl Owner {
         self
     }
 
-    /// WebSockets over Orbit, which the edge speaks: the owner answers the
-    /// handshake and exchanges whole messages over the slot. Without this, the
-    /// edge is answered 501.
-    #[cfg(feature = "orbit")]
-    pub fn orbit_sessions<F, Fut>(
-        mut self,
-        session: F,
-    ) -> Self
-    where
-        F: Fn(
-                AppRequest,
-                crate::orbit::Endpoint,
-                crate::orbit::Handshake,
-            ) -> Fut
-            + Send
-            + Sync
-            + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
-    {
-        self.orbit_sessions =
-            Some(Arc::new(move |request, endpoint, handshake| {
-                Box::pin(session(request, endpoint, handshake))
-            }));
-        self
-    }
-
-    pub(crate) fn orbit_session(&self) -> Option<Sessions> {
-        self.orbit_sessions.clone()
-    }
-
     /// Take the owner's own upgrades, for something placed in front of it to
     /// answer what it does not claim.
     pub fn take_upgrades(&mut self) -> Option<Upgrades> {
         self.upgrades.take()
-    }
-
-    /// Take the owner's own message sessions, the same way.
-    #[cfg(feature = "orbit")]
-    pub fn take_orbit_sessions(&mut self) -> Option<Sessions> {
-        self.orbit_sessions.take()
     }
 
     /// Hand a request to the owner and wait for its answer: the `Service`
@@ -288,15 +243,9 @@ impl Routing {
 /// the guards, then what the application composed.
 pub struct Application {
     service: Arc<dyn ErasedService>,
-    #[cfg(feature = "orbit")]
-    sessions: Option<Sessions>,
 }
 
 impl Application {
-    #[cfg(feature = "orbit")]
-    pub(crate) fn orbit_session(&self) -> Option<Sessions> {
-        self.sessions.clone()
-    }
     /// Hand a request to whatever the application composed.
     ///
     /// Every ingress arrives here, which is why the exchange is counted and
@@ -345,35 +294,6 @@ fn attempting(request: &AppRequest) -> bool {
     }
 }
 
-fn arrived_over_orbit(request: &AppRequest) -> bool {
-    #[cfg(any(feature = "socket", feature = "orbit"))]
-    return request
-        .extensions()
-        .get::<claviron_http::socket::Offer>()
-        .is_some_and(|offer| {
-            offer.info().carrier == claviron_http::socket::Carrier::Orbit
-        });
-    #[cfg(not(any(feature = "socket", feature = "orbit")))]
-    {
-        let _ = request;
-        false
-    }
-}
-
-/// A proposal that commits nothing but having got here.
-fn reached(request: &AppRequest) -> AppResponse {
-    #[cfg(any(feature = "socket", feature = "orbit"))]
-    if let Some(claim) = request
-        .extensions()
-        .get::<claviron_http::socket::Offer>()
-        .and_then(claviron_http::socket::Offer::claim)
-    {
-        return claim.reach();
-    }
-    let _ = request;
-    status(StatusCode::FORBIDDEN)
-}
-
 /// Refuse what no stage may read differently or take over, then hand on what
 /// is left.
 async fn admitted(
@@ -419,11 +339,6 @@ impl ErasedService for Answering {
         let upgrades = self.upgrades.clone();
         Box::pin(async move {
             request.extensions_mut().insert(policy);
-            if arrived_over_orbit(&request) {
-                // The edge holds the socket and the application answers over
-                // Link, so reaching this far is all the plan has to say.
-                return Ok(reached(&request));
-            }
             if attempting(&request) {
                 return Ok(match upgrades {
                     Some(upgrades) => match upgrades.call_erased(request).await
@@ -582,14 +497,13 @@ where
     B: http_body::Body<Data = Bytes> + Send + 'static,
     B::Error: Into<RouteBodyError>,
 {
-    compose_with(state, service, false, None)
+    compose_with(state, service, false)
 }
 
 fn compose_with<S, B>(
     state: &AppState,
     service: S,
     rust: bool,
-    sessions: Option<Sessions>,
 ) -> registry::Result<()>
 where
     S: Service<AppRequest, Response = Response<B>, Error = Infallible>
@@ -601,14 +515,13 @@ where
     B: http_body::Body<Data = Bytes> + Send + 'static,
     B::Error: Into<RouteBodyError>,
 {
-    compose_service(state, Arc::new(Erased(service)), rust, sessions)
+    compose_service(state, Arc::new(Erased(service)), rust)
 }
 
 fn compose_service(
     state: &AppState,
     service: Arc<dyn ErasedService>,
     rust: bool,
-    sessions: Option<Sessions>,
 ) -> registry::Result<()> {
     let routing =
         state.registry_ref().resolve::<Routing>().ok_or_else(|| {
@@ -625,8 +538,6 @@ fn compose_service(
             .and_then(|owner| owner.upgrades.clone())
             .map(|service| Arc::new(Erased(service)) as Arc<dyn ErasedService>)
     };
-    let sessions = sessions
-        .or_else(|| owner.as_ref().and_then(|owner| owner.orbit_session()));
     let answering = Answering { service, upgrades, policy: routing.policy };
     #[cfg(feature = "pipeline")]
     let service = plan::over(state, &routing, answering)?;
@@ -641,13 +552,7 @@ fn compose_service(
         }
         Arc::new(answering)
     };
-    #[cfg(not(feature = "orbit"))]
-    let _ = sessions;
-    state.registry_ref().insert(Arc::new(Application {
-        service,
-        #[cfg(feature = "orbit")]
-        sessions,
-    }))?;
+    state.registry_ref().insert(Arc::new(Application { service }))?;
     Ok(())
 }
 
@@ -668,7 +573,6 @@ impl ErasedService for PreparedRouter {
 pub(crate) fn register_prepared_router(
     state: &AppState,
     router: claviron_http::RustRouter,
-    sessions: Option<Sessions>,
 ) -> registry::Result<()> {
     let service: Arc<dyn ErasedService> = Arc::new(PreparedRouter(router));
     #[cfg(feature = "axum")]
@@ -681,16 +585,15 @@ pub(crate) fn register_prepared_router(
                 response
             }
         });
-        return compose_with(state, router, true, sessions);
+        return compose_with(state, router, true);
     }
-    compose_service(state, service, true, sessions)
+    compose_service(state, service, true)
 }
 
 /// The routables registered through `claviron::pipeline::routing`, in front of the
 /// owner: what a request the application's own routes leave unmatched meets
 /// next. A path no routable declares, and a declared path reached with an
-/// undeclared method, both go on to the owner. The owner's upgrades and Orbit
-/// sessions are kept.
+/// undeclared method, both go on to the owner. The owner's upgrades are kept.
 #[cfg(feature = "axum")]
 fn routables_over(
     state: &AppState,
@@ -715,11 +618,7 @@ fn routables_over(
             let owner = unmatched.clone();
             async move { owner.handle(request).await }
         });
-    Ok(Owner {
-        service: boxed(router),
-        upgrades: owner.upgrades,
-        orbit_sessions: owner.orbit_sessions,
-    })
+    Ok(Owner { service: boxed(router), upgrades: owner.upgrades })
 }
 
 /// Make sure something answers. An application that registered nothing is
@@ -754,7 +653,6 @@ fn contributed_routes(
 pub(crate) fn register_other<S, B>(
     state: &AppState,
     service: S,
-    sessions: Option<Sessions>,
 ) -> registry::Result<()>
 where
     S: Service<AppRequest, Response = Response<B>, Error = Infallible>
@@ -776,9 +674,9 @@ where
                 response
             }
         });
-        return compose_with(state, router, true, sessions);
+        return compose_with(state, router, true);
     }
-    compose_with(state, service, true, sessions)
+    compose_with(state, service, true)
 }
 
 /// This application's Rust routes, in front of its owner.
@@ -874,12 +772,7 @@ pub fn register_routes(
     let owner = routables_over(state, owner(state)?)?;
     #[cfg(not(feature = "axum"))]
     let owner = owner(state)?;
-    compose_service(
-        state,
-        Arc::new(SelectedRoutes { routes, owner }),
-        false,
-        None,
-    )
+    compose_service(state, Arc::new(SelectedRoutes { routes, owner }), false)
 }
 
 struct SelectedRoutes {

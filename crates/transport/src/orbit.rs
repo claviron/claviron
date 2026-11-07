@@ -20,7 +20,7 @@
 //! reactor. There is no polling interval, deadline, reader thread or hidden
 //! process-local queue.
 
-use std::future::Future;
+use std::future::{Future, poll_fn};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
@@ -30,7 +30,10 @@ use claviron_app::{
     APPLICATION_EVENT_TOPIC, ApplicationEvent, EventArrayKey, EventValue,
 };
 use claviron_http::ext::{RealIpExt, RequestArrival};
-use claviron_http::socket::{Admission, Carrier, OfferInfo, SocketKind};
+use claviron_http::socket::{
+    Carrier, Deferred, Door, Offer, OfferInfo, SocketIo, SocketKind, refusal,
+    strip_protocol_headers,
+};
 use claviron_http::trust::Forwarded;
 pub use claviron_orbit::link::application::Endpoint;
 use claviron_orbit::link::application::{
@@ -40,6 +43,7 @@ use claviron_orbit::link::application::{
     LINK_BUFFER_BYTES, LinkJoined, Peers, Received, ShutdownNotice, Ticket,
     frame_kind,
 };
+pub use claviron_orbit::stream::{ReadHalf, WriteHalf};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
 use claviron_runtime::{
     AppState, Event, FleetIncarnation, FleetName, RunContext, registry,
@@ -47,23 +51,11 @@ use claviron_runtime::{
 use http::{Request, Uri};
 use http_body_util::BodyExt;
 use tokio::io::AsyncWriteExt;
+use tokio::sync::oneshot;
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::owner::{AppRequest, Owner, RequestBody};
-
-/// A message session the edge carries for the owner: an H1/H2 WebSocket or
-/// one reliable WebTransport bidi stream. The original request, the message
-/// slot and its one acceptance answer reach the same owner callback.
-pub type OrbitSession = Arc<
-    dyn Fn(
-            AppRequest,
-            Endpoint,
-            Handshake,
-        ) -> Pin<Box<dyn Future<Output = ()> + Send>>
-        + Send
-        + Sync,
->;
 
 /// Read-only retirement signal for this ingress generation's message owners.
 /// Waiting permits a cooperative protocol close, not forced guest termination.
@@ -78,9 +70,19 @@ impl SessionShutdown {
     }
 }
 
+/// A message session's I/O, in [`SocketIo::Native`], once the edge has been told
+/// it is accepted: an H1/H2 WebSocket or one reliable WebTransport bidi stream,
+/// as records on the exchange's slot.
+pub struct LinkSession {
+    pub incoming: ReadHalf,
+    pub outgoing: WriteHalf,
+    /// This ingress generation's retirement.
+    pub shutdown: SessionShutdown,
+}
+
 /// Link's session acknowledgment: `101` with the owner's accepted headers, or
 /// an error status. Edge translates acceptance to the native H1/H2/H3 response.
-pub struct Handshake {
+struct Handshake {
     segment: Arc<ApplicationSegment>,
     origin: usize,
     correlation: u64,
@@ -88,18 +90,10 @@ pub struct Handshake {
 }
 
 impl Handshake {
-    pub fn answer(
-        self,
-        status: u16,
-        headers: Vec<(Vec<u8>, Vec<u8>)>,
-    ) {
-        self.try_answer(status, headers);
-    }
-
-    /// Publish the Link acknowledgment and report whether it was delivered.
-    /// An owner must reset its endpoint when this fails, so the edge's pending
-    /// admission wakes even when its inbox could not take the reply.
-    pub fn try_answer(
+    /// Publish the Link acknowledgment and report whether it was delivered. The
+    /// slot must be reset when this fails, so the edge's pending admission wakes
+    /// even when its inbox could not take the reply.
+    fn try_answer(
         self,
         status: u16,
         headers: Vec<(Vec<u8>, Vec<u8>)>,
@@ -138,6 +132,64 @@ impl Handshake {
             endpoint.reset();
         }
     }
+}
+
+/// How a session attempt ended, for the exchange that holds its slot.
+enum Ended {
+    Accepted(Deferred),
+    /// Whether the edge heard the refusal: an answer ends the direction it waits
+    /// on, and without one only a reset wakes it.
+    Refused {
+        answered: bool,
+    },
+}
+
+/// Completes an attempt with the Link acknowledgment. The slot stays with the
+/// exchange, which runs the session as its own work.
+struct LinkDoor {
+    handshake: Handshake,
+    ended: oneshot::Sender<Ended>,
+}
+
+impl Door for LinkDoor {
+    fn commit(
+        self: Box<Self>,
+        mut proposal: claviron_http::RouteResponse,
+        deferred: Deferred,
+    ) -> claviron_http::RouteResponse {
+        strip_protocol_headers(proposal.headers_mut());
+        let ended = if self.handshake.try_answer(101, header_pairs(&proposal)) {
+            Ended::Accepted(deferred)
+        } else {
+            Ended::Refused { answered: false }
+        };
+        let _ = self.ended.send(ended);
+        proposal
+    }
+
+    fn refuse(
+        self: Box<Self>,
+        response: claviron_http::RouteResponse,
+    ) -> claviron_http::RouteResponse {
+        let response = refusal(response);
+        let answered = self
+            .handshake
+            .try_answer(response.status().as_u16(), header_pairs(&response));
+        let _ = self.ended.send(Ended::Refused { answered });
+        response
+    }
+}
+
+fn header_pairs(
+    response: &claviron_http::RouteResponse
+) -> Vec<(Vec<u8>, Vec<u8>)> {
+    response
+        .headers()
+        .iter()
+        .map(|(name, value)| {
+            (name.as_str().as_bytes().to_vec(), value.as_bytes().to_vec())
+        })
+        .collect()
 }
 
 /// This process's place in its configured transport fleet.
@@ -261,7 +313,6 @@ impl OrbitDoor {
     pub async fn serve<O: Owner>(
         &self,
         owner: Arc<O>,
-        sessions: Option<OrbitSession>,
         incarnation: Option<Arc<FleetIncarnation>>,
         state: AppState,
         context: RunContext,
@@ -352,7 +403,6 @@ impl OrbitDoor {
                                 std::mem::take(&mut frame),
                                 lane,
                                 Arc::clone(&owner),
-                                sessions.clone(),
                                 Arc::clone(&segment),
                                 Arc::clone(&bodies),
                                 shutdown.clone()
@@ -522,7 +572,6 @@ async fn serve<O: Owner>(
     frame: Vec<u8>,
     lane: usize,
     owner: Arc<O>,
-    sessions: Option<OrbitSession>,
     segment: Arc<ApplicationSegment>,
     bodies: Arc<ApplicationBodies>,
     shutdown: SessionShutdown,
@@ -606,38 +655,19 @@ async fn serve<O: Owner>(
             correlation,
             body: exchange.body,
         };
-        let request = session_request(&exchange, shutdown.clone());
-        match (sessions, body, request) {
-            (Some(sessions), Some(mut endpoint), Ok(request)) => {
-                // The same plan as any request first: what stands in front of
-                // the application can answer or refuse before it hears of this.
-                let refused = match session_request(&exchange, shutdown) {
-                    Ok(attempt) => {
-                        admitted(attempt, exchange.version, owner.as_ref())
-                            .await
-                    }
-                    Err(_) => Some((400, Vec::new())),
-                };
-                if let Some((status, headers)) = refused {
-                    // An answer, so it ends the direction the edge waits on.
-                    if handshake.try_answer(status, headers) {
-                        let _ = endpoint.shutdown().await;
-                    } else {
-                        endpoint.reset();
-                    }
-                    return;
-                }
-                let _activity =
-                    claviron_runtime::activity::ACTIVITY.open_session();
-                sessions(request, endpoint, handshake).await;
+        match body {
+            Some(endpoint) => {
+                session(
+                    &exchange,
+                    handshake,
+                    endpoint,
+                    owner.as_ref(),
+                    shutdown,
+                )
+                .await;
             }
-            // Nothing here speaks WebSocket, or the edge sent no slot for one.
-            (None, endpoint, _) => {
-                handshake.refuse(501, endpoint);
-            }
-            (_, endpoint, _) => {
-                handshake.refuse(400, endpoint);
-            }
+            // The edge sent no slot for one.
+            None => handshake.refuse(400, None),
         }
         return;
     }
@@ -849,46 +879,62 @@ async fn before_head<T>(
     }
 }
 
-/// Run a session attempt through the owner's plan. `None` lets it through;
-/// otherwise the status and headers the plan answered with, for the edge. The
-/// Link acknowledgment is the application's to give, afterwards.
-async fn admitted<O: Owner>(
-    mut attempt: AppRequest,
-    version: HttpVersion,
+/// A session attempt: an offer through the same owner as any request. What
+/// stands in front of the application can answer or refuse it, and whoever claims
+/// it decides. The session then runs here, as this exchange's work.
+async fn session<O: Owner>(
+    exchange: &Exchange,
+    handshake: Handshake,
+    endpoint: Endpoint,
     owner: &O,
-) -> Option<(u16, Vec<(Vec<u8>, Vec<u8>)>)> {
+    shutdown: SessionShutdown,
+) {
+    let mut request = match build_request(exchange, RequestBody::empty()) {
+        Ok(request) => request,
+        Err(_) => return handshake.refuse(400, Some(endpoint)),
+    };
     // The version an edge marks a WebTransport stream with.
-    let kind = match version {
+    let kind = match exchange.version {
         HttpVersion::Http3 => SocketKind::WebTransport,
         _ => SocketKind::WebSocket,
     };
-    let admission = Admission::new(OfferInfo { kind, carrier: Carrier::Orbit });
-    attempt.extensions_mut().insert(admission.offer());
-    let answered = owner
-        .call(
-            attempt.map(RequestBody::into_inner),
+    let (ended, mut outcome) = oneshot::channel();
+    let offer = Offer::new(
+        OfferInfo { kind, carrier: Carrier::Orbit },
+        LinkDoor { handshake, ended },
+    );
+    request.extensions_mut().insert(offer.clone());
+    let (incoming, mut outgoing) = endpoint.split();
+    let reset = incoming.reset_signal();
+    let answered = tokio::select! {
+        biased;
+        // The edge gave up on it; there is nobody left to answer.
+        _ = poll_fn(|cx| reset.poll_reset(cx)) => return,
+        () = shutdown.cancelled() => claviron_http::err_status(
+            http::StatusCode::SERVICE_UNAVAILABLE,
+        ),
+        answered = owner.call(
+            request.map(RequestBody::into_inner),
             None,
             RequestArrival::Established,
-        )
-        .await;
-    let response = admission.refused(answered)?;
-    let headers = response
-        .headers()
-        .iter()
-        .map(|(name, value)| {
-            (name.as_str().as_bytes().to_vec(), value.as_bytes().to_vec())
-        })
-        .collect();
-    Some((response.status().as_u16(), headers))
-}
-
-fn session_request(
-    exchange: &Exchange,
-    shutdown: SessionShutdown,
-) -> Result<AppRequest, String> {
-    let mut request = build_request(exchange, RequestBody::empty())?;
-    request.extensions_mut().insert(shutdown);
-    Ok(request)
+        ) => answered,
+    };
+    offer.finish(answered);
+    match outcome.try_recv() {
+        Ok(Ended::Accepted(deferred)) => {
+            let _activity = claviron_runtime::activity::ACTIVITY.open_session();
+            deferred(SocketIo::Native(Box::new(LinkSession {
+                incoming,
+                outgoing,
+                shutdown,
+            })))
+            .await;
+        }
+        Ok(Ended::Refused { answered: true }) => {
+            let _ = outgoing.shutdown().await;
+        }
+        _ => outgoing.reset(),
+    }
 }
 
 fn publish_reply_head(

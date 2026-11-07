@@ -10,8 +10,8 @@ use claviron_runtime::{
 };
 use claviron_transport::orbit::OrbitDoor;
 pub use claviron_transport::orbit::{
-    EdgeShutdownInitiated, Endpoint, Handshake, LinkCommandReceived,
-    OrbitSession, SessionShutdown,
+    EdgeShutdownInitiated, Endpoint, LinkCommandReceived, LinkSession,
+    SessionShutdown,
 };
 
 use crate::routing::Application;
@@ -75,7 +75,6 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for OrbitIngress {
         state: AppState,
         context: RunContext,
     ) -> registry::Result<()> {
-        let sessions = application.orbit_session();
-        self.0.serve(application, sessions, incarnation, state, context).await
+        self.0.serve(application, incarnation, state, context).await
     }
 }

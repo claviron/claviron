@@ -20,7 +20,7 @@ async fn warp_filter_receives_the_original_request_body() {
     let filter = ::warp::path("echo")
         .and(::warp::body::bytes())
         .map(|body: Bytes| http::Response::new(body));
-    register(filter)(&state, None).unwrap();
+    register(filter)(&state).unwrap();
     let request = http::Request::builder()
         .method("POST")
         .uri("/echo")
