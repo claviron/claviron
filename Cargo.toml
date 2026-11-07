@@ -129,6 +129,9 @@ metrics = [
     "claviron-tasks?/metrics",
 ]
 ffi = ["dep:claviron-ffi"]
+# Native modules: compiled libraries `modules.yaml` lists, registering themselves
+# as services and applications. Without that file, nothing is installed.
+module = ["application", "server", "dep:claviron-module"]
 # ── Protocols ────────────────────────────────────────────────────────
 http3 = [
     "tls", "claviron-edge/quic", "dep:quinn",
@@ -176,6 +179,7 @@ claviron-cache = { workspace = true, optional = true }
 claviron-db = { workspace = true, default-features = true, optional = true }
 claviron-edge = { workspace = true, optional = true }
 claviron-ffi = { workspace = true, features = ["http"], optional = true }
+claviron-module = { workspace = true, optional = true }
 claviron-files = { workspace = true, optional = true }
 claviron-geoip = { workspace = true, optional = true }
 claviron-helpers.workspace = true
@@ -368,6 +372,7 @@ members = [
     "crates/http",
     "crates/logging",
     "crates/macros",
+    "crates/module",
     "crates/orbit",
     "crates/pipeline",
     "crates/resolver",
@@ -410,6 +415,7 @@ claviron-cache = { version = "0.2.0-alpha.26", path = "crates/cache" }
 claviron-db = { version = "0.2.0-alpha.26", path = "crates/db", default-features = false }
 claviron-edge = { version = "0.2.0-alpha.26", path = "crates/edge" }
 claviron-ffi = { version = "0.2.0-alpha.26", path = "crates/ffi" }
+claviron-module = { version = "0.2.0-alpha.26", path = "crates/module" }
 claviron-files = { version = "0.2.0-alpha.26", path = "crates/files" }
 claviron-geoip = { version = "0.2.0-alpha.26", path = "crates/geoip" }
 claviron-helpers = { version = "0.2.0-alpha.26", path = "crates/helpers" }

@@ -361,6 +361,8 @@ pub fn register(state: &AppState) -> Result<()> {
     claviron_app::register(state)?;
     #[cfg(feature = "supervisor")]
     claviron_app::fleet::register(state)?;
+    #[cfg(feature = "module")]
+    claviron_module::register(state)?;
 
     #[cfg(feature = "supervisor")]
     claviron_supervisor::register(state)?;
