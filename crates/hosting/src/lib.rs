@@ -10,6 +10,13 @@ mod event;
 mod store;
 mod types;
 
+// Hosting data needs somewhere to live, and there is no default to fall back on.
+#[cfg(all(
+    feature = "server",
+    not(any(feature = "postgres", feature = "sqlite"))
+))]
+compile_error!("claviron-hosting needs a store: enable `postgres` or `sqlite`");
+
 pub use claviron_types::CertificateKind;
 pub use error::{HostingError, Result};
 pub use event::HostingChanged;

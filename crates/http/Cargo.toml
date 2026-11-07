@@ -15,14 +15,14 @@ categories = ["web-programming::http-server", "web-programming::websocket", "asy
 
 [features]
 default = []
-rate-limit = ["dep:claviron-orbit", "claviron-orbit/quota"]
+rate-limit = ["server", "dep:claviron-orbit", "claviron-orbit/quota"]
 # Route declarations only; these do not enable execution engines or drivers.
 js = []
 lua = []
 orbit = []
 http3 = []
 server = ["dep:arc-swap", "dep:claviron-tls", "dep:rustls", "dep:futures-util"]
-metrics = ["axum", "claviron-runtime/metrics", "dep:claviron-orbit", "dep:orbitive", "orbitive/metrics"]
+metrics = ["server", "axum", "claviron-runtime/metrics", "dep:claviron-orbit", "dep:orbitive", "orbitive/metrics"]
 cache = ["axum", "dep:claviron-cache"]
 axum = ["dep:axum", "dep:serde_json", "dep:tower"]
 warp = ["dep:warp", "dep:sync_wrapper", "dep:tower"]
