@@ -30,6 +30,7 @@ use http::{Method, Request, StatusCode};
 use kind::{is_h1_upgrade_request, is_h2_extended_connect_request};
 
 use crate::compile::profile::Profile;
+use crate::config::profile::UpstreamProtocol;
 use crate::proxy::failure::RequestFailure;
 
 #[derive(Clone)]
@@ -171,6 +172,15 @@ impl UpstreamService {
                     "h1 upgrade is disabled by host policy",
                 );
             }
+            // Nothing is wrong with the origin: the two protocols simply have
+            // no such translation here. A client reaches an h2 origin's
+            // WebSocket by extended CONNECT.
+            if matches!(self.inner.profile.protocol, UpstreamProtocol::H2) {
+                return refused_response(
+                    StatusCode::NOT_IMPLEMENTED,
+                    "an h1 upgrade cannot reach an h2 upstream",
+                );
+            }
         }
         if is_h2_extended_connect_request(&req) {
             let policy = scope.policy;
@@ -178,6 +188,12 @@ impl UpstreamService {
                 return refused_response(
                     StatusCode::FORBIDDEN,
                     "h2 extended connect is disabled by host policy",
+                );
+            }
+            if matches!(self.inner.profile.protocol, UpstreamProtocol::H1) {
+                return refused_response(
+                    StatusCode::NOT_IMPLEMENTED,
+                    "h2 extended connect cannot reach an h1 upstream",
                 );
             }
         } else if req.method() == Method::CONNECT {
