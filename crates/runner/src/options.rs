@@ -152,7 +152,7 @@ pub struct RunnerOptions {
     pub requests: Option<serde_yaml::Value>,
 
     /// The response side of the policy (`max_body_size`,
-    /// `body_idle_timeout`, …). Unwritten, nothing is bounded.
+    /// `idle_timeout`, …). Unwritten, nothing is bounded.
     #[cfg_attr(feature = "cli", arg(skip))]
     pub responses: Option<serde_yaml::Value>,
 

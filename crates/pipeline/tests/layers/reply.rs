@@ -44,7 +44,7 @@ fn reply_preparation_registers_only_declared_body_limits() {
 
     // Even a declared idle timer is not created at preparation or reply head.
     let policy = ReplyPolicy::new(ResponsePolicy {
-        body_idle_timeout: Some(Duration::from_secs(1)),
+        idle_timeout: Some(Duration::from_secs(1)),
         ..ResponsePolicy::unlimited()
     })
     .unwrap();

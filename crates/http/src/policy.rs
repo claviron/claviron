@@ -369,7 +369,7 @@ pub struct HttpPolicyOverride {
 ///
 /// | field | nearer layer |
 /// |---|---|
-/// | `buffer_size`, `max_body_size`, `write_timeout`, `body_idle_timeout` | narrows only |
+/// | `buffer_size`, `max_body_size`, `write_timeout`, `idle_timeout` | narrows only |
 /// | `buffering` | replaces |
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ResponsePolicy {
@@ -384,7 +384,7 @@ pub struct ResponsePolicy {
     /// Longest gap between two pieces of a reply arriving from the backend. An
     /// upstream's wait for its origin's head is the first such gap: a reply that
     /// never starts has stalled like one that stops.
-    pub body_idle_timeout: Option<Duration>,
+    pub idle_timeout: Option<Duration>,
 }
 
 impl ResponsePolicy {
@@ -395,7 +395,7 @@ impl ResponsePolicy {
             buffer_size: None,
             max_body_size: None,
             write_timeout: None,
-            body_idle_timeout: None,
+            idle_timeout: None,
         }
     }
 
@@ -406,9 +406,7 @@ impl ResponsePolicy {
             buffer_size: declared.buffer_size.and_then(Limit::value),
             max_body_size: declared.max_body_size.and_then(Limit::value),
             write_timeout: declared.write_timeout.and_then(Limit::value),
-            body_idle_timeout: declared
-                .body_idle_timeout
-                .and_then(Limit::value),
+            idle_timeout: declared.idle_timeout.and_then(Limit::value),
         }
     }
 
@@ -423,10 +421,7 @@ impl ResponsePolicy {
             buffer_size: narrowed(self.buffer_size, nearer.buffer_size),
             max_body_size: narrowed(self.max_body_size, nearer.max_body_size),
             write_timeout: narrowed(self.write_timeout, nearer.write_timeout),
-            body_idle_timeout: narrowed(
-                self.body_idle_timeout,
-                nearer.body_idle_timeout,
-            ),
+            idle_timeout: narrowed(self.idle_timeout, nearer.idle_timeout),
         }
     }
 
@@ -501,7 +496,7 @@ pub struct ResponsePolicyOverride {
     pub write_timeout: Option<Limit<Duration>>,
     /// A duration or `off`.
     #[serde(default, deserialize_with = "optional_time_limit")]
-    pub body_idle_timeout: Option<Limit<Duration>>,
+    pub idle_timeout: Option<Limit<Duration>>,
 }
 
 impl ResponsePolicyOverride {
@@ -515,9 +510,7 @@ impl ResponsePolicyOverride {
             buffer_size: nearer.buffer_size.or(self.buffer_size),
             max_body_size: nearer.max_body_size.or(self.max_body_size),
             write_timeout: nearer.write_timeout.or(self.write_timeout),
-            body_idle_timeout: nearer
-                .body_idle_timeout
-                .or(self.body_idle_timeout),
+            idle_timeout: nearer.idle_timeout.or(self.idle_timeout),
         }
     }
 }

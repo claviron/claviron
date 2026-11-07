@@ -395,7 +395,7 @@ impl SendLeg for [Arc<Mutex<crate::proxy::h1::pool::TargetPool>>] {
             )
         });
         let result = crate::proxy::body::timeout::within(
-            scope.responses.body_idle_timeout,
+            scope.responses.idle_timeout,
             pooled.connection.sender_mut().send_request(req),
         )
         .await;
@@ -464,7 +464,7 @@ impl SendLeg for [Arc<crate::proxy::h2::pool::H2TargetPool>] {
         let mut sender = acquired.sender;
         let permit = acquired.permit;
         let result = crate::proxy::body::timeout::within(
-            scope.responses.body_idle_timeout,
+            scope.responses.idle_timeout,
             sender.send_request(req.map(|_| {
                 replay.body(
                     scope

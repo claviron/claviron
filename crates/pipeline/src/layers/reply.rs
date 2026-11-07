@@ -25,7 +25,7 @@ enum Bounds {
 impl ReplyPolicy {
     /// Select active body guarding once, after listener/host narrowing.
     pub fn new(policy: ResponsePolicy) -> Option<Self> {
-        let bounds = match (policy.max_body_size, policy.body_idle_timeout) {
+        let bounds = match (policy.max_body_size, policy.idle_timeout) {
             (None, None) => return None,
             (Some(size), None) => Bounds::Size(size),
             (None, Some(timeout)) => Bounds::Idle(timeout),

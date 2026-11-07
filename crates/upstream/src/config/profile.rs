@@ -50,7 +50,7 @@ pub struct ProfileConfig {
     /// (`docs/REVIEW.md` §3e, step 5c).
     #[serde(default)]
     pub requests: claviron_http::policy::RequestPolicyOverride,
-    /// This upstream application's reply policy: `body_idle_timeout` is the
+    /// This upstream application's reply policy: `idle_timeout` is the
     /// longest gap between two pieces of the origin's reply.
     #[serde(default)]
     pub responses: claviron_http::policy::ResponsePolicyOverride,

@@ -82,7 +82,7 @@ impl UpstreamService {
             scope.lease.as_mut().expect("admitted request").request.take(),
         );
         let response_result = crate::proxy::body::timeout::within(
-            scope.responses.body_idle_timeout,
+            scope.responses.idle_timeout,
             pooled.connection.sender_mut().send_request(req),
         )
         .await;
@@ -113,7 +113,7 @@ impl UpstreamService {
                 body,
                 pool,
                 pooled,
-                scope.responses.body_idle_timeout,
+                scope.responses.idle_timeout,
                 may_reuse,
             );
             return Ok(Response::from_parts(

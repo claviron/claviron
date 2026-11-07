@@ -95,7 +95,7 @@ listeners:
     transport: tcp
     listen: 127.0.0.1:8082
     protocols: h1
-    responses: {body_idle_timeout: 2s}
+    responses: {idle_timeout: 2s}
   open:
     transport: tcp
     listen: 127.0.0.1:8083
