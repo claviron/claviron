@@ -68,6 +68,7 @@ tower = { workspace = true, features = ["util"] }
 tracing.workspace = true
 
 [dev-dependencies]
+hyper = { workspace = true, features = ["http1", "http2", "server"] }
 axum.workspace = true
 tempfile = "3"
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "test-util", "time"] }
