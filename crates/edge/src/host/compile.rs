@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use claviron_http::config::HttpSnapshot;
-use claviron_pipeline::compile::{CompileInput, NoHooks, compile};
+use claviron_pipeline::compile::{CompileInput, compile};
 use claviron_runtime::{AppState, registry::Result};
 use claviron_types::Host;
 
@@ -121,7 +121,6 @@ impl HostCompiler<'_> {
                     )
                 })
                 .unwrap_or_default(),
-            hooks: &NoHooks,
             #[cfg(feature = "rate-limit")]
             quotas,
             upgrades,

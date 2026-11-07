@@ -159,7 +159,6 @@ pub struct RunnerOptions {
     /// What stands in front of the application: redirects, headers, access
     /// rules, files and route scopes, as a host declares them on an edge. It
     /// applies to every door. Written in the file only; carried as written.
-    #[cfg(feature = "pipeline")]
     #[cfg_attr(feature = "cli", arg(skip))]
     pub site: Option<serde_yaml::Value>,
 
@@ -232,7 +231,6 @@ impl RunnerOptions {
         "max_in_flight",
         "requests",
         "responses",
-        #[cfg(feature = "pipeline")]
         "site",
         #[cfg(feature = "files")]
         "files",
@@ -298,7 +296,6 @@ impl RunnerOptions {
             max_in_flight: self.max_in_flight.or(written.max_in_flight),
             requests: self.requests.or(written.requests),
             responses: self.responses.or(written.responses),
-            #[cfg(feature = "pipeline")]
             site: self.site.or(written.site),
             #[cfg(feature = "files")]
             files: self.files.or(written.files),
@@ -331,7 +328,6 @@ impl RunnerOptions {
             return Err("tcp_backlog must be at most 2147483647".into());
         }
         self.listener()?;
-        #[cfg(feature = "pipeline")]
         self.site()?;
         if let Some(name) = &self.fleet_name {
             claviron_runtime::FleetName::try_new(name)
@@ -394,7 +390,6 @@ impl RunnerOptions {
 
     /// The site as written. It declares its own files, so `files`, `try_files`
     /// and `assets` beside it would be two answers to one question.
-    #[cfg(feature = "pipeline")]
     pub fn site(&self) -> Result<Option<claviron_pipeline::Site>, String> {
         let Some(written) = &self.site else { return Ok(None) };
         #[cfg(feature = "files")]

@@ -33,7 +33,7 @@ use crate::registry::{
 };
 use crate::{BackendHandler, DispatchStep, HostHandler, Site};
 
-/// The owners a scope starts from before its registered backends, and its file
+/// The owner a scope starts from before its registered backends, and its file
 /// fallback.
 #[derive(Clone)]
 struct BackendPlan {
@@ -46,7 +46,6 @@ impl BackendPlan {
         context: &RouteContext<'_>,
         #[cfg_attr(not(feature = "orbit"), allow(unused_variables))]
         transport: &claviron_http::config::transport::TransportPolicy,
-        hooks: &dyn CompileHooks,
     ) -> Self {
         if context
             .setting(|scope| scope.redirect.as_ref())
@@ -54,19 +53,19 @@ impl BackendPlan {
         {
             return Self { steps: Vec::new(), fallback: None };
         }
-        let mut steps = Vec::new();
         #[cfg(feature = "orbit")]
-        steps.extend(
-            crate::link::LinkBackend::new(
-                context.state,
-                context.route.orbit(),
-                Some(context.prefix),
-                context.policy().requests,
-                transport.h1.upgrade,
-            )
-            .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>),
-        );
-        steps.extend(hooks.scope_backends(context));
+        let steps = crate::link::LinkBackend::new(
+            context.state,
+            context.route.orbit(),
+            Some(context.prefix),
+            context.policy().requests,
+            transport.h1.upgrade,
+        )
+        .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>)
+        .into_iter()
+        .collect();
+        #[cfg(not(feature = "orbit"))]
+        let steps = Vec::new();
         Self { steps, fallback: prepare_fallback(context.state, context.route) }
     }
 }
@@ -152,7 +151,6 @@ pub struct CompileInput<'a> {
     pub layers: &'a [Arc<dyn RouteLayer>],
     pub registry: Option<&'a SiteRegistry>,
     pub contributed: ContributedExtensions,
-    pub hooks: &'a dyn CompileHooks,
     #[cfg(feature = "rate-limit")]
     pub quotas: Option<&'a HostQuotas>,
     /// Answers upgrades before the site's applications when one is prepared.
@@ -161,22 +159,6 @@ pub struct CompileInput<'a> {
     /// from. A listener's own policy wins otherwise.
     pub policy: Option<HttpPolicy>,
 }
-
-/// What the serving side adds to each scope of a site while it is prepared.
-pub trait CompileHooks: Send + Sync {
-    /// Owners the scope selects by itself, ahead of the registered backends.
-    fn scope_backends(
-        &self,
-        _context: &RouteContext<'_>,
-    ) -> Vec<Arc<dyn BackendHandler>> {
-        Vec::new()
-    }
-}
-
-/// No additions: a site served as itself.
-pub struct NoHooks;
-
-impl CompileHooks for NoHooks {}
 
 struct Compiler<'a> {
     host: Option<&'a Host>,
@@ -510,6 +492,16 @@ impl Compiler<'_> {
                 .layer(Backend::new(router.clone(), policy))
                 .map_err(|error| Error::msg(error.to_string()))?;
         }
+        // A router with nothing around it answers with no plan to walk through.
+        if builder.is_empty()
+            && before_files.is_empty()
+            && steps.is_empty()
+            && fallback.is_none()
+            && let [only] = backends.as_slice()
+            && let Some(router) = only.direct()
+        {
+            return Ok(HostExecution::router(router, policy));
+        }
         for backend in before_files {
             builder
                 .layer(Backend::new(backend, policy))
@@ -534,56 +526,25 @@ impl Compiler<'_> {
     }
 }
 
-/// The one owner of a site, after its files.
-struct SiteOwner(Arc<dyn BackendHandler>);
-
-impl CompileHooks for SiteOwner {
-    fn scope_backends(
-        &self,
-        _context: &RouteContext<'_>,
-    ) -> Vec<Arc<dyn BackendHandler>> {
-        vec![self.0.clone()]
-    }
+/// What a site is served under when no host selects it.
+pub struct SiteTerms<'a> {
+    /// The listener whose plan this is, when there is one. Its policy is what the
+    /// site narrows.
+    pub listener: Option<&'a ListenerConfig>,
+    /// What the site narrows on no listener in particular.
+    pub policy: Option<HttpPolicy>,
+    /// What the connection's terms allow an owner to take over.
+    pub transport: &'a TransportPolicy,
 }
 
-/// Compile a site in front of one owner that answers whatever its files and
-/// policy leave, on no listener in particular: `policy` is what it narrows.
-pub fn compile_with_owner(
-    state: &AppState,
-    site: Arc<Site>,
-    policy: HttpPolicy,
-    owner: Arc<dyn BackendHandler>,
-) -> Result<HostExecution> {
-    #[cfg(feature = "rate-limit")]
-    let quotas = crate::layers::quotas_of_site(&site)?;
-    compile(CompileInput {
-        state,
-        host: None,
-        site,
-        transport: &TransportPolicy::default(),
-        listener: None,
-        protocol: None,
-        http: None,
-        router: None,
-        applications: &[],
-        layers: &[],
-        registry: None,
-        contributed: ContributedExtensions::default(),
-        hooks: &SiteOwner(owner),
-        #[cfg(feature = "rate-limit")]
-        quotas: quotas.as_deref(),
-        upgrades: None,
-        policy: Some(policy),
-    })
-}
-
-/// Compile a site served as itself, by a listener that selects no host. Its
-/// directives resolve against `registry`; a directive nothing owns fails here,
-/// including an `orbit:` route when `claviron_orbit::register` was not called.
+/// Compile a site served as itself, by what selects no host: Single, or a runner
+/// on any of its doors. Its directives and its owners resolve against `registry`;
+/// a directive nothing owns fails here, including an `orbit:` route when
+/// `claviron_orbit::register` was not called.
 pub fn compile_site(
     state: &AppState,
     site: Arc<Site>,
-    listener: &ListenerConfig,
+    terms: SiteTerms<'_>,
     registry: Option<&SiteRegistry>,
 ) -> Result<HostExecution> {
     #[cfg(feature = "rate-limit")]
@@ -592,8 +553,8 @@ pub fn compile_site(
         state,
         host: None,
         site,
-        transport: &TransportPolicy::default(),
-        listener: Some(listener),
+        transport: terms.transport,
+        listener: terms.listener,
         protocol: None,
         http: None,
         router: None,
@@ -601,11 +562,10 @@ pub fn compile_site(
         layers: &[],
         registry,
         contributed: ContributedExtensions::default(),
-        hooks: &NoHooks,
         #[cfg(feature = "rate-limit")]
         quotas: quotas.as_deref(),
         upgrades: None,
-        policy: None,
+        policy: terms.policy,
     })
 }
 
@@ -625,7 +585,6 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
         layers,
         registry,
         contributed,
-        hooks,
         #[cfg(feature = "rate-limit")]
         quotas,
         upgrades,
@@ -681,7 +640,6 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
             prefix: &root,
         },
         transport,
-        hooks,
     );
     let layers = match &compiler.registry {
         Some(registry) => {
@@ -749,7 +707,6 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
                         prefix,
                     },
                     transport,
-                    hooks,
                 );
                 let owner = compiler.scope(
                     route.clone(),

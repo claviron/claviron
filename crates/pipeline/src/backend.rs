@@ -17,6 +17,13 @@ pub trait BackendHandler: DispatchStep {
     /// Declared once during preparation. There is no implicit identity export
     /// or response-lifetime policy for a newly registered backend.
     fn contract(&self) -> BackendContract;
+
+    /// The router this owner is, when it is one: where nothing else stands
+    /// around it, it is called directly, with no plan and no erased call. Asked
+    /// once, during preparation.
+    fn direct(&self) -> Option<RustRouter> {
+        None
+    }
 }
 
 /// Request metadata exported at the application boundary.
@@ -65,6 +72,10 @@ impl BackendHandler for RustRouter {
             },
             reply: BackendReply::Owner,
         }
+    }
+
+    fn direct(&self) -> Option<RustRouter> {
+        Some(self.clone())
     }
 }
 

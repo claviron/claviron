@@ -44,14 +44,14 @@ all depend on this crate, and it depends only on `claviron-http`.
 
 `compile::compile` turns a `Site` into a `HostExecution`. What depends on how the
 site is served comes in through `CompileInput`: a host name when there is one,
-the connection's terms, the listener, the `SiteRegistry` its directives resolve
-against, and `CompileHooks` for what the serving side adds to a scope. `NoHooks`
-serves a site as itself.
+the connection's terms, the listener and the `SiteRegistry` its directives and
+owners resolve against. An owner is registered with `register_backend`, from code
+or from a directive, and a scope has one.
 
-`compile_site` is the shortest serving side: one site, one listener, a registry,
-no hooks and no host. `claviron-transport`'s `Single` serves its result.
-`compile_with_owner` is one site in front of one owner on no listener in
-particular; `claviron-runner` puts its application behind one.
+`compile_site` serves a site with no host, under `SiteTerms`. `claviron-transport`'s
+`Single` serves its result on a listener, and `claviron-runner` on all of its doors
+with its application registered as the owner after the site's files. A router with
+nothing around it is called directly.
 `claviron-edge` is another: its `HostCompiler` adds registered layers,
 host-selected providers, Link dispatch and H1 upgrade endpoints.
 

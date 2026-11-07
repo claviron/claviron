@@ -157,10 +157,9 @@ pub fn register_routing(
             .map_err(registry::Error::msg)?
             .map(|files| Arc::new(files.under(root))),
     );
-    #[cfg(feature = "pipeline")]
     let routing = routing
         .site(runner.site().map_err(registry::Error::msg)?.map(Arc::new));
-    state.registry_ref().insert(Arc::new(routing))?;
+    routing.register(state)?;
     // Where `claviron::pipeline::routing::register_routable` collects host-free
     // routables, before the application's registrations add theirs.
     #[cfg(feature = "axum")]

@@ -9,11 +9,8 @@ use crate::routing::{Application, Routing};
 #[tokio::test]
 async fn warp_filter_receives_the_original_request_body() {
     let state = claviron_runtime::AppState::standalone("warp-test", ".");
-    state
-        .registry_ref()
-        .insert(std::sync::Arc::new(Routing::new(
-            claviron_http::policy::HttpPolicy::unlimited(),
-        )))
+    Routing::new(claviron_http::policy::HttpPolicy::unlimited())
+        .register(&state)
         .unwrap();
     #[cfg(feature = "axum")]
     claviron_pipeline::routing::register(&state).unwrap();

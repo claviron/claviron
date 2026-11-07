@@ -29,10 +29,7 @@ fn application() -> Arc<Application> {
         )))
     });
     register_owner(&state, Owner::new(reports).upgrades(reports)).unwrap();
-    state
-        .registry_ref()
-        .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
-        .unwrap();
+    Routing::new(HttpPolicy::unlimited()).register(&state).unwrap();
     #[cfg(feature = "axum")]
     claviron_pipeline::routing::register(&state).unwrap();
     ensure_application(&state).unwrap();

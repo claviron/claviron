@@ -13,15 +13,25 @@
 
 use std::convert::Infallible;
 use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
+use claviron_http::config::transport::{H1Policy, H2Policy, TransportPolicy};
 use claviron_http::deadline::head_within;
 use claviron_http::ext::{ConnCtx, RequestArrival};
 use claviron_http::policy::HttpPolicy;
-use claviron_http::{RouteBody, RouteBodyError, RouteFuture, empty_body};
+use claviron_http::{
+    OtherHandler, OtherService, RouteBody, RouteBodyError, RouteFuture,
+    RustRouter, ServiceResult, empty_body,
+};
+use claviron_pipeline::compile::{SiteTerms, compile_site};
+use claviron_pipeline::factory::{BackendPlacement, BackendScope, backend};
+use claviron_pipeline::plan::HostExecution;
+use claviron_pipeline::{
+    BackendContract, BackendHandler, DispatchCall, DispatchStep, HostContext,
+    Site, SiteRegistry,
+};
 use claviron_runtime::{AppState, registry};
 use http::{Method, Request, Response, StatusCode};
 use tower::Service;
@@ -31,8 +41,6 @@ pub use claviron_transport::owner::{AppRequest, RequestBody};
 
 /// What the composed service answers with.
 pub type AppResponse = Response<RouteBody>;
-
-type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 /// Any body, as the shell carries it; its error as text when it is not
 /// already one the shell can carry.
@@ -74,7 +82,7 @@ impl Owner {
 
     /// Requests attempting to open a session, on any door: what answers one
     /// claims the offer in its extensions — an ASGI WebSocket. Without this, an
-    /// attempt nothing else claims is refused.
+    /// attempt that reaches the owner is refused.
     pub fn upgrades<S, B>(
         mut self,
         service: S,
@@ -110,9 +118,29 @@ impl Owner {
         B: http_body::Body<Data = Bytes> + Send + 'static,
         B::Error: Into<RouteBodyError>,
     {
-        let Ok(response) =
-            self.service.clone().oneshot(request.map(RequestBody::new)).await;
+        let Ok(response) = self.answer(request.map(RequestBody::new)).await;
         response
+    }
+
+    /// One owner answers HTTP and sessions alike. It answers an attempt when it
+    /// decides, so the deadline on a reply's head is not its.
+    fn answer(
+        &self,
+        request: AppRequest,
+    ) -> RouteFuture {
+        let service = if attempting(&request) {
+            match &self.upgrades {
+                Some(upgrades) => upgrades,
+                None => {
+                    return Box::pin(std::future::ready(Ok(status(
+                        StatusCode::NOT_IMPLEMENTED,
+                    ))));
+                }
+            }
+        } else {
+            &self.service
+        };
+        Box::pin(service.clone().oneshot(request))
     }
 }
 
@@ -123,7 +151,7 @@ where
 {
     type Response = AppResponse;
     type Error = Infallible;
-    type Future = BoxFuture<Result<AppResponse, Infallible>>;
+    type Future = RouteFuture;
 
     fn poll_ready(
         &mut self,
@@ -136,8 +164,7 @@ where
         &mut self,
         request: Request<B>,
     ) -> Self::Future {
-        let owner = self.clone();
-        Box::pin(async move { Ok(owner.handle(request).await) })
+        self.answer(request.map(RequestBody::new))
     }
 }
 
@@ -185,34 +212,12 @@ fn owner(state: &AppState) -> registry::Result<Owner> {
 /// `configure`.
 pub struct Routing {
     policy: HttpPolicy,
-    #[cfg(feature = "pipeline")]
-    site: Option<Arc<claviron_pipeline::Site>>,
+    /// An application takes over what it claims; what a door can carry is the
+    /// door's to say, and nothing here narrows it.
+    transport: TransportPolicy,
+    site: Option<Arc<Site>>,
     #[cfg(feature = "files")]
     files: Option<Arc<crate::files::Files>>,
-}
-
-#[cfg(feature = "pipeline")]
-impl Routing {
-    /// The whole site in front of the application, as an edge host declares
-    /// it. It replaces any file mounts.
-    pub fn site(
-        mut self,
-        site: Option<Arc<claviron_pipeline::Site>>,
-    ) -> Self {
-        self.site = site;
-        self
-    }
-
-    /// What the plan serves from, when this launch declares anything.
-    fn declared_site(&self) -> Option<Arc<claviron_pipeline::Site>> {
-        if self.site.is_some() {
-            return self.site.clone();
-        }
-        #[cfg(feature = "files")]
-        return self.files.as_ref().map(|files| Arc::new(files.site()));
-        #[cfg(not(feature = "files"))]
-        None
-    }
 }
 
 impl Routing {
@@ -221,11 +226,50 @@ impl Routing {
     pub fn new(policy: HttpPolicy) -> Self {
         Self {
             policy,
-            #[cfg(feature = "pipeline")]
+            transport: TransportPolicy {
+                h1: H1Policy { upgrade: true },
+                h2: H2Policy { connect_protocol: true },
+                ..TransportPolicy::default()
+            },
             site: None,
             #[cfg(feature = "files")]
             files: None,
         }
+    }
+
+    /// Register this, with the registry the application and its providers
+    /// register owners and directives with; the site is compiled against it once
+    /// `configure` is done.
+    pub fn register(
+        self,
+        state: &AppState,
+    ) -> registry::Result<()> {
+        state.registry_ref().insert(Arc::new(SiteRegistry::default()))?;
+        state.registry_ref().insert(Arc::new(self))?;
+        Ok(())
+    }
+
+    /// The whole site in front of the application, as an edge host declares
+    /// it. It replaces any file mounts.
+    pub fn site(
+        mut self,
+        site: Option<Arc<Site>>,
+    ) -> Self {
+        self.site = site;
+        self
+    }
+
+    /// What the plan serves from. A launch that declares nothing is an empty
+    /// site, which leaves its owner nothing to walk through.
+    fn declared_site(&self) -> Arc<Site> {
+        if let Some(site) = &self.site {
+            return Arc::clone(site);
+        }
+        #[cfg(feature = "files")]
+        if let Some(files) = &self.files {
+            return Arc::new(files.site());
+        }
+        Arc::new(Site::new("."))
     }
 
     /// Static mounts, answered before any route.
@@ -239,10 +283,10 @@ impl Routing {
     }
 }
 
-/// The service this application answers with, as every ingress calls it:
-/// the guards, then what the application composed.
+/// This application, as every door calls it: what no door may read differently,
+/// then the compiled site.
 pub struct Application {
-    service: Arc<dyn ErasedService>,
+    execution: HostExecution,
 }
 
 impl Application {
@@ -257,9 +301,20 @@ impl Application {
         request: AppRequest,
     ) -> impl Future<Output = AppResponse> + Send + use<> {
         let exchange = claviron_runtime::activity::ACTIVITY.begin();
-        let service = Arc::clone(&self.service);
+        let answering = match refused(&request) {
+            Some(code) => Err(code),
+            None => {
+                Ok(self.execution.handle(request.map(RequestBody::into_inner)))
+            }
+        };
         async move {
-            let response = admitted(service, request).await;
+            let response = match answering {
+                Ok(answering) => {
+                    let Ok(response) = answering.await;
+                    response
+                }
+                Err(code) => status(code),
+            };
             drop(exchange);
             response
         }
@@ -281,7 +336,7 @@ impl claviron_transport::owner::Owner for Application {
 
 /// Whether a door offered this request as a session. An `Upgrade` to anything
 /// else is an ordinary request, which HTTP lets a server answer as one.
-fn attempting(request: &AppRequest) -> bool {
+fn attempting<B>(request: &Request<B>) -> bool {
     #[cfg(any(feature = "socket", feature = "orbit"))]
     return request
         .extensions()
@@ -294,68 +349,41 @@ fn attempting(request: &AppRequest) -> bool {
     }
 }
 
-/// Refuse what no stage may read differently or take over, then hand on what
-/// is left.
-async fn admitted(
-    service: Arc<dyn ErasedService>,
-    request: AppRequest,
-) -> AppResponse {
-    // Framing two parsers could read differently, refused before anything
-    // reads it as a request.
+/// What is refused before anything reads it as a request: framing two parsers
+/// could read differently, and a tunnel, which is not a session attempt.
+fn refused(request: &AppRequest) -> Option<StatusCode> {
     if claviron_http::forwarding::reject_request_smuggling(
         request.version(),
         request.headers(),
     )
     .is_err()
     {
-        return status(StatusCode::BAD_REQUEST);
+        return Some(StatusCode::BAD_REQUEST);
     }
-    // A tunnel is refused. A session attempt goes on with the rest, through
-    // whatever stands in front of the application.
-    if request.method() == Method::CONNECT && !attempting(&request) {
-        return status(StatusCode::NOT_IMPLEMENTED);
-    }
-    let Ok(response) = service.call_erased(request).await;
-    response
+    (request.method() == Method::CONNECT && !attempting(request))
+        .then_some(StatusCode::NOT_IMPLEMENTED)
 }
 
-/// The composed service as the plan's last step: it is told the policy that
-/// applies and its reply head is held to the deadline, which is an owner's to
-/// enforce.
-struct Answering {
-    service: Arc<dyn ErasedService>,
-    /// Who takes a connection over. It answers when it decides, so the reply
-    /// head's deadline is not its; unclaimed, the attempt is refused.
-    upgrades: Option<Arc<dyn ErasedService>>,
-    policy: HttpPolicy,
+/// The application's router with a declared deadline on its reply's head, which
+/// is the owner's to hold. A session attempt is answered when it is decided.
+struct Timed {
+    router: RustRouter,
+    limit: std::time::Duration,
 }
 
-impl ErasedService for Answering {
-    fn call_erased(
+impl DispatchStep for Timed {
+    fn call(
         &self,
-        mut request: AppRequest,
-    ) -> RouteFuture {
-        let (service, policy) = (Arc::clone(&self.service), self.policy);
-        let upgrades = self.upgrades.clone();
-        Box::pin(async move {
-            request.extensions_mut().insert(policy);
-            if attempting(&request) {
-                return Ok(match upgrades {
-                    Some(upgrades) => match upgrades.call_erased(request).await
-                    {
-                        Ok(response) => response,
-                        Err(never) => match never {},
-                    },
-                    None => status(StatusCode::NOT_IMPLEMENTED),
-                });
-            }
-            Ok(
-                match head_within(
-                    policy.requests.head_timeout,
-                    service.call_erased(request),
-                )
-                .await
-                {
+        request: Request<RouteBody>,
+        _: Option<HostContext<'_>>,
+    ) -> DispatchCall {
+        if attempting(&request) {
+            return DispatchCall::response(self.router.handle(request));
+        }
+        let (limit, answering) = (self.limit, self.router.handle(request));
+        DispatchCall::new(async move {
+            ServiceResult::Handled(
+                match head_within(Some(limit), answering).await {
                     Some(Ok(response)) => response,
                     Some(Err(never)) => match never {},
                     None => status(StatusCode::GATEWAY_TIMEOUT),
@@ -365,82 +393,10 @@ impl ErasedService for Answering {
     }
 }
 
-#[cfg(feature = "pipeline")]
-mod plan {
-    use claviron_http::{RouteBody, ServiceResult};
-    use claviron_pipeline::plan::HostExecution;
-    use claviron_pipeline::{
-        BackendContract, BackendHandler, BackendIdentity, BackendReply,
-        DispatchCall, DispatchStep, HostContext, Site,
-    };
-
-    use super::*;
-
-    impl DispatchStep for Answering {
-        fn call(
-            &self,
-            request: Request<RouteBody>,
-            _context: Option<HostContext<'_>>,
-        ) -> DispatchCall {
-            let answering = self.call_erased(request.map(RequestBody::new));
-            DispatchCall::new(async move {
-                let Ok(response) = answering.await;
-                ServiceResult::Handled(response)
-            })
-        }
+impl BackendHandler for Timed {
+    fn contract(&self) -> BackendContract {
+        self.router.contract()
     }
-
-    impl BackendHandler for Answering {
-        fn contract(&self) -> BackendContract {
-            BackendContract {
-                identity: BackendIdentity::None,
-                reply: BackendReply::Owner,
-            }
-        }
-    }
-
-    struct Planned(HostExecution);
-
-    impl ErasedService for Planned {
-        fn call_erased(
-            &self,
-            request: AppRequest,
-        ) -> RouteFuture {
-            self.0.handle(request.map(RequestBody::into_inner))
-        }
-    }
-
-    /// Bodies, replies and files in front of what answers. A launch that
-    /// declared none of them leaves no plan to walk through.
-    pub(super) fn over(
-        state: &AppState,
-        routing: &Routing,
-        answering: Answering,
-    ) -> registry::Result<Arc<dyn ErasedService>> {
-        let policy = answering.policy;
-        let site = routing.declared_site();
-        if !bounded(&policy) && site.is_none() {
-            return Ok(Arc::new(answering));
-        }
-        let site = site.unwrap_or_else(|| Arc::new(Site::new(".")));
-        let execution = claviron_pipeline::compile::compile_with_owner(
-            state,
-            site,
-            policy,
-            Arc::new(answering),
-        )
-        .map_err(|error| registry::Error::msg(error.to_string()))?;
-        Ok(Arc::new(Planned(execution)))
-    }
-}
-
-/// Whether the policy bounds a body in either direction. The reply head's
-/// deadline is not among them: an owner holds it with or without a plan.
-fn bounded(policy: &HttpPolicy) -> bool {
-    policy.requests.max_body_size.is_some()
-        || policy.requests.body_read_timeout.is_some()
-        || policy.responses.max_body_size.is_some()
-        || policy.responses.body_idle_timeout.is_some()
 }
 
 fn status(code: StatusCode) -> AppResponse {
@@ -449,33 +405,33 @@ fn status(code: StatusCode) -> AppResponse {
     response
 }
 
-trait ErasedService: Send + Sync + 'static {
-    fn call_erased(
-        &self,
-        request: AppRequest,
-    ) -> RouteFuture;
+/// A service an application composed, as the router a site is compiled with. It
+/// is told the policy that applies.
+struct Composed<S> {
+    service: S,
+    policy: HttpPolicy,
 }
 
-struct Erased<S>(S);
-
-impl<S, B> ErasedService for Erased<S>
+impl<S, B> OtherHandler for Composed<S>
 where
     S: Service<AppRequest, Response = Response<B>, Error = Infallible>
         + Clone
         + Send
-        + Sync,
-    S: 'static,
+        + Sync
+        + 'static,
     S::Future: Send + 'static,
     B: http_body::Body<Data = Bytes> + Send + 'static,
     B::Error: Into<RouteBodyError>,
 {
-    fn call_erased(
+    fn call(
         &self,
-        request: AppRequest,
+        mut request: Request<RouteBody>,
     ) -> RouteFuture {
-        let service = self.0.clone();
+        request.extensions_mut().insert(self.policy);
+        let service = self.service.clone();
         Box::pin(async move {
-            let Ok(response) = service.oneshot(request).await;
+            let Ok(response) =
+                service.oneshot(request.map(RequestBody::new)).await;
             Ok(response.map(route_body))
         })
     }
@@ -491,103 +447,87 @@ where
     S: Service<AppRequest, Response = Response<B>, Error = Infallible>
         + Clone
         + Send
-        + Sync,
-    S: 'static,
-    S::Future: Send + 'static,
-    B: http_body::Body<Data = Bytes> + Send + 'static,
-    B::Error: Into<RouteBodyError>,
-{
-    compose_with(state, service, false)
-}
-
-fn compose_with<S, B>(
-    state: &AppState,
-    service: S,
-    rust: bool,
-) -> registry::Result<()>
-where
-    S: Service<AppRequest, Response = Response<B>, Error = Infallible>
-        + Clone
-        + Send
         + Sync
         + 'static,
     S::Future: Send + 'static,
     B: http_body::Body<Data = Bytes> + Send + 'static,
     B::Error: Into<RouteBodyError>,
 {
-    compose_service(state, Arc::new(Erased(service)), rust)
+    let policy = routing(state)?.policy;
+    compose_router(
+        state,
+        RustRouter::Other(OtherService::new(Composed { service, policy })),
+    )
 }
 
-fn compose_service(
+fn routing(state: &AppState) -> registry::Result<Arc<Routing>> {
+    state.registry_ref().resolve::<Routing>().ok_or_else(|| {
+        registry::Error::msg("the runner registers Routing before configure")
+    })
+}
+
+/// Register what answers as the owner of the site, after its files, and compile
+/// the site. Whatever else was registered with the site's registry stands with
+/// it, and a scope's own owner replaces this one there.
+fn compose_router(
     state: &AppState,
-    service: Arc<dyn ErasedService>,
-    rust: bool,
+    router: RustRouter,
 ) -> registry::Result<()> {
-    let routing =
-        state.registry_ref().resolve::<Routing>().ok_or_else(|| {
+    let routing = routing(state)?;
+    let sites =
+        state.registry_ref().resolve::<SiteRegistry>().ok_or_else(|| {
             registry::Error::msg(
-                "the runner registers Routing before configure",
+                "the runner registers SiteRegistry before configure",
             )
         })?;
-    let owner = state.registry_ref().resolve::<Owner>();
-    let upgrades = if rust && cfg!(feature = "websocket") {
-        Some(Arc::clone(&service))
-    } else {
-        owner
-            .as_ref()
-            .and_then(|owner| owner.upgrades.clone())
-            .map(|service| Arc::new(Erased(service)) as Arc<dyn ErasedService>)
-    };
-    let answering = Answering { service, upgrades, policy: routing.policy };
-    #[cfg(feature = "pipeline")]
-    let service = plan::over(state, &routing, answering)?;
-    #[cfg(not(feature = "pipeline"))]
-    let service: Arc<dyn ErasedService> = {
-        if bounded(&answering.policy) {
-            return Err(registry::Error::msg(
-                "requests: and responses: body bounds need claviron-runner's \
-                 `pipeline` feature (`runner-pipeline` on the facade); \
-                 without it they would not be applied",
-            ));
-        }
-        Arc::new(answering)
-    };
-    state.registry_ref().insert(Arc::new(Application { service }))?;
+    let owner: Arc<dyn BackendHandler> =
+        match routing.policy.requests.head_timeout {
+            Some(limit) => Arc::new(Timed { router, limit }),
+            None => Arc::new(router),
+        };
+    sites.register_backend(backend(
+        "application",
+        BackendScope::site(),
+        BackendPlacement::AfterFiles,
+        move |_| Ok(vec![Arc::clone(&owner)]),
+    ))?;
+    let execution = compile_site(
+        state,
+        routing.declared_site(),
+        SiteTerms {
+            listener: None,
+            policy: Some(routing.policy),
+            transport: &routing.transport,
+        },
+        Some(&sites),
+    )?;
+    state.registry_ref().insert(Arc::new(Application { execution }))?;
     Ok(())
-}
-
-#[cfg(feature = "rust")]
-struct PreparedRouter(claviron_http::RustRouter);
-
-#[cfg(feature = "rust")]
-impl ErasedService for PreparedRouter {
-    fn call_erased(
-        &self,
-        request: AppRequest,
-    ) -> RouteFuture {
-        self.0.handle(request.map(RequestBody::into_inner))
-    }
 }
 
 #[cfg(feature = "rust")]
 pub(crate) fn register_prepared_router(
     state: &AppState,
-    router: claviron_http::RustRouter,
+    router: RustRouter,
 ) -> registry::Result<()> {
-    let service: Arc<dyn ErasedService> = Arc::new(PreparedRouter(router));
     #[cfg(feature = "axum")]
-    if let Some(router) = contributed_routes(state)? {
-        let router = router.fallback(move |request: axum::extract::Request| {
-            let service = Arc::clone(&service);
+    if let Some(routes) = contributed_routes(state)? {
+        let routes = routes.fallback(move |request: axum::extract::Request| {
+            let router = router.clone();
             async move {
-                let Ok(response) =
-                    service.call_erased(request.map(RequestBody::new)).await;
+                let Ok(response) = router
+                    .handle(
+                        request
+                            .map(RequestBody::new)
+                            .map(RequestBody::into_inner),
+                    )
+                    .await;
                 response
             }
         });
-        return compose_with(state, router, true);
+        return compose_router(state, routes.into());
     }
-    compose_service(state, service, true)
+    compose_router(state, router)
 }
 
 /// The routables registered through `claviron::pipeline::routing`, in front of the
@@ -618,7 +558,8 @@ fn routables_over(
             let owner = unmatched.clone();
             async move { owner.handle(request).await }
         });
-    Ok(Owner { service: boxed(router), upgrades: owner.upgrades })
+    // Attempts meet the same routes; what those leave reaches the owner's own.
+    Ok(Owner { service: boxed(router.clone()), upgrades: Some(boxed(router)) })
 }
 
 /// Make sure something answers. An application that registered nothing is
@@ -674,9 +615,9 @@ where
                 response
             }
         });
-        return compose_with(state, router, true);
+        return compose_router(state, router.into());
     }
-    compose_with(state, service, true)
+    compose(state, service)
 }
 
 /// This application's Rust routes, in front of its owner.
@@ -710,7 +651,7 @@ where
             async move { owner.handle(request).await }
         },
     );
-    compose(state, router)
+    compose_router(state, router.into())
 }
 
 /// This application's service, placing the owner yourself: its own 404 for a
@@ -772,23 +713,33 @@ pub fn register_routes(
     let owner = routables_over(state, owner(state)?)?;
     #[cfg(not(feature = "axum"))]
     let owner = owner(state)?;
-    compose_service(state, Arc::new(SelectedRoutes { routes, owner }), false)
+    let policy = routing(state)?.policy;
+    compose_router(
+        state,
+        RustRouter::Other(OtherService::new(SelectedRoutes {
+            routes,
+            owner,
+            policy,
+        })),
+    )
 }
 
 struct SelectedRoutes {
     routes:
         claviron_http::config::routes::RouteTable<claviron_http::RustRouter>,
     owner: Owner,
+    policy: HttpPolicy,
 }
 
-impl ErasedService for SelectedRoutes {
-    fn call_erased(
+impl OtherHandler for SelectedRoutes {
+    fn call(
         &self,
-        request: AppRequest,
+        mut request: Request<RouteBody>,
     ) -> RouteFuture {
+        request.extensions_mut().insert(self.policy);
         match self.routes.find(request.uri().path()) {
-            Some(router) => router.handle(request.map(RequestBody::into_inner)),
-            None => Box::pin(self.owner.service.clone().oneshot(request)),
+            Some(router) => router.handle(request),
+            None => self.owner.answer(request.map(RequestBody::new)),
         }
     }
 }

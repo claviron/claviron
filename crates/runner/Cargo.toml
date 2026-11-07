@@ -17,20 +17,16 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 default = []
 rust = []
 # `register_router`: the application's axum router, the owner as its fallback.
-axum = ["dep:axum", "claviron-http/axum", "dep:claviron-pipeline", "claviron-pipeline/axum", "claviron-transport/axum"]
-# The application's policy and files, from claviron-pipeline, in front of the
-# owner. Without it the owner is reached directly, and a launch that declares
-# them is refused rather than served unbounded.
-pipeline = ["dep:claviron-pipeline", "claviron-transport/pipeline"]
+axum = ["dep:axum", "claviron-http/axum", "claviron-pipeline/axum", "claviron-transport/axum"]
 warp = ["dep:warp", "claviron-http/warp"]
 # The application's TCP and Unix sockets.
 socket = ["claviron-transport/tcp", "claviron-transport/websocket", "claviron-http/websocket"]
 # The door with no socket: a lane an edge reaches over Orbit shared memory.
-orbit = ["dep:claviron-orbit", "dep:claviron-app", "claviron-transport/orbit", "claviron-pipeline?/orbit", "claviron-http/websocket"]
+orbit = ["dep:claviron-orbit", "dep:claviron-app", "claviron-transport/orbit", "claviron-pipeline/orbit", "claviron-http/websocket"]
 # HTTPS on the runner's TCP listener, optionally requiring a client certificate.
 tls = ["socket", "claviron-transport/tls"]
 # Explicit static mounts in front of the owner, from Claviron's file service.
-files = ["pipeline"]
+files = []
 
 # The launch's shared options from the command line.
 cli = ["dep:clap"]
@@ -46,7 +42,7 @@ watch = ["dep:notify"]
 claviron-app = { workspace = true, optional = true }
 claviron-helpers.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
-claviron-pipeline = { workspace = true, optional = true }
+claviron-pipeline.workspace = true
 claviron-orbit = { workspace = true, optional = true }
 claviron-runtime.workspace = true
 claviron-supervisor = { workspace = true, optional = true }

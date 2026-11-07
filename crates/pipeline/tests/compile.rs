@@ -21,34 +21,9 @@ fn a_redirecting_scope_prepares_no_owner_and_no_fallback() {
             prefix: &root,
         },
         &Default::default(),
-        &NoHooks,
     );
     assert!(plan.steps.is_empty());
     assert!(plan.fallback.is_none());
-}
-
-#[cfg(feature = "orbit")]
-struct Unanswered;
-
-#[cfg(feature = "orbit")]
-impl DispatchStep for Unanswered {
-    fn call(
-        &self,
-        _request: http::Request<claviron_http::RouteBody>,
-        _context: Option<crate::HostContext<'_>>,
-    ) -> crate::DispatchCall {
-        unreachable!("this site never compiles")
-    }
-}
-
-#[cfg(feature = "orbit")]
-impl BackendHandler for Unanswered {
-    fn contract(&self) -> crate::BackendContract {
-        crate::BackendContract {
-            identity: crate::BackendIdentity::None,
-            reply: crate::BackendReply::Owner,
-        }
-    }
 }
 
 #[cfg(feature = "orbit")]
@@ -58,11 +33,15 @@ fn an_orbit_route_without_the_application_link_fails_to_compile() {
     let site: Site =
         serde_yaml::from_str("orbit: {fleet_name: first, application: root}\n")
             .unwrap();
-    let error = compile_with_owner(
+    let error = compile_site(
         &state,
         Arc::new(site),
-        HttpPolicy::unlimited(),
-        Arc::new(Unanswered),
+        SiteTerms {
+            listener: None,
+            policy: Some(HttpPolicy::unlimited()),
+            transport: &TransportPolicy::default(),
+        },
+        None,
     )
     .err()
     .expect("nothing can reach this route");

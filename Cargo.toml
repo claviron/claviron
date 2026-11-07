@@ -54,9 +54,6 @@ runner = ["server", "http", "dep:serde", "dep:claviron-pipeline", "dep:claviron-
 runner-socket = ["runner", "claviron-runner/socket"]
 # The door with no socket: an edge reaches the runner over Orbit shared memory.
 runner-orbit = ["runner", "claviron-runner/orbit"]
-# The runner's policy and static files, from claviron-pipeline. Without it a
-# launch that declares them is refused.
-runner-pipeline = ["runner", "claviron-runner/pipeline"]
 # A native Rust application on the runner; select `axum` separately.
 rust = ["runner", "claviron-runner/rust", "dep:serde", "dep:bytes", "dep:http", "dep:http-body", "dep:tower"]
 

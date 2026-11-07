@@ -1,3 +1,4 @@
+use std::pin::Pin;
 use std::time::Duration;
 
 use http_body_util::BodyExt;
@@ -17,7 +18,7 @@ where
     S::Future: Send + 'static,
 {
     let state = AppState::standalone("runner-routing", ".");
-    state.registry_ref().insert(Arc::new(Routing::new(policy))).unwrap();
+    Routing::new(policy).register(&state).unwrap();
     compose(&state, service).unwrap();
     state.registry_ref().resolve::<Application>().unwrap()
 }
@@ -112,10 +113,7 @@ async fn routables_stand_between_the_application_and_the_owner() {
         })),
     )
     .unwrap();
-    state
-        .registry_ref()
-        .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
-        .unwrap();
+    Routing::new(HttpPolicy::unlimited()).register(&state).unwrap();
     claviron_pipeline::routing::register(&state).unwrap();
     claviron_pipeline::routing::register_routable(
         &state,
@@ -147,10 +145,7 @@ async fn rust_axum_needs_no_owner_and_keeps_its_fallback() {
     use axum::routing::get;
 
     let state = AppState::standalone("rust-routes", ".");
-    state
-        .registry_ref()
-        .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
-        .unwrap();
+    Routing::new(HttpPolicy::unlimited()).register(&state).unwrap();
     claviron_pipeline::routing::register(&state).unwrap();
     assert!(
         state
@@ -193,10 +188,7 @@ async fn rust_axum_needs_no_owner_and_keeps_its_fallback() {
 #[tokio::test]
 async fn rust_other_keeps_body_bytes_without_an_owner() {
     let state = AppState::standalone("rust-service", ".");
-    state
-        .registry_ref()
-        .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
-        .unwrap();
+    Routing::new(HttpPolicy::unlimited()).register(&state).unwrap();
     #[cfg(feature = "axum")]
     claviron_pipeline::routing::register(&state).unwrap();
     let service = tower::service_fn(|request: AppRequest| async move {
@@ -247,10 +239,7 @@ fn rust_other_cancellation_drops_the_owned_request_body() {
         }
     }
     let state = AppState::standalone("rust-cancel", ".");
-    state
-        .registry_ref()
-        .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
-        .unwrap();
+    Routing::new(HttpPolicy::unlimited()).register(&state).unwrap();
     #[cfg(feature = "axum")]
     claviron_pipeline::routing::register(&state).unwrap();
     let service = tower::service_fn(|request: AppRequest| async move {
@@ -280,10 +269,7 @@ fn rust_other_cancellation_drops_the_owned_request_body() {
 async fn warp_routes_select_before_body_and_keep_rejections_terminal() {
     use warp::Filter;
     let state = AppState::standalone("warp-fallback", ".");
-    state
-        .registry_ref()
-        .insert(Arc::new(Routing::new(HttpPolicy::unlimited())))
-        .unwrap();
+    Routing::new(HttpPolicy::unlimited()).register(&state).unwrap();
     #[cfg(feature = "axum")]
     claviron_pipeline::routing::register(&state).unwrap();
     let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -350,10 +336,8 @@ async fn warp_routes_select_before_body_and_keep_rejections_terminal() {
 }
 
 /// A door with nothing to do: a test only reads what comes back.
-#[cfg(feature = "pipeline")]
 struct Unused;
 
-#[cfg(feature = "pipeline")]
 impl claviron_http::socket::Door for Unused {
     fn commit(
         self: Box<Self>,
@@ -371,7 +355,6 @@ impl claviron_http::socket::Door for Unused {
     }
 }
 
-#[cfg(feature = "pipeline")]
 fn offered() -> claviron_http::socket::Offer {
     use claviron_http::socket::{Carrier, Offer, OfferInfo, SocketKind};
 
@@ -383,7 +366,6 @@ fn offered() -> claviron_http::socket::Offer {
 
 /// A session attempt passes through the site like any request, so what the site
 /// answers or refuses never reaches who would take it.
-#[cfg(feature = "pipeline")]
 #[tokio::test]
 async fn a_site_stands_in_front_of_what_takes_a_connection_over() {
     let site: Arc<claviron_pipeline::Site> = Arc::new(
@@ -402,12 +384,9 @@ async fn a_site_stands_in_front_of_what_takes_a_connection_over() {
     let application = |owner: Owner| {
         let state = AppState::standalone("runner-routing", ".");
         register_owner(&state, owner).unwrap();
-        state
-            .registry_ref()
-            .insert(Arc::new(
-                Routing::new(HttpPolicy::unlimited())
-                    .site(Some(Arc::clone(&site))),
-            ))
+        Routing::new(HttpPolicy::unlimited())
+            .site(Some(Arc::clone(&site)))
+            .register(&state)
             .unwrap();
         #[cfg(feature = "axum")]
         claviron_pipeline::routing::register(&state).unwrap();

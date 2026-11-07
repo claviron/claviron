@@ -20,11 +20,9 @@ fn in_front(files: Arc<Files>) -> Arc<Application> {
         })),
     )
     .unwrap();
-    state
-        .registry_ref()
-        .insert(Arc::new(
-            Routing::new(HttpPolicy::unlimited()).files(Some(files)),
-        ))
+    Routing::new(HttpPolicy::unlimited())
+        .files(Some(files))
+        .register(&state)
         .unwrap();
     #[cfg(feature = "axum")]
     claviron_pipeline::routing::register(&state).unwrap();

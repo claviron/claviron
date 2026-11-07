@@ -182,7 +182,8 @@ impl claviron_pipeline::BackendHandler for Named {
 #[cfg(feature = "pipeline")]
 #[tokio::test]
 async fn a_compiled_site_serves_its_backend_and_files_without_a_host() {
-    use claviron_pipeline::compile::compile_site;
+    use claviron_http::config::transport::TransportPolicy;
+    use claviron_pipeline::compile::{SiteTerms, compile_site};
     use claviron_pipeline::factory::{BackendPlacement, factory};
     use claviron_pipeline::{BackendHandler, Site, SiteRegistry};
     use claviron_runtime::AppState;
@@ -203,10 +204,16 @@ async fn a_compiled_site_serves_its_backend_and_files_without_a_host() {
         .unwrap(),
     );
 
+    let transport = TransportPolicy::default();
+    let terms = || SiteTerms {
+        listener: Some(&listener),
+        policy: None,
+        transport: &transport,
+    };
     let unowned = compile_site(
         &state,
         site.clone(),
-        &listener,
+        terms(),
         Some(&SiteRegistry::default()),
     );
     assert!(unowned.is_err());
@@ -223,7 +230,7 @@ async fn a_compiled_site_serves_its_backend_and_files_without_a_host() {
         ))
         .unwrap();
     let execution =
-        compile_site(&state, site, &listener, Some(&registry)).unwrap();
+        compile_site(&state, site, terms(), Some(&registry)).unwrap();
 
     let gate = Gate::new(
         listener.limits.max_connections.map(|value| value.get()),
