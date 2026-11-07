@@ -90,6 +90,22 @@ tells its open sessions with a close of 1001 and then waits for them, with no bo
 
 `Error::Recoverable` carries a service's failure: that service reads failed and the server carries on.
 
+## Cost
+
+One process, one HTTP/1.1 listener and the same small reply, through a Rust router and through a module
+that answers at once. `h2load --h1 -c 64 -t 8`, 12 seconds, five alternating rounds, medians; Linux 5.15
+on a 32-thread Xeon E5-2650 v2, client on the same machine.
+
+| Backend | Requests per second | Mean per request |
+| --- | --- | --- |
+| Rust router | 271,004 | 234 us |
+| Module, `instances: 4` | 241,813 (-10.8%) | 263 us |
+| Rust router | 270,239 | 235 us |
+| Module, `instances: 16` | 212,179 (-21.5%) | 299 us |
+
+The difference is the crossing to a thread and back. For a handler that does not block, more instances
+cost more: more threads wake on one queue.
+
 ## Tests
 
 `tests/provider.rs` pins the validation against `modules.yaml` with functions standing in for a library.
