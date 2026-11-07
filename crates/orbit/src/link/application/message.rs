@@ -20,34 +20,10 @@ const TEXT: u8 = 1;
 const BINARY: u8 = 2;
 const CLOSE: u8 = 8;
 
-/// A WebSocket control payload's protocol maximum. It is not a tuning value:
-/// an application whose message limit is smaller still receives every close.
-const CONTROL_BYTES: usize = 125;
-
-/// One WebSocket message, as an application sends and receives it.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum Message {
-    Text(String),
-    Binary(Vec<u8>),
-    /// The close handshake: a status code (1000 is a normal close) and a
-    /// reason, empty when none was given.
-    Close {
-        code: u16,
-        reason: String,
-    },
-}
-
-impl Message {
-    /// Whether a close with this code and reason may be sent. 1005 and 1006
-    /// are observations an application receives, never codes on the wire.
-    pub fn sendable_close(
-        code: u16,
-        reason: &str,
-    ) -> bool {
-        matches!(code, 1000..=1003 | 1007..=1014 | 3000..=4999)
-            && reason.len() <= CONTROL_BYTES - 2
-    }
-}
+// It is not a tuning value: an application whose message limit is smaller still
+// receives every close.
+use claviron_types::websocket::CONTROL_BYTES;
+pub use claviron_types::websocket::Message;
 
 /// Write one message as one record.
 pub async fn write_message<W: AsyncWrite + Unpin>(

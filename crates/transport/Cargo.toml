@@ -49,7 +49,7 @@ orbit = ["dep:claviron-app", "dep:claviron-orbit", "dep:tokio-util", "claviron-h
 # Let an HTTP/1.1 connection be upgraded.
 websocket = ["tcp", "claviron-edge?/websocket", "claviron-http/websocket"]
 # An owner's WebSocket spoken on the sockets, with whole messages like Link's.
-websocket-session = ["websocket", "orbit", "dep:fastwebsockets"]
+websocket-session = ["websocket", "dep:claviron-types", "dep:fastwebsockets"]
 # Count accepted and open connections per listener.
 metrics = ["claviron-http/metrics"]
 

@@ -23,6 +23,7 @@ quota = ["orbitive/quota"]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-runtime.workspace = true
 claviron-sys.workspace = true
+claviron-types.workspace = true
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true

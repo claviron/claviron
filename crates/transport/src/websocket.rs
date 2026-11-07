@@ -18,7 +18,7 @@ use bytes::Bytes;
 use claviron_http::RouteResponse as AppResponse;
 pub use claviron_http::socket::{Carrier, OfferInfo, SocketKind};
 use claviron_http::socket::{Offer, SocketIo};
-pub use claviron_orbit::link::application::Message;
+pub use claviron_types::websocket::Message;
 use fastwebsockets::{FragmentCollector, Frame, OpCode, Payload};
 use http::{Response, StatusCode};
 use http_body_util::BodyExt;
@@ -26,9 +26,11 @@ use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 use tokio::sync::mpsc;
 
+#[cfg(feature = "orbit")]
 use crate::orbit::LinkSession;
 use crate::owner::AppRequest;
 
+#[cfg(feature = "orbit")]
 mod link;
 
 /// The largest text or binary message either way, unless an owner says otherwise.
@@ -70,6 +72,7 @@ pub fn accept<D: Deliver>(
     request: AppRequest,
     headers: Vec<(Vec<u8>, Vec<u8>)>,
     inbound: D,
+    #[cfg_attr(not(feature = "orbit"), allow(unused_mut))]
     mut outbound: mpsc::Receiver<Message>,
     limit: usize,
 ) -> AppResponse {
@@ -85,6 +88,7 @@ pub fn accept<D: Deliver>(
             Some(Opened::Socket(socket)) => {
                 pump(socket, inbound, outbound).await;
             }
+            #[cfg(feature = "orbit")]
             Some(Opened::Link(session)) => {
                 let LinkSession { mut incoming, mut outgoing, shutdown } =
                     session;
@@ -117,6 +121,7 @@ type Socket = fastwebsockets::WebSocket<TokioIo<Upgraded>>;
 /// A committed session's I/O, as this module speaks it.
 enum Opened {
     Socket(Socket),
+    #[cfg(feature = "orbit")]
     Link(LinkSession),
 }
 
@@ -133,6 +138,7 @@ fn opened(
             socket.set_max_message_size(limit);
             Some(Opened::Socket(socket))
         }
+        #[cfg(feature = "orbit")]
         SocketIo::Native(native) => match native.downcast::<LinkSession>() {
             Ok(session) => Some(Opened::Link(*session)),
             Err(_) => {
@@ -142,6 +148,11 @@ fn opened(
                 None
             }
         },
+        #[cfg(not(feature = "orbit"))]
+        SocketIo::Native(_) => {
+            tracing::debug!("a WebSocket has no use for this session's I/O");
+            None
+        }
     }
 }
 
@@ -210,10 +221,12 @@ pub struct WebSocket {
 
 enum Messages {
     Socket(FragmentCollector<TokioIo<Upgraded>>),
+    #[cfg(feature = "orbit")]
     Link(link::LinkMessages),
 }
 
 impl WebSocket {
+    #[cfg(feature = "orbit")]
     fn link(messages: link::LinkMessages) -> Self {
         Self { io: Messages::Link(messages) }
     }
@@ -224,6 +237,7 @@ impl WebSocket {
     pub async fn recv(&mut self) -> Option<Message> {
         let socket = match &mut self.io {
             Messages::Socket(socket) => socket,
+            #[cfg(feature = "orbit")]
             Messages::Link(messages) => return messages.recv().await,
         };
         loop {
@@ -254,6 +268,7 @@ impl WebSocket {
     ) -> io::Result<()> {
         let socket = match &mut self.io {
             Messages::Socket(socket) => socket,
+            #[cfg(feature = "orbit")]
             Messages::Link(messages) => return messages.send(message).await,
         };
         socket
@@ -298,6 +313,7 @@ where
                 })
                 .await;
             }
+            #[cfg(feature = "orbit")]
             Some(Opened::Link(link)) => {
                 link::hold(link, limit, session).await;
             }

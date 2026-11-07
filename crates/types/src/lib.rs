@@ -6,6 +6,7 @@ mod peer;
 pub mod permission;
 pub mod role;
 mod sni;
+pub mod websocket;
 
 pub use aliases::Aliases;
 pub use certificate::{CertificateKind, InvalidCertificateKind};

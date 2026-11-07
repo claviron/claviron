@@ -32,8 +32,9 @@ files = []
 cli = ["dep:clap"]
 # Workers under Claviron's supervisor, and its section of the launch.
 supervisor = ["dep:claviron-supervisor"]
-# An owner's WebSocket on the runner's own sockets, spoken with fastwebsockets.
-websocket = ["socket", "orbit", "claviron-transport/websocket-session"]
+# An owner's WebSocket, spoken with fastwebsockets on the runner's own sockets
+# and as whole messages over Orbit when that door is built too.
+websocket = ["socket", "claviron-transport/websocket-session"]
 # Development's reload: native source notifications, the owner's reaction.
 watch = ["dep:notify"]
 
