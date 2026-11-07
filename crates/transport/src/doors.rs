@@ -15,7 +15,6 @@ use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use arc_swap::ArcSwapOption;
 use claviron_http::ListenerId;
 use claviron_http::config::{
     H1Override, Limit, ListenerConfig, ListenerDefinition, ListenerExecution,
@@ -328,9 +327,7 @@ async fn serve_plain<O: Owner>(
     context: &RunContext,
     run_mode: RunMode,
 ) -> Result<()> {
-    let snapshots = ArcSwapOption::from(Some(snapshot.clone()));
     crate::tcp::listener::serve(
-        &snapshots,
         snapshot,
         context,
         run_mode,
@@ -347,9 +344,7 @@ async fn serve_secure<O: Owner>(
     context: &RunContext,
     run_mode: RunMode,
 ) -> Result<()> {
-    let snapshots = ArcSwapOption::from(Some(snapshot.clone()));
     crate::tcp::listener::serve(
-        &snapshots,
         snapshot,
         context,
         run_mode,

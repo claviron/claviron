@@ -440,8 +440,8 @@ impl Runnable<AppState, (Arc<VhostResolver>,)> for HttpListener {
                 })?;
             vhosts.start_listener_binding(listener)
         })?;
-        crate::edge::tcp::listener::serve(
-            &self.current,
+        crate::edge::tcp::listener::serve_current(
+            || self.current.load_full(),
             self.current.load_full().expect("HTTP listener prepared"),
             &context,
             self.state.run_mode(),

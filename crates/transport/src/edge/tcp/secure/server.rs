@@ -561,8 +561,8 @@ impl Runnable<AppState, ServerDeps> for HttpsListener {
                     )?;
                 deps.vhost_resolver.start_listener_binding(listener)
             })?;
-        crate::edge::tcp::listener::serve(
-            &self.current,
+        crate::edge::tcp::listener::serve_current(
+            || self.current.load_full(),
             self.current.load_full().expect("TLS listener prepared"),
             &context,
             self.state.run_mode(),

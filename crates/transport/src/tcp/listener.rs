@@ -5,7 +5,6 @@ use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::sync::Arc;
 
-use arc_swap::ArcSwapOption;
 use claviron_http::config::{ListenerConfig, ListenerSettings};
 use claviron_http::session::{ConnectionScope, SessionOwner};
 use claviron_runtime::gate::{Gate, GateDrainOutcome};
@@ -24,8 +23,34 @@ pub trait TcpListenerSnapshot {
     fn listener(&self) -> &ListenerConfig;
 }
 
+/// Serve one snapshot for the listener's whole life.
 pub async fn serve<S, F, Fut>(
-    snapshots: &ArcSwapOption<S>,
+    snapshot: Arc<S>,
+    context: &RunContext,
+    run_mode: RunMode,
+    handle: F,
+) -> Result<()>
+where
+    S: TcpListenerSnapshot + Send + Sync + 'static,
+    F: Fn(Arc<S>, TcpStream, SocketAddr, ConnectionScope) -> Fut + Clone,
+    Fut: Future<Output = ()> + Send + 'static,
+{
+    let current = snapshot.clone();
+    serve_current(
+        move || Some(current.clone()),
+        snapshot,
+        context,
+        run_mode,
+        handle,
+    )
+    .await
+}
+
+/// Serve what `current` holds when each connection arrives, for a listener
+/// whose snapshot is replaced while it runs. Sockets, admission and drain stay
+/// those of `initial`.
+pub async fn serve_current<S, C, F, Fut>(
+    current: C,
     initial: Arc<S>,
     context: &RunContext,
     run_mode: RunMode,
@@ -33,6 +58,7 @@ pub async fn serve<S, F, Fut>(
 ) -> Result<()>
 where
     S: TcpListenerSnapshot + Send + Sync + 'static,
+    C: Fn() -> Option<Arc<S>>,
     F: Fn(Arc<S>, TcpStream, SocketAddr, ConnectionScope) -> Fut + Clone,
     Fut: Future<Output = ()> + Send + 'static,
 {
@@ -63,7 +89,7 @@ where
         sockets.push(socket);
     }
     let owned = context.child();
-    serve_group(snapshots, initial, sockets, &owned, handle).await
+    serve_group(current, initial, sockets, &owned, handle).await
 }
 
 async fn bind_socket(
@@ -78,8 +104,8 @@ async fn bind_socket(
     create_tcp_listener(addr, sharing, backlog).await
 }
 
-async fn serve_group<S, A, F, Fut>(
-    snapshots: &ArcSwapOption<S>,
+async fn serve_group<S, C, A, F, Fut>(
+    current: C,
     initial: Arc<S>,
     sockets: Vec<A>,
     context: &RunContext,
@@ -87,6 +113,7 @@ async fn serve_group<S, A, F, Fut>(
 ) -> Result<()>
 where
     S: TcpListenerSnapshot + Send + Sync + 'static,
+    C: Fn() -> Option<Arc<S>>,
     A: AcceptSource,
     F: Fn(Arc<S>, TcpStream, SocketAddr, ConnectionScope) -> Fut,
     Fut: Future<Output = ()> + Send + 'static,
@@ -153,7 +180,7 @@ where
                         Err(error) => { debug!(listener = %config.id, ?error, "TCP admission rejected"); continue; }
                     }
                 };
-                let Some(snapshot) = snapshots.load_full() else { continue; };
+                let Some(snapshot) = current() else { continue; };
                 #[cfg(feature = "metrics")]
                 claviron_http::metrics::SERVER_METRICS.tcp_accept();
                 connections.spawn(handle(snapshot, stream, peer, sessions.bind(permit)));
