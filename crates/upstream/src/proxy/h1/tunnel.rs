@@ -71,6 +71,10 @@ impl UpstreamService {
             scope,
         )
         .map_err(|_| RequestFailure::ProtocolError)?;
+        let claim = req
+            .extensions()
+            .get::<claviron_http::socket::Offer>()
+            .and_then(claviron_http::socket::Offer::claim);
         let on_client = hyper::upgrade::on(&mut req);
         let req = crate::proxy::body::timeout::wrap(
             req,
@@ -132,6 +136,17 @@ impl UpstreamService {
         let connection_budget = connection.breaker.take();
         drop(connection);
         let (parts, _body) = response.into_parts();
+        if let Some(claim) = claim {
+            return Ok(crate::proxy::service::tunnel::propose(
+                claim,
+                &sessions,
+                on_upstream,
+                scope.lease.take().expect("admitted request"),
+                connection_budget,
+                self.inner.profile.lifecycle.drain_timeout,
+                parts.headers,
+            ));
+        }
         let submitted = crate::proxy::service::tunnel::submit(
             &sessions,
             on_client,

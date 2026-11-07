@@ -1,8 +1,12 @@
 //! Hands upgraded IO to the accepting listener; retains outbound capacity.
 
+use std::future::Future;
 use std::time::Duration;
 
+use claviron_http::RouteResponse;
 use claviron_http::session::{SessionSpawnError, SessionSpawner};
+use claviron_http::socket::{Claim, SocketIo};
+use http::HeaderMap;
 use hyper::upgrade::OnUpgrade;
 use hyper_util::rt::TokioIo;
 use tokio::io::AsyncWriteExt;
@@ -22,6 +26,64 @@ pub(crate) fn submit<C: Send + 'static>(
     capacity: C,
     drain_timeout: Duration,
 ) -> Result<(), SessionSpawnError> {
+    let copying = copy(
+        sessions.clone(),
+        client,
+        upstream,
+        lease,
+        capacity,
+        drain_timeout,
+    );
+    sessions.spawn(copying)
+}
+
+/// The origin accepted a session this request's door offered: propose it with
+/// the origin's headers. The door commits the handshake once the reply hooks
+/// have seen it; until then nothing is tunneled, and dropping the proposal
+/// releases the outbound side.
+pub(crate) fn propose<C: Send + 'static>(
+    claim: Claim,
+    sessions: &SessionSpawner,
+    upstream: OnUpgrade,
+    lease: crate::proxy::lease::RequestLease,
+    capacity: C,
+    drain_timeout: Duration,
+    headers: HeaderMap,
+) -> RouteResponse {
+    let listener = sessions.clone();
+    let mut proposal = claim.accept_with(move |io| async move {
+        let SocketIo::Stream(client) = io else {
+            tracing::debug!("an upstream tunnel needs a byte stream");
+            return;
+        };
+        copy(
+            listener,
+            std::future::ready(Ok(client)),
+            upstream,
+            lease,
+            capacity,
+            drain_timeout,
+        )
+        .await;
+    });
+    *proposal.headers_mut() = headers;
+    proposal
+}
+
+fn copy<C, I>(
+    sessions: SessionSpawner,
+    client: I,
+    upstream: OnUpgrade,
+    lease: crate::proxy::lease::RequestLease,
+    capacity: C,
+    drain_timeout: Duration,
+) -> impl Future<Output = ()> + Send + 'static
+where
+    C: Send + 'static,
+    I: Future<Output = hyper::Result<hyper::upgrade::Upgraded>>
+        + Send
+        + 'static,
+{
     // Upgraded IO is no longer polled by the native driver. Its origin token
     // must therefore cancel the copy explicitly during origin retirement.
     let origin_force =
@@ -29,8 +91,8 @@ pub(crate) fn submit<C: Send + 'static>(
     let tasks = lease.epoch.io.clone();
     let origin_tasks =
         lease.origin.as_ref().expect("selected origin").transport.io.clone();
-    let listener = sessions.clone();
-    sessions.spawn(tasks.track_future(origin_tasks.track_future(async move {
+    let listener = sessions;
+    tasks.track_future(origin_tasks.track_future(async move {
         let _capacity = capacity;
         let copy = async {
             let (client, upstream) = match tokio::try_join!(client, upstream) {
@@ -87,5 +149,5 @@ pub(crate) fn submit<C: Send + 'static>(
         };
         tokio::select! { biased; _ = lease.epoch.force.cancelled() => {}, _ = origin_force.cancelled() => {}, _ = copy => {} }
         drop(lease);
-    })))
+    }))
 }

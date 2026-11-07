@@ -64,6 +64,10 @@ impl UpstreamService {
         let mut sender = acquired.sender;
         let permit = acquired.permit;
 
+        let claim = req
+            .extensions()
+            .get::<claviron_http::socket::Offer>()
+            .and_then(claviron_http::socket::Offer::claim);
         let on_client = hyper::upgrade::on(&mut req);
         request::prepare(
             origin,
@@ -125,6 +129,17 @@ impl UpstreamService {
         let on_upstream = hyper::upgrade::on(&mut response);
         let (mut parts, _body) = response.into_parts();
         parts.headers.remove(http::header::CONTENT_LENGTH);
+        if let Some(claim) = claim {
+            return Ok(crate::proxy::service::tunnel::propose(
+                claim,
+                &sessions,
+                on_upstream,
+                scope.lease.take().expect("admitted request"),
+                permit,
+                self.inner.profile.lifecycle.drain_timeout,
+                parts.headers,
+            ));
+        }
         let submitted = crate::proxy::service::tunnel::submit(
             &sessions,
             on_client,

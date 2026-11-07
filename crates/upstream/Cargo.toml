@@ -24,7 +24,7 @@ metrics = ["claviron-runtime/metrics", "orbitive/metrics"]
 claviron-edge = { workspace = true, optional = true }
 claviron-pipeline = { workspace = true, optional = true }
 claviron-helpers.workspace = true
-claviron-http = { workspace = true, features = ["server"] }
+claviron-http = { workspace = true, features = ["server", "websocket"] }
 claviron-macros.workspace = true
 claviron-orbit.workspace = true
 # Contracts only; the application binds the resolver (`dyn ResolverFactory`).
