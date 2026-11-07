@@ -22,9 +22,7 @@ pub const CA_CERTS_DIR_NAME: &str = "ca";
 pub const CA_CERT_FILENAME: &str = "ca.crt";
 pub const CA_KEY_FILENAME: &str = "ca.key";
 pub const PRIVKEY_FILENAME: &str = "privkey.pem";
-pub const CERT_FILENAME: &str = "certficate.pem";
 pub const FULLCHAIN_CERT_FILENAME: &str = "fullchain.pem";
-pub const PLAIN_CERT_FILENAME: &str = "certficate.txt";
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
@@ -206,7 +204,7 @@ impl CertStore {
         self.dir().join(CA_CERTS_DIR_NAME).join(name)
     }
 
-    pub fn sever_cert_path(
+    pub fn server_cert_path(
         &self,
         name: impl KeyString,
     ) -> PathBuf {

@@ -157,7 +157,7 @@ impl Snapshot {
         for entry in entries {
             let loaded = match entry {
                 CertEntry::Name(name) => {
-                    let cert_path = cert_store.sever_cert_path(name);
+                    let cert_path = cert_store.server_cert_path(name);
                     let key_path = cert_store.server_key_path(name);
                     self.populate_from_paths(&cert_path, &key_path)?
                 }
