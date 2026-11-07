@@ -18,12 +18,12 @@ use std::sync::Arc;
 use arc_swap::ArcSwapOption;
 use claviron_http::ListenerId;
 use claviron_http::config::{
-    H1Override, Limit, ListenerConfig, ListenerDefinition, ListenerOverrides,
-    Override, RequestPolicyOverride, TcpConfig, TcpOverride,
+    H1Override, Limit, ListenerConfig, ListenerDefinition, ListenerExecution,
+    ListenerOverrides, Override, RequestPolicyOverride, TcpConfig, TcpOverride,
 };
 use claviron_http::listener::HttpProtocol;
 use claviron_runtime::registry::{Error, Result};
-use claviron_runtime::{RunContext, RunMode};
+use claviron_runtime::{ExecutionSpec, RunContext, RunMode};
 
 use crate::owner::Owner;
 use crate::tcp::plain;
@@ -111,6 +111,7 @@ pub struct Doors {
 struct Settings {
     protocols: Protocols,
     tcp_backlog: NonZeroU32,
+    listener: ListenerOverrides,
     #[cfg(feature = "tls")]
     tls: Option<Tls>,
 }
@@ -125,6 +126,7 @@ impl Doors {
             settings: Settings {
                 protocols,
                 tcp_backlog: TcpConfig::default().backlog,
+                listener: ListenerOverrides::default(),
                 #[cfg(feature = "tls")]
                 tls: None,
             },
@@ -139,6 +141,17 @@ impl Doors {
         backlog: NonZeroU32,
     ) -> Self {
         self.settings.tcp_backlog = backlog;
+        self
+    }
+
+    /// What a listener in `http.yaml` could say, for every door here: execution,
+    /// limits, and the TCP, HTTP/1 and HTTP/2 settings. Requests and responses
+    /// are the owner's policy, and the driver applies none.
+    pub fn listener(
+        mut self,
+        listener: ListenerOverrides,
+    ) -> Self {
+        self.settings.listener = listener;
         self
     }
 
@@ -195,9 +208,18 @@ impl Door {
         &self.id
     }
 
-    /// A listener for this door. No deadline of its own: a slow client's header
-    /// read is the proxy's or the operator's to bound. Neither does it bound a
-    /// body: the driver applies no request policy, that is the owner's.
+    /// Where this door runs in each serving process.
+    pub fn execution_spec(&self) -> ExecutionSpec {
+        self.settings
+            .listener
+            .execution
+            .resolve(&ListenerExecution::default())
+            .for_listener(&self.id)
+    }
+
+    /// A listener for this door. No deadline unless one was declared: a slow
+    /// client's header read is the proxy's or the operator's to bound. It never
+    /// bounds a body: the driver applies no request policy, that is the owner's.
     fn listener(
         &self,
         secure: bool,
@@ -221,7 +243,9 @@ impl Door {
             backlog: Override::Value(self.settings.tcp_backlog),
             ..Default::default()
         });
-        if serves_h1 {
+        if serves_h1
+            && self.settings.listener.h1.header_read_timeout.is_inherit()
+        {
             definition.h1 = Override::Value(H1Override {
                 header_read_timeout: Override::Value(None),
                 ..Default::default()
@@ -233,7 +257,7 @@ impl Door {
             ..Default::default()
         };
         definition
-            .resolve(self.id.clone(), &ListenerOverrides::default())
+            .resolve(self.id.clone(), &self.settings.listener)
             .map(Arc::new)
             .map_err(failure)
     }

@@ -17,6 +17,7 @@ use std::net::SocketAddr;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 
+use claviron_http::config::ListenerOverrides;
 use claviron_http::policy::{HttpPolicy, HttpPolicyOverride};
 use claviron_http::trust::Network;
 use serde::{Deserialize, Serialize};
@@ -98,6 +99,12 @@ pub struct RunnerOptions {
     /// TcpConfig default (1024). The OS may cap it; this is not an active limit.
     #[cfg_attr(feature = "cli", arg(long))]
     pub tcp_backlog: Option<NonZeroU32>,
+
+    /// What a listener in `http.yaml` could say, for every socket here:
+    /// execution, limits, and the TCP, HTTP/1 and HTTP/2 settings. Unwritten,
+    /// no limit and no deadline. Written down, not typed.
+    #[cfg_attr(feature = "cli", arg(skip))]
+    pub listener: Option<serde_yaml::Value>,
 
     /// Answer on a Unix socket at this path.
     #[cfg_attr(feature = "cli", arg(long))]
@@ -204,6 +211,7 @@ impl RunnerOptions {
         "edge_shutdown_policy",
         "tcp",
         "tcp_backlog",
+        "listener",
         "uds",
         "h1",
         "h2",
@@ -253,6 +261,8 @@ impl RunnerOptions {
             edge_shutdown_policy: written.edge_shutdown_policy,
             tcp: self.tcp.or(written.tcp),
             tcp_backlog: self.tcp_backlog.or(written.tcp_backlog),
+            // Written down, never typed: no flag can have stated it.
+            listener: written.listener,
             uds: self.uds.or(written.uds),
             h1: self.h1 || written.h1,
             h2: self.h2 || written.h2,
@@ -303,6 +313,7 @@ impl RunnerOptions {
         if i32::try_from(self.tcp_backlog().get()).is_err() {
             return Err("tcp_backlog must be at most 2147483647".into());
         }
+        self.listener()?;
         if let Some(name) = &self.fleet_name {
             claviron_runtime::FleetName::try_new(name)
                 .map_err(|error| format!("fleet_name: {error}"))?;
@@ -340,6 +351,26 @@ impl RunnerOptions {
         self.tcp_backlog.unwrap_or_else(|| {
             claviron_http::config::TcpConfig::default().backlog
         })
+    }
+
+    /// The sockets' listener settings. A request or reply policy here would be
+    /// silently ignored by the driver, so it has to be said where it applies.
+    pub fn listener(&self) -> Result<ListenerOverrides, String> {
+        let Some(written) = &self.listener else {
+            return Ok(ListenerOverrides::default());
+        };
+        let listener: ListenerOverrides =
+            serde_yaml::from_value(written.clone())
+                .map_err(|error| format!("listener: {error}"))?;
+        if listener.requests != Default::default()
+            || listener.responses != Default::default()
+        {
+            return Err(
+                "listener: requests and responses are the runner's own keys"
+                    .into(),
+            );
+        }
+        Ok(listener)
     }
 
     /// One file site for both explicit policies and the asset shorthand.

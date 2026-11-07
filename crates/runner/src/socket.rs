@@ -17,12 +17,13 @@ use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 
 use async_trait::async_trait;
+use claviron_http::config::ListenerOverrides;
 use claviron_http::ext::{ConnCtx, RealIpExt, ReceivedAt, RequestArrival};
 use claviron_http::trust::Trust;
 use claviron_http::{RouteBody, RouteResponse};
 use claviron_runtime::{
-    AppState, Component, RunContext, RunMode, Runnable, RunnableInstance,
-    ServiceStartPolicy, registry,
+    AppState, Component, ExecutionSpec, RunContext, RunMode, Runnable,
+    RunnableInstance, ServiceStartPolicy, registry,
 };
 pub use claviron_transport::doors::{Bind, Protocols};
 use claviron_transport::doors::{Door, Doors};
@@ -52,6 +53,14 @@ impl SocketIngress {
         backlog: NonZeroU32,
     ) -> Self {
         Self { doors: self.doors.tcp_backlog(backlog), ..self }
+    }
+
+    /// What a listener in `http.yaml` could say, for every door here.
+    pub fn listener(
+        self,
+        listener: ListenerOverrides,
+    ) -> Self {
+        Self { doors: self.doors.listener(listener), ..self }
     }
 
     /// Serve TLS on the TCP sockets. A Unix socket ignores it.
@@ -134,6 +143,13 @@ impl TransportOwner for Front {
 
 #[async_trait]
 impl Runnable<AppState, (Arc<Application>, Option<Arc<Trust>>)> for SocketDoor {
+    fn execution_spec(
+        &self,
+        _: &AppState,
+    ) -> ExecutionSpec {
+        self.0.execution_spec()
+    }
+
     /// A master with workers serves nothing; its workers do. Standalone is not
     /// a master and still runs.
     fn start_policy(

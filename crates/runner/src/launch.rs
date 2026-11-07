@@ -204,7 +204,8 @@ pub fn register_doors(
         {
             let ingress =
                 crate::SocketIngress::new(runner.binds(), runner.protocols())
-                    .tcp_backlog(runner.tcp_backlog());
+                    .tcp_backlog(runner.tcp_backlog())
+                    .listener(runner.listener().map_err(registry::Error::msg)?);
             #[cfg(feature = "tls")]
             let ingress = ingress.tls(runner.tls());
             state.registry_ref().register(Arc::new(ingress))?;

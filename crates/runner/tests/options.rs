@@ -180,3 +180,23 @@ fn assets_and_probe_survive_the_launch_and_command_line_precedence() {
     };
     assert!(invalid.validate().is_err());
 }
+
+/// A request policy here would be silently ignored by the driver, so it is an
+/// error; everything a listener says about its sockets is accepted.
+#[test]
+fn the_sockets_listener_settings_are_checked_when_read() {
+    use claviron_http::config::{ListenerExecution, Override};
+    let written = |listener: &str| RunnerOptions {
+        listener: Some(serde_yaml::from_str(listener).unwrap()),
+        ..RunnerOptions::default()
+    };
+    let listener = written("{execution: current_thread, max_connections: 8}")
+        .listener()
+        .unwrap();
+    assert_eq!(
+        listener.execution,
+        Override::Value(ListenerExecution::CurrentThread)
+    );
+    assert!(written("{requests: {max_body_size: off}}").validate().is_err());
+    assert!(written("{mistyped: true}").validate().is_err());
+}
