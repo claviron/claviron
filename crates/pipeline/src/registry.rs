@@ -67,9 +67,11 @@ impl SiteRegistry {
         Ok(())
     }
 
-    /// Register a configured execution owner independently of route hooks.
-    /// Factories are consulted only while preparing matching scopes.
-    pub fn register_backend_factory(
+    /// Register an execution owner: from code with
+    /// [`backend`](crate::factory::backend), or from a site's directive with
+    /// [`factory`](crate::factory::factory). Consulted only while preparing
+    /// scopes.
+    pub fn register_backend(
         &self,
         factory: Arc<dyn BackendFactory>,
     ) -> Result<()> {
@@ -126,15 +128,20 @@ impl SiteRegistry {
             .expect("backend factories lock poisoned")
             .clone();
         let mut owners = PreparedBackends::default();
-        for factory in factories.iter() {
-            let prepared = factory.prepare(context)?;
-            match factory.placement() {
-                crate::factory::BackendPlacement::BeforeFiles => {
-                    owners.before_files.extend(prepared)
-                }
-                crate::factory::BackendPlacement::AfterFiles => {
-                    owners.after_files.extend(prepared)
-                }
+        let (inherited, own): (Vec<_>, Vec<_>) =
+            factories.iter().partition(|factory| factory.inherited());
+        for factory in own {
+            owners.add(factory.as_ref(), context)?;
+        }
+        // A route that has an owner of its own has replaced what it would
+        // otherwise inherit.
+        #[cfg(feature = "orbit")]
+        let declared = !context.route.orbit().is_empty();
+        #[cfg(not(feature = "orbit"))]
+        let declared = false;
+        if owners.owners.is_empty() && !declared {
+            for factory in inherited {
+                owners.add(factory.as_ref(), context)?;
             }
         }
         Ok(owners)

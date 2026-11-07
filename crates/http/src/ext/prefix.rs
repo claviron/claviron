@@ -1,5 +1,6 @@
 use std::fmt;
 use std::ops::Deref;
+use std::str::FromStr;
 
 use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer};
@@ -55,24 +56,20 @@ impl Deref for PathPrefix {
     }
 }
 
-impl<'de> Deserialize<'de> for PathPrefix {
-    fn deserialize<D>(de: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let raw = String::deserialize(de)?;
+impl FromStr for PathPrefix {
+    type Err = &'static str;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
         let s = raw.trim(); // no leading/trailing spaces
 
         if s.is_empty() {
-            return Err(D::Error::custom("path prefix cannot be empty"));
+            return Err("path prefix cannot be empty");
         }
         if !s.starts_with('/') {
-            return Err(D::Error::custom("path prefix must start with '/'"));
+            return Err("path prefix must start with '/'");
         }
         if s.chars().any(char::is_whitespace) {
-            return Err(D::Error::custom(
-                "path prefix cannot contain whitespace",
-            ));
+            return Err("path prefix cannot contain whitespace");
         }
 
         // normalize: drop trailing '/' unless it's just "/"
@@ -80,6 +77,15 @@ impl<'de> Deserialize<'de> for PathPrefix {
         let norm = if trimmed.is_empty() { "/" } else { trimmed };
 
         Ok(PathPrefix(norm.to_string()))
+    }
+}
+
+impl<'de> Deserialize<'de> for PathPrefix {
+    fn deserialize<D>(de: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        String::deserialize(de)?.parse().map_err(D::Error::custom)
     }
 }
 

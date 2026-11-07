@@ -43,6 +43,29 @@ pub enum BackendPlacement {
 pub(crate) struct PreparedBackends {
     pub before_files: Vec<Arc<dyn BackendHandler>>,
     pub after_files: Vec<Arc<dyn BackendHandler>>,
+    /// Which registrations prepared an owner here.
+    pub owners: Vec<&'static str>,
+}
+
+impl PreparedBackends {
+    pub(crate) fn add(
+        &mut self,
+        factory: &dyn BackendFactory,
+        context: &BackendContext<'_>,
+    ) -> Result<()> {
+        let prepared = factory.prepare(context)?;
+        if prepared.is_empty() {
+            return Ok(());
+        }
+        self.owners.push(factory.name());
+        match factory.placement() {
+            BackendPlacement::BeforeFiles => {
+                self.before_files.extend(prepared);
+            }
+            BackendPlacement::AfterFiles => self.after_files.extend(prepared),
+        }
+        Ok(())
+    }
 }
 
 /// Compile one backend directive into its ordered execution owners.
@@ -55,6 +78,107 @@ pub trait BackendFactory: Send + Sync {
         &self,
         context: &BackendContext<'_>,
     ) -> Result<Vec<Arc<dyn BackendHandler>>>;
+
+    /// Whether this owner serves a scope only when nothing there has one of its
+    /// own. A route's explicit owner replaces it.
+    fn inherited(&self) -> bool {
+        false
+    }
+}
+
+/// Where a backend registered from code serves. It names its place explicitly,
+/// so that a provider registered once does not install itself on every host.
+#[derive(Clone, Debug, Default)]
+pub struct BackendScope {
+    host: Option<Host>,
+    prefix: Option<PathPrefix>,
+}
+
+impl BackendScope {
+    /// Everything this registry's site serves, wherever no scope has an owner
+    /// of its own.
+    pub fn site() -> Self {
+        Self::default()
+    }
+
+    /// The same, on one host of those a registry shared by many selects.
+    pub fn host(host: Host) -> Self {
+        Self { host: Some(host), prefix: None }
+    }
+
+    /// Only the route at `prefix`, and no route below it.
+    pub fn at(
+        mut self,
+        prefix: PathPrefix,
+    ) -> Self {
+        self.prefix = Some(prefix);
+        self
+    }
+
+    fn selects(
+        &self,
+        context: &BackendContext<'_>,
+    ) -> bool {
+        self.host.as_ref().is_none_or(|host| context.host == Some(host))
+            && self
+                .prefix
+                .as_ref()
+                .is_none_or(|prefix| prefix.as_str() == context.prefix.as_str())
+    }
+}
+
+/// A backend registered from code: no directive and nothing to decode. `prepare`
+/// runs for each scope `scope` selects, and may return no owner for one.
+pub fn backend<F>(
+    name: &'static str,
+    scope: BackendScope,
+    placement: BackendPlacement,
+    prepare: F,
+) -> Arc<dyn BackendFactory>
+where
+    F: Fn(&BackendContext<'_>) -> Result<Vec<Arc<dyn BackendHandler>>>
+        + Send
+        + Sync
+        + 'static,
+{
+    Arc::new(CodeBackend { name, scope, placement, prepare })
+}
+
+struct CodeBackend<F> {
+    name: &'static str,
+    scope: BackendScope,
+    placement: BackendPlacement,
+    prepare: F,
+}
+
+impl<F> BackendFactory for CodeBackend<F>
+where
+    F: Fn(&BackendContext<'_>) -> Result<Vec<Arc<dyn BackendHandler>>>
+        + Send
+        + Sync,
+{
+    fn name(&self) -> &'static str {
+        self.name
+    }
+
+    fn placement(&self) -> BackendPlacement {
+        self.placement
+    }
+
+    fn prepare(
+        &self,
+        context: &BackendContext<'_>,
+    ) -> Result<Vec<Arc<dyn BackendHandler>>> {
+        if self.scope.selects(context) {
+            (self.prepare)(context)
+        } else {
+            Ok(Vec::new())
+        }
+    }
+
+    fn inherited(&self) -> bool {
+        self.scope.prefix.is_none()
+    }
 }
 
 /// Decode a backend's configuration once, then prepare its concrete owners.

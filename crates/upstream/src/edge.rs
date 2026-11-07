@@ -24,7 +24,7 @@ pub fn register(state: &AppState) -> Result<()> {
         state.registry_ref().resolve::<HostAppRegistry>().ok_or_else(|| {
             Error::msg("Upstream requires the Edge host registry")
         })?;
-    registry.register_backend_factory(factory::<HostUpstreamConfig, _>(
+    registry.register_backend(factory::<HostUpstreamConfig, _>(
         "upstream",
         BackendPlacement::AfterFiles,
         |context, config| {

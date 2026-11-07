@@ -18,3 +18,18 @@ fn normalization_preserves_the_documented_segment_contract() {
         }
     }
 }
+
+#[test]
+fn parsing_and_deserializing_hold_the_same_invariants() {
+    assert_eq!("/api/".parse::<PathPrefix>().unwrap().as_str(), "/api");
+    for refused in ["", "api", "/a b"] {
+        assert!(refused.parse::<PathPrefix>().is_err(), "{refused}");
+        assert!(
+            PathPrefix::deserialize(serde::de::value::StrDeserializer::<
+                serde::de::value::Error,
+            >::new(refused))
+            .is_err(),
+            "{refused}"
+        );
+    }
+}

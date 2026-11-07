@@ -433,11 +433,11 @@ impl HostAppRegistry {
 
     /// Register a configured execution owner independently of route hooks.
     /// Factories are consulted only while preparing matching host scopes.
-    pub fn register_backend_factory(
+    pub fn register_backend(
         &self,
         factory: Arc<dyn BackendFactory>,
     ) -> Result<()> {
-        self.site.register_backend_factory(factory)
+        self.site.register_backend(factory)
     }
 
     /// What this registry holds independently of any host.

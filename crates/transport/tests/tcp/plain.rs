@@ -213,7 +213,7 @@ async fn a_compiled_site_serves_its_backend_and_files_without_a_host() {
 
     let registry = SiteRegistry::default();
     registry
-        .register_backend_factory(factory::<bool, _>(
+        .register_backend(factory::<bool, _>(
             "answers",
             BackendPlacement::BeforeFiles,
             |_, _| {

@@ -91,21 +91,19 @@ fn backend_factories_resolve_only_during_preparation_and_preserve_body_ownership
     let preparations = Arc::new(AtomicUsize::new(0));
     let count = preparations.clone();
     registry
-        .register_backend_factory(
-            claviron_pipeline::factory::factory::<bool, _>(
-                "execute",
-                claviron_pipeline::factory::BackendPlacement::AfterFiles,
-                move |context, enabled| {
-                    assert_eq!(context.policy, HttpPolicy::unlimited());
-                    count.fetch_add(1, Ordering::Relaxed);
-                    Ok(if enabled {
-                        vec![Arc::new(RegisteredBackend)]
-                    } else {
-                        Vec::new()
-                    })
-                },
-            ),
-        )
+        .register_backend(claviron_pipeline::factory::factory::<bool, _>(
+            "execute",
+            claviron_pipeline::factory::BackendPlacement::AfterFiles,
+            move |context, enabled| {
+                assert_eq!(context.policy, HttpPolicy::unlimited());
+                count.fetch_add(1, Ordering::Relaxed);
+                Ok(if enabled {
+                    vec![Arc::new(RegisteredBackend)]
+                } else {
+                    Vec::new()
+                })
+            },
+        ))
         .unwrap();
     state.registry_ref().insert(registry).unwrap();
     let config =
@@ -160,6 +158,106 @@ fn backend_factories_resolve_only_during_preparation_and_preserve_body_ownership
     assert_eq!(preparations.load(Ordering::Relaxed), prepared);
 }
 
+fn registered_from_code(
+    state: &AppState,
+    scope: claviron_pipeline::factory::BackendScope,
+    name: &'static str,
+) {
+    use claviron_pipeline::factory::{BackendPlacement, backend};
+    let registry = state
+        .registry_ref()
+        .resolve::<HostAppRegistry>()
+        .unwrap_or_else(|| {
+            let registry = Arc::new(HostAppRegistry::default());
+            state.registry_ref().insert(registry.clone()).unwrap();
+            registry
+        });
+    registry
+        .register_backend(backend(
+            name,
+            scope,
+            BackendPlacement::BeforeFiles,
+            |_| Ok(vec![Arc::new(RegisteredBackend)]),
+        ))
+        .unwrap();
+}
+
+fn compiled(
+    state: &AppState,
+    source: &str,
+) -> Result<HostExecution> {
+    HostCompiler { state, http: None, protocol: None }.prepare(
+        &"example.test".parse().unwrap(),
+        Arc::new(serde_yaml::from_str::<HostConfig>(source).unwrap()),
+        None,
+        &HostContributions::default(),
+        #[cfg(feature = "rate-limit")]
+        None,
+        #[cfg(feature = "websocket")]
+        None,
+    )
+}
+
+async fn answers(
+    owner: &HostExecution,
+    path: &str,
+) -> http::StatusCode {
+    let request = Request::builder()
+        .uri(path)
+        .body(claviron_http::bytes_body(Bytes::new()))
+        .unwrap();
+    owner.handle(request).await.unwrap().status()
+}
+
+/// A backend registered from code answers a site that declares nothing, and is
+/// counted as that scope's owner like a declared one.
+#[tokio::test]
+async fn a_backend_registered_from_code_owns_a_site_without_a_directive() {
+    use claviron_pipeline::factory::BackendScope;
+
+    let state = AppState::standalone("code-backend", ".");
+    registered_from_code(&state, BackendScope::site(), "code");
+    let owner = compiled(&state, "{}").unwrap();
+    assert_eq!(answers(&owner, "/").await, http::StatusCode::OK);
+
+    let state = AppState::standalone("code-backend-host", ".");
+    registered_from_code(
+        &state,
+        BackendScope::host("other.test".parse().unwrap()),
+        "code",
+    );
+    let owner = compiled(&state, "{}").unwrap();
+    assert_eq!(answers(&owner, "/").await, http::StatusCode::NOT_FOUND);
+}
+
+/// Two owners on one scope are refused wherever they come from; a route's own
+/// owner replaces the one it would inherit instead of conflicting with it.
+#[test]
+fn a_scope_has_one_owner_and_its_own_replaces_an_inherited_one() {
+    use claviron_pipeline::factory::{BackendPlacement, BackendScope, factory};
+
+    let state = AppState::standalone("code-backend-owners", ".");
+    registered_from_code(&state, BackendScope::site(), "first");
+    registered_from_code(&state, BackendScope::site(), "second");
+    let error = compiled(&state, "{}").err().expect("two owners on one scope");
+    assert!(error.to_string().contains("first"), "{error}");
+    assert!(error.to_string().contains("second"), "{error}");
+
+    let state = AppState::standalone("code-backend-inherited", ".");
+    registered_from_code(&state, BackendScope::site(), "inherited");
+    state
+        .registry_ref()
+        .resolve::<HostAppRegistry>()
+        .unwrap()
+        .register_backend(factory::<bool, _>(
+            "execute",
+            BackendPlacement::AfterFiles,
+            |_, _| Ok(vec![Arc::new(RegisteredBackend)]),
+        ))
+        .unwrap();
+    compiled(&state, "routes: {'/api': {execute: true}}\n").unwrap();
+}
+
 #[tokio::test]
 async fn backend_placement_preserves_explicit_precedence_with_static_files() {
     use claviron_pipeline::factory::{BackendPlacement, factory};
@@ -173,7 +271,7 @@ async fn backend_placement_preserves_explicit_precedence_with_static_files() {
         let state = AppState::standalone("backend-placement", directory.path());
         let registry = Arc::new(HostAppRegistry::default());
         registry
-            .register_backend_factory(factory::<bool, _>(
+            .register_backend(factory::<bool, _>(
                 "execute",
                 placement,
                 |_, enabled| {
@@ -225,7 +323,7 @@ fn a_backend_under_a_route_sees_the_hosts_connection_terms() {
     let seen = Arc::new(AtomicUsize::new(0));
     let observed = seen.clone();
     registry
-        .register_backend_factory(factory::<bool, _>(
+        .register_backend(factory::<bool, _>(
             "execute",
             BackendPlacement::AfterFiles,
             move |context, _| {
@@ -262,7 +360,7 @@ fn two_backends() -> AppState {
     let registry = Arc::new(HostAppRegistry::default());
     for name in ["first", "second"] {
         registry
-            .register_backend_factory(factory::<bool, _>(
+            .register_backend(factory::<bool, _>(
                 name,
                 BackendPlacement::AfterFiles,
                 |_, _| Ok(vec![Arc::new(RegisteredBackend)]),
@@ -470,19 +568,17 @@ async fn try_files_precedes_a_registered_backend() {
     let state = AppState::standalone("native-backend-files", directory.path());
     let registry = Arc::new(HostAppRegistry::default());
     registry
-        .register_backend_factory(
-            claviron_pipeline::factory::factory::<bool, _>(
-                "execute",
-                claviron_pipeline::factory::BackendPlacement::AfterFiles,
-                |_, enabled| {
-                    Ok(if enabled {
-                        vec![Arc::new(UnavailableBackend)]
-                    } else {
-                        Vec::new()
-                    })
-                },
-            ),
-        )
+        .register_backend(claviron_pipeline::factory::factory::<bool, _>(
+            "execute",
+            claviron_pipeline::factory::BackendPlacement::AfterFiles,
+            |_, enabled| {
+                Ok(if enabled {
+                    vec![Arc::new(UnavailableBackend)]
+                } else {
+                    Vec::new()
+                })
+            },
+        ))
         .unwrap();
     state.registry_ref().insert(registry).unwrap();
     let owner = HostCompiler { state: &state, http: None, protocol: None }

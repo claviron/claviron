@@ -202,25 +202,28 @@ struct Compiler<'a> {
 }
 
 impl Compiler<'_> {
-    /// Whether this scope declares an application owner: the edge's own Link
-    /// dispatch or a directive a registered backend claims. A scope has at
+    /// Whether this scope has an application owner: the edge's own Link
+    /// dispatch, or what a registered backend prepared for it. A scope has at
     /// most one. The edge knows no backend by name, so this is the first place
-    /// the rule can be held.
+    /// the rule can be held. `prepared` is what actually came of the
+    /// registrations, so an owner registered from code is counted like one a
+    /// directive declared.
     fn application_owner(
         &self,
         config: &Site,
         prefix: &claviron_http::ext::PathPrefix,
+        prepared: Vec<&'static str>,
     ) -> Result<bool> {
-        let owners = self
-            .registry
-            .as_ref()
-            .map(|registry| registry.declared_backends(config))
-            .unwrap_or_default();
         #[cfg(feature = "orbit")]
         let owners = if config.orbit().is_empty() {
-            owners
+            prepared
         } else {
-            [vec!["orbit"], owners].concat()
+            [vec!["orbit"], prepared].concat()
+        };
+        #[cfg(not(feature = "orbit"))]
+        let owners = {
+            let _ = config;
+            prepared
         };
         if owners.len() > 1 {
             return Err(Error::msg(format!(
@@ -245,7 +248,32 @@ impl Compiler<'_> {
             .setting_at(prefix, |scope| scope.redirect.as_ref())
             .and_then(|rules| rules.first())
             .map(RedirectLayer::new);
-        let owned = self.application_owner(&config, prefix)?;
+        let policy = self.config.policy_at(prefix, self.policy);
+        // A redirect serves nothing, so nothing is prepared behind it; what its
+        // directives declare must still have one owner.
+        let prepared = match &self.registry {
+            Some(registry) if redirect.is_none() => {
+                registry.resolve_backends(&BackendContext {
+                    state: self.state,
+                    host: self.host,
+                    site: self.config,
+                    route: &config,
+                    prefix,
+                    policy,
+                    transport: self.transport,
+                    protocol: self.protocol,
+                    listener: self.listener,
+                })?
+            }
+            _ => Default::default(),
+        };
+        let declared = match &self.registry {
+            Some(registry) if redirect.is_some() => {
+                registry.declared_backends(&config)
+            }
+            _ => prepared.owners.clone(),
+        };
+        let owned = self.application_owner(&config, prefix, declared)?;
         let steps = if redirect.is_none() {
             scope_steps(&config, owned)
         } else {
@@ -259,25 +287,8 @@ impl Compiler<'_> {
             applications
         });
         let applications = selected.as_deref().unwrap_or(registered);
-        let policy = self.config.policy_at(prefix, self.policy);
-        let mut before_files = Vec::new();
-        if redirect.is_none()
-            && let Some(registry) = &self.registry
-        {
-            let prepared = registry.resolve_backends(&BackendContext {
-                state: self.state,
-                host: self.host,
-                site: self.config,
-                route: &config,
-                prefix,
-                policy,
-                transport: self.transport,
-                protocol: self.protocol,
-                listener: self.listener,
-            })?;
-            before_files = prepared.before_files;
-            plan.steps.extend(prepared.after_files);
-        }
+        let before_files = prepared.before_files;
+        plan.steps.extend(prepared.after_files);
         let scope = ScopePlan {
             applications,
             steps,
