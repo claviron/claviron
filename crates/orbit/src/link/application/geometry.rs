@@ -16,7 +16,7 @@ pub const LINK_INBOX_KIND: u8 = 195;
 /// Frames per inbox lane, fixed at build time. Full lanes reject new frames.
 pub const LINK_INBOX_CAPACITY: usize = orbitive::core::compile::usize_from_env(
     option_env!("ORBIT_LINK_INBOX_CAPACITY"),
-    128,
+    1024,
 );
 
 /// Maximum frame bytes, including HTTP headers and link metadata.
@@ -31,10 +31,12 @@ pub const LINK_INBOX_PAYLOAD_CAPACITY: usize =
 pub const LINK_STREAM_KIND: u8 = 211;
 
 /// Concurrent exchanges a node may originate, fixed at build time.
-/// Each exchange occupies one slot in its creator's lane.
+/// Each exchange occupies one slot in its creator's lane, and an edge process
+/// past this answers 503, so it bounds the connections one process can carry.
+/// The table's pages are resident only once a slot is used.
 pub const LINK_LANE_CAPACITY: usize = orbitive::core::compile::usize_from_env(
     option_env!("ORBIT_LINK_LANE_CAPACITY"),
-    128,
+    1024,
 );
 
 /// Buffered bytes per stream direction before the writer waits.

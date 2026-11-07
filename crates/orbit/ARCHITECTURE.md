@@ -74,6 +74,18 @@ to the equal node id. `FleetNodeId` and `WorkerId` stay different types so a dir
 allocate lanes to independently launched process families; writable external members are not
 admitted today.
 
+## Link capacity
+
+`ORBIT_LINK_LANE_CAPACITY` (1024) is how many exchanges one process can have open, so it bounds the
+connections one edge process carries: past it, the edge answers 503. `ORBIT_LINK_INBOX_CAPACITY` (1024)
+is how many frames wait for one application process before a writer is refused. Both are compiled in and
+every process of a fleet must agree, so a binding's native library is built with the same values. A
+segment of another shape is refused at open: stop the fleet and clear it with `orbit clear` after changing
+them.
+
+The tables are sized for the whole fleet but their pages are resident only when used: on Linux 5.15, one
+application's fleet at these values reads 4.6 GB apparent and 13 MB resident after 512 connections.
+
 ## SHM Kind ID Index
 
 `SHM_KIND_INDEX: UPDATE_WITH_EVERY_RESOURCE_CHANGE`
