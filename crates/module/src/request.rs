@@ -411,6 +411,17 @@ impl Exchange {
         self.runtime.spawn(async move {
             let mut closing = this.closing.subscribe();
             loop {
+                // Input advances once the last output has drained: a handler
+                // answering from its body callback has room to write.
+                let output =
+                    this.reply.lock().expect("reply").body.clone();
+                if let Some(output) = output {
+                    tokio::select! {
+                        biased;
+                        _ = closing.wait_for(|closed| *closed) => return,
+                        _ = output.reserve() => {}
+                    }
+                }
                 let frame = tokio::select! {
                     biased;
                     _ = closing.wait_for(|closed| *closed) => return,
@@ -420,7 +431,7 @@ impl Exchange {
                 };
                 let (piece, end) = match frame {
                     Some(Ok(frame)) => match frame.into_data() {
-                        Ok(piece) => (piece, http_body::Body::is_end_stream(&body)),
+                        Ok(piece) => (piece, false),
                         // Trailers carry nothing a module reads here.
                         Err(_) => continue,
                     },

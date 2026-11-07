@@ -406,3 +406,7 @@ impl ApplicationController for Controller {
         Ok(application.begin().await?)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/application.rs"]
+mod tests;

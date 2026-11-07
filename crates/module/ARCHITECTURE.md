@@ -58,7 +58,7 @@ Tokio   the response
 
 Native code never runs on a Tokio worker: `boot`, `run`, `start`, `stop` and handlers all have
 threads. A body stays on Tokio and each frame is handed over, the next after the last callback
-returns. A handler may answer later from any thread; `instances` bounds only the callbacks running
+returns and the reply has room, as over Orbit; its end is a call of its own, with no bytes. A handler may answer later from any thread; `instances` bounds only the callbacks running
 at once.
 
 There is no `execution_timeout` and no `retry`. PHP interrupts its VM and replaces a failed worker.
@@ -109,4 +109,5 @@ cost more: more threads wake on one queue.
 ## Tests
 
 `tests/provider.rs` pins the validation against `modules.yaml` with functions standing in for a library.
+`tests/application.rs` pins a body's delivery the same way.
 What needs a real library, threads and a client runs from the C module example, in C and C++.

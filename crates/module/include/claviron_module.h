@@ -89,7 +89,7 @@ typedef struct {
 typedef struct claviron_request claviron_request;
 
 typedef uint32_t (*claviron_request_fn)(claviron_request *request, void *context);
-/* Bytes borrowed for the call. end is 1 on the last call, with or without bytes. */
+/* Bytes borrowed for the call. end is 1 on one last call, which carries no bytes. */
 typedef uint32_t (*claviron_body_fn)(claviron_request *request, const uint8_t *data, uint64_t length, uint32_t end, void *context);
 /* Exactly once for every request that reached request. status is CLAVIRON_OK when
  * the reply was delivered, nonzero otherwise. Free request_data here. */
@@ -215,7 +215,8 @@ typedef struct claviron_host {
     uint32_t (*request_set_data)(claviron_request *request, void *data);
     void *(*request_data)(const claviron_request *request);
     /* Ask for the body through the body callback, one piece at a time: the next
-     * arrives after the last callback returns. An unread body is discarded. */
+     * arrives after the last callback returns and the reply has room for one more
+     * write. An unread body is discarded. */
     uint32_t (*request_read_body)(claviron_request *request);
 
     /* The reply. Its head goes out with the first write or with finish. write

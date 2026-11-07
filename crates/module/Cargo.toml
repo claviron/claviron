@@ -43,5 +43,6 @@ libloading = "0.8"
 tracing.workspace = true
 
 [dev-dependencies]
+http-body-util.workspace = true
 serde_yaml.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
