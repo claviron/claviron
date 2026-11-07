@@ -53,6 +53,9 @@ struct LinkRoute {
 pub struct LinkBackend {
     routes: Arc<[LinkRoute]>,
     shutdown: tokio_util::sync::CancellationToken,
+    /// The transport's `h1.upgrade`. HTTP/2 has its own, enforced before a
+    /// request exists: extended CONNECT is not advertised without it.
+    h1_upgrade: bool,
 }
 
 impl LinkBackend {
@@ -61,6 +64,7 @@ impl LinkBackend {
         routes: &[claviron_http::config::routes::OrbitRouteConfig],
         prefix: Option<&PathPrefix>,
         requests: RequestPolicyOverride,
+        h1_upgrade: bool,
     ) -> Option<Self> {
         if routes.is_empty() {
             return None;
@@ -85,7 +89,11 @@ impl LinkBackend {
             (Some(a), Some(b)) => a.as_str().len().cmp(&b.as_str().len()),
         });
         routes.reverse();
-        Some(Self { routes: routes.into(), shutdown: state.shutdown_token() })
+        Some(Self {
+            routes: routes.into(),
+            shutdown: state.shutdown_token(),
+            h1_upgrade,
+        })
     }
 
     fn select(
@@ -121,6 +129,20 @@ impl DispatchStep for LinkBackend {
         let Some(route) = self.select(request.uri().path()) else {
             return DispatchCall::ready(ServiceResult::Unhandled(request));
         };
+        if !self.h1_upgrade
+            && claviron_http::upgrade::is_h1_header_upgrade(
+                &request,
+                "websocket",
+            )
+        {
+            tracing::debug!(
+                path = request.uri().path(),
+                "a WebSocket upgrade was refused: this transport has no h1.upgrade"
+            );
+            return DispatchCall::ready(ServiceResult::Handled(err_status(
+                StatusCode::FORBIDDEN,
+            )));
+        }
         let Some(target) = route.target.clone() else {
             return DispatchCall::ready(ServiceResult::Handled(unavailable(
                 "the Link route has no prepared destination",

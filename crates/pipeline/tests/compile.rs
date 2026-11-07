@@ -20,6 +20,7 @@ fn a_redirecting_scope_prepares_no_owner_and_no_fallback() {
             route: &site,
             prefix: &root,
         },
+        &Default::default(),
         &NoHooks,
     );
     assert!(plan.steps.is_empty());

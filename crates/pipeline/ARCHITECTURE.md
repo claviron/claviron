@@ -30,9 +30,11 @@ all depend on this crate, and it depends only on `claviron-http`.
   `compile` prepares it from a scope's `orbit:` declaration, so a site served by
   one listener reaches its applications the same way a host does. It needs
   `claviron_orbit::register`, which the full server calls; a `Single` composition
-  calls it itself, and compiling without it fails. HTTP and WebSocket work there.
-  WebTransport sessions need Edge, because `quic::Single` does not offer them. A
-  runner's site holds only its files, so a runner declares no `orbit:` route.
+  calls it itself, and compiling without it fails. `Single` carries plain HTTP to
+  the application. A WebSocket needs a transport policy that permits the upgrade,
+  and `Single` has none to declare yet, so it is refused with 403; WebTransport
+  sessions need Edge, because `quic::Single` does not offer them. A runner's site
+  holds only its files, so a runner declares no `orbit:` route.
 - `response`: the replies decided before dispatch.
 - `routing`: host-free Axum route contributions, `Routable` and
   `RoutableRegistry`, behind the `axum` feature.

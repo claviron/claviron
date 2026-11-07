@@ -44,6 +44,7 @@ struct BackendPlan {
 impl BackendPlan {
     fn prepare(
         context: &RouteContext<'_>,
+        transport: &claviron_http::config::transport::TransportPolicy,
         hooks: &dyn CompileHooks,
     ) -> Self {
         if context
@@ -60,6 +61,7 @@ impl BackendPlan {
                 context.route.orbit(),
                 Some(context.prefix),
                 context.policy().requests,
+                transport.h1.upgrade,
             )
             .map(|owner| Arc::new(owner) as Arc<dyn BackendHandler>),
         );
@@ -666,6 +668,7 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
             route: fallback.as_ref(),
             prefix: &root,
         },
+        transport,
         hooks,
     );
     let layers = match &compiler.registry {
@@ -733,6 +736,7 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
                         route,
                         prefix,
                     },
+                    transport,
                     hooks,
                 );
                 let owner = compiler.scope(

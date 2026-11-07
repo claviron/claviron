@@ -33,6 +33,38 @@ impl Drop for UnreadBody {
     }
 }
 
+/// `h1.upgrade` is the operator's switch: an application route does not get
+/// around it, and the application is never asked.
+#[test]
+fn a_websocket_upgrade_without_h1_upgrade_is_refused_before_the_application() {
+    use super::{
+        DispatchCall, DispatchStep, LinkBackend, LinkRoute,
+        RequestPolicyOverride, ServiceResult,
+    };
+    let backend = LinkBackend {
+        routes: vec![LinkRoute {
+            path: None,
+            target: None,
+            requests: RequestPolicyOverride::default(),
+        }]
+        .into(),
+        shutdown: CancellationToken::new(),
+        h1_upgrade: false,
+    };
+    let request = http::Request::builder()
+        .uri("/socket")
+        .header(http::header::CONNECTION, "Upgrade")
+        .header(http::header::UPGRADE, "websocket")
+        .body(claviron_http::empty_body())
+        .unwrap();
+    let DispatchCall::Ready(ServiceResult::Handled(response)) =
+        backend.call(request, None)
+    else {
+        panic!("the refusal is synchronous");
+    };
+    assert_eq!(response.status(), http::StatusCode::FORBIDDEN);
+}
+
 #[test]
 fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
     use super::{
@@ -47,6 +79,7 @@ fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
         }]
         .into(),
         shutdown: CancellationToken::new(),
+        h1_upgrade: true,
     };
     for (path, handled) in
         [("/apiary", false), ("/elsewhere", false), ("/api/item", true)]
