@@ -115,7 +115,9 @@ impl<O: Owner> Requests for OwnerRequests<O> {
         let attempt = match attempt(&mut request, &self.sessions) {
             Ok(attempt) => attempt,
             Err(status) => {
-                return Either::Left(ready(Ok(claviron_http::err_status(status))));
+                return Either::Left(ready(Ok(claviron_http::err_status(
+                    status,
+                ))));
             }
         };
         let answering = self.owner.call(

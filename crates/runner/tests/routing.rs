@@ -352,8 +352,36 @@ async fn warp_routes_select_before_body_and_keep_rejections_terminal() {
     assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
 }
 
-/// A connection to be taken over passes through the site like any request, so
-/// what the site answers or refuses never reaches who would take it.
+#[cfg(feature = "pipeline")]
+fn offered() -> claviron_http::socket::Offer {
+    use claviron_http::socket::{
+        Carrier, Deferred, Door, Offer, OfferInfo, SocketKind, refusal,
+    };
+
+    struct Unused;
+    impl Door for Unused {
+        fn commit(
+            self: Box<Self>,
+            proposal: AppResponse,
+            _: Deferred,
+        ) -> AppResponse {
+            proposal
+        }
+        fn refuse(
+            self: Box<Self>,
+            response: AppResponse,
+        ) -> AppResponse {
+            refusal(response)
+        }
+    }
+    Offer::new(
+        OfferInfo { kind: SocketKind::WebSocket, carrier: Carrier::H1 },
+        Unused,
+    )
+}
+
+/// A session attempt passes through the site like any request, so what the site
+/// answers or refuses never reaches who would take it.
 #[cfg(feature = "pipeline")]
 #[tokio::test]
 async fn a_site_stands_in_front_of_what_takes_a_connection_over() {
@@ -386,10 +414,12 @@ async fn a_site_stands_in_front_of_what_takes_a_connection_over() {
         state.registry_ref().resolve::<Application>().unwrap()
     };
     let upgrade = |path: &str| {
-        Request::get(path)
+        let mut request = Request::get(path)
             .header(http::header::UPGRADE, "websocket")
             .body(RequestBody::empty())
-            .unwrap()
+            .unwrap();
+        request.extensions_mut().insert(offered());
+        request
     };
 
     let taken = application(Owner::new(answers(200)).upgrades(answers(202)));

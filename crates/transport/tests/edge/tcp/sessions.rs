@@ -60,7 +60,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     let upgrade = if upgrade {
-        "Connection: Upgrade, close\r\nUpgrade: websocket\r\n"
+        "Connection: Upgrade, close\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
     } else {
         "Connection: close\r\n"
     };

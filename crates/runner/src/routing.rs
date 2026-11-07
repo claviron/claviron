@@ -330,6 +330,21 @@ impl claviron_transport::owner::Owner for Application {
     }
 }
 
+/// Whether a door offered this request as a session. An `Upgrade` to anything
+/// else is an ordinary request, which HTTP lets a server answer as one.
+fn attempting(request: &AppRequest) -> bool {
+    #[cfg(any(feature = "socket", feature = "orbit"))]
+    return request
+        .extensions()
+        .get::<claviron_http::socket::Offer>()
+        .is_some();
+    #[cfg(not(any(feature = "socket", feature = "orbit")))]
+    {
+        let _ = request;
+        false
+    }
+}
+
 /// Refuse what no stage may read differently or take over, then hand on what
 /// is left.
 async fn admitted(
@@ -346,9 +361,9 @@ async fn admitted(
     {
         return status(StatusCode::BAD_REQUEST);
     }
-    // A tunnel is refused. A connection to be taken over goes on with the rest,
-    // through whatever stands in front of the application.
-    if request.method() == Method::CONNECT {
+    // A tunnel is refused. A session attempt goes on with the rest, through
+    // whatever stands in front of the application.
+    if request.method() == Method::CONNECT && !attempting(&request) {
         return status(StatusCode::NOT_IMPLEMENTED);
     }
     let Ok(response) = service.call_erased(request).await;
@@ -375,7 +390,7 @@ impl ErasedService for Answering {
         let upgrades = self.upgrades.clone();
         Box::pin(async move {
             request.extensions_mut().insert(policy);
-            if request.headers().contains_key(http::header::UPGRADE) {
+            if attempting(&request) {
                 return Ok(match upgrades {
                     Some(upgrades) => match upgrades.call_erased(request).await
                     {
