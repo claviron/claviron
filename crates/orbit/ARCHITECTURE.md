@@ -1,173 +1,78 @@
-# claviron-orbit - Architecture
+# claviron-orbit Architecture
 
-`orbit` binds the framework-neutral `orbitive` facade into the
-Claviron runtime lifecycle. It
-owns fleet provider registration, boot order, the `AppState` fleet accessor,
-the typed event bridge, the Claviron-facing Orbit cache runtime, and Claviron's
-keyed counter state. It also owns Claviron's typed, domain-facing lifecycle
-policy boundary for shared-memory resources; Orbitive remains responsible for
-the underlying POSIX mechanics.
+## Boundary
 
-For application dispatch, Orbitive's `orbit-link` owns the generic named
-inbox, admission, reusable duplex slots, and exact incarnation recovery.
-Claviron supplies kinds and geometry, then adds application naming, HTTP
-exchange frames, routing, status mapping, and runtime lifecycle integration.
+This crate binds the framework-neutral `orbitive` facade into Claviron's runtime
+lifecycle: when a process joins its fleet, who owns each shared resource, what may
+clear it, and how events and cache mutations reach the rest of the process.
 
-HTTP routes prepare a `ApplicationTarget` from their destination client while
-the route is built. Its shared immutable lane snapshot is tagged with the Link
-directory generation. The ordinary send reads that snapshot without a client
-map lookup or directory-cache mutex. A generation change performs one bounded
-lane scan and one compare-and-swap publication attempt; a delayed refresher
-cannot replace a snapshot published since it began. The generation is captured
-before scanning, so a concurrent change invalidates the result on the next send.
-Depth and admission are still read per exchange. The name-based client API
-retains its existing cache for callers that do not prepare a target. Stream
-loans, reply correlations, crash recovery and wake publication are unchanged.
+Orbitive owns the primitives: POSIX mechanics, ring and table layouts, cache and L1
+algorithms, the Link inbox, its duplex slots and exact incarnation recovery. Claviron
+supplies kinds and geometry here, then adds application naming, HTTP exchange frames,
+routing, status mapping and lifecycle integration. It stays thin enough that a
+non-Claviron user can use Orbitive directly.
 
-A lent response reader signals reader departure as soon as it is dropped,
-even if the request upload still holds its half. Returning both halves to the
-pool remains separate: rearming waits for the remote endpoint to release its
-generation. A cancelled reader therefore cannot retain pre-head runner work
-until an unrelated upload finishes.
+Not here: concrete File and Redis stores and their configuration (`cache`), typed cache
+value encoding (`claviron-cache`), metrics aggregation, language host functions, concrete
+domain events, the `ApplicationEvent` envelope (`claviron-app`), heartbeat records and
+process policy (`supervisor`), and scheduling (`tasks`). Each resource's activity evidence
+comes from the provider that owns the resource.
 
-## Role
+## Sources
 
-### Explicit quota stores
+- [`lib.rs`](src/lib.rs), [`registry.rs`](src/registry.rs) — The facade and the `register*` functions. Registration is idempotent.
+- [`fleet.rs`](src/fleet.rs) — `FleetProvider`: the process's one `Arc<Fleet>`.
+- [`shm.rs`](src/shm.rs) — Boot and finalize policy, the managed provider wrapper and the lifecycle inventory.
+- [`event.rs`](src/event.rs) — The typed bridge between Orbit frames and the local event bus.
+- [`cell.rs`](src/cell.rs), [`cell/orbital.rs`](src/cell/orbital.rs) — The typed cell tables and `Orbital<T>` declarations.
+- [`cache.rs`](src/cache.rs), [`cache/runtime.rs`](src/cache/runtime.rs) — One cache connection per process, its logical stores and L2 ordering.
+- [`arena.rs`](src/arena.rs), [`counter.rs`](src/counter.rs), [`lock.rs`](src/lock.rs), [`stream.rs`](src/stream.rs), [`quota.rs`](src/quota.rs) — Lifecycle bindings of those primitives.
+- [`invoke.rs`](src/invoke.rs), [`invoke/call.rs`](src/invoke/call.rs) — The invocation ring and transport-independent targeted calls.
+- [`service.rs`](src/service.rs), [`service/`](src/service/) — Fleet commands and snapshots over Continuo's process-local service manager, and live membership.
+- [`placement.rs`](src/placement.rs), [`placement/controller.rs`](src/placement/controller.rs) — `OrbitDispatcher`: `One` and `Pool` leases.
+- [`config.rs`](src/config.rs) — `orbit.yaml`.
 
-`QuotaStore::try_consume_with_snapshot` is forwarded unchanged to the selected
-store, as is decision-only admission. The binding does not calculate remaining
-capacity, reread state or add synchronization; optional snapshots come from
-Orbitive's successful transition. HTTP reporting remains in the HTTP adapter.
+### `link/`
 
-The optional `quota` surface assembles Orbitive's LocalGuard, FleetGuard and
-FleetQuota behind `Quota`. It owns typed immutable definitions and handle
-lifetime, not key selection, HTTP status or authentication. It consumes the
-`orbitive::quota` facade, never an internal package path.
+- [`connection.rs`](src/link/connection.rs), [`access.rs`](src/link/access.rs) — One protocol-neutral membership and exclusive reader, owned by its calling service.
+- [`events.rs`](src/link/events.rs), [`interest.rs`](src/link/interest.rs) — Topic forwarding on a connection, and connection-local interest.
+- [`invoke/`](src/link/invoke/) — Bounded command and result calls over a service-owned geometry.
 
-Each local construction creates independent authority; clones share its fixed
-table. Fleet definitions explicitly identify a quota-owned namespace/kind and
-owner capacity. These are explicit-handle resources, opened by their owning
-component during preparation, not per-store Provider/Runnable registrations.
-They perform no reset/unlink and have no sweeper or publication loop. Matching
-opens retain committed debt; incompatible state is an error. No fixed core
-SHM kind is allocated. Edge rejects resources in the runtime fleet and duplicate
-resource bindings across limit definitions. Operators own dedicated quota
-namespaces; they must not reuse another subsystem's namespace/kind.
+### `link/application/`
 
-The managed provider lifecycle remains mandatory for registered providers;
-this explicit store API supplies neither a Provider implementation nor implicit
-destructive authority. Configuration checks do structural validation only and
-do not open these stores or claim owner rows. Physical/native compatibility is
-verified when the serving owner constructs a store. No reload or language
-binding is provided in this phase.
+- [`segment.rs`](src/link/application/segment.rs), [`body.rs`](src/link/application/body.rs), [`geometry.rs`](src/link/application/geometry.rs) — The application link's namespace, naming, body table and compiled geometry.
+- [`frame.rs`](src/link/application/frame.rs) — What crosses the inbox: one exchange's control, never its body.
+- [`client.rs`](src/link/application/client.rs), [`service.rs`](src/link/application/service.rs), [`target.rs`](src/link/application/target.rs) — The calling side: one client per destination fleet, and a route's prepared target.
+- [`message.rs`](src/link/application/message.rs) — Message records on a stream slot.
+- [`app.rs`](src/link/application/app.rs), [`peer.rs`](src/link/application/peer.rs) — Application events across a link, and who is on its other side.
 
-This crate answers two related questions:
+## Boot
 
-> How does a Claviron process join an Orbit fleet at the right lifecycle point
-> and expose that fleet to other providers?
+```text
+FleetProvider              priority EARLY: Fleet::join_shm_as(fleet_name, capacity, node)
+CellsProvider              EARLY, after it: open the tables, bind Orbital declarations
+master and worker          event ring companion, then FleetEventRegistry with its cursor at the head
+standalone                 Fleet only; local events stay on state.events()
+optional providers         counter, arena, invocations, locks, streams: after FleetProvider
+fleet service management   Continuo ServiceManager, command bridge, snapshot companion, publisher
+```
 
-> How does that process drive Orbit events and cache mutations without leaking
-> ring, cursor, or platform-notification mechanics into higher-level crates?
+A consumer declares `ProviderOrder::new().after::<FleetProvider>()` and resolves the handle
+during `boot()` or `run()`. It may clone the `Arc<Fleet>`; it does not create another
+Orbit registry or cache an optional Fleet to wait for boot. `FleetProvider` is a capability,
+not a runnable: it publishes no heartbeat.
 
-Fleet-coherent ring and L1 mechanics remain in `orbitive::cache`. This crate
-owns the Claviron runtime binding and abstract L2 policy.
-Concrete File/Redis adapters and operator configuration remain in
-`cache`. Metrics aggregation, language host functions, and concrete
-domain event definitions do not belong here. The language-neutral
-`ApplicationEvent` envelope belongs to `claviron-app`; this crate only provides
-the generic typed fleet codec and bridge it uses.
+`AppState::fleet_name()` is the explicit sharing domain, independent of the instance name, and
+defaults to `clv`. Segments are `/orbit-{fleet}-{kind}-{uid}`; the name is short because of
+macOS POSIX SHM limits.
 
-## Public Shape
-
-- `placement::{Scope, Dispatch, Scoped, Dispatched}`: shared placement
-  vocabulary owned by Continuo's optional `fleet` feature, re-exported here
-  and at the crate root. Continuo has no Orbitive dependency. Scope admits master, worker,
-  or any role; standalone satisfies both roles. `Fleet` is a compatibility
-  alias for `Any`, not a fourth scope. Dispatch declares each/one/pool selection
-  within the eligible set. Continuo filters local runnable entries when the
-  provider exposes `as_scoped`, using AppState's process role. Provider lifecycle
-  registration remains intact. Scheduling remains a TaskService concern. The
-  task crate now re-exports these enums as `TaskScope` and `TaskDispatch`,
-  retaining legacy names while keeping timing and execution in TaskService.
-- `placement::{OrbitDispatcher, DispatchPolicy, register_dispatcher}`:
-  implements Continuo's `Dispatcher<AppState>` contract for runnable `One` and
-  `Pool` generations. Registration is explicit and supplies managed lock SHM
-  dependencies; server bootstrap installs the same adapter on its Runtime.
-- `FleetProvider`: joins the SHM fleet at `priority::EARLY` and exposes its
-  handle. It uses the explicit `AppState::fleet_name()` sharing domain,
-  independently of the logical process-family instance name. It is a capability
-  provider, not a runnable service.
-- `OrbitStateExt`: opt-in `state.fleet()` accessor.
-- `register_fleet(state)`: inserts the fleet capability and its common managed
-  typed-cell tables. Applications do not register cell infrastructure.
-- `register(state)`: also inserts the Orbit event registry in supervised mode.
-- `FleetEventRegistry`: typed bridge between raw Orbit events and the local
-  process event bus.
-- `cache::CacheService`: lifecycle owner for one physical Orbit cache
-  connection, one mutation cursor, and one inbound driver per process.
-- `cache::CacheRuntime`: one named logical store's L1 and optional L2 policy.
-- `cache::CacheBacking`: storage-neutral async port implemented by concrete
-  adapters in `cache`.
-- `counter::Counter`: key-based signed 64-bit fleet counter table.
-- `counter::CounterProvider`: optional lifecycle owner for that table.
-- `invoke::InvocationBus`: bounded invocation transport over a dedicated ring,
-  with runtime-neutral operation names and opaque payload bytes.
-- `invoke::InvocationProvider`: optional lifecycle owner that opens the
-  already-managed invocation ring without owning executor or handler policy.
-- `link::Connection`: one protocol-neutral Link membership and exclusive reader,
-  owned by the calling service. Explicit namespace, geometry, name, role and
-  incarnation; no HTTP bodies, implicit SHM cleanup or detached task.
-- `link::EventConnection`: optional topic/payload forwarding on that connection
-  using a supplied event bus, connection-local interest and owner cancellation.
-  Plain topics use `Routing::Topic`; envelope owners may select `Routing::Key`.
-- `link::application::{ApplicationSegment, ApplicationBodies}`: Claviron
-  adapters over `orbitive::link`, fixing the application-link geometry while
-  retaining HTTP frames, target policy, and lifecycle here. `link` itself stays
-  protocol-neutral; the web application is one layer over it.
-- `lock::OrbitLock`: framework-neutral fleet lock handle.
-- `lock::Lock`: exact-lease RAII binding for Rust services.
-- `lock::{LOCK_STATE_KIND, LOCK_EVENT_RING_KIND}`: the physical kind ids
-  reserved by the default Orbit lock layout, exposed so sibling subsystems can
-  enforce non-overlap.
-- `register_lock(state)`: idempotently registers the default lock state table
-  and transition ring as managed `Reuse` / `Preserve` resources before a PHP,
-  JavaScript, task, or upstream consumer opens them.
-- `service::FleetServiceManager`: fleet command and observation adapter over
-  Continuo's process-local `ServiceManager`.
-- `service::register(state)`: installs the process-local service command
-  listener and, in supervised mode, its typed Orbit bridge plus managed
-  per-process snapshot publisher. It delegates to
-  `service::ServiceSnapshotPublisher`'s `Register<AppState>` implementation;
-  the local manager is a boot dependency, not a registration prerequisite.
-- `shm::ManagedShmResource`: a provider-owned physical adapter plus declared
-  boot/finalize policy for one SHM resource.
-- `shm::ManagedShmResources`: a domain resource set that deliberately cannot
-  register as a runtime provider by itself.
-- `shm::ManagedShmProvider<P>`: the mandatory registry wrapper that owns boot,
-  finalize, and runtime decision recording.
-- `shm::OrbitRingResource<T>`: typed physical adapter deriving the conventional
-  segment name and exact fleet-aware size from `OrbitTyped` geometry.
-- `shm::ReusableOrbitRing<T>` and `register_reusable_ring`: the common managed
-  `Reuse` / `Preserve` registration for transient transports and timestamped
-  read-model rings.
-- `shm::ShmActivitySource`: a bound domain authority for activity evidence;
-  supervised Claviron supplies exact presence plus a one-heartbeat-interval
-  lane-motion fallback.
-- `shm::ShmLifecycleInventory`: registry-visible static descriptors and latest
-  successful boot/finalize decisions.
-- `shm::register(state, resources)`: the only constructor/registration path
-  for the managed wrapper; it registers the inventory at the same boundary.
-- `shm::{boot, finalize}`: common policy executors that distinguish physical
-  state from domain activity, emit structured decisions, and fail closed
-  before destructive operations.
-- Selected core primitives re-exported from `orbitive`: `Fleet`, `NodeId`,
-  `NetId64`, `OrbitEpoch`, and typed ring identity.
-- Selected event types re-exported from `orbitive::events` for the Claviron
-  lifecycle bridge.
-
-Configured callers normally use the `cache` facade. Rust callers that
-want only framework-neutral primitives use the appropriate feature module on
-the `orbitive` facade.
+`fleet_capacity` is immutable physical lane geometry, built in through
+`CLAVIRON_FLEET_CAPACITY` beside the ring geometry it must agree with. Every peer must agree on
+it, and standalone uses the same value. It never proves membership: readers scan the capacity
+and apply their own freshness rules. Node zero is standalone or master, and each worker id maps
+to the equal node id. `FleetNodeId` and `WorkerId` stay different types so a directory could
+allocate lanes to independently launched process families; writable external members are not
+admitted today.
 
 ## SHM Kind ID Index
 
@@ -322,52 +227,29 @@ reuse, not approval to reuse retired kinds for new incompatible resources.
    implementation. Standalone test-only kinds in isolated fleets do not become
    production reservations, but tests must not collide with a live deployment.
 
-## Shared-memory Lifecycle Boundary
+## Shared-memory lifecycle
 
-`orbitive::shm::ShmRegion::validate_existing` performs the mutation-free
-physical check: missing is a normal state, while a present object must be large
-enough for the requested mapping. The owning adapter then validates its own
-magic, version, geometry, and other semantic header fields.
-
-Claviron policy is explicit and typed:
-
-- `ExistingBootPolicy` decides whether valid state is reused, rejected, reset,
-  or recreated;
-- `FinalizePolicy` decides whether state is preserved or conditionally cleaned;
-- destructive policies require provider-owned `ResourceActivity` evidence;
-- `Unknown` activity never authorizes reset, recreation, or unlink;
-- the active master role by itself grants no destructive authority.
-
-The lifecycle executor supports multiple resources per provider and records a
-decision for each one. The resource-set type does not implement `Provider`;
-only `ManagedShmProvider<P>` does, and its construction is private to the
-registration function. This prevents a managed resource from being inserted
-while silently bypassing the executor or inventory. Domain adapters own any
-heartbeat or one-full-interval observation needed to prove quiescence.
-Physical invalidity is returned with its original detail and never translated
+`orbitive::shm::ShmRegion::validate_existing` is the mutation-free physical check: missing is a
+normal state, and a present object must be large enough. The owning adapter then validates its
+magic, version and geometry. Physical invalidity is returned with its detail and never turned
 into an automatic unlink.
 
-Creation coordination is separate from destructive authority. When supervised
-boot guarantees that the master finishes provider boot before workers start, a
-resource may assign first creation and header initialization to the master;
-workers then validate and reuse that initialized object. This prevents
-concurrent consumers from observing the interval between `shm_open`, sizing,
-and header publication. It does not authorize the master to reset, recreate, or
-unlink a compatible existing object: those actions still require the declared
-policy and provider-owned activity evidence. Standalone mode performs both the
-coordinator and consumer roles in one process.
+Policy is typed and separate from that check:
 
-### Reply publication failure
+- `ExistingBootPolicy` decides whether valid state is reused, rejected, reset or recreated.
+- `FinalizePolicy` decides whether state is preserved or conditionally cleaned.
+- Destructive policies require provider-owned `ResourceActivity` evidence. `Unknown` never
+  authorizes reset, recreation or unlink, and the master role alone grants nothing.
 
-An admitted HTTP exchange owns its response stream before publishing its reply
-head. If the runner cannot publish that head, it resets the response direction,
-including when a small buffered body already published FIN. `ReplyWait` checks
-its oneshot first and otherwise observes the existing stream's reset-only
-signal; data/FIN do not complete a header wait. It removes the correlation on
-failure or cancellation. Successful delivery already removes it and needs no
-second map lookup. No deadline, polling driver or extra SHM field is introduced.
-This preserves terminal failure even when bounded inbox admission refuses a
-reply; a refused request remains a pre-execution 503.
+`ManagedShmResources` deliberately does not implement `Provider`. Only `ManagedShmProvider<P>`
+does, and only `shm::register` constructs it, so a managed resource cannot be inserted around the
+executor or the inventory. `ShmLifecycleInventory` reports what the running process registered and
+decided; the index above covers everything reserved.
+
+Creation coordination is not destructive authority. Where the master finishes provider boot before
+workers start, it may create and initialize a resource so no consumer sees the gap between
+`shm_open`, sizing and header publication. Resetting a compatible object still needs its policy
+and its evidence.
 
 ## Cleanup: What Is Cleared, By Whom, and What Stays
 
@@ -470,517 +352,138 @@ or `/tmp/orbit-<uid>`): one beside a locked region, and one per link lane
 ever held (`<segment>.lane<n>.lock`). An unlocked one is harmless and reused.
 Unlinking the segment, from code or with `orbit clear`, removes them with it.
 
-## Boot Contract
-
-Every process that registers the provider joins the same fleet during boot:
-
-```text
-registry insert FleetProvider
-  -> boot priority EARLY
-  -> Fleet::join_shm_as("clv", fleet_capacity, node_id)
-  -> store Arc<Fleet>
-
-common typed-cell infrastructure
-  -> CellsProvider at EARLY, after FleetProvider
-  -> validate/open/reuse the fleet's scalar and text tables
-  -> bind application Orbital declarations before normal-priority provider boot
-  -> any setup/allocation failure rejects startup before runnables start
-
-master/worker
-  -> managed event SHM companion after FleetProvider
-  -> validate/create/reuse and record Reuse + Preserve policy
-  -> register FleetEventRegistry after the managed companion
-  -> capture a new inbound cursor at the current head
-
-standalone
-  -> expose Fleet only; local events remain on state.events()
-
-optional counter registration
-  -> CounterProvider after FleetProvider
-  -> boot reuses the table: values are kept across a restart
-  -> finalize preserves the table
-
-optional arena registration
-  -> ArenaProvider after FleetProvider, managed kind 193
-  -> quiescent master/standalone boot empties the index; a live fleet is reused
-  -> finalize preserves the segment
-
-optional invocation registration
-  -> managed kind 241 companion after FleetProvider
-  -> validate/create/reuse with Reuse + Preserve policy
-  -> InvocationProvider opens after the companion
-  -> runtimes own payload codecs, handler placement and execution
-
-fleet service management
-  -> insert Continuo ServiceManager
-  -> register typed Orbit command bridge
-  -> managed snapshot SHM companion validates/creates/reuses the ring
-  -> insert ServiceSnapshotPublisher
-  -> retained batches are accepted only through current membership/freshness
-```
-
-The short fleet name is required by macOS POSIX SHM name limits. Orbit builds
-segments as `/orbit-{fleet}-{kind}-{uid}`.
-
-Every peer must agree on one immutable `fleet_capacity`. This is physical SHM
-lane geometry, not a claim that every reserved lane currently has a live
-writer. It is built in: `CLAVIRON_FLEET_CAPACITY` in the deployment's
-`.cargo/config.toml`, beside the ring geometry it must agree with, and 17
-seats when the build pins nothing. There is no runtime option for it.
-Standalone uses the same compiled geometry; its one serving process does not
-reduce the physical lane count to one.
-
-The current single-process-family adapter assigns node zero to
-standalone/master and initially maps each worker id to the equal numeric fleet
-node id. `FleetNodeId` and `WorkerId` remain different runtime types so a future
-fleet directory can allocate unique lanes to independently launched Claviron
-process families. Read-only attachments need no writer identity; writable
-external members will require that allocator and are not admitted by the
-current adapter.
-
-Every `OrbitTyped::KIND` still declares its own per-lane `RingSpec`. Shared
-topology has one lane; per-node topology reserves one writer lane per fleet
-capacity slot in the same SHM segment. A ring's memory is allocated only when
-that kind is opened, and every peer must agree on the kind, spec, and immutable
-fleet capacity. Liveness/status readers scan the physical capacity and then
-apply their domain freshness rules; capacity itself is never membership
-evidence.
-
-Orbit locks use a fixed authoritative current-state table plus a notified
-transition ring. Table capacity bounds simultaneous resident lock keys, not
-retained changes. Locks are independent from cache values and cache clearing.
-
-## Invocation Transport
-
-### Targeted calls
-
-`invoke::Client` is a boot-registered map of logical targets to `Route`
-implementations. The caller supplies a target, operation and opaque bytes;
-placement and transport belong to registration. `CallError`/`CallResult` remain
-separate from the existing ring's `Error`/`Result` exports. No implicit local,
-Link or ring fallback is selected.
-
-`link::invoke` is the direct same-host Link adapter. Each endpoint consumes
-one `Connection` reader, optionally retaining the existing event bridge through
-`EventConnection::invocations`. It uses the owner's caller-supplied `LinkSpec`,
-not HTTP transport constants, and opens no invocation ring or HTTP body table.
-The owner/group permission contract remains unchanged. A logical Link service
-must resolve to exactly one live lane; multiple matches are an explicit error,
-not an implicit load-balancing or failover policy.
-
-The inbox protocol uses downstream tag `0x49`, version 1, distinct from HTTP
-tags 1..5 and Link-reserved tags F0..FF. A request carries both endpoint
-incarnations, a never-reused local call sequence, a result limit and a Link
-stream ticket. The caller reserves side A before publication. The target
-validates its destination and the ticket's origin/kind/side and claims side B
-before invoking domain code. Duplicate ticket claims cannot execute twice.
-The single bounded result record is written to that reserved stream, not to
-the caller's inbox; events cannot consume response capacity. The record retains
-both endpoint stamps and the call sequence. This is not an HTTP exchange.
-
-Pending calls, accepted callback futures and request/result sizes are explicit
-per-endpoint limits. Stream slots and per-direction byte buffers remain part of
-the owner-chosen Link geometry. Results use native stream backpressure; cancelled
-readers affect only their call. A malformed frame never enters a handler.
-When callback capacity is full, the reader holds its current observation and
-stops consuming until a slot opens; the bounded inbox provides backpressure.
-Callbacks must yield or use a bounded blocking executor for synchronous work.
-
-Shutdown stops new local calls but retains the reader and lane while accepted
-work and pending calls drain. New inbound calls receive Closing. Only after
-drain does the driver withdraw the lane. There is no timeout, timer, retry loop
-or event rebroadcast of calls. Directory changes can report a missing peer;
-abrupt death is not inferred from elapsed time. Local cancellation is neither
-remote cancellation nor rollback. Missing results are outcome-unknown, not safe
-replay. Domain commit IDs, revisions, authorization and outcome queries remain
-the handler's responsibility. Group SHM writer access is not caller identity.
-
-### Append-only invocation ring
-
-`invoke::InvocationBus` is a bounded, append-only instruction transport. Its
-dedicated kind and compile-time `ORBIT_INVOKE_RING_CAPACITY` /
-`ORBIT_INVOKE_RING_PAYLOAD_CAPACITY` geometry isolate invocation retention and
-readiness from broadcast application events. A committed frame receives an
-`InvocationId` backed by its ring `NetId64`; the embedded node identifies the
-submitter. The envelope carries only a validated operation string and opaque
-payload bytes; the frame version carries submission time as an `OrbitEpoch`.
-
-Publication proves only that a frame was committed. The ring is not a durable
-queue and provides no acknowledgement, claim, retry, response or exactly-once
-guarantee. Cursors report overwritten or invalid frames as lag. Runtime
-adapters own codecs and executor selection; PHP, JavaScript, application
-containers and Tokio task policy do not enter this module. A future claim or
-result protocol must add its own authoritative state/ring instead of changing
-the meaning of this request ring.
-
-Kind `241` is registered through a managed `OrbitRingResource<T>` companion
-with `Reuse` at boot and `Preserve` at finalize. A new subscription starts at
-the current head, while an adopted consumer retains its existing mapping and
-cursor. Resetting the ring could neither acknowledge nor cancel outstanding
-work, so provider boot has no reset authority.
-
-Completion remains an application concern. A consumer that needs to announce
-an outcome may publish a normal application event such as `TaskCompleted` and
-carry the `InvocationId` in its payload. That correlation does not turn the
-invocation transport into a response channel or make completion mandatory.
-
-## Fleet Heartbeat
-
-`FleetProvider` does not publish heartbeats and does not implement `Runnable`.
-`orbitive::Fleet` exposes only generic typed operations. Heartbeat records,
-cadence, freshness, and process policy belong to `supervisor`.
-
-The supervisor correlates each worker node with its tracked child PID, uses the
-Orbit heartbeat as runtime liveness, and owns TERM/KILL escalation and restart
-policy. A heartbeat is not HTTP application readiness.
-
-Worker boot, reload, and shutdown completion use distinct supervisor-owned
-typed events over this crate's ordinary Orbit event transport. The supervisor
-has no UDS transport. Its internal heartbeat observer reads the dedicated
-heartbeat ring; process ownership and control policy stay with the supervisor.
-The local `ProcessStarted` milestone is
-not bridged: the supervisor worker adapter translates it into an identity-bearing
-`WorkerStarted` envelope, which is never decoded back into a local startup.
-
-## Downstream Ordering
-
-Providers that require Fleet declare their dependency normally:
-
-```rust
-fn order(&self) -> ProviderOrder {
-    ProviderOrder::new().after::<FleetProvider>()
-}
-```
-
-They resolve the handle during `boot()` or `Runnable::run()`. `FleetProvider`
-is the canonical per-process owner. Consumers may clone its `Arc<Fleet>` but
-must not create another Orbit registry or cache an optional Fleet merely to
-wait for boot.
-
-### Managed typed-cell constructor
-
-`claviron::orbit::Orbital::<T>::new(initial)` declares a value;
-`Orbital::<u64>::default()` declares zero without caller-owned setup.
-`register_fleet` automatically installs `CellsProvider` at `EARLY`, ordered
-after `FleetProvider`. During its managed startup it opens the common tables
-and binds pending declarations. Applications need no cell-specific `boot`,
-`order`, `OnceLock` or `finalize` implementation. Infrastructure and pending
-allocation errors reject startup before application execution.
-
-The process-default constructor binds to one managed owner. Its weak binding
-does not retain that owner's runtime, and another live owner cannot silently
-replace it. Provider teardown drops the binding's availability when the owner
-is dropped; preserving the physical SHM remains the existing lifecycle policy.
-Declarations and pending entries do not retain the runtime or its services.
-Each value starts with its typed initial value; before binding, `load` returns
-that value, while mutations fail with `CellError::NotPrepared` rather than
-pretending an unshared update succeeded. `None` is the infrastructure handle,
-not the number. After binding, a value operation reads its local ArcSwap handle
-and calls Orbitive directly: no registry lookup, process-default mutex, fleet
-join, table allocation or background loop occurs on that path.
-
-Construction in an already-running runtime binds immediately. `try_new(initial)`
-reports an unavailable runtime or exhausted table immediately; infallible
-`new`/`Default` retain an allocation error for subsequent operations. `CellError`
-distinguishes unavailable infrastructure, allocation failure and raw value
-errors (including stale generations and checked arithmetic overflow). Errors
-never become zero after a prepared handle has gone stale.
-
-Clone shares one ownership object and id. The last managed clone retires its
-slot automatically; `release` explicitly retires it earlier. Low-level holders
-opened from its id borrow this lifetime and receive Stale when it ends. No
-per-value runtime service or registration/finalization callback is required.
-
-The low-level `claviron::orbit::Cells` and `claviron::orbit::cell::Orbital<T>`
-remain available for explicit-handle composition. PHP, Lua and JavaScript
-adapters retain those explicit handles and do not change allocation, id,
-serialization or explicit release semantics. No SHM kind, geometry or wait
-policy changes; values are slots in the fleet's common tables, not new rings.
-
-## Orbit Event Bridge
-
-### Protocol-neutral Link ownership
-
-`link` is the Claviron lifetime binding over Orbitive's native Link, not a new
-transport or event bus. `Connection` owns one `Joined` kernel hold and one
-`InboxReceiver`. A failed reader bind withdraws the claimed lane. Withdrawal
-stops new admission and removes the local reader before the ownership hold is
-released. Drop never resets or unlinks SHM. A raw protocol owner drains accepted
-work before dropping its connection; withdrawal itself does not prove completion.
-
-`Connection::events` binds the supplied SHM-backed `FleetEventBus` through
-Orbitive's existing `LinkEvents`. It allocates no event ring or HTTP body table.
-The event bus's publisher node remains the host's, not necessarily the Link lane
-index. `EventConnection::run_until` drives the bridge and exclusive reader in
-the caller's future; it spawns no task and installs no interval or signal handler.
-The event bus must support native ring readiness; an in-memory bus or unsupported
-native platform fails the driver rather than activating a polling fallback.
-Subscription guards update connection-local interest. Accepted handlers are
-awaited on cancellation or driver failure, including when withdrawal reports an
-error. The lane remains held through that drain. Ordinary queued frames are
-not an accepted-work guarantee and remain subject to protocol resynchronization.
-
-Received events are republished into the supplied ring once by `LinkEvents` and
-handed to this process's handler once. A caller must not also deliver that own
-publication as a second local event. Topics/payloads remain opaque; exact topic
-checks, authorization, codecs, revision and acknowledgement belong to the
-protocol owner. No universal ApplicationEvent envelope is introduced.
-
-The web-application protocol lives in `link::application`, including its
-ApplicationEvent bridge and routing. Moving it there changed neither its
-physical layout nor its frame bytes. Existing HTTP readers
-still own their lanes; the new generic reader must never be attached as a second
-reader of a running application lane. Common interest ownership lives directly
-under `link` and is reused by the application adapter.
-
-No SHM kind is allocated by the generic API. The caller supplies a compatible
-deployment-owned `LinkSpec`. `Access::OwnerOnly` remains the default of every
-existing constructor. `Connection::open_with_access` and the application layer's
-explicit access constructors forward `Access::Group(GroupAccess)` to Orbitive's dedicated
-group namespace. Only that Link's inbox, streams, lane/watcher locks and wake
-paths are shared. No Fleet permissions or ring constructors are changed.
-The owner provisions first and peers attach; no private fallback is permitted.
-Group writers share trust in Link state, not a cryptographically authenticated
-source identity. Scoping does not grant capabilities or file access.
-
-`ApplicationBodies::for_segment` derives geometry and access from the already
-selected inbox. ApplicationClient uses it for all new joins. Reclamation and
-existing-only management inspection retain the same access. ApplicationService
-accepts immutable per-destination access registration before its first client
-opens; registration maps nothing. Unregistered destinations stay private.
-Hosts supply the same policy in every participating process. This phase adds
-no YAML/global policy, credential switching, unlink/reset or reload mechanism.
-
-### `NO_IMPLICIT_TERMINATION: EVENT_SHM_SURVIVES_MASTER_REPLACEMENT`
-
-The event segment is a fleet resource, not one master's disposable boot
-scratch space. A replacement master must join the existing segment because a
-live adopted worker may still publish accepted-work progress or completion.
-Master boot therefore creates neither reset nor unlink authority.
-
-Each fleet/application event ring is registered first as a typed
-`OrbitRingResource<T>` companion with `Reuse` at boot and `Preserve` at
-finalize. `EventRegistry<L>` is explicitly ordered after that managed wrapper,
-so its runnable transport cannot bypass physical validation or the runtime
-inventory. The companion uses an internal marker with the exact same kind and
-geometry as Orbitive's event record; Orbitive's ring header remains the
-semantic ABI authority.
-
-`orbitive::events::FleetEventBus` carries raw topic strings and byte payloads.
-`FleetEventRegistry` adds the Claviron codec boundary:
-
-```rust
-trait FleetEventCodec: Event {
-    const TOPIC: &'static str;
-    fn encode_orbit(&self) -> Vec<u8>;
-    fn decode_orbit(bytes: &[u8]) -> Result<Self, String>;
-}
-```
-
-`register_bridge::<E>` links local emits to Orbit publication and inbound Orbit
-frames to local typed emits. All event types share one event segment with one
-writer lane per fleet node. There is no per-event SHM path and no total order
-claimed across node lanes.
-
-`register_inbound::<E>` installs only peer-frame decoding into local typed
-events, without an outbound callback or payload echo-suppression queue. Use it
-with synchronous `publish_raw` producers whose local operation has already
-completed, such as PHP cache invalidation intercepts. Registration is idempotent
-for the same type and mode; conflicting topics or forwarding modes are rejected.
-
-Bridge registration subscribes synchronously but starts no task. It installs
-one callback per selected type in AppState's local `EventDispatcher`; all
-outbound callbacks share that dispatcher's managed runnable. Registration must
-precede runnable submission and returns an error when a new listener is too
-late or another type already owns the topic. Re-registering a type is a no-op.
-Local and decoded Orbit events reach the same local subscribers only for
-explicitly bridged types; implementing a codec alone enables no forwarding.
-
-Local emits are forwarded asynchronously; returning from `emit` is not
-proof of an Orbit write. `publish_raw` performs the ring write synchronously,
-without waiting for peer consumption. Terminal worker notifications use this
-direct path after managed teardown, even though the worker's inbound poller
-has stopped on cancellation. The bus/Fleet handles remain available through
-provider finalization. No local `ProcessExit` event or arbitrary sleep is needed.
-
-`claviron-app::ApplicationEvent` is a deliberately generic bridged event. Its static
-outer Orbit topic identifies the codec; its validated inner topic is the
-application-level routing key. It carries no audience field. Subscriptions are
-the audience: every PHP, JavaScript, or Rust application execution chooses the
-inner topics it accepts. The envelope remains broadcast, not a queue or
-consumer group. Framework adapters map their own typed events (for example a
-Laravel `UserLoggedIn`) to stable inner topic names and back.
-
-The bridge suppresses the immediate echo of an event it decoded before
-emitting it locally. This prevents bidirectional registrations from
-republishing the same payload forever.
-
-Link connectivity itself is observed locally from the opposite-side lane
-directory (`EdgeConnected` / `ApplicationConnected`), not discovered with
-fleet-broadcast ApplicationEvent questions and replies. The application
-adapter exposes those direct observations to guests without ring publication;
-one link's introductions must not reach other workers' or other links' guests.
-
-Linux, FreeBSD, and macOS 14.4 or later wait through the ring's native shared
-generation readiness bridge and a process-local fd. Readiness only says the
-ring changed; the registry drains the fd and bulk-polls with its own cursor.
-Older macOS releases and other targets use a 10 ms fallback interval.
-
-Boot only prepares the transport: native targets prepare readiness, then every
-process captures its inbound cursor at the current ring head. Neither master
-nor worker resets or unlinks the event ring. Master boot is not proof of fleet
-quiescence because an adopted worker may still be publishing. Starting the new
-cursor at the head prevents stale history from being replayed while preserving
-the same transport for existing peers. The cursor is captured before worker
-spawning, not on first poll, so events published between boot and run are not
-skipped.
-
-`EventRegistry<L>` explicitly exposes `Scope::Any` through `as_scoped`: each
-registered fleet or application ring needs its process-local inbound driver in
-master as well as worker. Provider boot prepares transport, but cannot process
-worker startup acknowledgements without runnable admission. This does not
-change the default worker scope of application services or register a ring in
-a process that does not use it.
-
-`FleetEventRegistry` exposes one inbound `Runnable`. It begins polling only
-when Runtime submits runnables after provider boot, and stops on its current
-service-generation cancellation. The cursor is returned to the registry when
-that generation ends, so a targeted service restart resumes without skipping
-events retained while the poller was stopped. Runtime joins/aborts that loop;
-native readiness failures return
-as runnable errors instead of silently ending a detached task. It stays active
-through master fleet draining, which precedes global cancellation. Outbound
-`publish_raw` remains available after the inbound runnable ends. Standalone
-does not open the event ring because there is no peer process to bridge.
-
-## Fleet Runnable Service Management
-
-Continuo owns every process-local runnable generation, cancellation token, and
-`ServiceSnapshot`. `service::FleetServiceManager` does not copy that state. It
-publishes typed start, stop, reload, and restart commands through the ordinary
-Orbit event bridge; each process applies a command to its own registered
-Continuo manager. A service missing from one process is simply not placed
-there. Provider registration is therefore the sole placement source of truth;
-there is no services YAML table or second enable flag.
-
-Each process publishes complete service batches to a per-node ring under Orbit
-kind `191`. A batch carries controller lifecycle, dispatch, active execution
-count, provider-owned start policy, generation, reload capability, completed
-reload revision, and bounded last run/reload
-errors. Readers accept only fresh, complete batches and join them by service
-name. `list()` returns that complete observation; `status(name)` narrows the
-same snapshot to one service without creating another state source.
-`Running` is the controller lifecycle, not evidence that this worker holds a
-dispatch slot. Continuo counts each actual runnable future separately, including
-draining futures until they return. A running `One`/`Pool` controller with zero
-executions is waiting; a positive count identifies executing members. This is
-execution evidence, not a universal protocol-readiness check. Kind `232` remains
-retired so older processes cannot misread the expanded row shape.
-
-The default publisher cadence is one second and the default maximum observation age is five
-seconds. `ServiceSnapshotPublisher` owns `config::OrbitConfig` through Congif's
-`Configurable` contract and reads `orbit.yaml` from `AppState::config_dir()`:
-
-```yaml
-service_snapshots:
-  publish_interval: 1s
-  max_age: 5s
-```
-
-Both durations must be nonzero and the publication interval must fit the runtime
-clock. Unknown keys fail preparation. Missing fields use the documented defaults;
-a missing file retains the policy supplied to `register_with_policy` (or those
-defaults for ordinary registration). A present file replaces that registration
-policy. Registration is idempotent: the first registration owns the fallback.
-The config reader uses the process's frozen environment, as other Claviron
-providers do. Physical SHM geometry and domain-owned cache/supervisor policies
-are not part of this document.
-
-Congif prepares and validates before boot. Manual reload applies the prepared
-snapshot and notifies the existing publisher through a watch channel; it does
-not add a polling loop or restart the service. A cadence change schedules the
-next publication one newly declared interval from its observation. Changing
-only freshness leaves the current cadence intact, and reapplying an unchanged
-policy sends no wake. Snapshot collection reads the same active policy. There
-is no automatic file observer. Standalone has no snapshot publisher/config
-owner because it observes its local service manager directly; an explicitly
-registered dispatcher may still own dispatch configuration there.
-
-`FleetMembership` is a dynamically bound process-owner capability shared by
-service and user-application snapshot collectors, not a
-service registry. The supervisor binds its fresh authoritative worker-table
-reader: master plus nonterminal workers are expected; terminal, reaped slots
-are excluded even while their last service batch is still fresh. Collection
-reads exactly these node identities and counts only matching fresh reports.
-It never equates desired worker count or allocated capacity with live membership.
-Missing/stale ownership data fails closed; missing service data from an expected
-member remains an incomplete snapshot. Without a bound owner the conservative
-configured membership is retained, never reduced merely because a publisher is
-silent. Standalone continues to use its single local observation. This port
-keeps supervisor process lifecycle out of Orbit and needs no gRPC/CLI exception.
-
-`service::current_members` is the strict reusable read boundary for resize-aware
-consumers (task inventory/budget, upstream probe handoff, SAPI statistics).
-It resolves the bound owner on each read and validates roles, capacity, unique
-nodes, master and current-process presence. Unlike the legacy service-manager
-fallback above, it requires a process owner in supervised mode and never uses
-a retained worker's bootstrap count when observation is unavailable. Standalone
-returns its one local member. Membership is not a healthy/ready-worker count.
-
-Fleet commands acknowledge validation and publication, not remote completion.
-Management clients prove convergence from snapshots: start reaches running,
-stop reaches a non-running terminal state, restart advances generation, and
-reload advances reload revision with no latest reload error. Registration runs
-before configuration and boot; the Orbit event bridge must already be registered
-in supervised mode. `runtime.manager()` may be inserted afterwards, before the
-provider lifecycle runs. Both local control and snapshot publication declare
-that manager dependency. Standalone mode feeds the same command into its process-local event
-listener and opens no Orbit service command or snapshot transport, preserving
-the accepted-then-observed contract even when the target is the HTTPS server
-carrying the RPC.
-
-`FLEET_CONTINUITY` protects the command listener, inbound Orbit bridge,
-and snapshot publisher from fleet-wide operations that would remove their
-own recovery channel. The remote ingress adapter protects the actual transport
-carrying its request; Orbit does not assume that management rides `HttpsServer`.
-An independent management listener can therefore stop/restart web transport.
-`WorkerSnapshotPublisher` cannot be stopped through
-fleet service control because its process-membership reports are now required
-to target and recover services; its managed restart remains available.
-Use another ingress or rolling worker restart to replace the listener carrying
-a management request. Restart remains available for unrelated transports.
-
-## Orbit Cache Binding
-
-`cache::CacheService` wraps one `orbitive::cache::Cache` connection per process.
-It owns the native Linux/FreeBSD/macOS 14.4+ readiness loop, one mutation
-cursor, and the logical-store registry. Older macOS releases and targets
-without native readiness use a 10 ms fallback loop. Readiness is installed
-before the driver's first poll so a mutation committed at startup cannot be
-stranded between that poll and the wait.
-
-The mutation ring is a managed `OrbitRingResource<T>` using `Reuse` at boot
-and `Preserve` at finalize. The existing `ArenaProvider` supplies the shared
-byte store, also preserved by default. `CacheService` starts after physical
-validation and creates metadata-only L1s with a current-head mutation cursor.
-The ring carries arena addresses, revisions and TTL, never cache value bodies.
-It is transient coherence traffic, not a durable keyed value snapshot.
-
-Each registered `cache::CacheRuntime` wraps one named `orbitive::cache::Store`.
-Clones share only that store's bounded L1 and optional backing. Multiple
-logical stores share the service's arena, mutation ring and inbound loop. Every mutation is
-addressed by `(store, key)`, so equal keys in different stores remain
-independent and `Reset` is store-scoped.
-
-`CacheService::open_store` may reopen an already registered logical name when
-its L1 capacity is unchanged. This lets an application-layer cache catalog
-disable and later re-enable a store without constructing another service or
-listener. The service retains the logical runtime while it is hidden from that
-catalog; changing its capacity or backing identity remains a restart-level
-topology change.
-
-An optional `CacheBacking` supplies L2 without teaching this crate about File,
-Redis, connection pools, or config files:
+## Events
+
+`FleetEventRegistry` adds a codec to `orbitive::events::FleetEventBus`, which carries raw topics and
+bytes. All event types share one segment with one writer lane per node: no per-type SHM, and no
+total order across lanes. Implementing `FleetEventCodec` alone forwards nothing.
+
+- `register_bridge::<E>` links local emits to Orbit and inbound frames to local emits. An event it
+  decoded is not echoed back. Local emits are forwarded asynchronously, so returning from `emit`
+  does not prove an Orbit write.
+- `register_inbound::<E>` only decodes peer frames, for a producer that calls `publish_raw` after its
+  local operation has completed. `publish_raw` writes synchronously and stays available after the
+  inbound runnable ends, which is how a worker's terminal notification goes out after teardown.
+
+Registration subscribes synchronously and starts no task. Outbound callbacks share the local
+`EventDispatcher`'s runnable, so registration must precede runnable submission. A conflicting topic
+or a late listener is an error; registering the same type again is a no-op.
+
+`NO_IMPLICIT_TERMINATION: EVENT_SHM_SURVIVES_MASTER_REPLACEMENT`. The event segment is a fleet
+resource: a replacement master joins it because an adopted worker may still be publishing
+accepted-work progress. Each ring is a `OrbitRingResource<T>` companion with `Reuse` and `Preserve`,
+and `EventRegistry<L>` is ordered after it. Master boot is not proof of quiescence.
+
+Boot captures the inbound cursor at the current head, before workers spawn, so stale history is not
+replayed and events published between boot and run are not skipped. The inbound loop is a `Runnable`
+with `Scope::Any`, because a master must hear its workers' startup acknowledgements. Its cursor
+returns to the registry when a generation ends, so a targeted restart resumes without a gap. It keeps
+running through master fleet draining. Standalone opens no event ring.
+
+Linux, FreeBSD and macOS 14.4 or later wait through native ring readiness and a process-local fd; an fd
+is never the fleet-wide broadcast object. Readiness only says the ring changed, and the registry then
+drains with its own cursor. Older macOS and other targets use a 10 ms interval.
+
+`ApplicationEvent` is a bridged envelope: its outer topic identifies the codec, and its inner topic is
+the routing key. It carries no audience, because subscriptions are the audience, and it is broadcast,
+not a queue. Link connectivity is observed from the opposite side's lane directory (`EdgeConnected`,
+`ApplicationConnected`), not discovered by broadcast questions, so one link's introductions do not
+reach other links' guests.
+
+## Link
+
+`link::Connection` is the lifetime binding over Orbitive's Link: one kernel hold and one `InboxReceiver`.
+A failed reader bind withdraws the lane. Withdrawal stops admission and removes the reader before the
+hold goes, and it does not prove completion: a protocol owner drains its accepted work first. Drop
+never resets or unlinks SHM. The caller supplies a `LinkSpec`, so the API allocates no kind.
+
+`Connection::events` binds a supplied SHM-backed event bus through `LinkEvents`. `run_until` drives the
+bridge and exclusive reader in the caller's future, with no task, interval or signal handler. A bus
+without native readiness fails the driver instead of polling. Accepted handlers are awaited on
+cancellation or failure while the lane is held. A received event is republished once and handed to the
+handler once, so a caller must not deliver it locally a second time. Topics stay opaque: authorization,
+codecs and acknowledgement belong to the protocol owner.
+
+`Access::OwnerOnly` is the default. `Access::Group` forwards to Orbitive's group namespace and shares only
+that Link's inbox, streams, locks and wake paths. The owner provisions first and peers attach, with no
+private fallback. Group writers share trust in Link state; this is not an authenticated source
+identity. Every participating process supplies the same policy.
+
+### Application link
+
+Design record: [ORBIT_LINK](../../docs/design/ORBIT_LINK.md).
+
+A route prepares an `ApplicationTarget` while it is built. Its immutable lane snapshot is tagged with the
+directory generation, so an ordinary send takes no client map lookup or mutex. A generation change does
+one bounded lane scan and one compare-and-swap publication; a delayed refresher cannot replace a newer
+snapshot. The generation is captured before scanning, so a concurrent change invalidates the result on
+the next send. Depth and admission are still read per exchange.
+
+A lent response reader signals departure as soon as it is dropped, even while the upload holds its half.
+Returning both halves to the pool waits for the remote side to release its generation. So a cancelled
+reader does not keep pre-head runner work alive until an unrelated upload ends.
+
+An admitted exchange owns its response stream before publishing its reply head. If the head cannot be
+published, the application resets the response direction, including after a small buffered body already
+published FIN. `ReplyWait` checks its oneshot, then the stream's reset-only signal; data and FIN do not
+complete a header wait. It adds no deadline or poll. A refused request remains a pre-execution 503.
+
+After an accepted upgrade the same slot carries whole message records: for a WebSocket, and for each
+reliable WebTransport bidi stream, which is its own slot and session. Datagrams and uni streams are not
+carried. The door that offers such a session to an owner is `claviron-transport`'s; the message type is
+`claviron-types`', and `MessageReader` here bounds a declared length before allocating. A close stays
+readable under any limit, because it is how the session ends.
+
+`ApplicationBodies::for_segment` takes its geometry and access from the selected inbox.
+`ApplicationService` accepts per-destination access before its first client opens; an unregistered
+destination stays private. The generic reader must never attach to a running application lane as a second
+reader.
+
+## Invocations
+
+`invoke::Client` maps logical targets to `Route`s fixed at boot. A caller supplies a target, operation and
+opaque bytes; no local, Link or ring fallback is chosen for it.
+
+`link::invoke` is the same-host adapter over one `Connection`, using the owner's `LinkSpec`. A logical service
+must resolve to exactly one live lane; more than one is an error, not load balancing. A request carries both
+endpoint incarnations, a never-reused call sequence and a stream ticket. The caller reserves side A before
+publication, and the target claims side B before running domain code, so a duplicate claim cannot execute
+twice. The one bounded result goes on that stream, so events cannot use up response capacity.
+
+When callback capacity is full, the reader stops consuming and the bounded inbox gives backpressure. Shutdown
+stops new calls and keeps the reader and lane while accepted work and pending calls drain; new inbound calls
+get `Closing`. There is no timeout or retry, and abrupt death is not inferred from elapsed time. Local
+cancellation is not remote cancellation, and a missing result is outcome-unknown, not safe replay. Commit ids
+and authorization are the handler's. Group writer access is not caller identity.
+
+`invoke::InvocationBus` is a separate bounded append-only ring (kind `241`), isolated from application events.
+Publication proves only that a frame was committed: no acknowledgement, claim, retry or exactly-once. Cursors
+report overwritten frames as lag. It is never reset at boot, because a reset could neither acknowledge nor
+cancel outstanding work. A consumer that wants to announce completion publishes an application event carrying
+the `InvocationId`.
+
+## Typed cells
+
+`register_fleet` installs `CellsProvider`, so an application needs no cell setup. `Orbital::<T>::new(initial)`
+declares a value, and allocation errors reject startup before the application runs.
+
+The default constructor binds weakly to one managed owner; another live owner cannot replace it. Before binding,
+`load` returns the initial value and a mutation fails with `CellError::NotPrepared` rather than pretend an unshared
+update succeeded. After binding, an operation reads a local `ArcSwap` handle and calls Orbitive, with no lookup or
+lock. `try_new` reports a failure immediately; `new` keeps it for later operations. An error never becomes zero.
+
+Clones share one id. The last clone retires the slot, and `release` retires it earlier. Handles opened from an id
+borrow that lifetime and read `Stale` afterwards. `Cells` and `cell::Orbital<T>` remain for explicit-handle
+composition, which language adapters use.
+
+## Cache
+
+`CacheService` wraps one `orbitive::cache::Cache` connection per process: its readiness loop, one mutation cursor
+and the logical stores. Each `CacheRuntime` wraps one named store's L1 and optional L2. Mutations are addressed by
+`(store, key)`, and `Reset` is store-scoped. Readiness is installed before the driver's first poll, so a mutation
+committed at startup is not stranded.
+
+The ring carries arena addresses, revisions and TTL, never bodies. It is coherence traffic, not a snapshot.
 
 ```text
 get:    L1 hit -> return
@@ -991,159 +494,96 @@ forget: validate Orbit key    -> backing forget -> publish Orbit Delete
 clear:  backing clear         -> publish Orbit Reset
 ```
 
-Validation happens before an L2 write. L2 mutation completes before Orbit
-publication, so a peer that receives the mutation cannot fall through to an
-older backing value. A backing store used for expiring values must preserve
-TTL.
+L2 completes before publication, so a peer that receives a mutation cannot fall through to an older value.
 
-If mutation history is lost, the missing mutation's store is unknowable because
-the connection cursor is shared. The service therefore disables every
-registered L1. It advances to the current ring heads only when every logical
-store has a backing, then resumes with empty coherent L1s whose ordinary misses
-fall through to their respective L2s.
+If mutation history is lost, the missing mutation's store is unknowable because the cursor is shared, so every L1 is
+disabled. It resumes at the current heads only when every store has a backing, and then with empty L1s.
 
-Typed cache value encoding is owned by `claviron-cache::CacheRepository`.
-This crate and `orbitive::cache` remain byte-oriented and serializer-neutral.
-`CacheRuntime::get`, `get_sync`, and `CacheBacking::get` return immutable owning
-`bytes::Bytes`. An L1 hit takes an owner-aware pin on the exact immutable
-arena generation; the returned Bytes owns that pin and the mapping. No value
-body is copied into L1. TTL is checked before a new pin; Delete and Reset
-invalidate metadata, while already returned snapshots remain valid.
-Overwritten or evicted arena addresses are honest misses. L1 eviction drops
-only metadata, not a long-lived arena pin. Encoding and checked archive views
-remain the responsibility of `claviron-cache`.
+An L1 hit takes an owner-aware pin on the exact arena generation, and the returned `Bytes` owns that pin and the
+mapping. TTL is checked before the pin. Delete and Reset invalidate metadata, while snapshots already returned stay
+valid. An overwritten address is an honest miss.
 
-Lock mechanics live in the independent `orbitive::lock` primitive. Cache stores may
-adapt that primitive for framework lock-provider contracts, but cache value
-mutation and lock state never share keys, reset behavior, or storage.
+`open_store` may reopen a registered name with the same L1 capacity, so a catalog can hide a store and bring it back;
+changing capacity or backing identity is a restart-level change. Lock state never shares keys, reset behavior or
+storage with cache values.
 
-## Orbit Arena Binding
+## Arena
 
-`arena::ArenaProvider` opens `orbitive::arena::Arena`, the fleet's one byte
-store: keyed and addressed records over a ring of bytes in a single kind-193
-segment. A record is an identity body, an optional encoded body with an
-opaque tag, and two validators the caller reads back. The arena stores bytes
-and knows nothing else; the static file service is its first user and keeps
-file paths, MIME types and HTTP on its own side of the boundary.
+`ArenaProvider` opens the fleet's one byte store, kind `193`, whose first user is the file service. The arena stores
+bytes and knows nothing else. There is no expiry: a put evicts what its bytes land on, except a record a reader pins,
+which the cursor moves past.
 
-The arena is shared state, not coherence traffic: `orbit-cache` keeps
-metadata-only L1s and carries addressed mutations between them, while the arena
-holds each immutable value body once and every process reads it in place. A hit borrows
-the record, pinning its slot until the borrow is dropped; a `bytes::Bytes`
-built over that borrow serves a response without a copy.
+Readers take no lock. A writer holds the region's `flock` for the put, so a crash leaves at most one unpublished
+record. An address includes its slot generation, so index reuse never resolves to a new value. Pins belong to
+per-process rows. A process holds a kernel lane lock for its mapping's lifetime, and a writer recovers abandoned pins
+only if it can take that lock: no heartbeat, PID heuristic or timeout decides that a reader died.
 
-There is no expiry. A put writes at the ring's cursor and evicts whatever
-the bytes land on, except a record a reader is pinning: the cursor moves
-past it. Readers take no lock. A writer holds the region's process lock
-(`flock`, released by the kernel on process death) for the put, so a crashed
-writer leaves at most one unpublished record. Lookups are open addressing;
-retired slots preserve probe chains. An addressed record includes its slot
-generation, so index reuse never resolves an old address to a new value.
+Geometry is compile-time (`ORBIT_ARENA_SLOTS`, `ORBIT_ARENA_BYTES`) and checked in the header by every peer. A record
+above a quarter of the ring is refused. No build can check the pins: the ring must hold the working set plus
+`nodes × responses in flight × record`, or a put gets `Error::Pinned`, logged and served from the bytes just read.
+Sizing is the deployment's to state.
 
-Pins belong to per-process reader rows; the row count follows fleet capacity.
-A process holds a kernel lane lock for the lifetime of its mapping. Writers
-recover abandoned pins under allocation pressure only if they can take that
-lock; no heartbeat, PID reuse heuristic, polling interval or timeout decides
-whether a reader has died. Healthy readers keep their pins. Every local
-consumer of the same arena shares its mapping and owner row.
+## Counters and locks
 
-`reset` empties the index and bumps a generation. Compatible state is preserved
-across boot by default. The owning domain may instead request a reset after
-quiescence proof; a process joining a live fleet always reuses what the others
-filled. Finalize preserves the segment.
+`Counter` is one authoritative table, kind `230`, with no history ring. A key is installed once under a short
+recoverable lock; after that its bytes and slot are immutable, so `get`, `increment`, `decrement` and `reset` work on
+the slot's atomic. Runtime key deletion does not exist, which removes a reuse race. Updates are checked and reject
+overflow unchanged. Every boot reuses the table, so values survive a restart, and an adopted worker is never mutated
+underneath itself.
 
-Geometry is compile-time like the other tables: `ORBIT_ARENA_SLOTS` and
-`ORBIT_ARENA_BYTES` in the application's `.cargo/config.toml`, checked in
-the segment header by every peer. A record is refused above a quarter of the
-ring, and the file service asserts at build time that its small-body
-threshold fits twice over. What no build can check is the pins: every
-response in flight holds its record's bytes, on every node at once, so the
-ring has to hold the working set plus `nodes × responses in flight × record`,
-where the fleet capacity bounds the nodes and the live worker count is the
-usual case, or a put finds no unpinned room. That case is `Error::Pinned`, logged and
-served from the bytes just read; sizing is the deployment's to state, not
-the library's to know.
+`OrbitLock` is one atomic operation per call, with no task, retry or blocking. A consumer that waits uses the transition
+ring or its own bounded retry. State and ring survive master replacement, because lease expiry plus fencing owns stale
+state and clearing would invalidate live tenures. State is never rebuilt by scanning the ring. `Lock` is the Rust RAII
+binding: it holds an exact lease, so an expired holder cannot delete a successor. Laravel uses `OrbitLock` directly and
+owns its own tokens, sleeping and release.
 
-## Keyed Counters
+## Service management
 
-`counter::Counter` is deliberately a Claviron-owned primitive for now. It uses
-one fixed-capacity authoritative SHM table under kind `230`; it does not write
-cache mutations, generic events, or a counter history ring.
+Continuo owns each process's runnable generations, cancellation and `ServiceSnapshot`. `FleetServiceManager` publishes
+typed start, stop, reload and restart commands through the event bridge, and each process applies them to its own
+manager. Provider registration is the only placement source: a service missing from a process is not placed there.
 
-The table has 1,024 slots and accepts keys up to 240 bytes. A key is installed
-once per runtime generation under a short process-recoverable structural lock.
-After publication its key bytes and slot address remain immutable, so `get`,
-`increment`, `decrement`, and per-key `reset` operate directly on the slot's
-shared `AtomicI64`. Per-key reset installs a missing key or sets an existing
-value to zero and retains the slot; there is intentionally no runtime key
-deletion/reuse race.
+Commands acknowledge validation and publication, not completion. Clients prove convergence from snapshots: start reaches
+running, stop a non-running terminal state, restart a new generation, reload a new revision with no error. Standalone
+feeds the same command to its local listener and opens no Orbit transport, keeping the accepted-then-observed contract
+even when the target is the server carrying the RPC.
 
-Missing keys begin at zero when incremented or decremented. Amounts are
-non-negative signed integers, results may be negative, and checked updates
-reject `i64` overflow without changing the previous value. Decimal scale is a
-caller contract: the counter stores integer units only.
+Each process publishes complete batches to a per-node ring, kind `191`, and readers accept only fresh complete batches.
+`Running` is the controller's lifecycle, not a dispatch slot: Continuo counts each actual runnable future, so a running
+`One` or `Pool` with zero executions is waiting. That is execution evidence, not protocol readiness.
 
-`register_counter(state)` is opt-in and also ensures `FleetProvider` is
-registered. `CounterProvider` is the mandatory managed wrapper for the table.
-Every process attaches and every boot reuses the table, so counter values are
-kept across a restart, as cell values are; generation stamps keep a released
-id from reaching a reinstalled slot. Finalization preserves the mapping and
-values, so an adopted worker is never mutated underneath itself.
+`ServiceSnapshotPublisher` owns `orbit.yaml`, through Congif:
 
-## Orbit Lock Binding
+```yaml
+service_snapshots:
+  publish_interval: 1s
+  max_age: 5s
+```
 
-`lock::OrbitLock` performs one atomic operation per method call. It has no
-background task, retry loop, or blocking policy. Consumers that want to wait
-use the notified transition ring or their own bounded retry policy.
+Those are the defaults. Both must be nonzero, and unknown keys fail preparation. A missing file keeps the policy given to
+`register_with_policy`. Reload notifies the publisher through a watch channel, with no polling or restart; a changed cadence
+schedules the next publication one new interval from the last observation. Standalone has no publisher.
 
-The authoritative state table and transition ring are both lifecycle-visible
-and retained across master replacement. Lease expiry plus fencing owns stale
-lock state; clearing the table at boot would invalidate live tenures. New
-transition consumers begin at the current head, so retained notification bytes
-do not replay as new work.
+`FleetMembership` is a process-owner capability the supervisor binds: master plus nonterminal workers are expected, and
+terminal slots are excluded even while their last batch is fresh. Missing ownership data fails closed, and missing data
+from an expected member is an incomplete snapshot. `service::current_members` is the strict read for resize-aware consumers:
+it requires an owner in supervised mode and never falls back to a bootstrap count. Membership is not a healthy-worker count.
 
-`lock::Lock` is the Claviron Rust RAII binding. It stores an exact lease and
-releases that lease on drop, so an expired holder can never delete a successor.
-PHP/Laravel integrations use `OrbitLock` directly: Laravel owns owner-token
-generation, blocked-attempt sleeping, callbacks, and `finally` release.
+`FLEET_CONTINUITY` protects the command listener, inbound bridge and snapshot publisher from fleet-wide operations that would
+remove their own recovery channel. The ingress adapter protects the transport carrying its own request; Orbit does not
+assume management rides `HttpsServer`. `WorkerSnapshotPublisher` cannot be stopped through fleet control, because membership
+reports are needed to target and recover services; its managed restart stays available.
 
-## Runnable Dispatch Ownership
+## Runnable dispatch
 
-[INCARNATION_MASKING](../../docs/design/INCARNATION_MASKING.md) applies at this
-boundary too: service-slot keys remain stable while exact lease owners change.
-Applications declare placement intent, not the PID that must satisfy it.
+[INCARNATION_MASKING](../../docs/design/INCARNATION_MASKING.md) applies here: slot keys are stable while exact lease owners
+change. Applications declare placement intent, not a PID.
 
-Continuo owns the managed controller generation, cancellation, status and local
-service commands. `placement::OrbitDispatcher` is a registered capability,
-not another runnable or service manager. It receives `ServiceExecution` from
-Continuo and owns exact per-slot leases in the existing lock table/ring
-(kinds `228`/`229`); no additional SHM kind is allocated. TaskService's existing
-task controllers are unchanged: service dispatch does not introduce task
-timing, retry or schedule semantics into providers.
+`Scope` and `Dispatch` are Continuo's vocabulary, re-exported here. `OrbitDispatcher` is a registered capability, not a runnable
+or a manager. It receives `ServiceExecution` from Continuo and owns exact per-slot leases in the lock table and ring, with no
+SHM of its own. Server bootstrap installs it on the Runtime, so applications using that bootstrap do not register one.
 
-Dispatch requests retain owned runnable-instance names. Each slot derives its
-context with `RunContext::child`, preserving the controller's instance/generation
-identity and prepared execution adapter. Cancellation remains slot-local;
-Continuo retains tracked descendants until that execution drains.
-
-Claviron's server bootstrap registers `OrbitDispatcher` as shared infrastructure
-and installs the same registry instance on Runtime before configuration and
-provider boot. Applications and extensions using that bootstrap do not register
-their own dispatcher. Services still declare their own dispatch policies.
-
-`OrbitDispatcher::register` is idempotent: an existing registry instance is reused.
-Registration installs the managed lock dependencies in supervised mode; it does
-not read files, open SHM or acquire leases. Direct Continuo hosts that bypass
-Claviron's server bootstrap explicitly register the adapter and pass it to
-`Runtime::with_dispatcher`. Code-owned composition can use
-`OrbitDispatcher::new()` plus `register_dispatcher`, which rejects a duplicate
-registration.
-
-The component implements `Scoped` and `Dispatched`, exposes `as_dispatched`,
-and supplies its policy through `Dispatched::dispatch_policy()`. The existing
-`DispatchPolicy` data type is owned by Continuo and re-exported here; it contains
-no Orbit handle, SHM geometry or lock behavior. An owning service may use it in
-its existing config, for example under a listener:
+Each coordinated service declares an immutable `DispatchPolicy` in its own configuration:
 
 ```yaml
 listener:
@@ -1155,137 +595,26 @@ listener:
     renewal_interval: 5s
 ```
 
-These are example declarations, not compiled defaults. Each needs no policy;
-One/Pool without one fail dispatch validation rather than falling back to Each.
-Capacity and both durations are explicit, renewal is nonzero and shorter than
-the lease, and Orbit additionally validates its millisecond lease precision.
-`Dispatched` defaults the optional policy method to `None`, so existing trait
-implementations still compile; lease-based consumers must supply their policy.
+These are example declarations, not defaults. There are none: `One` or `Pool` without a policy fails validation rather than
+falling back to `Each`. `One` has one shared key and `Pool` has `capacity`, in the `claviron.services.dispatch` namespace. The owner
+identity includes role, PID, service and generation. Unavailable membership defers new acquisitions, while owned slots keep
+renewing.
 
-Continuo captures this value in `DispatchRequest` for the managed generation.
-The adapter retains it throughout execution and drain. A service's configuration
-owner controls preparation/reload and when a later generation adopts changes;
-active leases are never mutated by a config read. Fleet peers must agree on
-the service's policy. There is no name-keyed policy map or config companion.
-The retired `orbit.yaml::dispatch` section is rejected by the strict schema;
-`orbit.yaml` continues to own service-snapshot cadence/freshness only.
+Capacity is not divided by membership, because a member need not register the provider, and placement is not promised to be
+balanced. Lock transitions wake acquisition through native readiness, and unsupported readiness is an error, not a hidden poll.
+Renewal and expired-owner reconciliation use the declared cadence, and missed ticks are skipped.
 
-Each coordinated service has an explicit immutable `DispatchPolicy` containing
-pool capacity, `lease_ttl` and `renewal_interval`. There are no adapter duration
-defaults. `One` has exactly one shared key; `Pool` has exactly `capacity` shared
-keys in the `claviron.services.dispatch` lock namespace. Keys are stable across
-process/generation replacement; the owner identity includes process role, PID,
-service name and local generation. Membership is read from the process-owner
-capability, never a bootstrap worker count. Unavailable membership defers new
-acquisitions, while already-owned slots continue to be renewed.
+Stop cancels owned children and awaits them with no adapter deadline, renewing leases until each execution completes. Lease loss
+cancels the affected child, and the adapter never touches a successor's tenure. A lost lease cannot hold back a successor while the
+old child drains, so side effects need their own fencing: this is placement, not exactly-once. Standalone owns its slots locally and
+opens no table.
 
-Capacity is not divided by the membership count: a member need not register
-this provider. A contender may own multiple available slots; this adapter does
-not promise balanced placement. A pooled runnable must support concurrent
-executions of its shared provider instance. Normal runnable completion ends
-the local controller generation; errors/panics fail it after other local slots
-drain. There is no implicit runnable retry policy. A slot retired by ownership
-loss can be reacquired after its old local execution has returned.
+## Quota
 
-On Linux, FreeBSD and supported macOS, lock transitions wake acquisition via
-native ring readiness, armed before the initial acquisition. Renewed records
-do not trigger additional acquisition scans. Lease renewal and expired-owner
-reconciliation use the explicitly declared renewal cadence; missed ticks are
-skipped, not replayed. Unsupported native readiness is an explicit error, not
-a hidden polling fallback. Standalone owns its configured slots locally,
-opens no dispatch lock table and performs no renewal polling.
+The `quota` feature assembles Orbitive's LocalGuard, FleetGuard and FleetQuota behind `Quota`. It owns typed definitions and handle
+lifetime, not key selection, HTTP status or authentication. `try_consume_with_snapshot` forwards unchanged, and snapshots come from
+Orbitive's own successful transition.
 
-Stop prevents acquisition, cancels owned children, and awaits them without an
-adapter-imposed graceful deadline. Exact leases continue to renew through
-intentional drain and release only after each execution completes. Lease loss
-cancels the affected child; the adapter never renews or releases a successor's
-tenure. An expired/lost lease cannot exclude a successor while the old child
-drains: external side effects still need their own fencing/idempotency. This
-is placement ownership, not an exactly-once execution guarantee.
-
-## What Belongs Here
-
-- Joining Orbit during Claviron boot.
-- Keeping the process `Arc<Fleet>`.
-- The `AppState` extension trait.
-- The typed event bridge.
-- The language-neutral application-event envelope and native value codec.
-- Binding `orbitive::cache` to Claviron lifecycle and platform readiness.
-- Supplying application-link kinds and geometry, HTTP frames, target selection,
-  and Claviron runtime adapters over `orbitive::link`.
-- Registering named logical cache stores on one shared physical connection.
-- Abstract L2 ordering and recovery policy for Orbit cache.
-- Claviron's keyed signed counter state and lifecycle.
-- Claviron's exact-lease RAII lock binding.
-- Typed SHM lifecycle policy, provider inventory, and decision reporting.
-- Re-exporting framework-neutral Orbit primitives.
-
-## What Does Not Belong Here
-
-- Cache ring algorithms or L1 storage internals.
-- Named inbox layout, admission mechanics, reusable duplex-slot mechanics, or
-  generic link death recovery; those belong to `orbitive::link`.
-- Concrete File/Redis stores or cache configuration.
-- Generic cache value encoding or repositories.
-- PHP host functions.
-- Metrics capture or aggregation.
-- Supervisor heartbeat and command policy.
-- Domain-specific activity inference; each resource-owning provider supplies
-  that evidence to the SHM lifecycle executor.
-- Concrete domain event definitions, dispatchers, or framework providers.
-
-## Invariants
-
-- `FleetProvider` boots before every Fleet consumer.
-- Master role is not reset or unlink authority.
-- Missing SHM is a normal boot state; valid SHM is not reset by default.
-- Physical validation and live-user activity are separate observations.
-- Unknown activity fails closed for every destructive SHM action.
-- Invalid SHM is reported with its raw mismatch and is never implicitly
-  unlinked.
-- `FleetProvider` remains a capability provider, not a heartbeat runnable.
-- `FleetEventRegistry` boots after `FleetProvider`.
-- Event boot prepares the cursor but does not spawn a polling task. The inbound
-  loop belongs to Runtime; typed outbound bridges belong to the local dispatcher.
-- Supervised node ids have one live process incarnation; the supervisor reaps a
-  worker before reusing its lane.
-- Typed event registration never creates per-type SHM segments.
-- Lock state is not reconstructed by scanning a ring.
-- Linux/FreeBSD/macOS listeners own process-local readiness fds; an fd is never
-  the fleet-wide broadcast object.
-- `FleetEventRegistry` never resets or unlinks event transport; the shared ring
-  survives master replacement so adopted peers remain on the same bus.
-- One `CacheService` clone family shares one physical connection, mutation
-  cursor, and inbound driver.
-- Each `CacheRuntime` clone family shares one named store's L1 and backing.
-- Cache mutations use `(store, key)` identity and resets are store-scoped.
-- Orbit cache validation precedes L2 writes; L2 mutations precede Orbit
-  publication.
-- Mutation loss requires an attached backing store before L1 is made coherent
-  again.
-- Lease locks remain independent from cache value mutations and L2.
-- Orbit lock calls never hide a retry or polling loop.
-- Counter keys are immutable after publication; hot-path updates use checked
-  signed atomics and publish no ring event.
-- The counter table is never reset by a boot; it is cleared only by the operator.
-- An arena record a reader holds is never overwritten; the cursor skips it.
-- A compatible arena is preserved across boot by default. Its owning domain
-  may explicitly request a reset after quiescence proof; an explicit runtime
-  reset remains available to that owner.
-- The bind layer must remain thin enough that non-Claviron users can use
-  Orbitive directly.
-
-## Application WebSocket messages
-
-The application link's existing duplex slot also carries complete WebSocket
-messages after upgrade acceptance, and the same records for reliable
-WebTransport bidi streams. H1 Upgrade, H2 extended CONNECT and H3 WebTransport
-share the application acceptance marker; Edge owns the native 101/200 response.
-This uses the existing Exchange flags and stream geometry. It adds no SHM kind
-or layout change. Each WebTransport bidi stream is an independent slot/session;
-datagrams and uni streams do not become message records implicitly.
-`link::application::MessageReader` is cancellation
-safe and optionally bounds declared payload sizes before allocation. The bound
-is a consumer policy; default construction preserves the existing unbounded
-reader. Broadcast and Gufi share the record format and existing stream wakeups. See
-[the application link contract](../../docs/design/ORBIT_LINK.md).
+These are explicit-handle resources, opened by their owner during preparation, not providers. They never reset or unlink. Matching
+opens keep committed debt, and incompatible state is an error. No core SHM kind is allocated: operators own dedicated namespaces and
+must not reuse another subsystem's. Configuration checks are structural and open nothing.
