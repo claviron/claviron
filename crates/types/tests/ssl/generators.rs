@@ -170,3 +170,34 @@ fn subject_uris_require_an_absolute_ascii_identity_without_invalid_escapes() {
         assert!(value.parse::<SubjectUri>().is_err(), "{value}");
     }
 }
+
+/// Strict verifiers refuse a certificate that does not name its signer's key.
+#[test]
+fn an_issued_certificate_names_its_authority_key() {
+    use super::*;
+    use x509_parser::prelude::{FromDer, X509Certificate};
+
+    let ca_key = generate_ca_key().unwrap();
+    let ca = generate_ca_cert(
+        &"authority.test".parse().unwrap(),
+        &ca_key,
+        30,
+        &Default::default(),
+    )
+    .unwrap();
+    let leaf = generate_leaf_cert(
+        CertificateKind::Server,
+        &"example.test".parse().unwrap(),
+        &generate_private_key().unwrap(),
+        &ca,
+        &ca_key,
+        1,
+        &[] as &[&str],
+    )
+    .unwrap();
+    let (_, leaf) = X509Certificate::from_der(&leaf).unwrap();
+    assert!(leaf.extensions().iter().any(|extension| {
+        extension.oid
+            == x509_parser::oid_registry::OID_X509_EXT_AUTHORITY_KEY_IDENTIFIER
+    }));
+}

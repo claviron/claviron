@@ -254,6 +254,8 @@ fn validated_issuer<'key>(
                 .into(),
         ));
     }
+    // Strict verifiers refuse a chain without it (Python's default since 3.13).
+    params.use_authority_key_identifier_extension = true;
     params.not_before = now;
     params.not_after = expires_at;
     let path_limit =
