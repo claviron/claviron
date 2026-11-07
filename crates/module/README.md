@@ -46,6 +46,8 @@ uint32_t claviron_module_register(const claviron_host *h, claviron_registrar *re
 }
 ```
 
+A Rust runner takes the same directive on a route of the `site:` in its `runner.yaml`.
+
 Enable the facade's `module` feature. Without a `modules.yaml`, nothing is installed.
 [`include/claviron_module.h`](include/claviron_module.h) is the contract.
 

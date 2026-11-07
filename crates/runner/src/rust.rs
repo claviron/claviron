@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use bytes::Bytes;
 use claviron_http::RouteBodyError;
+use claviron_runtime::registry::priority;
 use claviron_runtime::{AppState, Bootable, Component, registry};
 use http::Response;
 use tower::Service;
@@ -40,6 +41,11 @@ impl Component<AppState> for ApplicationSetup {
 
     fn name(&self) -> &'static str {
         "RustApplication"
+    }
+
+    /// The site compiles in this boot, so what its routes select has booted.
+    fn boot_priority(&self) -> Option<u8> {
+        Some(priority::LATE)
     }
 
     fn as_bootable(&self) -> Option<&dyn Bootable<AppState, Self::Deps>> {

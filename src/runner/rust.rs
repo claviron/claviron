@@ -172,6 +172,13 @@ impl Runner {
                 let launch = launch.inherited(state)?;
                 let root = std::env::current_dir()?;
                 launch::register_routing(state, &launch.runner, &root)?;
+                #[cfg(feature = "module")]
+                if let Some(sites) = state
+                    .registry_ref()
+                    .resolve::<claviron_pipeline::SiteRegistry>()
+                {
+                    claviron_module::register_routes(state, &sites)?;
+                }
                 for register in registrations {
                     register(state)?;
                 }
