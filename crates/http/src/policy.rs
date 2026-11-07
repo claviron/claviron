@@ -29,7 +29,7 @@ use serde::Deserialize;
 /// |---|---|
 /// | `max_body_size`, `body_read_timeout`, `buffer_size` | narrows only |
 /// | `buffering` | replaces |
-/// | `queue_timeout`, `head_timeout` | replaces |
+/// | `queue_timeout` | replaces |
 ///
 /// These are transport concerns, not routing ones: a body that never stops
 /// arriving and a body that stops arriving halfway cost the process the same
@@ -69,17 +69,10 @@ pub struct RequestPolicy {
 
     /// Longest a request waits for something to run it — a PHP thread, an
     /// instance, a pooled connection — before it is refused, as HAProxy's
-    /// `timeout queue`. The first of a request's three times: it waits, then
-    /// runs until the reply's head, then is bounded by gaps only.
+    /// `timeout queue`. After it, only gaps bound a request: between pieces of
+    /// its body and of its reply. How long an application takes to run is the
+    /// application's own.
     pub queue_timeout: Option<Duration>,
-
-    /// Longest from the request reaching its application until the reply's
-    /// head. The reply's body is not counted, so a streamed reply is not cut
-    /// by it; after the head only gaps bound it (`body_read_timeout`,
-    /// `responses.write_timeout`, `responses.body_idle_timeout`). Not a
-    /// runtime's execution budget — PHP's and JavaScript's
-    /// `execution_timeout` interrupt the VM and are the runner's own.
-    pub head_timeout: Option<Duration>,
 }
 
 impl RequestPolicy {
@@ -92,7 +85,6 @@ impl RequestPolicy {
             buffering: Buffering::StreamDefault,
             buffer_size: None,
             queue_timeout: None,
-            head_timeout: None,
         }
     }
 
@@ -118,7 +110,6 @@ impl RequestPolicy {
             buffering: declared.buffering.unwrap_or_default(),
             buffer_size: declared.buffer_size.and_then(Limit::value),
             queue_timeout: declared.queue_timeout,
-            head_timeout: declared.head_timeout,
         })
     }
 
@@ -138,7 +129,6 @@ impl RequestPolicy {
             buffering: nearer.buffering.unwrap_or(self.buffering),
             buffer_size: narrowed(self.buffer_size, nearer.buffer_size),
             queue_timeout: nearer.queue_timeout.or(self.queue_timeout),
-            head_timeout: nearer.head_timeout.or(self.head_timeout),
         }
     }
 
@@ -269,11 +259,6 @@ pub struct RequestPolicyOverride {
         deserialize_with = "claviron_helpers::de::deserialize_optional_duration"
     )]
     pub queue_timeout: Option<Duration>,
-    #[serde(
-        default,
-        deserialize_with = "claviron_helpers::de::deserialize_optional_duration"
-    )]
-    pub head_timeout: Option<Duration>,
 }
 
 impl RequestPolicyOverride {
@@ -293,7 +278,6 @@ impl RequestPolicyOverride {
             buffering: nearer.buffering.or(self.buffering),
             buffer_size: nearer.buffer_size.or(self.buffer_size),
             queue_timeout: nearer.queue_timeout.or(self.queue_timeout),
-            head_timeout: nearer.head_timeout.or(self.head_timeout),
         }
     }
 }
@@ -397,7 +381,9 @@ pub struct ResponsePolicy {
     pub max_body_size: Option<usize>,
     /// Longest a reply write may wait for a client that is not reading.
     pub write_timeout: Option<Duration>,
-    /// Longest gap between two pieces of a reply arriving from the backend.
+    /// Longest gap between two pieces of a reply arriving from the backend. An
+    /// upstream's wait for its origin's head is the first such gap: a reply that
+    /// never starts has stalled like one that stops.
     pub body_idle_timeout: Option<Duration>,
 }
 

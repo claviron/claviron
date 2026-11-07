@@ -25,11 +25,6 @@ use claviron_http::OtherService;
 /// an unclaimed request stays in [`claviron_http::ServiceResult::Unhandled`]
 /// before this boundary. A response status does not signal fallthrough.
 pub trait ApplicationHandler<B = RouteBody>: Send {
-    /// Whether this owner enforces the effective request head timeout itself.
-    fn times_its_head(&self) -> bool {
-        false
-    }
-
     fn call(
         self,
         request: Request<B>,
@@ -37,10 +32,6 @@ pub trait ApplicationHandler<B = RouteBody>: Send {
 }
 
 impl ApplicationHandler for OtherService {
-    fn times_its_head(&self) -> bool {
-        OtherService::times_its_head(self)
-    }
-
     fn call(
         self,
         request: Request<RouteBody>,

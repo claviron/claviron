@@ -107,7 +107,7 @@ fn framework_alias_is_split_and_serializes_with_the_canonical_name() {
 #[test]
 fn split_divides_a_flat_file() {
     let file: serde_yaml::Value = serde_yaml::from_str(
-        "name: shop\norbit: true\nroot: app\nrequests:\n  head_timeout: 60s\n",
+        "name: shop\norbit: true\nroot: app\nrequests:\n  queue_timeout: 60s\n",
     )
     .unwrap();
     let (shared, own) = split(file).unwrap();
@@ -115,7 +115,7 @@ fn split_divides_a_flat_file() {
     assert_eq!(options.name.as_deref(), Some("shop"));
     assert!(options.orbit);
     assert_eq!(
-        options.policy().unwrap().requests.head_timeout,
+        options.policy().unwrap().requests.queue_timeout,
         Some(std::time::Duration::from_secs(60))
     );
     assert_eq!(serde_yaml::to_string(&own).unwrap().trim(), "root: app");

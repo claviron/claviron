@@ -1,5 +1,4 @@
 use std::pin::Pin;
-use std::time::Duration;
 
 use http_body_util::BodyExt;
 
@@ -21,38 +20,6 @@ where
     Routing::new(policy).register(&state).unwrap();
     compose(&state, service).unwrap();
     state.registry_ref().resolve::<Application>().unwrap()
-}
-
-/// An expired head deadline drops the outstanding owner call.
-#[tokio::test(start_paused = true)]
-async fn head_expiry_cancels_the_owner() {
-    use std::sync::atomic::{AtomicBool, Ordering};
-
-    struct PendingOwner(Arc<AtomicBool>);
-    impl Drop for PendingOwner {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::Relaxed);
-        }
-    }
-
-    let mut policy = HttpPolicy::unlimited();
-    policy.requests.head_timeout = Some(Duration::from_secs(60));
-    let dropped = Arc::new(AtomicBool::new(false));
-    let observed = dropped.clone();
-    let pending = tower::service_fn(move |_: AppRequest| {
-        let owner = PendingOwner(observed.clone());
-        async move {
-            let _owner = owner;
-            std::future::pending::<Result<AppResponse, Infallible>>().await
-        }
-    });
-    let app = application(policy, pending);
-
-    assert_eq!(
-        app.call(Request::new(RequestBody::empty())).await.status(),
-        StatusCode::GATEWAY_TIMEOUT
-    );
-    assert!(dropped.load(Ordering::Relaxed));
 }
 
 /// A declared body over the limit is refused before the service is reached.

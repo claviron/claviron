@@ -39,16 +39,6 @@ pub trait OtherHandler: Send + Sync + 'static {
         "other_handler"
     }
 
-    /// Whether this handler enforces the request policy's head timeout itself.
-    ///
-    /// The default leaves head timing to the caller. A handler returning `true`
-    /// owns enforcement of `HttpPolicy.requests.head_timeout`, including the
-    /// timeout response and cancellation; the caller does not start a second
-    /// head timer. This does not change admission or request/response limits.
-    fn times_its_head(&self) -> bool {
-        false
-    }
-
     fn call(
         &self,
         req: Request<RouteBody>,
@@ -67,10 +57,6 @@ pub struct OtherService {
 impl OtherService {
     pub fn new(handler: impl OtherHandler) -> Self {
         Self { handler: Arc::new(handler) }
-    }
-
-    pub fn times_its_head(&self) -> bool {
-        self.handler.times_its_head()
     }
 
     /// Transfer the request to the Rust handler without wrapping its future.

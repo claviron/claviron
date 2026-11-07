@@ -4,7 +4,6 @@ mod bindings;
 pub mod body;
 pub mod config;
 mod ctx;
-pub mod deadline;
 pub mod dispatch;
 mod error;
 pub mod ext;

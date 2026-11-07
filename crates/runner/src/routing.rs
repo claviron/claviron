@@ -18,20 +18,16 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use claviron_http::config::transport::{H1Policy, H2Policy, TransportPolicy};
-use claviron_http::deadline::head_within;
 use claviron_http::ext::{ConnCtx, RequestArrival};
 use claviron_http::policy::HttpPolicy;
 use claviron_http::{
     OtherHandler, OtherService, RouteBody, RouteBodyError, RouteFuture,
-    RustRouter, ServiceResult, empty_body,
+    RustRouter, empty_body,
 };
 use claviron_pipeline::compile::{SiteTerms, compile_site};
 use claviron_pipeline::factory::{BackendPlacement, BackendScope, backend};
 use claviron_pipeline::plan::HostExecution;
-use claviron_pipeline::{
-    BackendContract, BackendHandler, DispatchCall, DispatchStep, HostContext,
-    Site, SiteRegistry,
-};
+use claviron_pipeline::{BackendHandler, Site, SiteRegistry};
 use claviron_runtime::{AppState, registry};
 use http::{Method, Request, Response, StatusCode};
 use tower::Service;
@@ -122,8 +118,7 @@ impl Owner {
         response
     }
 
-    /// One owner answers HTTP and sessions alike. It answers an attempt when it
-    /// decides, so the deadline on a reply's head is not its.
+    /// One owner answers HTTP and sessions alike.
     fn answer(
         &self,
         request: AppRequest,
@@ -364,41 +359,6 @@ fn refused(request: &AppRequest) -> Option<StatusCode> {
         .then_some(StatusCode::NOT_IMPLEMENTED)
 }
 
-/// The application's router with a declared deadline on its reply's head, which
-/// is the owner's to hold. A session attempt is answered when it is decided.
-struct Timed {
-    router: RustRouter,
-    limit: std::time::Duration,
-}
-
-impl DispatchStep for Timed {
-    fn call(
-        &self,
-        request: Request<RouteBody>,
-        _: Option<HostContext<'_>>,
-    ) -> DispatchCall {
-        if attempting(&request) {
-            return DispatchCall::response(self.router.handle(request));
-        }
-        let (limit, answering) = (self.limit, self.router.handle(request));
-        DispatchCall::new(async move {
-            ServiceResult::Handled(
-                match head_within(Some(limit), answering).await {
-                    Some(Ok(response)) => response,
-                    Some(Err(never)) => match never {},
-                    None => status(StatusCode::GATEWAY_TIMEOUT),
-                },
-            )
-        })
-    }
-}
-
-impl BackendHandler for Timed {
-    fn contract(&self) -> BackendContract {
-        self.router.contract()
-    }
-}
-
 fn status(code: StatusCode) -> AppResponse {
     let mut response = Response::new(empty_body());
     *response.status_mut() = code;
@@ -480,11 +440,7 @@ fn compose_router(
                 "the runner registers SiteRegistry before configure",
             )
         })?;
-    let owner: Arc<dyn BackendHandler> =
-        match routing.policy.requests.head_timeout {
-            Some(limit) => Arc::new(Timed { router, limit }),
-            None => Arc::new(router),
-        };
+    let owner: Arc<dyn BackendHandler> = Arc::new(router);
     sites.register_backend(backend(
         "application",
         BackendScope::site(),

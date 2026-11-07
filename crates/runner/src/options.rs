@@ -146,7 +146,7 @@ pub struct RunnerOptions {
     pub max_in_flight: Option<usize>,
 
     /// The request side of the policy (`max_body_size`, `body_read_timeout`,
-    /// `queue_timeout`, `head_timeout`, …). Unwritten, nothing is bounded.
+    /// `queue_timeout`, …). Unwritten, nothing is bounded.
     /// Written in the file only; carried as written.
     #[cfg_attr(feature = "cli", arg(skip))]
     pub requests: Option<serde_yaml::Value>,

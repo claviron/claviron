@@ -192,7 +192,7 @@ impl UpstreamYaml {
         if profile.timeouts.is_some() {
             return Err(ConfigError::InvalidCapacity {
                 field: "timeouts",
-                detail: "timeouts is gone: acquire is requests.queue_timeout, connect is connection.connect_timeout, response_header is requests.head_timeout, request_body_read_idle is requests.body_read_timeout, response_body_idle is responses.body_idle_timeout",
+                detail: "timeouts is gone: acquire is requests.queue_timeout, connect is connection.connect_timeout, request_body_read_idle is requests.body_read_timeout, the response header and body are responses.body_idle_timeout",
             });
         }
         // Decided by every profile; the library does not pick a number.

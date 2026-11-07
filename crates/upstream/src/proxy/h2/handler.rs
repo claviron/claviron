@@ -83,7 +83,7 @@ impl UpstreamService {
         );
         prepare_content_length(&mut req);
         let response_result = crate::proxy::body::timeout::within(
-            scope.requests.head_timeout,
+            scope.responses.body_idle_timeout,
             sender.send_request(req),
         )
         .await;

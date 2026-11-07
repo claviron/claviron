@@ -65,7 +65,6 @@ fn large_backend_future_is_forwarded_without_a_dispatch_wrapper() {
         allocated: allocated.clone(),
         dropped: dropped.clone(),
     });
-    assert!(!service.times_its_head());
     let request = Request::builder()
         .uri("/example")
         .header("x-example", "forwarded")
@@ -82,24 +81,4 @@ fn large_backend_future_is_forwarded_without_a_dispatch_wrapper() {
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
     drop(future);
     assert_eq!(dropped.load(Ordering::SeqCst), 1);
-}
-
-struct SelfTimed;
-
-impl OtherHandler for SelfTimed {
-    fn times_its_head(&self) -> bool {
-        true
-    }
-
-    fn call(
-        &self,
-        _: Request<RouteBody>,
-    ) -> RouteFuture {
-        Box::pin(async { Ok(http::Response::new(empty_body())) })
-    }
-}
-
-#[test]
-fn handler_head_timing_ownership_is_preserved() {
-    assert!(OtherService::new(SelfTimed).times_its_head());
 }

@@ -224,7 +224,7 @@ tls_cert: ...                  # with tls
 tls_key: ...
 trusted: [10.0.0.0/8]          # peers whose forwarding headers count
 max_in_flight: 128             # Orbit exchanges taken and not answered
-requests:  { max_body_size: 64 MiB, body_read_timeout: 30s, head_timeout: 60s }
+requests:  { max_body_size: 64 MiB, body_read_timeout: 30s }
 responses: { body_idle_timeout: 60s }
 try_files: false                # with files; general public-file probe
 assets: [build, images]         # matching URL mounts under public

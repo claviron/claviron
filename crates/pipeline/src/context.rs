@@ -83,10 +83,6 @@ pub trait ContextHandler: Send + Sync + 'static {
         request: Request<RouteBody>,
     ) -> RouteFuture;
 
-    fn times_its_head(&self) -> bool {
-        false
-    }
-
     fn call_in<'a>(
         &'a self,
         request: Request<RouteBody>,

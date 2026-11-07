@@ -471,8 +471,7 @@ change independently. There is no retry job queue or per-peer retained state.
 
 `defaults.deny` declares path patterns independently of listener and request
 policy. The snapshot retains the compiled set; Edge owns selecting a DenyLayer.
-An empty set creates no layer. Response-head deadlines remain request policy
-(`requests.head_timeout`, listener then host).
+An empty set creates no layer.
 
 `defaults.listener.proxy` supplies trusted CIDRs and ordered forwarding
 headers. Each listener may override either list, clear a list with `[]`,
@@ -907,22 +906,6 @@ This layer remains available for custom Tower stacks. Edge uses its common
 compiled exchange policy instead: global rewrites are merged with the selected
 vhost/route policy at snapshot construction, and local actions win by header
 name. The same response shaping applies to Axum, bypass and Standalone owners.
-
-#### Response-head deadlines
-
-`claviron_http::deadline::head_within` bounds the time to a response head using
-`requests.head_timeout`. Callers choose whether to apply it; a backend that owns
-the same deadline must not be timed twice. Runner returns 504 on expiry.
-
-`head_within` stores the answering future once and projects it in place. It is
-lazy: construction needs no timer context, and a configured deadline starts
-on first poll. With no limit, it polls only the answer without reading a clock
-or creating a timer. Timed polling preserves Tokio's reply-before-deadline and
-cooperative-budget handling, including an answer that exhausts its task budget.
-No extra allocation, task or body wrapper is introduced. Dropping the head wait
-drops its answering future and timer, retaining the same cancellation boundary.
-Completion or expiration drops that inner future in place before returning
-`Ready`, even when the caller keeps the completed head-wait object alive.
 
 ### Typed listener configuration foundation
 
