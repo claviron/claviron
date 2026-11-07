@@ -44,6 +44,7 @@ struct BackendPlan {
 impl BackendPlan {
     fn prepare(
         context: &RouteContext<'_>,
+        #[cfg_attr(not(feature = "orbit"), allow(unused_variables))]
         transport: &claviron_http::config::transport::TransportPolicy,
         hooks: &dyn CompileHooks,
     ) -> Self {
