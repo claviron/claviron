@@ -156,6 +156,13 @@ pub struct RunnerOptions {
     #[cfg_attr(feature = "cli", arg(skip))]
     pub responses: Option<serde_yaml::Value>,
 
+    /// What stands in front of the application: redirects, headers, access
+    /// rules, files and route scopes, as a host declares them on an edge. It
+    /// applies to every door. Written in the file only; carried as written.
+    #[cfg(feature = "pipeline")]
+    #[cfg_attr(feature = "cli", arg(skip))]
+    pub site: Option<serde_yaml::Value>,
+
     /// Static mounts served before the application, for a process no edge
     /// stands in front of. Written in the file only.
     #[cfg(feature = "files")]
@@ -225,6 +232,8 @@ impl RunnerOptions {
         "max_in_flight",
         "requests",
         "responses",
+        #[cfg(feature = "pipeline")]
+        "site",
         #[cfg(feature = "files")]
         "files",
         #[cfg(feature = "files")]
@@ -283,6 +292,8 @@ impl RunnerOptions {
             // Written down, never typed: no flag can have stated these.
             requests: written.requests,
             responses: written.responses,
+            #[cfg(feature = "pipeline")]
+            site: written.site,
             #[cfg(feature = "files")]
             files: self.files.or(written.files),
             #[cfg(feature = "files")]
@@ -314,6 +325,8 @@ impl RunnerOptions {
             return Err("tcp_backlog must be at most 2147483647".into());
         }
         self.listener()?;
+        #[cfg(feature = "pipeline")]
+        self.site()?;
         if let Some(name) = &self.fleet_name {
             claviron_runtime::FleetName::try_new(name)
                 .map_err(|error| format!("fleet_name: {error}"))?;
@@ -371,6 +384,23 @@ impl RunnerOptions {
             );
         }
         Ok(listener)
+    }
+
+    /// The site as written. It declares its own files, so `files`, `try_files`
+    /// and `assets` beside it would be two answers to one question.
+    #[cfg(feature = "pipeline")]
+    pub fn site(&self) -> Result<Option<claviron_pipeline::Site>, String> {
+        let Some(written) = &self.site else { return Ok(None) };
+        #[cfg(feature = "files")]
+        if self.files.is_some() || self.try_files || !self.assets.is_empty() {
+            return Err(
+                "site declares its own files; leave out files, try_files and assets"
+                    .into(),
+            );
+        }
+        serde_yaml::from_value(written.clone())
+            .map(Some)
+            .map_err(|error| format!("site: {error}"))
     }
 
     /// One file site for both explicit policies and the asset shorthand.

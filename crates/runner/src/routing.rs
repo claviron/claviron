@@ -230,16 +230,31 @@ fn owner(state: &AppState) -> registry::Result<Owner> {
 /// `configure`.
 pub struct Routing {
     policy: HttpPolicy,
+    #[cfg(feature = "pipeline")]
+    site: Option<Arc<claviron_pipeline::Site>>,
     #[cfg(feature = "files")]
     files: Option<Arc<crate::files::Files>>,
 }
 
 #[cfg(feature = "pipeline")]
 impl Routing {
-    /// What the plan serves from, when this launch mounts any files.
-    fn site(&self) -> Option<claviron_pipeline::Site> {
+    /// The whole site in front of the application, as an edge host declares
+    /// it. It replaces any file mounts.
+    pub fn site(
+        mut self,
+        site: Option<Arc<claviron_pipeline::Site>>,
+    ) -> Self {
+        self.site = site;
+        self
+    }
+
+    /// What the plan serves from, when this launch declares anything.
+    fn declared_site(&self) -> Option<Arc<claviron_pipeline::Site>> {
+        if self.site.is_some() {
+            return self.site.clone();
+        }
         #[cfg(feature = "files")]
-        return self.files.as_ref().map(|files| files.site());
+        return self.files.as_ref().map(|files| Arc::new(files.site()));
         #[cfg(not(feature = "files"))]
         None
     }
@@ -251,6 +266,8 @@ impl Routing {
     pub fn new(policy: HttpPolicy) -> Self {
         Self {
             policy,
+            #[cfg(feature = "pipeline")]
+            site: None,
             #[cfg(feature = "files")]
             files: None,
         }
@@ -436,14 +453,14 @@ mod plan {
         answering: Answering,
     ) -> registry::Result<Arc<dyn ErasedService>> {
         let policy = answering.policy;
-        let site = routing.site();
+        let site = routing.declared_site();
         if !bounded(&policy) && site.is_none() {
             return Ok(Arc::new(answering));
         }
-        let site = site.unwrap_or_else(|| Site::new("."));
+        let site = site.unwrap_or_else(|| Arc::new(Site::new(".")));
         let execution = claviron_pipeline::compile::compile_with_owner(
             state,
-            Arc::new(site),
+            site,
             policy,
             Arc::new(answering),
         )

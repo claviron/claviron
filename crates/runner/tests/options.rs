@@ -200,3 +200,23 @@ fn the_sockets_listener_settings_are_checked_when_read() {
     assert!(written("{requests: {max_body_size: off}}").validate().is_err());
     assert!(written("{mistyped: true}").validate().is_err());
 }
+
+/// A site declares its own files: with `files` beside it, one would silently
+/// lose. Its schema is the edge host's, so a mistake in it stops the launch.
+#[cfg(feature = "files")]
+#[test]
+fn a_site_is_read_as_a_host_and_excludes_the_file_shorthands() {
+    let site = "{root: public, routes: {/old: {redirect: {to: /, code: 307}}}}";
+    let written = RunnerOptions {
+        site: Some(serde_yaml::from_str(site).unwrap()),
+        ..RunnerOptions::default()
+    };
+    assert!(written.site().unwrap().is_some());
+    let both = RunnerOptions { try_files: true, ..written };
+    assert!(both.validate().is_err());
+    let wrong = RunnerOptions {
+        site: Some(serde_yaml::from_str("{routes: 7}").unwrap()),
+        ..RunnerOptions::default()
+    };
+    assert!(wrong.validate().is_err());
+}

@@ -33,8 +33,8 @@ all depend on this crate, and it depends only on `claviron-http`.
   calls it itself, and compiling without it fails. `Single` carries plain HTTP to
   the application. A WebSocket needs a transport policy that permits the upgrade,
   and `Single` has none to declare yet, so it is refused with 403; WebTransport
-  sessions need Edge, because `quic::Single` does not offer them. A runner's site
-  holds only its files, so a runner declares no `orbit:` route.
+  sessions need Edge, because `quic::Single` does not offer them. A runner takes a
+  whole site through its `site:` option, in front of its application on every door.
 - `response`: the replies decided before dispatch.
 - `routing`: host-free Axum route contributions, `Routable` and
   `RoutableRegistry`, behind the `axum` feature.
