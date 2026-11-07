@@ -30,12 +30,15 @@ use claviron_app::{
     APPLICATION_EVENT_TOPIC, ApplicationEvent, EventArrayKey, EventValue,
 };
 use claviron_http::ext::{RealIpExt, RequestArrival};
+use claviron_http::socket::{
+    Carrier, Deferred, Door, Offer, OfferInfo, SocketKind, refusal,
+};
 use claviron_http::trust::Forwarded;
 pub use claviron_orbit::link::application::Endpoint;
 use claviron_orbit::link::application::{
     ApplicationBodies, ApplicationLinkSetup, ApplicationSegment,
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
-    EdgeDisconnected, Exchange, ExchangeReply, FrameKind, Inbox,
+    EdgeDisconnected, Exchange, ExchangeReply, FrameKind, HttpVersion, Inbox,
     LINK_BUFFER_BYTES, LinkJoined, Peers, Received, ShutdownNotice, Ticket,
     frame_kind,
 };
@@ -605,9 +608,27 @@ async fn serve<O: Owner>(
             correlation,
             body: exchange.body,
         };
-        let request = session_request(&exchange, shutdown);
+        let request = session_request(&exchange, shutdown.clone());
         match (sessions, body, request) {
-            (Some(sessions), Some(endpoint), Ok(request)) => {
+            (Some(sessions), Some(mut endpoint), Ok(request)) => {
+                // The same plan as any request first: what stands in front of
+                // the application can answer or refuse before it hears of this.
+                let refused = match session_request(&exchange, shutdown) {
+                    Ok(attempt) => {
+                        admitted(attempt, exchange.version, owner.as_ref())
+                            .await
+                    }
+                    Err(_) => Some((400, Vec::new())),
+                };
+                if let Some((status, headers)) = refused {
+                    // An answer, so it ends the direction the edge waits on.
+                    if handshake.try_answer(status, headers) {
+                        let _ = endpoint.shutdown().await;
+                    } else {
+                        endpoint.reset();
+                    }
+                    return;
+                }
                 let _activity =
                     claviron_runtime::activity::ACTIVITY.open_session();
                 sessions(request, endpoint, handshake).await;
@@ -828,6 +849,67 @@ async fn before_head<T>(
         },
         None => Some(work.await),
     }
+}
+
+/// The Link acknowledgment is the application's to give, so a door here commits
+/// nothing: it only records that the plan let the attempt reach its owner.
+struct SessionDoor(Arc<std::sync::atomic::AtomicBool>);
+
+impl Door for SessionDoor {
+    fn commit(
+        self: Box<Self>,
+        proposal: claviron_http::RouteResponse,
+        _: Deferred,
+    ) -> claviron_http::RouteResponse {
+        self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+        proposal
+    }
+
+    fn refuse(
+        self: Box<Self>,
+        response: claviron_http::RouteResponse,
+    ) -> claviron_http::RouteResponse {
+        refusal(response)
+    }
+}
+
+/// Run a session attempt through the owner's plan. `None` lets it through;
+/// otherwise the status and headers the plan answered with, for the edge.
+async fn admitted<O: Owner>(
+    mut attempt: AppRequest,
+    version: HttpVersion,
+    owner: &O,
+) -> Option<(u16, Vec<(Vec<u8>, Vec<u8>)>)> {
+    let reached = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // The version an edge marks a WebTransport stream with.
+    let kind = match version {
+        HttpVersion::Http3 => SocketKind::WebTransport,
+        _ => SocketKind::WebSocket,
+    };
+    let offer = Offer::new(
+        OfferInfo { kind, carrier: Carrier::Orbit },
+        SessionDoor(Arc::clone(&reached)),
+    );
+    attempt.extensions_mut().insert(offer.clone());
+    let answered = owner
+        .call(
+            attempt.map(RequestBody::into_inner),
+            None,
+            RequestArrival::Established,
+        )
+        .await;
+    let response = offer.finish(answered);
+    if reached.load(std::sync::atomic::Ordering::Relaxed) {
+        return None;
+    }
+    let headers = response
+        .headers()
+        .iter()
+        .map(|(name, value)| {
+            (name.as_str().as_bytes().to_vec(), value.as_bytes().to_vec())
+        })
+        .collect();
+    Some((response.status().as_u16(), headers))
 }
 
 fn session_request(

@@ -352,28 +352,32 @@ async fn warp_routes_select_before_body_and_keep_rejections_terminal() {
     assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
 }
 
+/// A door with nothing to do: a test only reads what comes back.
+#[cfg(feature = "pipeline")]
+struct Unused;
+
+#[cfg(feature = "pipeline")]
+impl claviron_http::socket::Door for Unused {
+    fn commit(
+        self: Box<Self>,
+        proposal: AppResponse,
+        _: claviron_http::socket::Deferred,
+    ) -> AppResponse {
+        proposal
+    }
+
+    fn refuse(
+        self: Box<Self>,
+        response: AppResponse,
+    ) -> AppResponse {
+        claviron_http::socket::refusal(response)
+    }
+}
+
 #[cfg(feature = "pipeline")]
 fn offered() -> claviron_http::socket::Offer {
-    use claviron_http::socket::{
-        Carrier, Deferred, Door, Offer, OfferInfo, SocketKind, refusal,
-    };
+    use claviron_http::socket::{Carrier, Offer, OfferInfo, SocketKind};
 
-    struct Unused;
-    impl Door for Unused {
-        fn commit(
-            self: Box<Self>,
-            proposal: AppResponse,
-            _: Deferred,
-        ) -> AppResponse {
-            proposal
-        }
-        fn refuse(
-            self: Box<Self>,
-            response: AppResponse,
-        ) -> AppResponse {
-            refusal(response)
-        }
-    }
     Offer::new(
         OfferInfo { kind: SocketKind::WebSocket, carrier: Carrier::H1 },
         Unused,
@@ -430,6 +434,31 @@ async fn a_site_stands_in_front_of_what_takes_a_connection_over() {
     assert_eq!(
         taken.call(upgrade("/anywhere")).await.status(),
         StatusCode::ACCEPTED
+    );
+
+    // Over Orbit the plan decides first, and the application answers after it.
+    let over_orbit = |path: &str| {
+        let offer = claviron_http::socket::Offer::new(
+            claviron_http::socket::OfferInfo {
+                kind: claviron_http::socket::SocketKind::WebSocket,
+                carrier: claviron_http::socket::Carrier::Orbit,
+            },
+            Unused,
+        );
+        let mut request =
+            Request::get(path).body(RequestBody::empty()).unwrap();
+        request.extensions_mut().insert(offer.clone());
+        (offer, request)
+    };
+    let (offer, request) = over_orbit("/old");
+    assert_eq!(
+        offer.finish(taken.call(request).await).status(),
+        StatusCode::TEMPORARY_REDIRECT
+    );
+    let (offer, request) = over_orbit("/anywhere");
+    assert_eq!(
+        offer.finish(taken.call(request).await).status(),
+        StatusCode::SWITCHING_PROTOCOLS
     );
 
     let unclaimed = application(Owner::new(answers(200)));

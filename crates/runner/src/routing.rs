@@ -345,6 +345,35 @@ fn attempting(request: &AppRequest) -> bool {
     }
 }
 
+fn arrived_over_orbit(request: &AppRequest) -> bool {
+    #[cfg(any(feature = "socket", feature = "orbit"))]
+    return request
+        .extensions()
+        .get::<claviron_http::socket::Offer>()
+        .is_some_and(|offer| {
+            offer.info().carrier == claviron_http::socket::Carrier::Orbit
+        });
+    #[cfg(not(any(feature = "socket", feature = "orbit")))]
+    {
+        let _ = request;
+        false
+    }
+}
+
+/// A proposal that commits nothing but having got here.
+fn reached(request: &AppRequest) -> AppResponse {
+    #[cfg(any(feature = "socket", feature = "orbit"))]
+    if let Some(claim) = request
+        .extensions()
+        .get::<claviron_http::socket::Offer>()
+        .and_then(claviron_http::socket::Offer::claim)
+    {
+        return claim.accept_with(|_| async {});
+    }
+    let _ = request;
+    status(StatusCode::FORBIDDEN)
+}
+
 /// Refuse what no stage may read differently or take over, then hand on what
 /// is left.
 async fn admitted(
@@ -390,6 +419,11 @@ impl ErasedService for Answering {
         let upgrades = self.upgrades.clone();
         Box::pin(async move {
             request.extensions_mut().insert(policy);
+            if arrived_over_orbit(&request) {
+                // The edge holds the socket and the application answers over
+                // Link, so reaching this far is all the plan has to say.
+                return Ok(reached(&request));
+            }
             if attempting(&request) {
                 return Ok(match upgrades {
                     Some(upgrades) => match upgrades.call_erased(request).await
