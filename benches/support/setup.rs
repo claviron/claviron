@@ -4,13 +4,13 @@
 
 use std::sync::Arc;
 
-use claviron::pipeline::plan::HostExecution;
 use claviron::edge::transport::{
     VhostResolver, VhostTable, resolve_sni_from_table,
 };
 use claviron::http::config::{HttpSnapshot, ListenerConfig};
 use claviron::http::ext::ConnCtx;
 use claviron::http::listener::HttpProtocol;
+use claviron::pipeline::plan::HostExecution;
 use claviron::transport::edge::service::HostService;
 
 use super::json;

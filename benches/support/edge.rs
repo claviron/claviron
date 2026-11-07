@@ -4,10 +4,10 @@
 use std::sync::Arc;
 
 use claviron::edge::Host;
-use claviron::pipeline::{HostHandler, HostHandlerFuture, HostRequest};
 use claviron::edge::host::{HostAppRegistry, Routable};
 use claviron::edge::transport::{HostConfig, OtherHandler, OtherService};
 use claviron::http::{RouteBody, RouteFuture, ServiceResult, boxed_body};
+use claviron::pipeline::{HostHandler, HostHandlerFuture, HostRequest};
 use claviron::runtime::{
     AppState,
     registry::{Component, Result},

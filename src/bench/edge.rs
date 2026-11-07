@@ -5,9 +5,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use claviron_pipeline::{HostHandler, HostHandlerFuture, HostRequest};
 use claviron_edge::{Host, HostConfig, Routable, VhostDocument};
 use claviron_http::ServiceResult;
+use claviron_pipeline::{HostHandler, HostHandlerFuture, HostRequest};
 use claviron_runtime::congif::{self, ConfigFile, ConfigStore, Configurable};
 use claviron_runtime::registry::{Component, Reloadable};
 use claviron_runtime::{AppState, Register, registry};
