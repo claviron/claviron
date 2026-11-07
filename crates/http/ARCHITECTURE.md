@@ -49,7 +49,9 @@ upgrade-specific dependencies are enabled by the default HTTP surface.
 Acceptance, opaque state handoff, capacity retention and graceful/forced drain
 are unchanged; [the detailed contract](docs/upgrade/ARCHITECTURE.md) remains
 listener-owned. HTTP does not depend on Edge or a WebSocket application.
-H2 CONNECT and H3 WebTransport are not converted into HTTP/1 upgrades.
+An H2 WebSocket and an H3 WebTransport session are not converted into HTTP/1
+upgrades: a door offers them as attempts (`socket`). A raw H2 CONNECT tunnel is
+refused.
 Header-upgrade detection accepts any request body type; it only reads the
 HTTP version and headers. Edge's Link adapter performs native H2/H3 acceptance
 separately from this H1 registry.

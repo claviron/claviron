@@ -59,7 +59,6 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
     let registry = state.registry_ref();
     VhostResolver::register(state)?;
     registry.insert(Arc::new(HostAppRegistry::default()))?;
-    registry.insert(Arc::new(H2ConnectRegistry::default()))?;
     #[cfg(feature = "websocket")]
     registry.insert(Arc::new(H1UpgradeRegistry::default()))?;
     #[cfg(feature = "webtransport")]
@@ -219,10 +218,8 @@ pub(crate) use config::Site;
 pub use host::Routable;
 pub use host::apps::other::{OtherHandler, OtherService};
 pub use host::{
-    AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
-    H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
-    HostAppRegistry, HostBindingProvider, InterceptsNonServing,
-    NonServingContext, RouteBinding, RustRouter,
+    AnyAuthenticated, AuthContext, HostAppRegistry, HostBindingProvider,
+    InterceptsNonServing, NonServingContext, RouteBinding, RustRouter,
 };
 #[cfg(feature = "websocket")]
 pub use host::{

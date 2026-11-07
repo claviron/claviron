@@ -57,6 +57,5 @@ host-selected providers, Link dispatch and H1 upgrade endpoints.
 
 ## What is still in `claviron-edge`
 
-The host-keyed `HostAppRegistry`, `Routable` bindings, H2 CONNECT and WebTransport
-registries, and Link's WebTransport sessions, which bind through that registry.
+The host-keyed `HostAppRegistry`, `Routable` bindings, the WebTransport registry, and Link's WebTransport sessions, which bind through that registry.
 Edge does not re-export this crate: its consumers depend on it directly.

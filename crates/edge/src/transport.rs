@@ -24,11 +24,9 @@ pub use crate::config::HostConfig;
 /// Application-owned Rust handler registration, without Axum.
 pub use crate::host::apps::other::{OtherHandler, OtherService};
 /// Applications mounted on a host, and the connection-level handlers a
-/// transport dispatches to before routing: CONNECT and WebTransport.
+/// transport dispatches to before routing: WebTransport.
 pub use crate::host::{
-    AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
-    H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
-    HostAppRegistry, HostAppResolver, RustRouter,
+    AnyAuthenticated, AuthContext, HostAppRegistry, HostAppResolver, RustRouter,
 };
 #[cfg(feature = "webtransport")]
 pub use crate::host::{WebTransportBinding, WebTransportRegistry};

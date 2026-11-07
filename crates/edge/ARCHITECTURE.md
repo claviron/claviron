@@ -376,7 +376,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`apps/axum.rs`](src/host/apps/axum.rs) — Axum host registration and ApplicationHandler/HostHandler adaptation.
 - [`apps/warp.rs`](src/host/apps/warp.rs) — Warp host registration and native handler adaptation.
 - [`apps/other.rs`](src/host/apps/other.rs) — Other host registration and re-exports of the shared HTTP handler contract.
-- [`connect.rs`](src/host/connect.rs) — H2 CONNECT registry, explicit binding execution, authentication payload and session context.
+- [`connect.rs`](src/host/connect.rs) — Authentication payload and session context for long-lived transport attempts.
 - [`wt.rs`](src/host/wt.rs) — Native WebTransport handler/session API and exact/fallback registry.
 
 ### `host/`

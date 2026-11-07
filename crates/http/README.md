@@ -27,7 +27,8 @@ stream and body types.
 The opt-in `websocket` feature exposes [HTTP/1 upgrade integration](docs/upgrade/README.md)
 as `claviron_http::upgrade`. It retains the existing `server` and Axum
 requirements; HTTP-only consumers do not select its Hyper or SHA-1 dependencies.
-H2 CONNECT and H3 WebTransport remain separate native session paths.
+A door offers any session it recognizes through `claviron_http::socket`: an H1 or
+H2 WebSocket and an H3 WebTransport session. A raw H2 CONNECT tunnel is refused.
 
 ## Bodies, responses, and failures
 

@@ -18,10 +18,7 @@ pub use claviron_http::upgrade::{
     websocket_accept_key, websocket_response_headers,
 };
 pub(crate) use claviron_pipeline::accept::AcceptLayer;
-pub use connect::{
-    AnyAuthenticated, AuthContext, H2ConnectAccept, H2ConnectBinding,
-    H2ConnectHandler, H2ConnectRegistry, H2ConnectReject, H2ConnectResult,
-};
+pub use connect::{AnyAuthenticated, AuthContext};
 #[cfg(feature = "tcp")]
 pub use non_serving::NonServingPipeline;
 pub use non_serving::{InterceptsNonServing, NonServingContext};
