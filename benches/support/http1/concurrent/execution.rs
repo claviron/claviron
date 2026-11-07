@@ -8,7 +8,9 @@ use claviron::runtime::{
 };
 use tokio::{runtime::Runtime, sync::oneshot, task::JoinHandle};
 
-use super::{Args, Result, ServerExecution, server};
+use claviron::http::config::ListenerExecution;
+
+use super::{Args, Result, server};
 use crate::support::http1::Server;
 
 pub(super) struct Running {
@@ -31,18 +33,15 @@ impl Running {
             .worker_threads(args.server_threads.get())
             .enable_all()
             .build()?;
-        if matches!(args.server_execution, ServerExecution::Shared) {
+        let listener = args.listener()?;
+        if listener.execution == ListenerExecution::Shared {
             let server = runtime.block_on(server::start(args))?;
             return Ok(Self { runtime, server, current: None });
         }
 
         let driver = CurrentThreadDriver::default();
-        let listener = "benchmark".parse()?;
         let prepared = driver
-            .prepare(
-                claviron::http::config::ListenerExecution::Dedicated
-                    .for_listener(&listener),
-            )
+            .prepare(listener.execution_spec())
             .map_err(claviron::registry::Error::into_std)?;
         let (ready, received) = oneshot::channel();
         let (release, released) = oneshot::channel();

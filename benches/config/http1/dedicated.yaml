@@ -1,0 +1,11 @@
+# One listener; the benchmark binds its own address and takes only what the
+# listener says about execution, through the production specification.
+defaults:
+  listener:
+    requests: { max_body_size: off, body_read_timeout: off }
+listeners:
+  benchmark:
+    transport: tcp
+    protocols: h1
+    listen: 127.0.0.1:0
+    execution: dedicated

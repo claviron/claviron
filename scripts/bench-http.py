@@ -4,6 +4,7 @@
 import argparse
 from datetime import datetime, timezone
 import hashlib
+import re
 import json
 import math
 import os
@@ -111,11 +112,18 @@ def build(target):
     return Path(executable)
 
 
+def listener_execution(path):
+    """What the one listener declares; the benchmark reads the same file."""
+    found = re.findall(r"^\s+execution:\s*(\w+)\s*$", path.read_text(), re.M)
+    if len(found) > 1 or any(value not in ("shared", "dedicated") for value in found):
+        raise RuntimeError(f"{path}: expected one listener execution, shared or dedicated")
+    return found[0] if found else "shared"
+
 def compatible(first, second, execution_change=False):
     before, after = dict(first.get("controls", {})), dict(second.get("controls", {}))
     if (execution_change and before.get("schema") == after.get("schema") == 8
             and before.get("boundary") == after.get("boundary") == "concurrent-http1-server-process-cpu"):
-        for key in ("server_execution", "http_threads"):
+        for key in ("http_config", "listener_execution", "http_threads"):
             before.pop(key, None)
             after.pop(key, None)
     return first.get("status") == "passed" and before == after
@@ -179,7 +187,7 @@ def validate_side(side, target, args):
             raise RuntimeError(f"inconsistent {key} total")
     if side["requests"] <= 0 or side["wall_ns"] <= 0 or side["server_cpu_ns"] <= 0:
         raise RuntimeError("completed-request, wall and server CPU totals must be positive")
-    http_threads = 1 if args.server_execution == "current_thread" else args.server_threads
+    http_threads = 1 if args.listener_execution == "dedicated" else args.server_threads
     expected = {
         "requests_per_second": side["requests"] * 1e9 / side["wall_ns"],
         "server_cpu_ns_per_request": side["server_cpu_ns"] / side["requests"],
@@ -200,8 +208,8 @@ def validate_concurrent(report, args):
         raise RuntimeError("client and server must be separate processes")
     expected = {"mode": args.mode, "connections": args.connections,
                 "server_threads": args.server_threads, "client_threads": args.client_threads,
-                "server_execution": args.server_execution,
-                "http_threads": 1 if args.server_execution == "current_thread" else args.server_threads}
+                "listener_execution": args.listener_execution,
+                "http_threads": 1 if args.listener_execution == "dedicated" else args.server_threads}
     if any(report.get(key) != value for key, value in expected.items()):
         raise RuntimeError("server/client topology does not match requested controls")
     validate_side(report, args.target, args)
@@ -242,8 +250,9 @@ def main():
     parser.add_argument("--samples", type=int, required=True)
     parser.add_argument("--connections", type=positive_int)
     parser.add_argument("--server-threads", type=positive_int)
-    parser.add_argument("--server-execution", choices=("shared", "current_thread"),
-                        help="HTTP execution placement; concurrent targets default to shared")
+    parser.add_argument("--http-config", type=Path,
+                        help="An http.yaml with one listener; its execution places the server. "
+                             "Concurrent targets require it; benches/config/http1 has shared and dedicated.")
     parser.add_argument("--client-threads", type=positive_int)
     parser.add_argument("--control", choices=CONCURRENT_TARGETS,
                         help="Measure this owner in alternating windows of the same run.")
@@ -256,11 +265,14 @@ def main():
     topology = (args.connections, args.server_threads, args.client_threads)
     if concurrent and not all(topology):
         parser.error("concurrent targets require --connections, --server-threads and --client-threads")
-    if not concurrent and (any(value is not None for value in topology) or args.server_execution is not None
+    if not concurrent and (any(value is not None for value in topology) or args.http_config is not None
                            or args.control is not None or args.mode is not None):
         parser.error("connection/thread/execution/control/mode options apply only to concurrent targets")
     if concurrent:
-        args.server_execution = args.server_execution or "shared"
+        if args.http_config is None:
+            parser.error("concurrent targets require --http-config")
+        args.http_config = args.http_config.resolve()
+        args.listener_execution = listener_execution(args.http_config)
         args.mode = args.mode or "plain"
         served = {"http1-concurrent-hyper", "http1-concurrent-edge-other"}
         if args.mode == "tls" and not {args.target, args.control or args.target} <= served:
@@ -327,8 +339,10 @@ def main():
     }
     if concurrent:
         record["controls"].update(server_threads=args.server_threads, client_threads=args.client_threads,
-                                  server_execution=args.server_execution,
-                                  http_threads=1 if args.server_execution == "current_thread" else args.server_threads,
+                                  http_config=str(args.http_config),
+                                  http_config_sha256=hashlib.sha256(args.http_config.read_bytes()).hexdigest(),
+                                  listener_execution=args.listener_execution,
+                                  http_threads=1 if args.listener_execution == "dedicated" else args.server_threads,
                                   control=args.control, mode=args.mode)
     previous = [json.loads(path.read_text()) for path in sorted(HISTORY.glob("*/run.json"))]
     if args.compare:
@@ -348,7 +362,7 @@ def main():
                      "--mode", args.mode,
                      "--connections", str(args.connections),
                      "--server-threads", str(args.server_threads),
-                     "--server-execution", args.server_execution,
+                     "--http-config", str(args.http_config),
                      "--client-threads", str(args.client_threads),
                      "--warmup-seconds", str(args.warmup_seconds),
                      "--measurement-seconds", str(args.measurement_seconds),
@@ -390,7 +404,7 @@ def main():
     mean = mean_time(record)
     metric = "server CPU ns/request" if concurrent else "ns/request"
     if concurrent:
-        print(f"HTTP execution: {args.server_execution}; "
+        print(f"HTTP execution: {args.listener_execution}; "
               f"HTTP runtime threads: {record['measurements']['http_threads']}; "
               f"main runtime threads: {args.server_threads}")
     print(f"{run_id}: {mean:.3f} {metric}")

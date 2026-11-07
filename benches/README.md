@@ -106,9 +106,9 @@ it on shutdown. Every handshake completes during connection setup, before
 warm-up; the measured windows contain persistent connections only. Runs of
 different modes are never compared with each other.
 
-`--server-execution shared` serves HTTP on the main runtime. Selecting
-`dedicated` places bind, accept and connection tasks on one additional
-current-thread executor using Claviron's production `CurrentThreadDriver` and
+`--http-config` names an `http.yaml` with one listener, and its `execution`
+places the server: `shared` serves HTTP on the main runtime, `dedicated` places
+bind, accept and connection tasks on one additional current-thread executor using Claviron's production `CurrentThreadDriver` and
 listener execution specification. All native and Edge controls use the same
 cold placement setup; native HTTP still runs directly through Hyper or
 `axum::serve`. Setup and executor teardown remain outside measurement.
@@ -199,7 +199,7 @@ executable with different owners. Name the native owner as the control:
 python3 scripts/bench-http.py http1-concurrent-edge-other \
   --control http1-concurrent-hyper \
   --connections 1024 --server-threads 4 --client-threads 4 \
-  --server-execution dedicated \
+  --http-config benches/config/http1/dedicated.yaml \
   --warmup-seconds 3 --measurement-seconds 5 --samples 4
 ```
 
@@ -215,10 +215,10 @@ TLS. Read its ratio beside the `plain` ratio of the same pair: both sides pay
 for the same record encryption, so the difference between the two ratios is
 what the TLS serving path adds.
 
-Repeat each case with `--server-execution shared`, leaving connections,
+Repeat each case with `benches/config/http1/shared.yaml`, leaving connections,
 main-runtime threads, client threads and timing unchanged, to measure execution
 placement separately. Check its HTTP-thread utilization before reading its
-CPU/request. `shared` remains the default when the execution argument is omitted.
+CPU/request.
 
 For the narrower decoded-dispatch comparison:
 

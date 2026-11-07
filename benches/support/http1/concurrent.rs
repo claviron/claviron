@@ -4,11 +4,13 @@
 //! Whatever changes in the machine during the run reaches both owners, so the
 //! ratio between them keeps its meaning when the absolute values drift.
 
+use std::sync::Arc;
 use std::{
     ffi::OsString, io, num::NonZeroUsize, path::PathBuf, time::Duration,
 };
 
 use clap::{Parser, ValueEnum};
+use claviron::http::config::{HttpSnapshot, ListenerConfig, ListenerExecution};
 use serde::{Deserialize, Serialize};
 
 #[path = "concurrent/allocation.rs"]
@@ -82,15 +84,6 @@ impl Mode {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize, ValueEnum)]
-#[serde(rename_all = "snake_case")]
-#[value(rename_all = "snake_case")]
-enum ServerExecution {
-    #[default]
-    Shared,
-    Dedicated,
-}
-
 #[derive(Clone, Parser)]
 struct Args {
     #[arg(long = "bench", hide = true)]
@@ -106,8 +99,10 @@ struct Args {
     connections: NonZeroUsize,
     #[arg(long)]
     server_threads: NonZeroUsize,
-    #[arg(long, value_enum, default_value_t = ServerExecution::Shared)]
-    server_execution: ServerExecution,
+    /// An `http.yaml` with one listener: its `execution` places the server,
+    /// through the same specification the production listener uses.
+    #[arg(long)]
+    http_config: PathBuf,
     #[arg(long)]
     client_threads: NonZeroUsize,
     #[arg(long, value_parser = seconds)]
@@ -144,7 +139,7 @@ impl Args {
         push("--mode", name(self.mode));
         push("--connections", self.connections.to_string().into());
         push("--server-threads", self.server_threads.to_string().into());
-        push("--server-execution", name(self.server_execution));
+        push("--http-config", self.http_config.clone().into());
         push("--client-threads", self.client_threads.to_string().into());
         push(
             "--warmup-seconds",
@@ -159,11 +154,34 @@ impl Args {
         arguments
     }
 
-    fn http_threads(&self) -> usize {
-        match self.server_execution {
-            ServerExecution::Shared => self.server_threads.get(),
-            ServerExecution::Dedicated => 1,
+    fn http_threads(&self) -> Result<usize> {
+        Ok(match self.listener()?.execution {
+            ListenerExecution::Shared => self.server_threads.get(),
+            ListenerExecution::Dedicated => 1,
+        })
+    }
+
+    /// The one listener the configuration declares.
+    fn listener(&self) -> Result<Arc<ListenerConfig>> {
+        let source = std::fs::read_to_string(&self.http_config)?;
+        let config: HttpSnapshot = serde_yaml::from_str(&source)?;
+        let mut listeners = config.listeners.into_values();
+        match (listeners.next(), listeners.next()) {
+            (Some(listener), None) => Ok(listener),
+            _ => Err(format!(
+                "{} must declare exactly one listener",
+                self.http_config.display()
+            )
+            .into()),
         }
+    }
+}
+
+/// How a report names the listener's execution.
+fn execution_name(execution: ListenerExecution) -> &'static str {
+    match execution {
+        ListenerExecution::Shared => "shared",
+        ListenerExecution::Dedicated => "dedicated",
     }
 }
 
@@ -452,7 +470,7 @@ struct Report {
     mode: Mode,
     connections: usize,
     server_threads: usize,
-    server_execution: ServerExecution,
+    listener_execution: &'static str,
     http_threads: usize,
     client_threads: usize,
     control: Option<Measured>,
@@ -501,7 +519,7 @@ pub fn run() -> Result<()> {
             }
         }
     }
-    let http_threads = args.http_threads();
+    let http_threads = args.http_threads()?;
     let mut finished = sides
         .into_iter()
         .map(|side| side.finish(&runtime, http_threads))
@@ -522,7 +540,7 @@ pub fn run() -> Result<()> {
         mode: args.mode,
         connections: args.connections.get(),
         server_threads: args.server_threads.get(),
-        server_execution: args.server_execution,
+        listener_execution: execution_name(args.listener()?.execution),
         http_threads,
         client_threads: args.client_threads.get(),
         control,
