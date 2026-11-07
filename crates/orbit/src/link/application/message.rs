@@ -42,7 +42,7 @@ impl Message {
     /// are observations an application receives, never codes on the wire.
     pub fn sendable_close(
         code: u16,
-        reason: &[u8],
+        reason: &str,
     ) -> bool {
         matches!(code, 1000..=1003 | 1007..=1014 | 3000..=4999)
             && reason.len() <= CONTROL_BYTES - 2
@@ -111,6 +111,8 @@ pub async fn read_message<R: AsyncRead + Unpin>(
 pub struct MessageReader {
     buffer: BytesMut,
     limit: Option<usize>,
+    /// An application's own limit, which a close is not held to.
+    data_limit: Option<usize>,
 }
 
 impl MessageReader {
@@ -121,13 +123,16 @@ impl MessageReader {
     /// Enforce the consuming protocol's message limit before reserving payload
     /// storage. This does not change the shared record format.
     pub fn with_limit(limit: usize) -> Self {
-        Self { buffer: BytesMut::new(), limit: Some(limit) }
+        Self { buffer: BytesMut::new(), limit: Some(limit), data_limit: None }
     }
 
-    /// A reader for an application's own message limit, which never refuses a
-    /// close: the record format's control payload stays readable below it.
+    /// A reader holding text and binary messages to an application's own limit.
+    /// A close stays readable under any limit: it is how the session ends.
     pub fn for_application(limit: usize) -> Self {
-        Self::with_limit(limit.max(CONTROL_BYTES))
+        Self {
+            data_limit: Some(limit),
+            ..Self::with_limit(limit.max(CONTROL_BYTES))
+        }
     }
 
     /// Read the next record. Cancel safe. `None` is a clean end of the
@@ -160,7 +165,9 @@ impl MessageReader {
         let kind = head[0];
         let length =
             u32::from_le_bytes([head[1], head[2], head[3], head[4]]) as usize;
-        if self.limit.is_some_and(|limit| length > limit) {
+        let over_data_limit = kind != CLOSE
+            && self.data_limit.is_some_and(|limit| length > limit);
+        if over_data_limit || self.limit.is_some_and(|limit| length > limit) {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "WebSocket message exceeds the consumer's limit",

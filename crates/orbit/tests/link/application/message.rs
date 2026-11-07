@@ -66,10 +66,23 @@ async fn a_cancelled_read_keeps_its_place() {
 
 #[test]
 fn a_close_is_sendable_only_with_a_wire_code_and_a_control_sized_reason() {
-    assert!(Message::sendable_close(1000, b""));
-    assert!(Message::sendable_close(4999, &[b'x'; 123]));
-    assert!(!Message::sendable_close(1000, &[b'x'; 124]));
-    assert!(!Message::sendable_close(1005, b""));
-    assert!(!Message::sendable_close(1006, b""));
-    assert!(!Message::sendable_close(999, b""));
+    assert!(Message::sendable_close(1000, ""));
+    assert!(Message::sendable_close(4999, &"x".repeat(123)));
+    assert!(!Message::sendable_close(1000, &"x".repeat(124)));
+    assert!(!Message::sendable_close(1005, ""));
+    assert!(!Message::sendable_close(1006, ""));
+    assert!(!Message::sendable_close(999, ""));
+}
+
+#[tokio::test]
+async fn an_application_reader_limits_messages_but_never_a_close() {
+    let mut wire = Vec::new();
+    let close = Message::Close { code: 1000, reason: "x".repeat(100) };
+    write_message(&mut wire, &close).await.unwrap();
+    write_message(&mut wire, &Message::Binary(vec![0; 17])).await.unwrap();
+    let mut records = super::MessageReader::for_application(16);
+    let mut bytes = wire.as_slice();
+    assert_eq!(records.read(&mut bytes).await.unwrap(), Some(close));
+    let error = records.read(&mut bytes).await.unwrap_err();
+    assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
 }
