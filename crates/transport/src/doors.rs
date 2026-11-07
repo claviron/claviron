@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use arc_swap::ArcSwapOption;
+use claviron_http::ListenerId;
 use claviron_http::config::{
     H1Override, Limit, ListenerConfig, ListenerDefinition, ListenerOverrides,
     Override, RequestPolicyOverride, TcpConfig, TcpOverride,
@@ -23,7 +24,6 @@ use claviron_http::config::{
 use claviron_http::listener::HttpProtocol;
 use claviron_runtime::registry::{Error, Result};
 use claviron_runtime::{RunContext, RunMode};
-use tokio::task::JoinSet;
 
 use crate::owner::Owner;
 use crate::tcp::plain;
@@ -31,8 +31,6 @@ use crate::tcp::plain;
 use crate::tcp::secure;
 #[cfg(feature = "tls")]
 use crate::tcp::tls::Tls;
-
-const LISTENER: &str = "runner";
 
 /// Where a listener listens.
 #[derive(Clone, Debug)]
@@ -105,6 +103,12 @@ impl Protocols {
 /// Every socket one owner answers on.
 pub struct Doors {
     binds: Vec<Bind>,
+    settings: Settings,
+}
+
+/// What all of an owner's doors share.
+#[derive(Clone)]
+struct Settings {
     protocols: Protocols,
     tcp_backlog: NonZeroU32,
     #[cfg(feature = "tls")]
@@ -118,10 +122,12 @@ impl Doors {
     ) -> Self {
         Self {
             binds,
-            protocols,
-            tcp_backlog: TcpConfig::default().backlog,
-            #[cfg(feature = "tls")]
-            tls: None,
+            settings: Settings {
+                protocols,
+                tcp_backlog: TcpConfig::default().backlog,
+                #[cfg(feature = "tls")]
+                tls: None,
+            },
         }
     }
 
@@ -132,7 +138,7 @@ impl Doors {
         mut self,
         backlog: NonZeroU32,
     ) -> Self {
-        self.tcp_backlog = backlog;
+        self.settings.tcp_backlog = backlog;
         self
     }
 
@@ -143,7 +149,7 @@ impl Doors {
         mut self,
         tls: Option<Tls>,
     ) -> Self {
-        self.tls = tls;
+        self.settings.tls = tls;
         self
     }
 
@@ -151,19 +157,58 @@ impl Doors {
         &self.binds
     }
 
-    /// A listener for one address. No deadline of its own: a slow client's
-    /// header read is the proxy's or the operator's to bound. Neither does it
-    /// bound a body: the driver applies no request policy, that is the owner's.
+    /// One door per address, each with a name of its own. Opens nothing.
+    pub fn doors(&self) -> Vec<Door> {
+        let (mut tcp, mut uds) = (0, 0);
+        self.binds
+            .iter()
+            .map(|bind| {
+                let (kind, count) = match bind {
+                    Bind::Tcp(_) => ("tcp", &mut tcp),
+                    Bind::Uds(_) => ("uds", &mut uds),
+                };
+                *count += 1;
+                let name = match *count {
+                    1 => format!("runner-{kind}"),
+                    n => format!("runner-{kind}-{n}"),
+                };
+                Door {
+                    id: name.parse().expect("a door's name is a listener id"),
+                    bind: bind.clone(),
+                    settings: self.settings.clone(),
+                }
+            })
+            .collect()
+    }
+}
+
+/// One socket of one owner: it binds, accepts and drains on its own, under its
+/// own listener identity.
+pub struct Door {
+    id: ListenerId,
+    bind: Bind,
+    settings: Settings,
+}
+
+impl Door {
+    pub fn id(&self) -> &ListenerId {
+        &self.id
+    }
+
+    /// A listener for this door. No deadline of its own: a slow client's header
+    /// read is the proxy's or the operator's to bound. Neither does it bound a
+    /// body: the driver applies no request policy, that is the owner's.
     fn listener(
         &self,
-        address: Option<SocketAddr>,
         secure: bool,
     ) -> Result<Arc<ListenerConfig>> {
-        let address = address
-            .unwrap_or_else(|| SocketAddr::from((Ipv4Addr::LOCALHOST, 0)));
+        let address = match &self.bind {
+            Bind::Tcp(address) => *address,
+            Bind::Uds(_) => SocketAddr::from((Ipv4Addr::LOCALHOST, 0)),
+        };
         #[cfg(feature = "tls")]
         let protocols = if secure {
-            self.protocols.accepted()
+            self.settings.protocols.accepted()
         } else {
             vec![HttpProtocol::H1]
         };
@@ -173,7 +218,7 @@ impl Doors {
         let mut definition = ListenerDefinition::tcp(address, protocols);
         definition.tls = Override::Value(secure);
         definition.tcp = Override::Value(TcpOverride {
-            backlog: Override::Value(self.tcp_backlog),
+            backlog: Override::Value(self.settings.tcp_backlog),
             ..Default::default()
         });
         if serves_h1 {
@@ -188,117 +233,82 @@ impl Doors {
             ..Default::default()
         };
         definition
-            .resolve(
-                LISTENER.parse().map_err(failure)?,
-                &ListenerOverrides::default(),
-            )
+            .resolve(self.id.clone(), &ListenerOverrides::default())
             .map(Arc::new)
             .map_err(failure)
     }
 
-    /// The owner behind one cleartext address, or a Unix socket without one.
-    /// Cleartext has no ALPN: HTTP/2 is by prior knowledge, beside HTTP/1.1
-    /// unless only HTTP/2 was named.
+    /// The owner behind this door in cleartext. Cleartext has no ALPN: HTTP/2
+    /// is by prior knowledge, beside HTTP/1.1 unless only HTTP/2 was named.
     pub fn cleartext<O: Owner>(
         &self,
-        address: Option<SocketAddr>,
         owner: Arc<O>,
     ) -> Result<Arc<plain::Single<O>>> {
-        let single =
-            plain::Single::shared(self.listener(address, false)?, owner)?;
-        Ok(Arc::new(if self.protocols.h2 {
-            single.prior_knowledge(self.protocols.h1)
+        let single = plain::Single::shared(self.listener(false)?, owner)?;
+        let protocols = self.settings.protocols;
+        Ok(Arc::new(if protocols.h2 {
+            single.prior_knowledge(protocols.h1)
         } else {
             single
         }))
     }
 
-    /// Accept on every door until the context ends. One socket that cannot be
-    /// bound ends the others: a boot failure, rather than a process that half
-    /// serves.
+    /// Accept until the context ends, then drain.
     pub async fn serve<O: Owner>(
         &self,
         owner: Arc<O>,
         context: &RunContext,
         run_mode: RunMode,
     ) -> Result<()> {
-        // Read the certificate before any socket opens: a bad path or a key
-        // that does not match is a boot failure, not a failed handshake later.
-        #[cfg(feature = "tls")]
-        let tls = self
-            .tls
-            .as_ref()
-            .map(|tls| tls.config(&self.protocols.alpn()))
-            .transpose()
-            .map_err(failure)?;
-        #[cfg(feature = "tls")]
-        let secure = tls.is_some();
-        #[cfg(not(feature = "tls"))]
-        let secure = false;
-
-        let owned = context.child();
-        let mut serving = JoinSet::new();
-        for bind in &self.binds {
-            let context = owned.child();
-            match bind {
-                Bind::Tcp(address) => {
-                    tracing::info!("listening on {}", bind.describe(secure));
-                    #[cfg(feature = "tls")]
-                    if let Some(tls) = &tls {
-                        let snapshot = Arc::new(secure::Single::shared(
-                            self.listener(Some(*address), true)?,
-                            tls.clone(),
-                            owner.clone(),
-                        )?);
-                        serving
-                            .spawn(serve_secure(snapshot, context, run_mode));
-                        continue;
-                    }
-                    let snapshot =
-                        self.cleartext(Some(*address), owner.clone())?;
-                    serving.spawn(serve_plain(snapshot, context, run_mode));
+        match &self.bind {
+            bind @ Bind::Tcp(_) => {
+                // Read the certificate before the socket opens: a bad path or
+                // a key that does not match is a boot failure, not a failed
+                // handshake later.
+                #[cfg(feature = "tls")]
+                if let Some(tls) = &self.settings.tls {
+                    let tls = tls
+                        .config(&self.settings.protocols.alpn())
+                        .map_err(failure)?;
+                    let snapshot = Arc::new(secure::Single::shared(
+                        self.listener(true)?,
+                        tls,
+                        owner,
+                    )?);
+                    tracing::info!("listening on {}", bind.describe(true));
+                    return serve_secure(snapshot, context, run_mode).await;
                 }
-                Bind::Uds(path) => {
-                    tracing::info!("listening on {}", bind.describe(false));
-                    #[cfg(unix)]
-                    {
-                        let snapshot = self.cleartext(None, owner.clone())?;
-                        let path = path.clone();
-                        serving.spawn(async move {
-                            crate::unix::serve(&path, snapshot, &context).await
-                        });
-                    }
-                    #[cfg(not(unix))]
-                    return Err(failure(format!(
-                        "unix:{}: this platform has no Unix sockets",
-                        path.display()
-                    )));
+                let snapshot = self.cleartext(owner)?;
+                tracing::info!("listening on {}", bind.describe(false));
+                serve_plain(snapshot, context, run_mode).await
+            }
+            bind @ Bind::Uds(path) => {
+                tracing::info!("listening on {}", bind.describe(false));
+                #[cfg(unix)]
+                {
+                    crate::unix::serve(path, self.cleartext(owner)?, context)
+                        .await
                 }
+                #[cfg(not(unix))]
+                Err(failure(format!(
+                    "unix:{}: this platform has no Unix sockets",
+                    path.display()
+                )))
             }
         }
-
-        let mut failed = None;
-        while let Some(finished) = serving.join_next().await {
-            let result = finished.map_err(failure).and_then(|result| result);
-            if let Err(error) = result {
-                owned.cancellation_token().cancel();
-                failed.get_or_insert(error);
-            }
-        }
-        failed.map_or(Ok(()), Err)
     }
 }
 
 async fn serve_plain<O: Owner>(
     snapshot: Arc<plain::Single<O>>,
-    context: RunContext,
+    context: &RunContext,
     run_mode: RunMode,
 ) -> Result<()> {
     let snapshots = ArcSwapOption::from(Some(snapshot.clone()));
     crate::tcp::listener::serve(
         &snapshots,
         snapshot,
-        &context,
+        context,
         run_mode,
         |snapshot, stream, peer, scope| {
             plain::serve(stream, peer, snapshot, scope)
@@ -310,14 +320,14 @@ async fn serve_plain<O: Owner>(
 #[cfg(feature = "tls")]
 async fn serve_secure<O: Owner>(
     snapshot: Arc<secure::Single<O>>,
-    context: RunContext,
+    context: &RunContext,
     run_mode: RunMode,
 ) -> Result<()> {
     let snapshots = ArcSwapOption::from(Some(snapshot.clone()));
     crate::tcp::listener::serve(
         &snapshots,
         snapshot,
-        &context,
+        context,
         run_mode,
         |snapshot, stream, peer, scope| {
             secure::serve(stream, peer, snapshot, scope)

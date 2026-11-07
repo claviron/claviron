@@ -13,9 +13,10 @@ fn address() -> SocketAddr {
 #[test]
 fn a_door_declares_only_what_it_was_given() {
     let backlog = NonZeroU32::new(7).unwrap();
-    let doors =
-        Doors::new(Vec::new(), Protocols::default()).tcp_backlog(backlog);
-    let listener = doors.listener(Some(address()), false).unwrap();
+    let doors = Doors::new(vec![Bind::Tcp(address())], Protocols::default())
+        .tcp_backlog(backlog)
+        .doors();
+    let listener = doors[0].listener(false).unwrap();
     assert_eq!(listener.listen, [address()]);
     assert_eq!(listener.requests.max_body_size, None);
     assert_eq!(listener.requests.body_read_timeout, None);
@@ -32,10 +33,26 @@ fn a_door_declares_only_what_it_was_given() {
 #[test]
 fn a_tls_door_can_accept_http2_alone() {
     let protocols = Protocols { h1: false, h2: true };
-    let doors = Doors::new(Vec::new(), protocols);
-    let listener = doors.listener(Some(address()), true).unwrap();
+    let doors = Doors::new(vec![Bind::Tcp(address())], protocols).doors();
+    let listener = doors[0].listener(true).unwrap();
     let ListenerSettings::Tcp(tcp) = &listener.settings else {
         panic!("a door is a TCP listener");
     };
     assert_eq!(tcp.protocols, [HttpProtocol::H2]);
+}
+
+/// Each door is told apart in logs and metrics, also with two of a kind.
+#[test]
+fn every_door_has_a_name_of_its_own() {
+    let doors = Doors::new(
+        vec![
+            Bind::Tcp(address()),
+            Bind::Uds("/tmp/first.sock".into()),
+            Bind::Tcp(SocketAddr::from((Ipv4Addr::LOCALHOST, 8001))),
+        ],
+        Protocols::default(),
+    )
+    .doors();
+    let names: Vec<_> = doors.iter().map(|door| door.id().as_str()).collect();
+    assert_eq!(names, ["runner-tcp", "runner-uds", "runner-tcp-2"]);
 }

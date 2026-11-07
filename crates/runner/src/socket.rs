@@ -13,7 +13,7 @@
 
 use std::future::Future;
 use std::num::NonZeroU32;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::SystemTime;
 
 use async_trait::async_trait;
@@ -21,25 +21,29 @@ use claviron_http::ext::{ConnCtx, RealIpExt, ReceivedAt, RequestArrival};
 use claviron_http::trust::Trust;
 use claviron_http::{RouteBody, RouteResponse};
 use claviron_runtime::{
-    AppState, Component, RunContext, RunMode, Runnable, ServiceStartPolicy,
-    registry,
+    AppState, Component, RunContext, RunMode, Runnable, RunnableInstance,
+    ServiceStartPolicy, registry,
 };
-use claviron_transport::doors::Doors;
 pub use claviron_transport::doors::{Bind, Protocols};
+use claviron_transport::doors::{Door, Doors};
 use claviron_transport::owner::Owner as TransportOwner;
 use http::Request;
 
 use crate::routing::{AppRequest, Application, RequestBody};
 
-/// Every socket the application answers on, as one runnable.
-pub struct SocketIngress(Doors);
+/// Every socket the application answers on. Each runs on its own, under its
+/// own name; enumerating them opens nothing.
+pub struct SocketIngress {
+    doors: Doors,
+    running: OnceLock<Vec<Arc<SocketDoor>>>,
+}
 
 impl SocketIngress {
     pub fn new(
         binds: Vec<Bind>,
         protocols: Protocols,
     ) -> Self {
-        Self(Doors::new(binds, protocols))
+        Self { doors: Doors::new(binds, protocols), running: OnceLock::new() }
     }
 
     /// Set the pending TCP connection queue before starting this ingress.
@@ -47,7 +51,7 @@ impl SocketIngress {
         self,
         backlog: NonZeroU32,
     ) -> Self {
-        Self(self.0.tcp_backlog(backlog))
+        Self { doors: self.doors.tcp_backlog(backlog), ..self }
     }
 
     /// Serve TLS on the TCP sockets. A Unix socket ignores it.
@@ -56,7 +60,7 @@ impl SocketIngress {
         self,
         tls: Option<crate::Tls>,
     ) -> Self {
-        Self(self.0.tls(tls))
+        Self { doors: self.doors.tls(tls), ..self }
     }
 }
 
@@ -75,8 +79,11 @@ impl Component<AppState> for SocketIngress {
         state: &AppState,
     ) -> registry::Result<()> {
         if !matches!(state.run_mode(), RunMode::Standalone)
-            && let Some(Bind::Uds(path)) =
-                self.0.binds().iter().find(|bind| matches!(bind, Bind::Uds(_)))
+            && let Some(Bind::Uds(path)) = self
+                .doors
+                .binds()
+                .iter()
+                .find(|bind| matches!(bind, Bind::Uds(_)))
         {
             return Err(registry::Error::msg(format!(
                 "unix:{} cannot be served by several workers; serve it standalone, or reach \
@@ -87,12 +94,25 @@ impl Component<AppState> for SocketIngress {
         Ok(())
     }
 
-    fn as_runnable(
-        self: Arc<Self>
-    ) -> Option<Arc<dyn Runnable<AppState, Self::Deps>>> {
-        Some(self)
+    /// The same doors for every enumeration: an unchanged door stays running.
+    fn runnables(self: Arc<Self>) -> Vec<RunnableInstance<AppState>> {
+        self.running
+            .get_or_init(|| {
+                self.doors
+                    .doors()
+                    .into_iter()
+                    .map(|door| Arc::new(SocketDoor(door)))
+                    .collect()
+            })
+            .iter()
+            .map(|door| {
+                RunnableInstance::new(door.0.id().to_string(), door.clone())
+            })
+            .collect()
     }
 }
+
+struct SocketDoor(Door);
 
 /// One application behind the doors: what they accept, attached to and handed
 /// on.
@@ -113,7 +133,7 @@ impl TransportOwner for Front {
 }
 
 #[async_trait]
-impl Runnable<AppState, <Self as Component<AppState>>::Deps> for SocketIngress {
+impl Runnable<AppState, (Arc<Application>, Option<Arc<Trust>>)> for SocketDoor {
     /// A master with workers serves nothing; its workers do. Standalone is not
     /// a master and still runs.
     fn start_policy(
@@ -129,7 +149,7 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for SocketIngress {
 
     async fn run(
         self: Arc<Self>,
-        (application, trust): <Self as Component<AppState>>::Deps,
+        (application, trust): (Arc<Application>, Option<Arc<Trust>>),
         state: AppState,
         context: RunContext,
     ) -> registry::Result<()> {
@@ -137,7 +157,8 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for SocketIngress {
         tracing::info!(
             trusted =
                 if trust.is_empty() { "nobody" } else { "registered peers" },
-            "the application's doors are opening"
+            door = %self.0.id(),
+            "an application door is opening"
         );
         self.0
             .serve(

@@ -63,14 +63,16 @@ async fn ask<S: AsyncRead + AsyncWrite + Unpin>(
 /// WebSocket could not start.
 #[tokio::test]
 async fn each_door_gives_the_application_what_it_knows() {
-    let door = Doors::new(Vec::new(), Protocols::default())
-        .cleartext(
-            None,
-            Arc::new(Front {
-                application: application(),
-                trust: Arc::default(),
-            }),
-        )
+    let doors = Doors::new(
+        vec![Bind::Tcp(([127, 0, 0, 1], 0).into())],
+        Protocols::default(),
+    )
+    .doors();
+    let door = doors[0]
+        .cleartext(Arc::new(Front {
+            application: application(),
+            trust: Arc::default(),
+        }))
         .unwrap();
     let limits = &door.listener().limits;
     let gate = Gate::new(
