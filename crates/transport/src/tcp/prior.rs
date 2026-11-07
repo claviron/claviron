@@ -42,8 +42,8 @@ where
 {
     let io = TokioIo::new(stream);
     if !prior.h1 {
-        let connection =
-            super::protocol::h2(&prior.h2, false).serve_connection(io, service);
+        let connection = super::protocol::h2(&prior.h2, OFFERS_SESSIONS)
+            .serve_connection(io, service);
         tokio::pin!(connection);
         return tokio::select! {
             biased;
@@ -72,6 +72,11 @@ where
         result = connection.as_mut() => Some(result)
     }
 }
+
+/// A door with one owner advertises what it can offer; whether an attempt becomes
+/// a session is the owner's to say, and an attempt nobody claims is refused.
+const OFFERS_SESSIONS: bool =
+    cfg!(any(feature = "websocket", feature = "edge"));
 
 /// Either protocol with the same settings its own builder applies.
 fn auto(
@@ -102,6 +107,9 @@ fn auto(
                 http1.header_read_timeout(duration);
             }
         }
+    }
+    if OFFERS_SESSIONS {
+        builder.http2().enable_connect_protocol();
     }
     builder
         .http2()

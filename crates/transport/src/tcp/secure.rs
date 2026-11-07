@@ -191,7 +191,17 @@ impl<O: Owner> Single<O> {
             listener,
             config,
             tls,
-            transport: TransportPolicy::default(),
+            // Whether an attempt becomes a session is the owner's to say, and an
+            // attempt nobody claims is refused.
+            transport: TransportPolicy {
+                h2: claviron_http::config::transport::H2Policy {
+                    connect_protocol: cfg!(any(
+                        feature = "websocket",
+                        feature = "edge"
+                    )),
+                },
+                ..TransportPolicy::default()
+            },
             owner,
         })
     }
