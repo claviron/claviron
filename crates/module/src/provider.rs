@@ -18,6 +18,7 @@ use libloading::os::unix::{Library, RTLD_LOCAL, RTLD_NOW};
 use crate::abi;
 use crate::application::{Controller, ModuleApplication, ModuleBackend};
 use crate::config::{CONFIG_FILE, ModulesConfig};
+use crate::handlers::{self, Handlers};
 use crate::registrar::{Registration, contained, register};
 use crate::service::{ModuleService, SendPtr};
 
@@ -60,7 +61,14 @@ struct Modules {
     booted: usize,
     services: Vec<RunnableInstance<AppState>>,
     applications: BTreeMap<String, Arc<ModuleApplication>>,
+    operations: Vec<(String, abi::Operation)>,
+    subscriptions: Vec<(String, abi::Subscription)>,
+    handlers: Option<Arc<Handlers>>,
 }
+
+// Safety: the tables hold a module's function pointers and contexts, which its
+// contract makes usable from the threads it is called on.
+unsafe impl Send for Modules {}
 
 pub struct ModuleProvider {
     source: PathBuf,
@@ -163,6 +171,8 @@ impl ModuleProvider {
                     )));
                 }
             }
+            modules.operations.extend(registration.operations);
+            modules.subscriptions.extend(registration.subscriptions);
             modules.loaded.push(Loaded {
                 name: library_name,
                 // A process with nothing of this module to run boots nothing of it.
@@ -186,6 +196,42 @@ impl ModuleProvider {
                     "{CONFIG_FILE} declares application '{name}', which no module registered"
                 )));
             }
+        }
+        let mut seen = BTreeSet::new();
+        for (name, _) in &modules.operations {
+            if !seen.insert(name) {
+                return Err(error(format!(
+                    "operation '{name}' is registered by more than one module"
+                )));
+            }
+        }
+        let needs_threads =
+            !modules.operations.is_empty() || !modules.subscriptions.is_empty();
+        match (needs_threads, &config.handlers) {
+            (true, None) => {
+                return Err(error(format!(
+                    "a module registered operations or subscriptions: {CONFIG_FILE} must declare handlers"
+                )));
+            }
+            (false, Some(_)) => {
+                return Err(error(format!(
+                    "{CONFIG_FILE} declares handlers, but no module registered an operation or a subscription"
+                )));
+            }
+            _ => {}
+        }
+        match (modules.subscriptions.is_empty(), &config.events) {
+            (false, None) => {
+                return Err(error(format!(
+                    "a module registered subscriptions: {CONFIG_FILE} must declare events"
+                )));
+            }
+            (true, Some(_)) => {
+                return Err(error(format!(
+                    "{CONFIG_FILE} declares events, but no module subscribed to anything"
+                )));
+            }
+            _ => {}
         }
         Ok(modules)
     }
@@ -229,6 +275,47 @@ impl ModuleProvider {
         }
         let collected = Self::collect(&config, registered, state.is_master())?;
         *self.modules.lock().expect("modules lock") = collected;
+        Ok(())
+    }
+
+    /// Start what operations and subscribers run on, and make them reachable.
+    /// They read the module's state, so this follows its `boot`.
+    fn start_handlers(
+        &self,
+        state: &AppState,
+    ) -> registry::Result<()> {
+        let config = state.config_reader().snapshot::<Self>()?;
+        let mut modules = self.modules.lock().expect("modules lock");
+        handlers::bind(state);
+        handlers::bind_runtime();
+        let Some(declared) = &config.handlers else { return Ok(()) };
+        let threads = Arc::new(
+            Handlers::start(declared.instances.get())
+                .map_err(|failure| error(failure.to_string()))?,
+        );
+        handlers::set_threads(Arc::clone(&threads));
+        let router = state
+            .registry_ref()
+            .resolve::<claviron_app::invoke::InvocationRouter>()
+            .ok_or_else(|| error("the invocation router is not registered"))?;
+        for (name, operation) in std::mem::take(&mut modules.operations) {
+            handlers::serve_operation(&router, &threads, name, operation)?;
+        }
+        if let Some(events) = &config.events {
+            for (topic, subscription) in
+                std::mem::take(&mut modules.subscriptions)
+            {
+                let subscriber = handlers::subscriber(
+                    state,
+                    &threads,
+                    topic,
+                    subscription,
+                    events.capacity.get(),
+                );
+                modules.services.push(subscriber);
+            }
+        }
+        modules.handlers = Some(threads);
         Ok(())
     }
 
@@ -347,10 +434,12 @@ impl Bootable<AppState, ()> for ModuleProvider {
             }
             self.modules.lock().expect("modules lock").booted += 1;
         }
-        // A master serves nothing. Its workers list and run the applications.
+        // A master serves nothing. Its workers list and run the applications,
+        // and answer the operations and events.
         if state.is_master() {
             return Ok(());
         }
+        self.start_handlers(state)?;
         let applications =
             self.modules.lock().expect("modules lock").applications.clone();
         if applications.is_empty() {
@@ -414,6 +503,13 @@ impl Finalizable<AppState> for ModuleProvider {
                 tracing::error!(%failure, "module application did not stop cleanly");
             }
             tokio::task::spawn_blocking(move || application.shutdown_threads())
+                .await
+                .map_err(|failure| error(failure.to_string()))?;
+        }
+        let threads =
+            self.modules.lock().expect("modules lock").handlers.take();
+        if let Some(threads) = threads {
+            tokio::task::spawn_blocking(move || threads.shutdown())
                 .await
                 .map_err(|failure| error(failure.to_string()))?;
         }

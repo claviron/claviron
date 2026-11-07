@@ -7,6 +7,7 @@
 pub(crate) mod abi;
 mod application;
 pub mod config;
+mod handlers;
 mod pool;
 mod provider;
 mod registrar;

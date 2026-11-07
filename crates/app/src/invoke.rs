@@ -93,13 +93,28 @@ impl<H: InvocationHandler> Erased for Typed<H> {
     }
 }
 
+struct Untyped<F>(F);
+
+impl<F, Fut> Erased for Untyped<F>
+where
+    F: Fn(serde_json::Value) -> Fut + Send + Sync,
+    Fut: Future<Output = Result<serde_json::Value, String>> + Send + 'static,
+{
+    fn call(
+        &self,
+        request: serde_json::Value,
+    ) -> Answer {
+        Box::pin((self.0)(request))
+    }
+}
+
 /// The operations this process can serve.
 ///
 /// The gate that bounds a run lives in `serve`, not here: a task is stopped
 /// and started again on the same router, and a gate once drained stays
 /// closed.
 pub struct InvocationRouter {
-    handlers: RwLock<HashMap<&'static str, Arc<dyn Erased>>>,
+    handlers: RwLock<HashMap<Box<str>, Arc<dyn Erased>>>,
 }
 
 impl Default for InvocationRouter {
@@ -126,17 +141,42 @@ impl InvocationRouter {
                 H::OPERATION
             )));
         }
-        handlers.insert(H::OPERATION, Arc::new(Typed(Arc::new(handler))));
+        handlers
+            .insert(H::OPERATION.into(), Arc::new(Typed(Arc::new(handler))));
         Ok(())
     }
 
-    pub fn operations(&self) -> Vec<&'static str> {
+    /// Serve `operation` with `handler`, for a name only known at run time and a
+    /// handler that takes the JSON as it is. An operation names one handler.
+    pub fn register_untyped<F, Fut>(
+        &self,
+        operation: impl Into<Box<str>>,
+        handler: F,
+    ) -> registry::Result<()>
+    where
+        F: Fn(serde_json::Value) -> Fut + Send + Sync + 'static,
+        Fut:
+            Future<Output = Result<serde_json::Value, String>> + Send + 'static,
+    {
+        let operation = operation.into();
+        let mut handlers =
+            self.handlers.write().expect("invocation handlers lock poisoned");
+        if handlers.contains_key(&operation) {
+            return Err(registry::Error::msg(format!(
+                "invocation operation {operation} already has a handler"
+            )));
+        }
+        handlers.insert(operation, Arc::new(Untyped(handler)));
+        Ok(())
+    }
+
+    pub fn operations(&self) -> Vec<Box<str>> {
         let mut operations: Vec<_> = self
             .handlers
             .read()
             .expect("invocation handlers lock poisoned")
             .keys()
-            .copied()
+            .cloned()
             .collect();
         operations.sort_unstable();
         operations
@@ -193,7 +233,7 @@ impl InvocationRouter {
         let mut subscriptions = operations
             .iter()
             .map(|operation| {
-                bus.subscribe(*operation).map_err(|error| error.to_string())
+                bus.subscribe(&**operation).map_err(|error| error.to_string())
             })
             .collect::<Result<Vec<_>, _>>()?;
         if state.is_worker() {

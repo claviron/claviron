@@ -51,6 +51,8 @@ fn declared(names: &[&str]) -> ModulesConfig {
     ModulesConfig {
         modules: Vec::new(),
         applications: Default::default(),
+        handlers: None,
+        events: None,
         services: names
             .iter()
             .map(|name| {
@@ -115,6 +117,46 @@ fn every_mismatch_or_conflict_stops_boot() {
 
     let failing = collected(&declared(&[]), &[fails]).err().unwrap();
     assert!(failing.contains("status 2"), "{failing}");
+}
+
+unsafe extern "C" fn registers_an_operation(
+    host: *const Host,
+    registrar: *mut Registrar,
+) -> u32 {
+    unsafe extern "C" fn call(
+        _: *mut abi::Call,
+        _: Slice,
+        _: *mut c_void,
+    ) -> u32 {
+        abi::OK
+    }
+    let operation = abi::Operation {
+        struct_size: size_of::<abi::Operation>() as u32,
+        context: ptr::null_mut(),
+        call: Some(call),
+    };
+    unsafe {
+        ((*host).register_operation)(
+            registrar,
+            Slice::of(b"shop.echo"),
+            &operation,
+        )
+    }
+}
+
+/// The threads an operation runs on are declared, like everything else that runs.
+#[test]
+fn an_operation_needs_declared_threads_and_declared_threads_need_a_use() {
+    let undeclared =
+        collected(&declared(&[]), &[registers_an_operation]).err().unwrap();
+    assert!(undeclared.contains("must declare handlers"), "{undeclared}");
+
+    let mut unused = declared(&[]);
+    unused.handlers = Some(crate::config::HandlersConfig {
+        instances: std::num::NonZeroU16::MIN,
+    });
+    let unused = collected(&unused, &[]).err().unwrap();
+    assert!(unused.contains("declares handlers"), "{unused}");
 }
 
 #[test]

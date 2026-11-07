@@ -5,7 +5,7 @@
 //! stops boot rather than running on a value nobody chose.
 
 use std::collections::BTreeMap;
-use std::num::NonZeroU16;
+use std::num::{NonZeroU16, NonZeroUsize};
 use std::path::PathBuf;
 
 use continuo::fleet::{Dispatch, DispatchPolicy, InstancePlacement, Scope};
@@ -23,6 +23,26 @@ pub struct ModulesConfig {
     pub applications: BTreeMap<String, ApplicationConfig>,
     #[serde(default)]
     pub services: BTreeMap<String, ServiceConfig>,
+    /// The threads operations and event subscribers run on. Required when a
+    /// library registers either.
+    #[serde(default)]
+    pub handlers: Option<HandlersConfig>,
+    /// Required when a library subscribes to anything.
+    #[serde(default)]
+    pub events: Option<EventsConfig>,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct HandlersConfig {
+    pub instances: NonZeroU16,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct EventsConfig {
+    /// Events one subscription may fall behind before it loses them.
+    pub capacity: NonZeroUsize,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]

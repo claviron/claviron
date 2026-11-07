@@ -16,6 +16,7 @@ categories = ["development-tools::ffi", "web-programming::http-server"]
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-app.workspace = true
+claviron-orbit.workspace = true
 claviron-http = { workspace = true, features = ["server"] }
 claviron-pipeline.workspace = true
 claviron-runtime.workspace = true
@@ -33,6 +34,7 @@ http-body.workspace = true
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
 libloading = "0.8"

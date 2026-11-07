@@ -131,6 +131,30 @@ typedef struct {
     claviron_closed_fn closed;
 } claviron_session_handler;
 
+/* An invocation being answered. Valid until it is replied to, which may happen
+ * later and from another thread; every call must end in exactly one reply. */
+typedef struct claviron_call claviron_call;
+
+/* An operation others can invoke, by name, from any language. The payload is JSON.
+ * It runs on the threads `handlers:` declares; only one operation has a name. A
+ * nonzero status with no reply fails the invocation. An invocation is not a
+ * durable queue: a missing result is outcome-unknown, not safe to replay. */
+typedef struct {
+    uint32_t struct_size;
+    void *context;
+    uint32_t (*call)(claviron_call *call, claviron_slice payload, void *context);
+} claviron_operation;
+
+/* An application event topic this module hears. Runs on the threads `handlers:`
+ * declares, one event at a time per subscription. Events are broadcast, not a
+ * queue: a subscriber that falls behind `events.capacity` loses events, reported
+ * in the log. */
+typedef struct {
+    uint32_t struct_size;
+    void *context;
+    void (*event)(claviron_slice topic, claviron_slice payload, void *context);
+} claviron_subscription;
+
 /* start runs before the application takes requests and stop after the last one
  * has closed, at boot and shutdown and for every management start and stop. */
 typedef struct {
@@ -170,6 +194,8 @@ typedef struct claviron_host {
     uint32_t (*register_lifecycle)(claviron_registrar *registrar, const claviron_lifecycle *lifecycle);
     uint32_t (*register_service)(claviron_registrar *registrar, claviron_slice name, const claviron_service *service);
     uint32_t (*register_application)(claviron_registrar *registrar, claviron_slice name, const claviron_application *application);
+    uint32_t (*register_operation)(claviron_registrar *registrar, claviron_slice name, const claviron_operation *operation);
+    uint32_t (*register_subscription)(claviron_registrar *registrar, claviron_slice topic, const claviron_subscription *subscription);
 
     /* Any time, any thread. */
     void (*log)(uint32_t level, claviron_slice message);
@@ -207,6 +233,17 @@ typedef struct claviron_host {
      * says when to try again. A close ends the session. */
     uint32_t (*session_accept)(claviron_request *request, uint64_t max_message_bytes);
     uint32_t (*session_send)(claviron_request *request, uint32_t kind, uint32_t code, claviron_slice data);
+
+    /* Answer an invocation, once: JSON on success, a reason on failure. */
+    uint32_t (*call_reply)(claviron_call *call, claviron_slice json);
+    uint32_t (*call_fail)(claviron_call *call, claviron_slice reason);
+
+    /* From boot on. publish emits a JSON application event to the fleet and
+     * returns at once. invoke runs an operation in this process, the module's or
+     * anyone's, and calls back on the threads `handlers:` declares: status is
+     * CLAVIRON_OK with JSON, otherwise data is the reason. */
+    uint32_t (*publish_event)(claviron_slice topic, claviron_slice json);
+    uint32_t (*invoke)(claviron_slice operation, claviron_slice json, void (*callback)(uint32_t status, claviron_slice data, void *context), void *context);
 } claviron_host;
 
 #ifdef __cplusplus

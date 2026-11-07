@@ -5,8 +5,8 @@ use std::collections::BTreeSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use crate::abi::{
-    self, Application, Host, HttpHandler, Lifecycle, Registrar, Service,
-    SessionHandler, Slice,
+    self, Application, Host, HttpHandler, Lifecycle, Operation, Registrar,
+    Service, SessionHandler, Slice, Subscription,
 };
 
 /// A library's registrations, filled while its register function runs.
@@ -16,6 +16,8 @@ pub(crate) struct Registration {
     pub services: Vec<(String, Service)>,
     pub applications:
         Vec<(String, Application, HttpHandler, Option<SessionHandler>)>,
+    pub operations: Vec<(String, Operation)>,
+    pub subscriptions: Vec<(String, Subscription)>,
     pub error: Option<String>,
 }
 
@@ -163,6 +165,78 @@ unsafe extern "C" fn register_application(
     })
 }
 
+unsafe extern "C" fn register_operation(
+    registrar: *mut Registrar,
+    name: Slice,
+    operation: *const Operation,
+) -> u32 {
+    contained(|| {
+        if registrar.is_null() || operation.is_null() {
+            return abi::INVALID_ARGUMENT;
+        }
+        // Safety: as in `register_lifecycle`.
+        let registration = unsafe { &mut *registrar.cast::<Registration>() };
+        let operation = unsafe { *operation };
+        let checked = name_of(name).and_then(|name| {
+            if operation.struct_size as usize != size_of::<Operation>() {
+                return Err(format!(
+                    "operation '{name}': claviron_operation has the wrong struct_size"
+                ));
+            }
+            if operation.call.is_none() {
+                return Err(format!("operation '{name}' has no call"));
+            }
+            Ok(name)
+        });
+        match checked {
+            Ok(name) => {
+                registration.operations.push((name, operation));
+                abi::OK
+            }
+            Err(error) => {
+                registration.error = Some(error);
+                abi::INVALID_ARGUMENT
+            }
+        }
+    })
+}
+
+unsafe extern "C" fn register_subscription(
+    registrar: *mut Registrar,
+    topic: Slice,
+    subscription: *const Subscription,
+) -> u32 {
+    contained(|| {
+        if registrar.is_null() || subscription.is_null() {
+            return abi::INVALID_ARGUMENT;
+        }
+        // Safety: as in `register_lifecycle`.
+        let registration = unsafe { &mut *registrar.cast::<Registration>() };
+        let subscription = unsafe { *subscription };
+        let checked = name_of(topic).and_then(|topic| {
+            if subscription.struct_size as usize != size_of::<Subscription>() {
+                return Err(format!(
+                    "subscription '{topic}': claviron_subscription has the wrong struct_size"
+                ));
+            }
+            if subscription.event.is_none() {
+                return Err(format!("subscription '{topic}' has no event"));
+            }
+            Ok(topic)
+        });
+        match checked {
+            Ok(topic) => {
+                registration.subscriptions.push((topic, subscription));
+                abi::OK
+            }
+            Err(error) => {
+                registration.error = Some(error);
+                abi::INVALID_ARGUMENT
+            }
+        }
+    })
+}
+
 unsafe extern "C" fn log(
     level: u32,
     message: Slice,
@@ -193,6 +267,8 @@ pub(crate) static HOST: Host = Host {
     register_lifecycle,
     register_service,
     register_application,
+    register_operation,
+    register_subscription,
     log,
     cancelled: crate::service::cancelled,
     cancel_wait: crate::service::cancel_wait,
@@ -209,6 +285,10 @@ pub(crate) static HOST: Host = Host {
     response_finish: crate::request::response_finish,
     session_accept: crate::request::session_accept,
     session_send: crate::request::session_send,
+    call_reply: crate::handlers::call_reply,
+    call_fail: crate::handlers::call_fail,
+    publish_event: crate::handlers::publish_event,
+    invoke: crate::handlers::invoke,
 };
 
 /// Run one library's register function.

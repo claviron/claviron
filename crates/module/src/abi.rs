@@ -144,6 +144,30 @@ pub struct Application {
     pub websocket: *const SessionHandler,
 }
 
+/// Opaque to a module; see `handlers::Call`.
+pub struct Call {
+    _private: [u8; 0],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Operation {
+    pub struct_size: u32,
+    pub context: *mut c_void,
+    pub call:
+        Option<unsafe extern "C" fn(*mut Call, Slice, *mut c_void) -> u32>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Subscription {
+    pub struct_size: u32,
+    pub context: *mut c_void,
+    pub event: Option<unsafe extern "C" fn(Slice, Slice, *mut c_void)>,
+}
+
+pub type InvokeCallback = unsafe extern "C" fn(u32, Slice, *mut c_void);
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct RequestPolicy {
@@ -162,6 +186,10 @@ pub struct Host {
         unsafe extern "C" fn(*mut Registrar, Slice, *const Service) -> u32,
     pub register_application:
         unsafe extern "C" fn(*mut Registrar, Slice, *const Application) -> u32,
+    pub register_operation:
+        unsafe extern "C" fn(*mut Registrar, Slice, *const Operation) -> u32,
+    pub register_subscription:
+        unsafe extern "C" fn(*mut Registrar, Slice, *const Subscription) -> u32,
     pub log: unsafe extern "C" fn(u32, Slice),
     pub cancelled: unsafe extern "C" fn(*const Cancel) -> u32,
     pub cancel_wait: unsafe extern "C" fn(*const Cancel) -> u32,
@@ -187,4 +215,13 @@ pub struct Host {
     pub session_accept: unsafe extern "C" fn(*mut Request, u64) -> u32,
     pub session_send:
         unsafe extern "C" fn(*mut Request, u32, u32, Slice) -> u32,
+    pub call_reply: unsafe extern "C" fn(*mut Call, Slice) -> u32,
+    pub call_fail: unsafe extern "C" fn(*mut Call, Slice) -> u32,
+    pub publish_event: unsafe extern "C" fn(Slice, Slice) -> u32,
+    pub invoke: unsafe extern "C" fn(
+        Slice,
+        Slice,
+        Option<InvokeCallback>,
+        *mut c_void,
+    ) -> u32,
 }
