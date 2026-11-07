@@ -85,10 +85,20 @@ impl HostCompiler<'_> {
         .map(|stage| stage as Arc<dyn BackendHandler>);
         #[cfg(not(feature = "websocket"))]
         let upgrades = None;
+        // Only where a session can arrive: a plan with nothing to do keeps its
+        // direct path.
         #[cfg(feature = "webtransport")]
-        let upgrades =
+        let upgrades = if matches!(protocol, Some(RouteProtocol::Quic))
+            && state
+                .registry_ref()
+                .resolve::<crate::host::WebTransportRegistry>()
+                .is_some_and(|sessions| sessions.has_host(host))
+        {
             Some(claviron_pipeline::layers::WebTransportStage::new(upgrades)
-                as Arc<dyn BackendHandler>);
+                as Arc<dyn BackendHandler>)
+        } else {
+            upgrades
+        };
         compile(CompileInput {
             state,
             host: Some(host),

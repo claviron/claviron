@@ -175,6 +175,15 @@ async fn dispatch(
     // Taken before the application hears of it: once this owner has the attempt
     // it alone can answer it, and an attempt someone else holds is not its own.
     let offer = request.extensions().get::<Offer>().cloned();
+    // A WebTransport session is answered by its own adapter, stream by stream.
+    if let Some(offer) = &offer
+        && offer.info().kind == claviron_http::socket::SocketKind::WebTransport
+    {
+        return match offer.claim() {
+            Some(claim) => claim.reach(),
+            None => err_status(StatusCode::FORBIDDEN),
+        };
+    }
     let claim = match &offer {
         Some(offer) => match offer.claim() {
             Some(claim) => Some(claim),

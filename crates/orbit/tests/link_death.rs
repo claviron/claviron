@@ -7,7 +7,8 @@ use std::os::unix::net::UnixStream;
 use std::time::Duration;
 
 use claviron_orbit::link::application::{
-    Access, ApplicationClient, ApplicationSegment, Error, Exchange,
+    Access, ApplicationBodies, ApplicationClient, ApplicationSegment, Error,
+    Exchange,
 };
 use nix::sys::signal::{Signal, kill};
 use nix::sys::wait::waitpid;
@@ -72,5 +73,11 @@ fn a_killed_application_ends_what_waits_on_it_and_refuses_what_follows() {
     });
     waitpid(child, None).unwrap();
     drop(runtime);
-    ApplicationSegment::for_fleet(&fleet).unwrap().unlink().unwrap();
+    let segment = ApplicationSegment::for_fleet(&fleet).unwrap();
+    let cleanup = segment.join("example-cleanup", "rust", 3).unwrap();
+    ApplicationBodies::for_segment(&segment, cleanup.lane, 3)
+        .unwrap()
+        .unlink()
+        .unwrap();
+    segment.unlink().unwrap();
 }
