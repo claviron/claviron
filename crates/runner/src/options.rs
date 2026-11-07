@@ -267,11 +267,18 @@ impl RunnerOptions {
             production: self.production,
             fleet_name: self.fleet_name.or(written.fleet_name),
             orbit: self.orbit || written.orbit,
-            edge_shutdown_policy: written.edge_shutdown_policy,
+            edge_shutdown_policy: if self.edge_shutdown_policy
+                == EdgeShutdownPolicy::default()
+            {
+                written.edge_shutdown_policy
+            } else {
+                self.edge_shutdown_policy
+            },
             tcp: self.tcp.or(written.tcp),
             tcp_backlog: self.tcp_backlog.or(written.tcp_backlog),
-            // Written down, never typed: no flag can have stated it.
-            listener: written.listener,
+            // Written down, never typed, but a launch is layered more than
+            // once: a resolved file can stand on either side of this call.
+            listener: self.listener.or(written.listener),
             uds: self.uds.or(written.uds),
             h1: self.h1 || written.h1,
             h2: self.h2 || written.h2,
@@ -289,11 +296,10 @@ impl RunnerOptions {
             #[cfg(feature = "tls")]
             tls_client_ca: self.tls_client_ca.or(written.tls_client_ca),
             max_in_flight: self.max_in_flight.or(written.max_in_flight),
-            // Written down, never typed: no flag can have stated these.
-            requests: written.requests,
-            responses: written.responses,
+            requests: self.requests.or(written.requests),
+            responses: self.responses.or(written.responses),
             #[cfg(feature = "pipeline")]
-            site: written.site,
+            site: self.site.or(written.site),
             #[cfg(feature = "files")]
             files: self.files.or(written.files),
             #[cfg(feature = "files")]
@@ -315,7 +321,7 @@ impl RunnerOptions {
             #[cfg(feature = "supervisor")]
             workers: self.workers.or(written.workers),
             #[cfg(feature = "supervisor")]
-            supervisor: written.supervisor,
+            supervisor: self.supervisor.or(written.supervisor),
         }
     }
 

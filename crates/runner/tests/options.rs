@@ -184,6 +184,30 @@ fn assets_and_probe_survive_the_launch_and_command_line_precedence() {
 /// A request policy here would be silently ignored by the driver, so it is an
 /// error; everything a listener says about its sockets is accepted.
 #[test]
+fn what_only_a_file_says_survives_on_either_side_of_a_layering() {
+    let (shared, _) = split(
+        serde_yaml::from_str(
+            "edge_shutdown_policy: shutdown\n\
+             listener: { execution: current_thread }\n\
+             requests: { max_body_size: 1 MiB }\n\
+             responses: { max_body_size: 1 MiB }\n",
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let file: RunnerOptions = serde_yaml::from_value(shared).unwrap();
+    for options in [
+        file.clone().over(RunnerOptions::default()),
+        RunnerOptions::default().over(file),
+    ] {
+        assert_eq!(options.edge_shutdown_policy, EdgeShutdownPolicy::Shutdown);
+        assert!(options.listener.is_some());
+        assert!(options.requests.is_some());
+        assert!(options.responses.is_some());
+    }
+}
+
+#[test]
 fn the_sockets_listener_settings_are_checked_when_read() {
     use claviron_http::config::{ListenerExecution, Override};
     let written = |listener: &str| RunnerOptions {
