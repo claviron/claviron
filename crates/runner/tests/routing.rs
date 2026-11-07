@@ -351,3 +351,64 @@ async fn warp_routes_select_before_body_and_keep_rejections_terminal() {
     assert_eq!(bytes.as_ptr(), original);
     assert_eq!(calls.load(std::sync::atomic::Ordering::Relaxed), 1);
 }
+
+/// A connection to be taken over passes through the site like any request, so
+/// what the site answers or refuses never reaches who would take it.
+#[cfg(feature = "pipeline")]
+#[tokio::test]
+async fn a_site_stands_in_front_of_what_takes_a_connection_over() {
+    let site: Arc<claviron_pipeline::Site> = Arc::new(
+        serde_yaml::from_str(
+            "root: .\nroutes:\n  /old:\n    redirect: { to: /, code: 307 }\n",
+        )
+        .unwrap(),
+    );
+    let answers = |code: u16| {
+        tower::service_fn(move |_: AppRequest| async move {
+            let mut response = AppResponse::new(claviron_http::empty_body());
+            *response.status_mut() = StatusCode::from_u16(code).unwrap();
+            Ok::<_, Infallible>(response)
+        })
+    };
+    let application = |owner: Owner| {
+        let state = AppState::standalone("runner-routing", ".");
+        register_owner(&state, owner).unwrap();
+        state
+            .registry_ref()
+            .insert(Arc::new(
+                Routing::new(HttpPolicy::unlimited())
+                    .site(Some(Arc::clone(&site))),
+            ))
+            .unwrap();
+        #[cfg(feature = "axum")]
+        claviron_pipeline::routing::register(&state).unwrap();
+        ensure_application(&state).unwrap();
+        state.registry_ref().resolve::<Application>().unwrap()
+    };
+    let upgrade = |path: &str| {
+        Request::get(path)
+            .header(http::header::UPGRADE, "websocket")
+            .body(RequestBody::empty())
+            .unwrap()
+    };
+
+    let taken = application(Owner::new(answers(200)).upgrades(answers(202)));
+    assert_eq!(
+        taken.call(upgrade("/old")).await.status(),
+        StatusCode::TEMPORARY_REDIRECT
+    );
+    assert_eq!(
+        taken.call(upgrade("/anywhere")).await.status(),
+        StatusCode::ACCEPTED
+    );
+
+    let unclaimed = application(Owner::new(answers(200)));
+    assert_eq!(
+        unclaimed.call(upgrade("/old")).await.status(),
+        StatusCode::TEMPORARY_REDIRECT
+    );
+    assert_eq!(
+        unclaimed.call(upgrade("/anywhere")).await.status(),
+        StatusCode::NOT_IMPLEMENTED
+    );
+}

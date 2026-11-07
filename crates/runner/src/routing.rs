@@ -288,7 +288,6 @@ impl Routing {
 /// the guards, then what the application composed.
 pub struct Application {
     service: Arc<dyn ErasedService>,
-    upgrades: Option<Arc<dyn ErasedService>>,
     #[cfg(feature = "orbit")]
     sessions: Option<Sessions>,
 }
@@ -310,9 +309,8 @@ impl Application {
     ) -> impl Future<Output = AppResponse> + Send + use<> {
         let exchange = claviron_runtime::activity::ACTIVITY.begin();
         let service = Arc::clone(&self.service);
-        let upgrades = self.upgrades.clone();
         async move {
-            let response = admitted(service, upgrades, request).await;
+            let response = admitted(service, request).await;
             drop(exchange);
             response
         }
@@ -336,7 +334,6 @@ impl claviron_transport::owner::Owner for Application {
 /// is left.
 async fn admitted(
     service: Arc<dyn ErasedService>,
-    upgrades: Option<Arc<dyn ErasedService>>,
     request: AppRequest,
 ) -> AppResponse {
     // Framing two parsers could read differently, refused before anything
@@ -349,20 +346,10 @@ async fn admitted(
     {
         return status(StatusCode::BAD_REQUEST);
     }
-    // A connection taken over is the owner's to claim; its body is the
-    // connection itself, so no body guard applies. Unclaimed, it is refused,
-    // and so is a tunnel.
+    // A tunnel is refused. A connection to be taken over goes on with the rest,
+    // through whatever stands in front of the application.
     if request.method() == Method::CONNECT {
         return status(StatusCode::NOT_IMPLEMENTED);
-    }
-    if request.headers().contains_key(http::header::UPGRADE) {
-        return match upgrades {
-            Some(upgrades) => {
-                let Ok(response) = upgrades.call_erased(request).await;
-                response
-            }
-            None => status(StatusCode::NOT_IMPLEMENTED),
-        };
     }
     let Ok(response) = service.call_erased(request).await;
     response
@@ -373,6 +360,9 @@ async fn admitted(
 /// enforce.
 struct Answering {
     service: Arc<dyn ErasedService>,
+    /// Who takes a connection over. It answers when it decides, so the reply
+    /// head's deadline is not its; unclaimed, the attempt is refused.
+    upgrades: Option<Arc<dyn ErasedService>>,
     policy: HttpPolicy,
 }
 
@@ -382,8 +372,19 @@ impl ErasedService for Answering {
         mut request: AppRequest,
     ) -> RouteFuture {
         let (service, policy) = (Arc::clone(&self.service), self.policy);
+        let upgrades = self.upgrades.clone();
         Box::pin(async move {
             request.extensions_mut().insert(policy);
+            if request.headers().contains_key(http::header::UPGRADE) {
+                return Ok(match upgrades {
+                    Some(upgrades) => match upgrades.call_erased(request).await
+                    {
+                        Ok(response) => response,
+                        Err(never) => match never {},
+                    },
+                    None => status(StatusCode::NOT_IMPLEMENTED),
+                });
+            }
             Ok(
                 match head_within(
                     policy.requests.head_timeout,
@@ -577,7 +578,7 @@ fn compose_service(
     };
     let sessions = sessions
         .or_else(|| owner.as_ref().and_then(|owner| owner.orbit_session()));
-    let answering = Answering { service, policy: routing.policy };
+    let answering = Answering { service, upgrades, policy: routing.policy };
     #[cfg(feature = "pipeline")]
     let service = plan::over(state, &routing, answering)?;
     #[cfg(not(feature = "pipeline"))]
@@ -595,7 +596,6 @@ fn compose_service(
     let _ = sessions;
     state.registry_ref().insert(Arc::new(Application {
         service,
-        upgrades,
         #[cfg(feature = "orbit")]
         sessions,
     }))?;
