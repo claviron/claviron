@@ -188,7 +188,7 @@ fn what_only_a_file_says_survives_on_either_side_of_a_layering() {
     let (shared, _) = split(
         serde_yaml::from_str(
             "edge_shutdown_policy: shutdown\n\
-             listener: { execution: current_thread }\n\
+             listener: { execution: dedicated }\n\
              requests: { max_body_size: 1 MiB }\n\
              responses: { max_body_size: 1 MiB }\n",
         )
@@ -214,12 +214,12 @@ fn the_sockets_listener_settings_are_checked_when_read() {
         listener: Some(serde_yaml::from_str(listener).unwrap()),
         ..RunnerOptions::default()
     };
-    let listener = written("{execution: current_thread, max_connections: 8}")
+    let listener = written("{execution: dedicated, max_connections: 8}")
         .listener()
         .unwrap();
     assert_eq!(
         listener.execution,
-        Override::Value(ListenerExecution::CurrentThread)
+        Override::Value(ListenerExecution::Dedicated)
     );
     assert!(written("{requests: {max_body_size: off}}").validate().is_err());
     assert!(written("{mistyped: true}").validate().is_err());

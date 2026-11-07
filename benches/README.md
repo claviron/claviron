@@ -107,7 +107,7 @@ warm-up; the measured windows contain persistent connections only. Runs of
 different modes are never compared with each other.
 
 `--server-execution shared` serves HTTP on the main runtime. Selecting
-`current_thread` places bind, accept and connection tasks on one additional
+`dedicated` places bind, accept and connection tasks on one additional
 current-thread executor using Claviron's production `CurrentThreadDriver` and
 listener execution specification. All native and Edge controls use the same
 cold placement setup; native HTTP still runs directly through Hyper or
@@ -115,7 +115,7 @@ cold placement setup; native HTTP still runs directly through Hyper or
 The benchmark checks the selected runtime flavor before binding.
 
 `--server-threads` always controls the main runtime's thread budget, including
-in `current_thread` mode. It does not count HTTP executors or processes.
+in `dedicated` mode. It does not count HTTP executors or processes.
 Results record both the execution mode and effective HTTP runtime thread count.
 Each run has one serving process and one listener; a 32-worker fleet is a
 different measurement topology.
@@ -149,7 +149,7 @@ not request latency percentiles.
   Near 100% the server set the pace and its throughput is a server result.
   Well below that, the client set the pace: CPU/request then includes time the
   server spent waiting, and throughput says nothing about the server. Use
-  `current_thread`, or fewer server threads than client threads, when the
+  `dedicated`, or fewer server threads than client threads, when the
   comparison is about serving cost.
 - **Allocations/request** counts the serving process's allocation calls
   (`alloc`, zeroed `alloc` and `realloc`) during its warm-up load, divided by
@@ -199,7 +199,7 @@ executable with different owners. Name the native owner as the control:
 python3 scripts/bench-http.py http1-concurrent-edge-other \
   --control http1-concurrent-hyper \
   --connections 1024 --server-threads 4 --client-threads 4 \
-  --server-execution current_thread \
+  --server-execution dedicated \
   --warmup-seconds 3 --measurement-seconds 5 --samples 4
 ```
 

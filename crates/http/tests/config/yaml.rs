@@ -39,20 +39,16 @@ fn listener_execution_inherits_and_overrides_for_plain_tls_and_quic() {
     ] {
         for (inherited, local, expected) in [
             ("", "", ListenerExecution::Shared),
+            ("    execution: dedicated\n", "", ListenerExecution::Dedicated),
             (
-                "    execution: current_thread\n",
-                "",
-                ListenerExecution::CurrentThread,
-            ),
-            (
-                "    execution: current_thread\n",
+                "    execution: dedicated\n",
                 "    execution: shared\n",
                 ListenerExecution::Shared,
             ),
             (
                 "    execution: shared\n",
-                "    execution: current_thread\n",
-                ListenerExecution::CurrentThread,
+                "    execution: dedicated\n",
+                ListenerExecution::Dedicated,
             ),
         ] {
             let source = format!(
@@ -63,7 +59,7 @@ fn listener_execution_inherits_and_overrides_for_plain_tls_and_quic() {
             assert_eq!(listener.execution, expected);
             let spec = match expected {
                 ListenerExecution::Shared => ExecutionSpec::default(),
-                ListenerExecution::CurrentThread => ExecutionSpec::default()
+                ListenerExecution::Dedicated => ExecutionSpec::default()
                     .with_executor(ExecutorSpec::Shared(
                         ExecutionDomain::named::<ListenerExecution>("selected"),
                     )),
@@ -71,7 +67,7 @@ fn listener_execution_inherits_and_overrides_for_plain_tls_and_quic() {
             assert_eq!(listener.execution_spec(), spec);
             let mut changed = listener.as_ref().clone();
             changed.execution = if expected == ListenerExecution::Shared {
-                ListenerExecution::CurrentThread
+                ListenerExecution::Dedicated
             } else {
                 ListenerExecution::Shared
             };
@@ -224,7 +220,7 @@ fn connection_limits_are_only_applied_when_declared() {
 fn listener_execution_domains_are_scoped_to_listener_identity() {
     let first = "first".parse().unwrap();
     let second = "second".parse().unwrap();
-    let configured = ListenerExecution::CurrentThread;
+    let configured = ListenerExecution::Dedicated;
     assert_eq!(
         configured.for_listener(&first),
         configured.for_listener(&first)

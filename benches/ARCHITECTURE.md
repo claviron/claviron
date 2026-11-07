@@ -102,7 +102,7 @@ concurrent::run
 | [concurrent/client.rs](support/http1/concurrent/client.rs) | Persistent connections, synchronized request loops that wait for connection readiness, complete-response counts and client teardown. |
 | [concurrent/cpu.rs](support/http1/concurrent/cpu.rs) | Unix `getrusage(RUSAGE_SELF)` user and system CPU, kept separate, for all server process threads, excluding the client process. |
 
-`shared` serves on the main multi-thread runtime. `current_thread` keeps that
+`shared` serves on the main multi-thread runtime. `dedicated` keeps that
 runtime and places HTTP on one additional Claviron current-thread executor.
 Both apply to every concurrent target; execution setup/teardown is not timed.
 

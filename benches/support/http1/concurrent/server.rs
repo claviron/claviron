@@ -88,7 +88,7 @@ pub(super) fn run(args: &Args) -> Result<()> {
 pub(super) async fn start(args: &Args) -> Result<Server> {
     let expected = match args.server_execution {
         ServerExecution::Shared => tokio::runtime::RuntimeFlavor::MultiThread,
-        ServerExecution::CurrentThread => {
+        ServerExecution::Dedicated => {
             tokio::runtime::RuntimeFlavor::CurrentThread
         }
     };

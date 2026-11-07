@@ -88,7 +88,7 @@ impl Mode {
 enum ServerExecution {
     #[default]
     Shared,
-    CurrentThread,
+    Dedicated,
 }
 
 #[derive(Clone, Parser)]
@@ -162,7 +162,7 @@ impl Args {
     fn http_threads(&self) -> usize {
         match self.server_execution {
             ServerExecution::Shared => self.server_threads.get(),
-            ServerExecution::CurrentThread => 1,
+            ServerExecution::Dedicated => 1,
         }
     }
 }

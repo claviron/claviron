@@ -307,7 +307,7 @@ changes require stop/restart. All addresses of one listener share its admission
 gate and generation. Unchanged instances retain management identity; removals
 cancel and drain that instance, and re-addition retains a still-draining handle.
 
-Each listener selects `execution: shared` or `execution: current_thread` through
+Each listener selects `execution: shared` or `execution: dedicated` through
 its resolved `ListenerConfig`. `defaults.listener.execution` supplies the default;
 individual declarations override it. The three concrete Runnable types use the
 same `ListenerConfig::execution_spec()` API. Shared uses ambient Tokio;

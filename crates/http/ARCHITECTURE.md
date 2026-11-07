@@ -18,7 +18,7 @@ response-header policy belong to `edge-config` and `edge`, not here.
 Application-specific middleware and its response policy live in the consuming
 framework, not in this primitive crate.
 
-`config::ListenerExecution` selects `shared` (default) or `current_thread`
+`config::ListenerExecution` selects `shared` (default) or `dedicated`
 for each listener. `defaults.listener.execution` supplies an inherited default;
 `listeners.<id>.execution` overrides it for plain TCP, TLS TCP or QUIC.
 `ListenerConfig::execution_spec()` converts the resolved choice into Runnable
@@ -302,7 +302,7 @@ listeners:
     tls: false
     protocols: h1
   public:
-    execution: current_thread
+    execution: dedicated
     transport: tcp
     listen: ['0.0.0.0:443', '[::]:443']
     tls: true

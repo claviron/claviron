@@ -62,7 +62,7 @@ fn listener_execution_changes_invalidate_only_their_transport_projection() {
     {
         let changed = source.replace(
             &format!("  {name}:\n"),
-            &format!("  {name}:\n    execution: current_thread\n"),
+            &format!("  {name}:\n    execution: dedicated\n"),
         );
         assert_eq!(
             plain
