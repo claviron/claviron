@@ -45,10 +45,39 @@ pub(crate) struct PreparedBackends {
     pub after_files: Vec<Arc<dyn BackendHandler>>,
     /// Which registrations prepared an owner here.
     pub owners: Vec<&'static str>,
+    /// The owner here is one this scope only inherits.
+    pub inherited: bool,
 }
 
 impl PreparedBackends {
-    pub(crate) fn add(
+    /// Prepare one scope's owners. A route that has an owner of its own has
+    /// replaced what it would otherwise inherit, and `inherit` says whether this
+    /// scope serves an application at all.
+    pub(crate) fn resolve(
+        factories: impl IntoIterator<Item = Arc<dyn BackendFactory>>,
+        context: &BackendContext<'_>,
+        inherit: bool,
+    ) -> Result<Self> {
+        let mut prepared = Self::default();
+        let (inherited, own): (Vec<_>, Vec<_>) =
+            factories.into_iter().partition(|factory| factory.inherited());
+        for factory in own {
+            prepared.add(factory.as_ref(), context)?;
+        }
+        #[cfg(feature = "orbit")]
+        let declared = !context.route.orbit().is_empty();
+        #[cfg(not(feature = "orbit"))]
+        let declared = false;
+        if inherit && prepared.owners.is_empty() && !declared {
+            for factory in inherited {
+                prepared.add(factory.as_ref(), context)?;
+            }
+            prepared.inherited = !prepared.owners.is_empty();
+        }
+        Ok(prepared)
+    }
+
+    fn add(
         &mut self,
         factory: &dyn BackendFactory,
         context: &BackendContext<'_>,

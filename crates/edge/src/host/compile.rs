@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use claviron_http::config::HttpSnapshot;
 use claviron_pipeline::compile::{CompileInput, compile};
+use claviron_pipeline::factory::{BackendPlacement, BackendScope, backend};
 use claviron_runtime::{AppState, registry::Result};
 use claviron_types::Host;
 
@@ -99,6 +100,22 @@ impl HostCompiler<'_> {
         } else {
             upgrades
         };
+        // The host's router owns what no route of its own owns, and it stands in
+        // front of the files as it always has.
+        let backends: Vec<_> = router
+            .map(|router| {
+                backend(
+                    "router",
+                    BackendScope::site(),
+                    BackendPlacement::BeforeFiles,
+                    move |_| {
+                        Ok(vec![Arc::new(router.clone())
+                            as Arc<dyn claviron_pipeline::BackendHandler>])
+                    },
+                )
+            })
+            .into_iter()
+            .collect();
         compile(CompileInput {
             state,
             host: Some(host),
@@ -107,7 +124,7 @@ impl HostCompiler<'_> {
             listener,
             protocol: self.protocol,
             http: self.http,
-            router,
+            backends: &backends,
             applications: &contributions.applications,
             layers: &contributions.layers,
             registry: registry.as_deref().map(HostAppRegistry::site),

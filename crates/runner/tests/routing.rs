@@ -163,6 +163,8 @@ async fn rust_axum_needs_no_owner_and_keeps_its_fallback() {
     assert!(state.registry_ref().resolve::<Owner>().is_none());
 
     let application = state.registry_ref().resolve::<Application>().unwrap();
+    // With nothing around it, the router answers with no plan to walk through.
+    assert_eq!(application.execution.kind(), "axum");
     for (path, status, expected) in [
         ("/", StatusCode::OK, "rust"),
         ("/missing", StatusCode::IM_A_TEAPOT, "custom fallback"),

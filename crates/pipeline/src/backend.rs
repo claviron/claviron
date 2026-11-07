@@ -115,4 +115,8 @@ impl<T: BackendHandler + ?Sized> BackendHandler for Arc<T> {
     fn contract(&self) -> BackendContract {
         self.as_ref().contract()
     }
+
+    fn direct(&self) -> Option<RustRouter> {
+        (**self).direct()
+    }
 }

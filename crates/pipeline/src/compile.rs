@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use claviron_http::RustRouter;
 use claviron_http::config::transport::TransportPolicy;
 use claviron_http::config::{
     HttpPolicy, HttpSnapshot, ListenerConfig, routes::RouteTable,
@@ -15,7 +14,9 @@ use claviron_runtime::{
 use claviron_types::Host;
 
 use crate::extension::{PreparedScope, RouteContext, RouteLayer};
-use crate::factory::{BackendContext, RouteProtocol};
+use crate::factory::{
+    BackendContext, BackendFactory, PreparedBackends, RouteProtocol,
+};
 #[cfg(feature = "rate-limit")]
 use crate::layers::HostQuotas;
 #[cfg(feature = "access-log")]
@@ -146,7 +147,9 @@ pub struct CompileInput<'a> {
     pub listener: Option<&'a ListenerConfig>,
     pub protocol: Option<RouteProtocol>,
     pub http: Option<&'a HttpSnapshot>,
-    pub router: Option<RustRouter>,
+    /// Owners bound to this compilation alone, prepared with the registry's: what
+    /// one host of a shared registry brought with it.
+    pub backends: &'a [Arc<dyn BackendFactory>],
     pub applications: &'a [Arc<dyn HostHandler>],
     pub layers: &'a [Arc<dyn RouteLayer>],
     pub registry: Option<&'a SiteRegistry>,
@@ -173,7 +176,7 @@ struct Compiler<'a> {
     #[cfg(feature = "rate-limit")]
     quotas: Option<&'a crate::layers::HostQuotas>,
     state: &'a AppState,
-    router: Option<RustRouter>,
+    backends: &'a [Arc<dyn BackendFactory>],
     applications: &'a [Arc<dyn HostHandler>],
     layers: &'a [Arc<dyn RouteLayer>],
     registry: Option<&'a SiteRegistry>,
@@ -233,9 +236,14 @@ impl Compiler<'_> {
         let policy = self.config.policy_at(prefix, self.policy);
         // A redirect serves nothing, so nothing is prepared behind it; what its
         // directives declare must still have one owner.
-        let prepared = match &self.registry {
-            Some(registry) if redirect.is_none() => {
-                registry.resolve_backends(&BackendContext {
+        let prepared = if redirect.is_none() {
+            PreparedBackends::resolve(
+                self.registry
+                    .map(SiteRegistry::backends)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .chain(self.backends.iter().cloned()),
+                &BackendContext {
                     state: self.state,
                     host: self.host,
                     site: self.config,
@@ -245,9 +253,11 @@ impl Compiler<'_> {
                     transport: self.transport,
                     protocol: self.protocol,
                     listener: self.listener,
-                })?
-            }
-            _ => Default::default(),
+                },
+                accept_applications,
+            )?
+        } else {
+            PreparedBackends::default()
         };
         let declared = match &self.registry {
             Some(registry) if redirect.is_some() => {
@@ -255,7 +265,9 @@ impl Compiler<'_> {
             }
             _ => prepared.owners.clone(),
         };
-        let owned = self.application_owner(&config, prefix, declared)?;
+        // An owner the scope only inherits leaves it the files it inherits too.
+        let owned = self.application_owner(&config, prefix, declared)?
+            && !prepared.inherited;
         let steps = if redirect.is_none() {
             scope_steps(&config, owned)
         } else {
@@ -484,23 +496,20 @@ impl Compiler<'_> {
                 .map_err(|error| Error::msg(error.to_string()))?;
             return Ok(builder.build().into_execution());
         }
-        if accept_applications && let Some(router) = &self.router {
-            if builder.is_empty() {
-                return Ok(HostExecution::router(router.clone(), policy));
+        // A router answers whatever reaches it, so what stands after one in front
+        // of the files is never asked. With nothing around it, it answers with no
+        // plan to walk through.
+        if builder.is_empty() {
+            let only = match (before_files.as_slice(), backends.as_slice()) {
+                ([only], _) => Some(only),
+                ([], [only]) if steps.is_empty() && fallback.is_none() => {
+                    Some(only)
+                }
+                _ => None,
+            };
+            if let Some(router) = only.and_then(|only| only.direct()) {
+                return Ok(HostExecution::router(router, policy));
             }
-            builder
-                .layer(Backend::new(router.clone(), policy))
-                .map_err(|error| Error::msg(error.to_string()))?;
-        }
-        // A router with nothing around it answers with no plan to walk through.
-        if builder.is_empty()
-            && before_files.is_empty()
-            && steps.is_empty()
-            && fallback.is_none()
-            && let [only] = backends.as_slice()
-            && let Some(router) = only.direct()
-        {
-            return Ok(HostExecution::router(router, policy));
         }
         for backend in before_files {
             builder
@@ -557,7 +566,7 @@ pub fn compile_site(
         listener: terms.listener,
         protocol: None,
         http: None,
-        router: None,
+        backends: &[],
         applications: &[],
         layers: &[],
         registry,
@@ -580,7 +589,7 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
         listener,
         protocol,
         http,
-        router,
+        backends,
         applications,
         layers,
         registry,
@@ -617,7 +626,7 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
         headers: http.map(|http| http.headers.as_ref()),
         #[cfg(feature = "metrics")]
         metrics: http.is_some_and(|http| http.metrics.is_some()),
-        router,
+        backends,
         #[cfg(feature = "rate-limit")]
         quotas,
         state,

@@ -7,7 +7,7 @@ use claviron_http::dispatch::RouteCondition;
 use claviron_runtime::registry::{Error, Result};
 
 use crate::extension::{RouteContext, RouteEffect, RouteExtension, RouteLayer};
-use crate::factory::{BackendContext, BackendFactory, PreparedBackends};
+use crate::factory::BackendFactory;
 use crate::{HostHandler, Site};
 
 /// Route extensions brought by something other than the registry, for one
@@ -118,37 +118,14 @@ impl SiteRegistry {
             .collect()
     }
 
-    pub(crate) fn resolve_backends(
-        &self,
-        context: &BackendContext<'_>,
-    ) -> Result<PreparedBackends> {
-        let factories = self
-            .backend_factories
+    /// What is registered, for one compilation to prepare.
+    pub(crate) fn backends(&self) -> Vec<Arc<dyn BackendFactory>> {
+        self.backend_factories
             .read()
             .expect("backend factories lock poisoned")
-            .clone();
-        let mut owners = PreparedBackends::default();
-        let (inherited, own): (Vec<_>, Vec<_>) =
-            factories.iter().partition(|factory| factory.inherited());
-        for factory in own {
-            owners.add(factory.as_ref(), context)?;
-        }
-        // A route that has an owner of its own has replaced what it would
-        // otherwise inherit.
-        #[cfg(feature = "orbit")]
-        let declared = !context.route.orbit().is_empty();
-        #[cfg(not(feature = "orbit"))]
-        let declared = false;
-        if owners.owners.is_empty() && !declared {
-            for factory in inherited {
-                owners.add(factory.as_ref(), context)?;
-            }
-        }
-        Ok(owners)
+            .clone()
     }
 
-    /// The directives of one scope, compiled by whichever extension owns each
-    /// name. `contributed` adds the extensions a host's own providers bring.
     pub(crate) fn resolve_extensions(
         &self,
         context: &RouteContext<'_>,
