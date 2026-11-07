@@ -175,8 +175,8 @@ impl Runner {
                 #[cfg(feature = "module")]
                 if let Some(sites) = state
                     .registry_ref()
-                    .resolve::<claviron_pipeline::SiteRegistry>()
-                {
+                    .resolve::<claviron_pipeline::SiteRegistry>(
+                ) {
                     claviron_module::register_routes(state, &sites)?;
                 }
                 for register in registrations {

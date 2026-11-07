@@ -23,8 +23,6 @@ pub use claviron_edge as edge;
 /// name a listener policy of its own.
 #[cfg(feature = "edge")]
 pub use claviron_edge::config as edge_config;
-#[cfg(feature = "module")]
-pub use claviron_module as module;
 #[cfg(feature = "files")]
 pub use claviron_files as files;
 #[cfg(feature = "geoip")]
@@ -38,6 +36,8 @@ pub use claviron_http as http;
 pub use claviron_http::upgrade as websocket;
 #[cfg(feature = "logging")]
 pub use claviron_logging as logging;
+#[cfg(feature = "module")]
+pub use claviron_module as module;
 #[cfg(any(feature = "orbit", feature = "rate-limit"))]
 pub use claviron_orbit as orbit;
 #[cfg(feature = "resolver")]
