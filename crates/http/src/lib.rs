@@ -44,4 +44,6 @@ pub use ext::Inject;
 pub use listener::ListenerId;
 
 #[cfg(feature = "websocket")]
+pub mod socket;
+#[cfg(feature = "websocket")]
 pub mod upgrade;
