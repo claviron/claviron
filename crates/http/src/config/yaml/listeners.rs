@@ -16,7 +16,7 @@ use super::{
     ResponsePolicyOverride, TcpConfig, TcpOverride, UdsConfig, UdsOverride,
 };
 use crate::ListenerId;
-use crate::listener::{HttpProtocol, ListenerTransport};
+use crate::listener::{HttpProtocol, ListenAddress, ListenerTransport};
 
 /// Sparse defaults shared by listener declarations. Nested blocks merge by
 /// field; lists replace. Identity, bind and protocol choices never inherit.
@@ -65,7 +65,7 @@ pub struct ListenerDefinition {
     pub execution: Override<ListenerExecution>,
     pub transport: ListenerTransport,
     #[serde(deserialize_with = "one_or_many")]
-    pub listen: Vec<SocketAddr>,
+    pub listen: Vec<ListenAddress>,
     #[serde(deserialize_with = "one_or_many")]
     pub protocols: Vec<HttpProtocol>,
     #[serde(default)]
@@ -128,7 +128,7 @@ pub struct ListenerConfig {
     pub explicit: bool,
     /// Placement for the next generation; independent of transport and binds.
     pub execution: ListenerExecution,
-    pub listen: Vec<SocketAddr>,
+    pub listen: Vec<ListenAddress>,
     pub limits: ConnectionLimits,
     pub proxy: Option<ProxyConfig>,
     /// What this listener accepts of a request body. Outside `settings`
@@ -164,11 +164,18 @@ impl ListenerConfig {
             && self
                 .listen
                 .iter()
-                .any(|addr| addr.port() != 0 && other.listen.contains(addr))
+                .any(|addr| !addr.is_ephemeral() && other.listen.contains(addr))
     }
 
     pub fn transport(&self) -> ListenerTransport {
         match self.settings {
+            ListenerSettings::Tcp(_)
+                if self.listen.iter().all(|address| {
+                    matches!(address, ListenAddress::Unix(_))
+                }) =>
+            {
+                ListenerTransport::Unix
+            }
             ListenerSettings::Tcp(_) => ListenerTransport::Tcp,
             ListenerSettings::Quic(_) => ListenerTransport::Quic,
         }
@@ -274,10 +281,18 @@ impl ListenerDefinition {
         listen: SocketAddr,
         protocols: Vec<HttpProtocol>,
     ) -> Self {
+        Self::new(ListenerTransport::Tcp, listen.into(), protocols)
+    }
+
+    fn new(
+        transport: ListenerTransport,
+        listen: ListenAddress,
+        protocols: Vec<HttpProtocol>,
+    ) -> Self {
         Self {
             explicit: default_explicit(),
             execution: Override::default(),
-            transport: ListenerTransport::Tcp,
+            transport,
             listen: vec![listen],
             protocols,
             tls: Override::default(),
@@ -295,6 +310,18 @@ impl ListenerDefinition {
             requests: RequestPolicyOverride::default(),
             responses: ResponsePolicyOverride::default(),
         }
+    }
+
+    /// A named Unix listener with the same HTTP policy and execution model.
+    pub fn unix(
+        path: impl Into<std::path::PathBuf>,
+        protocols: Vec<HttpProtocol>,
+    ) -> Self {
+        Self::new(
+            ListenerTransport::Unix,
+            ListenAddress::Unix(path.into()),
+            protocols,
+        )
     }
 
     fn overrides(&self) -> ListenerOverrides {
@@ -352,7 +379,7 @@ impl ListenerDefinition {
         let proxy =
             options.proxy.resolve_proxy(defaults.proxy.resolve_proxy(None));
         let settings = match self.transport {
-            ListenerTransport::Tcp => {
+            ListenerTransport::Tcp | ListenerTransport::Unix => {
                 if !self.quic.is_inherit() {
                     return Err(fail(
                         "TCP listeners cannot contain quic options",
@@ -361,11 +388,17 @@ impl ListenerDefinition {
                 if self.protocols.contains(&HttpProtocol::H3) {
                     return Err(fail("TCP listeners support only h1/h2"));
                 }
-                let tls = self.tls.resolve(&false);
-                if !tls && self.protocols != [HttpProtocol::H1] {
+                let unix = self.transport == ListenerTransport::Unix;
+                if self.listen.iter().any(|address| {
+                    matches!(address, ListenAddress::Unix(_)) != unix
+                }) {
                     return Err(fail(
-                        "cleartext TCP currently supports only h1; prior-knowledge h2 is not implemented",
+                        "listen addresses must match the listener transport",
                     ));
+                }
+                let tls = self.tls.resolve(&false);
+                if unix && tls {
+                    return Err(fail("Unix listeners do not terminate TLS"));
                 }
                 if !self.protocols.contains(&HttpProtocol::H1)
                     && !self.h1.is_inherit()
@@ -429,6 +462,12 @@ impl ListenerDefinition {
                 })
             }
             ListenerTransport::Quic => {
+                if self.listen.iter().any(|address| address.socket().is_none())
+                {
+                    return Err(fail(
+                        "QUIC listeners require IP socket addresses",
+                    ));
+                }
                 if !self.tls.resolve(&true) {
                     return Err(fail("QUIC requires TLS"));
                 }

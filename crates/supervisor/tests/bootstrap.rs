@@ -5,7 +5,7 @@ fn master() -> MasterIdentity {
 }
 
 #[test]
-fn v6_round_trips_fleet_master_identity_incarnation_and_environment() {
+fn v7_round_trips_fleet_master_identity_incarnation_and_environment() {
     let expected = WorkerBootstrap::new(
         WorkerId::new(2),
         FleetNodeId::new(2),
@@ -23,7 +23,7 @@ fn v6_round_trips_fleet_master_identity_incarnation_and_environment() {
     .unwrap();
 
     let encoded = expected.encode().unwrap();
-    assert!(encoded.contains(r#""version":6"#), "{encoded}");
+    assert!(encoded.contains(r#""version":7"#), "{encoded}");
     assert!(encoded.contains(r#""fleet_name":"clv""#), "{encoded}");
     assert!(
         encoded.contains(

@@ -64,8 +64,8 @@ path.
 | [http](crates/http/README.md) | Transport-neutral bodies, HTTP policies, listener declarations, and shared routing contracts. | `http`; Axum integration: `axum` |
 | [pipeline](crates/pipeline/README.md) | The request contract an application or embedded runtime implements, independent of hosts and listeners. | Through `edge` |
 | [transport](crates/transport/README.md) | Socket acceptance and HTTP/1.1, HTTP/2 and HTTP/3 connection driving without host selection. | Through `edge` |
-| [transport::edge::tcp](crates/transport/src/edge/tcp/mod.rs) | The HTTP/1.1 and HTTP/2 listeners that serve Edge's hosts. | Selected by `edge` |
-| [transport::edge::quic](crates/transport/src/edge/quic/mod.rs) | HTTP/3 over QUIC for Edge's hosts, with native request/connection integration. | `http3` (includes `tls`) |
+| [edge::listeners::tcp](crates/edge/src/listeners/tcp/mod.rs) | The HTTP/1.1 and HTTP/2 listeners that serve Edge's hosts. | Selected by `edge` |
+| [edge::listeners::quic](crates/edge/src/listeners/quic/mod.rs) | HTTP/3 over QUIC for Edge's hosts, with native request/connection integration. | `http3` (includes `tls`) |
 | [tls](crates/tls/README.md) | TLS handshakes, shared certificate resolution, and mTLS client-auth policy. | `tls` (includes `ssl`) |
 | [files](crates/files/README.md) | Static-file serving, caching, and response construction. | `files`; included by `edge`, usable without it |
 | [upstream](crates/upstream/README.md) | HTTP origin selection, pools, forwarding, and reload. | `upstream` (includes Edge integration and resolver contracts) |

@@ -1136,3 +1136,13 @@ Regression checks for this boundary:
   capacity.
 - If all workers exhaust restart policy, the supervisor fails its runnable so
   the outer service manager can restart the process tree.
+
+## Inherited descriptors
+
+Worker bootstrap version 7 carries a named descriptor manifest. After configuration
+and validation, spawning duplicates resources from runtime's `ProcessResources`;
+only those child copies survive exec. The verified worker entry adopts them once,
+restores CLOEXEC and installs them before service registration. Check-config
+registers declarations but neither duplicates descriptors nor binds listeners.
+Resource owners, rather than the supervisor, decide how to prepare each FD.
+A new master has no descriptor recovery channel to surviving adopted workers.

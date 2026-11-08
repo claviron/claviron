@@ -13,17 +13,13 @@
 //! policy, a static mount — travels as it was written and is parsed where it
 //! is used.
 
-use std::net::SocketAddr;
-use std::num::NonZeroU32;
+#[cfg(any(feature = "files", feature = "watch", feature = "tls"))]
 use std::path::PathBuf;
 
 use claviron_http::config::ListenerOverrides;
 use claviron_http::policy::{HttpPolicy, HttpPolicyOverride};
 use claviron_http::trust::Network;
 use serde::{Deserialize, Serialize};
-
-#[cfg(feature = "socket")]
-use crate::socket::{Bind, Protocols};
 
 /// What a runner does when the edge master announces its own shutdown.
 #[derive(
@@ -88,36 +84,13 @@ pub struct RunnerOptions {
     #[cfg_attr(feature = "cli", arg(skip))]
     pub edge_shutdown_policy: EdgeShutdownPolicy,
 
-    /// Answer on TCP. Without an address, on localhost port 8000.
-    #[cfg_attr(
-        feature = "cli",
-        arg(long, num_args = 0..=1, default_missing_value = "127.0.0.1:8000")
-    )]
-    pub tcp: Option<SocketAddr>,
+    /// Named listeners, with the same declarations as `http.yaml`.
+    #[cfg_attr(feature = "cli", arg(skip))]
+    pub listeners: Option<serde_yaml::Value>,
 
-    /// Pending connections per TCP listening socket. Unwritten, use the shared
-    /// TcpConfig default (1024). The OS may cap it; this is not an active limit.
-    #[cfg_attr(feature = "cli", arg(long))]
-    pub tcp_backlog: Option<NonZeroU32>,
-
-    /// What a listener in `http.yaml` could say, for every socket here:
-    /// execution, limits, and the TCP, HTTP/1 and HTTP/2 settings. Its
-    /// `execution` places the Orbit door too. Unwritten, no limit and no
-    /// deadline. Written down, not typed.
+    /// Shared listener defaults. Each named listener overrides them.
     #[cfg_attr(feature = "cli", arg(skip))]
     pub listener: Option<serde_yaml::Value>,
-
-    /// Answer on a Unix socket at this path.
-    #[cfg_attr(feature = "cli", arg(long))]
-    pub uds: Option<PathBuf>,
-
-    /// Accept HTTP/1 on the sockets. Naming neither version accepts both.
-    #[cfg_attr(feature = "cli", arg(long))]
-    pub h1: bool,
-
-    /// Accept HTTP/2 on the sockets, cleartext or otherwise.
-    #[cfg_attr(feature = "cli", arg(long))]
-    pub h2: bool,
 
     /// Peers whose forwarding headers to believe: an address or a CIDR,
     /// repeatable. Nobody, unless stated. Carried as the text it was written
@@ -216,12 +189,8 @@ impl RunnerOptions {
         "fleet_name",
         "orbit",
         "edge_shutdown_policy",
-        "tcp",
-        "tcp_backlog",
         "listener",
-        "uds",
-        "h1",
-        "h2",
+        "listeners",
         "trusted",
         #[cfg(feature = "tls")]
         "tls_cert",
@@ -273,14 +242,8 @@ impl RunnerOptions {
             } else {
                 self.edge_shutdown_policy
             },
-            tcp: self.tcp.or(written.tcp),
-            tcp_backlog: self.tcp_backlog.or(written.tcp_backlog),
-            // Written down, never typed, but a launch is layered more than
-            // once: a resolved file can stand on either side of this call.
+            listeners: self.listeners.or(written.listeners),
             listener: self.listener.or(written.listener),
-            uds: self.uds.or(written.uds),
-            h1: self.h1 || written.h1,
-            h2: self.h2 || written.h2,
             // One decision: a command line that names any peer is the whole
             // list.
             trusted: if self.trusted.is_empty() {
@@ -325,10 +288,8 @@ impl RunnerOptions {
 
     /// What cannot be served as written, said before anything starts.
     pub fn validate(&self) -> Result<(), String> {
-        if i32::try_from(self.tcp_backlog().get()).is_err() {
-            return Err("tcp_backlog must be at most 2147483647".into());
-        }
         self.listener()?;
+        self.socket_listeners()?;
         self.site()?;
         if let Some(name) = &self.fleet_name {
             claviron_runtime::FleetName::try_new(name)
@@ -342,7 +303,7 @@ impl RunnerOptions {
             if self.tls_client_ca.is_some() && self.tls_cert.is_none() {
                 return Err("tls_client_ca needs tls_cert and tls_key".into());
             }
-            if self.tls_cert.is_some() && self.tcp.is_none() {
+            if self.tls_cert.is_some() && !self.names_a_socket() {
                 return Err(
                     "TLS is served on a tcp socket, and none is named".into()
                 );
@@ -353,20 +314,10 @@ impl RunnerOptions {
                 "max_in_flight is positive, or unwritten for no bound".into()
             );
         }
-        if self.uds.as_ref().is_some_and(|path| path.as_os_str().is_empty()) {
-            return Err("uds is a path".into());
-        }
         self.policy()?;
         #[cfg(feature = "files")]
         self.file_site()?;
         Ok(())
-    }
-
-    /// Resolve the listener backlog once, from explicit options or HTTP defaults.
-    pub fn tcp_backlog(&self) -> NonZeroU32 {
-        self.tcp_backlog.unwrap_or_else(|| {
-            claviron_http::config::TcpConfig::default().backlog
-        })
     }
 
     /// The sockets' listener settings. A request or reply policy here would be
@@ -440,26 +391,66 @@ impl RunnerOptions {
 
     /// Whether the launch names a socket, whichever build reads it.
     pub fn names_a_socket(&self) -> bool {
-        self.tcp.is_some() || self.uds.is_some()
+        self.listeners.as_ref().is_some_and(|value| {
+            value.as_mapping().is_some_and(|value| !value.is_empty())
+        })
     }
 
-    /// The sockets named, in the order they were; none is not an error here —
-    /// what a launch with no door means is the runner's to say.
-    #[cfg(feature = "socket")]
-    pub fn binds(&self) -> Vec<Bind> {
-        let mut binds = Vec::new();
-        if let Some(address) = self.tcp {
-            binds.push(Bind::Tcp(address));
+    /// Resolve through HTTP's single declaration API; no runner-only socket schema.
+    pub fn socket_listeners(
+        &self
+    ) -> Result<
+        Vec<std::sync::Arc<claviron_http::config::ListenerConfig>>,
+        String,
+    > {
+        let mut written = serde_yaml::Mapping::new();
+        if let Some(listeners) = &self.listeners {
+            written.insert("listeners".into(), listeners.clone());
         }
-        if let Some(path) = &self.uds {
-            binds.push(Bind::Uds(path.clone()));
+        let mut defaults = serde_yaml::Mapping::new();
+        if let Some(listener) = &self.listener {
+            defaults.insert("listener".into(), listener.clone());
         }
-        binds
-    }
-
-    #[cfg(feature = "socket")]
-    pub fn protocols(&self) -> Protocols {
-        Protocols::resolve(self.h1, self.h2)
+        written.insert("defaults".into(), defaults.into());
+        if let Some(declarations) =
+            self.listeners.as_ref().and_then(serde_yaml::Value::as_mapping)
+        {
+            for declaration in
+                declarations.values().filter_map(serde_yaml::Value::as_mapping)
+            {
+                if declaration.contains_key(serde_yaml::Value::from("requests"))
+                    || declaration
+                        .contains_key(serde_yaml::Value::from("responses"))
+                {
+                    return Err("listener requests/responses are application-wide; declare them at the runner root".into());
+                }
+            }
+        }
+        let mut declarations: claviron_http::config::HttpYaml =
+            serde_yaml::from_value(written.into())
+                .map_err(|error| format!("listeners: {error}"))?;
+        // Application owns body policy once, for sockets and Orbit alike.
+        declarations.defaults.listener.requests.max_body_size =
+            Some(claviron_http::policy::Limit::Off);
+        declarations.defaults.listener.requests.body_read_timeout =
+            Some(claviron_http::policy::Limit::Off);
+        let snapshot = declarations
+            .resolve()
+            .map_err(|error| format!("listeners: {error}"))?;
+        claviron_http::config::ListenerCapabilities {
+            tls: cfg!(feature = "tls"),
+            h3: false,
+        }
+        .validate(&snapshot)
+        .map_err(|error| error.to_string())?;
+        if snapshot.listeners.values().any(|listener| {
+            listener.proxy.as_ref().is_some_and(|proxy| {
+                !proxy.headers.is_empty() || !proxy.trusted.is_empty()
+            })
+        }) {
+            return Err("listener proxy policy is host-owned; runner forwarding trust is declared with trusted".into());
+        }
+        Ok(snapshot.listeners.into_values().collect())
     }
 
     /// The certificate for the TCP socket, if one is named.

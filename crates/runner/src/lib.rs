@@ -37,6 +37,6 @@ pub use routing::{
     ensure_application, register_owner, register_router_with, register_routes,
 };
 #[cfg(feature = "socket")]
-pub use socket::{Bind, Protocols, SocketIngress};
+pub use socket::SocketIngress;
 #[cfg(feature = "tls")]
 pub use tls::Tls;

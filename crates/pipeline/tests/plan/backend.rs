@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 fn connection() -> Arc<ConnCtx> {
     Arc::new(ConnCtx {
+        transport: claviron_http::listener::ListenerTransport::Tcp,
         state: Default::default(),
         listener: "public".parse().unwrap(),
         proto: Some(claviron_http::listener::HttpProtocol::H1),

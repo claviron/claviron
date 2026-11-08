@@ -201,6 +201,16 @@ Duplicate concrete provider registration is an error. Registration helpers
 must propagate it, or explicitly test for an existing provider when repeated
 feature-level registration is intentionally idempotent.
 
+## Process descriptors
+
+On Unix, `process.rs` owns `ProcessResources` and `SharedDescriptor`: named,
+process-owned descriptors duplicated explicitly for child exec. A child manifest
+identifies only those duplicates. `ChildDescriptors::attach` clears CLOEXEC only
+in the child's pre-exec callback; originals remain protected in the parent.
+The shared set is sealed at first spawn; late additions are rejected.
+Workers retain inherited descriptors and duplicate them for individual service
+generations. Runtime knows no socket, host, protocol or bind policy.
+
 ## Public Shape
 
 Management can read `runtime_started_at` and monotonic `runtime_uptime` from

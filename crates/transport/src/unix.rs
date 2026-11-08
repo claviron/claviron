@@ -9,20 +9,24 @@ use claviron_http::config::{
     H1Config, ListenerSettings, SocketGroup, UdsConfig,
 };
 use claviron_http::session::{ConnectionScope, SessionOwner, SessionSpawner};
-use claviron_runtime::RunContext;
+use claviron_runtime::{AppState, RunContext};
+use futures_util::stream::poll_fn;
+use futures_util::{StreamExt, stream::SelectAll};
+
+mod shared;
 use claviron_runtime::gate::{Gate, GateDrainOutcome};
 use claviron_runtime::registry::{Error, Result};
 use claviron_sys::net::{AcceptErrorClass, classify_accept_error};
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
-use tokio::net::{UnixListener, UnixStream};
+pub use shared::{prepare, retire};
+use tokio::net::UnixStream;
 use tokio::task::JoinSet;
 use tracing::{debug, warn};
 
-use crate::owner::Owner;
 use crate::tcp::listener::TcpListenerSnapshot;
 use crate::tcp::prior::{PriorKnowledge, drive};
-use crate::tcp::{OwnerRequests, Requests, plain};
+use crate::tcp::{Requests, plain};
 
 /// What one Unix socket serves. It shares the listener's limits, drain and
 /// HTTP settings with a TCP listener; only the socket differs.
@@ -42,8 +46,8 @@ pub trait Unix: TcpListenerSnapshot + Send + Sync + 'static {
     ) -> Self::Requests;
 }
 
-impl<O: Owner> Unix for plain::Single<O> {
-    type Requests = OwnerRequests<O>;
+impl<S: plain::Cleartext> Unix for S {
+    type Requests = S::Requests;
 
     fn h1(&self) -> &H1Config {
         plain::Cleartext::h1(self)
@@ -55,7 +59,26 @@ impl<O: Owner> Unix for plain::Single<O> {
         self: &Arc<Self>,
         sessions: SessionSpawner,
     ) -> Self::Requests {
-        self.requests(None, sessions)
+        let local = std::net::Ipv4Addr::LOCALHOST;
+        let facts = Arc::new(claviron_http::ext::ConnCtx {
+            transport: claviron_http::listener::ListenerTransport::Unix,
+            state: Default::default(),
+            listener: self.listener().id.clone(),
+            proto: if plain::Cleartext::prior_knowledge(self.as_ref()).is_none()
+            {
+                Some(claviron_http::listener::HttpProtocol::H1)
+            } else {
+                None
+            },
+            // Local ingress identity, not a forwarded client's address.
+            remote: (local, 0).into(),
+            local_ip: local.into(),
+            local_port: 0,
+            real_ip: None,
+            country_code: None,
+            tls: None,
+        });
+        plain::Cleartext::connection(self, facts, sessions)
     }
 }
 
@@ -96,9 +119,22 @@ impl Drop for SocketFile {
 fn bind(
     path: &Path,
     uds: &UdsConfig,
-) -> std::io::Result<UnixListener> {
-    if std::fs::symlink_metadata(path).is_ok() {
-        match std::os::unix::net::UnixStream::connect(path) {
+) -> std::io::Result<std::os::unix::net::UnixListener> {
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        use std::os::unix::fs::FileTypeExt;
+        if !metadata.file_type().is_socket() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AddrInUse,
+                "Unix listener path is not a socket",
+            ));
+        }
+        let probe = socket2::Socket::new(
+            socket2::Domain::UNIX,
+            socket2::Type::STREAM,
+            None,
+        )?;
+        probe.set_nonblocking(true)?;
+        match probe.connect(&socket2::SockAddr::unix(path)?) {
             Ok(_) => {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::AddrInUse,
@@ -113,21 +149,39 @@ fn bind(
             {
                 std::fs::remove_file(path)?;
             }
+            Err(error)
+                if error.kind() == std::io::ErrorKind::WouldBlock
+                    || error.raw_os_error() == Some(libc::EINPROGRESS) =>
+            {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AddrInUse,
+                    "a live process owns the Unix socket",
+                ));
+            }
             Err(error) => return Err(error),
         }
     }
-    let listener = match uds.backlog {
-        None => UnixListener::bind(path)?,
-        Some(backlog) => {
-            let socket = tokio::net::UnixSocket::new_stream()?;
-            socket.bind(path)?;
-            socket.listen(backlog.get())?
-        }
-    };
+    let socket = socket2::Socket::new(
+        socket2::Domain::UNIX,
+        socket2::Type::STREAM,
+        None,
+    )?;
+    socket.bind(&socket2::SockAddr::unix(path)?)?;
     if let Err(error) = permit(path, uds) {
         let _ = std::fs::remove_file(path);
         return Err(error);
     }
+    // SOMAXCONN is the OS queue ceiling, matching UnixListener::bind.
+    let backlog =
+        uds.backlog.map_or(libc::SOMAXCONN, |value| value.get() as i32);
+    if let Err(error) =
+        socket.listen(backlog).and_then(|()| socket.set_nonblocking(true))
+    {
+        let _ = std::fs::remove_file(path);
+        return Err(error);
+    }
+    let listener = std::os::unix::net::UnixListener::from(socket);
+
     Ok(listener)
 }
 
@@ -156,27 +210,34 @@ fn permit(
     })
 }
 
-/// Bind `path` and serve until `context` is cancelled and every accepted
-/// connection, and the sessions they started, have drained.
-pub async fn serve<S: Unix>(
-    path: &Path,
-    snapshot: Arc<S>,
+/// Accept on the declared Unix sockets, using descriptors inherited by workers.
+/// Publication may change between accepts; existing connections retain theirs.
+pub async fn serve_current<S, C>(
+    current: C,
+    initial: Arc<S>,
+    state: &AppState,
     context: &RunContext,
-) -> Result<()> {
-    let listener = snapshot.listener();
-    let failure = |error: std::io::Error| {
-        Error::msg(format!(
-            "listener '{}': bind {}: {error}",
-            listener.id,
-            path.display()
-        ))
+) -> Result<()>
+where
+    S: Unix,
+    C: Fn() -> Option<Arc<S>>,
+{
+    let listener = initial.listener();
+    let ListenerSettings::Tcp(settings) = &listener.settings else {
+        return Err(Error::msg("Unix listener requires stream settings"));
     };
-    let uds = match &listener.settings {
-        ListenerSettings::Tcp(settings) => settings.uds.clone(),
-        ListenerSettings::Quic(_) => UdsConfig::default(),
-    };
-    let socket = bind(path, &uds).map_err(failure)?;
-    let _file = SocketFile::owned(path.to_path_buf()).map_err(failure)?;
+    let mut sockets = SelectAll::new();
+    let mut files = Vec::new();
+    for (index, address) in listener.listen.iter().enumerate() {
+        let claviron_http::listener::ListenAddress::Unix(path) = address else {
+            return Err(Error::msg("Unix listener requires Unix addresses"));
+        };
+        let (socket, file) =
+            shared::acquire(state, listener, index, path, &settings.uds)?;
+        files.extend(file);
+        sockets.push(poll_fn(move |cx| socket.poll_accept(cx).map(Some)));
+    }
+    tracing::info!(listener = %listener.id, "Unix listener accepting");
     let gate = Gate::new(
         listener.limits.max_connections.map(|value| value.get()),
         listener.limits.acquire_timeout,
@@ -194,12 +255,14 @@ pub async fn serve<S: Unix>(
                 }
                 continue;
             }
-            accepted = socket.accept() => accepted,
+            accepted = sockets.next() => match accepted {
+                Some(accepted) => accepted,
+                None => break,
+            },
         };
         let stream = match accepted {
             Ok((stream, _)) => stream,
             Err(error) => match classify_accept_error(&error) {
-                // A peer gone before its accept completed: the socket is fine.
                 AcceptErrorClass::Transient => continue,
                 AcceptErrorClass::ResourcePressure
                 | AcceptErrorClass::Fatal => {
@@ -211,6 +274,7 @@ pub async fn serve<S: Unix>(
                 }
             },
         };
+        let Some(snapshot) = current() else { break };
         let permit = tokio::select! {
             biased;
             _ = context.cancelled() => break,
@@ -224,11 +288,11 @@ pub async fn serve<S: Unix>(
         };
         connections.spawn(serve_stream(
             stream,
-            snapshot.clone(),
+            snapshot,
             sessions.bind(permit),
         ));
     }
-    drop(socket);
+    drop(sockets);
     gate.graceful_shutdown(listener.limits.graceful_timeout);
     if let GateDrainOutcome::Forced { remaining } = gate.wait_all_done().await {
         warn!(listener = %listener.id, remaining, "Unix drain expired; forcing accepted tasks");
@@ -241,6 +305,7 @@ pub async fn serve<S: Unix>(
         }
     }
     sessions.close().join().await;
+    drop(files);
     failed.map_or(Ok(()), Err)
 }
 
@@ -280,7 +345,3 @@ pub async fn serve_stream<S: Unix>(
         debug!(%listener, %error, "Unix connection ended");
     }
 }
-
-#[cfg(test)]
-#[path = "../tests/unix.rs"]
-mod tests;

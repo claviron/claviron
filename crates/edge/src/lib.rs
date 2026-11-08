@@ -4,8 +4,8 @@
 //! It owns host admission and prepares native file/backend dispatch, with
 //! optional Rust application adapters and native session bindings. It opens no
 //! socket: the HTTP/1.1, HTTP/2 and HTTP/3 wire mechanics and connection
-//! ownership live in `claviron-transport`, which borrows this crate through
-//! [`transport`].
+//! ownership live in `claviron-transport`. This crate supplies its listener
+//! adapters through [`listeners`].
 
 pub mod config;
 #[cfg(feature = "access-log")]
@@ -18,8 +18,11 @@ mod listener;
 // `loader` combines host declarations and selects among them; it is no one
 // else's business, so it is not public. See `transport`.
 pub mod host;
+#[cfg(any(feature = "tcp", feature = "quic"))]
+pub mod listeners;
 pub(crate) mod loader;
 mod provider;
+pub mod service;
 pub mod transport;
 
 use std::sync::Arc;

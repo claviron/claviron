@@ -140,7 +140,7 @@ impl HostAppSnapshot {
 ///
 /// Registered as a `Component<AppState>` on the runtime registry under
 /// the name `"VhostAppResolver"`. Consumers (the per-conn dispatcher
-/// in `claviron_transport::edge::service::HostService`) resolve it once at boot and call
+/// in `crate::service::HostService`) resolve it once at boot and call
 /// `resolve(...)` per request.
 ///
 /// # Why two structs (Snapshot + Resolver)?
@@ -169,7 +169,7 @@ impl HostAppResolver {
     }
 
     /// Per-request lookup: snapshot once, then `HashMap::get`. Used by
-    /// the connection-handling hot path (`claviron_transport::edge::service::HostService`).
+    /// the connection-handling hot path (`crate::service::HostService`).
     pub fn resolve(
         &self,
         key: &HostKey,

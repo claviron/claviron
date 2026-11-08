@@ -195,10 +195,7 @@ impl<O: Owner> Single<O> {
             // attempt nobody claims is refused.
             transport: TransportPolicy {
                 h2: claviron_http::config::transport::H2Policy {
-                    connect_protocol: cfg!(any(
-                        feature = "websocket",
-                        feature = "edge"
-                    )),
+                    connect_protocol: cfg!(feature = "websocket"),
                 },
                 ..TransportPolicy::default()
             },
@@ -359,6 +356,7 @@ async fn handle_stream<S: Secure>(
     // The actual port the connection arrived on is authoritative for
     // alt-svc and redirect targets without consulting configuration.
     let facts = ConnCtx {
+        transport: claviron_http::listener::ListenerTransport::Tcp,
         state: Default::default(),
         listener: snapshot.listener().id.clone(),
         proto: Some(proto),
@@ -416,7 +414,7 @@ async fn handle_stream<S: Secure>(
             H1 => {
                 let conn_fut = make_h1_builder(&cfg.h1)
                     .serve_connection(stream, vhost_service);
-                #[cfg(any(feature = "websocket", feature = "edge"))]
+                #[cfg(feature = "websocket")]
                 let conn_fut = conn_fut.with_upgrades();
                 tokio::pin!(conn_fut);
 

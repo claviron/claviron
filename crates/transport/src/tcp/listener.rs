@@ -73,14 +73,20 @@ where
     };
     let mut sockets = Vec::new();
     for addr in &config.listen {
-        let socket = bind_socket(*addr, run_mode, tcp.tcp.backlog)
-            .await
-            .map_err(|error| {
-                Error::msg(format!(
-                    "listener '{}': bind {addr}: {error}",
-                    config.id
-                ))
-            })?;
+        let socket = bind_socket(
+            addr.socket().ok_or_else(|| {
+                Error::msg("TCP listener requires IP addresses")
+            })?,
+            run_mode,
+            tcp.tcp.backlog,
+        )
+        .await
+        .map_err(|error| {
+            Error::msg(format!(
+                "listener '{}': bind {addr}: {error}",
+                config.id
+            ))
+        })?;
         if matches!(run_mode, RunMode::Worker(_)) {
             debug!(listener = %config.id, address = %socket.local_addr()?, "🌐 TCP listener bound");
         } else {

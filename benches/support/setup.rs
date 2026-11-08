@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use claviron::edge::service::HostService;
 use claviron::edge::transport::{
     VhostResolver, VhostTable, resolve_sni_from_table,
 };
@@ -11,7 +12,6 @@ use claviron::http::config::{HttpSnapshot, ListenerConfig};
 use claviron::http::ext::ConnCtx;
 use claviron::http::listener::HttpProtocol;
 use claviron::pipeline::plan::HostExecution;
-use claviron::transport::edge::service::HostService;
 
 use super::json;
 
@@ -67,9 +67,11 @@ impl Hosts {
         app: HostExecution,
     ) -> HostService {
         let listener = self.listener("plain");
-        let local = listener.listen[0];
+        let local =
+            listener.listen[0].socket().expect("benchmark uses a TCP listener");
         let remote: std::net::SocketAddr = "192.0.2.1:1234".parse().unwrap();
         let connection = Arc::new(ConnCtx {
+            transport: claviron_http::listener::ListenerTransport::Tcp,
             state: Default::default(),
             listener: listener.id.clone(),
             proto: Some(HttpProtocol::H1),

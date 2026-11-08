@@ -5,6 +5,7 @@ use super::*;
 #[test]
 fn scheme_follows_tls_facts_not_port_or_application_protocol() {
     let mut ctx = ConnCtx {
+        transport: crate::listener::ListenerTransport::Tcp,
         state: Default::default(),
         listener: "test".parse().unwrap(),
         proto: Some(Proto::H1),

@@ -129,7 +129,7 @@ impl Runner {
         )
         .map_err(registry_error)?;
         if !options.names_a_socket() && !options.orbit {
-            return Err("select orbit, tcp or uds ingress".into());
+            return Err("select orbit or named listeners".into());
         }
         let production = options.production;
         let environment = options.environment.clone();

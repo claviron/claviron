@@ -50,38 +50,35 @@ pub fn attach_sessions<B>(
 
 /// What a request becomes at the door: its session offer when it asks for one,
 /// or an answer when what it asks for is not valid.
-#[cfg(any(feature = "websocket", feature = "edge"))]
-pub(crate) type Attempt = Option<claviron_http::socket::Offer>;
-#[cfg(not(any(feature = "websocket", feature = "edge")))]
-pub(crate) type Attempt = Option<std::convert::Infallible>;
+#[cfg(feature = "websocket")]
+pub type Attempt = Option<claviron_http::socket::Offer>;
+#[cfg(not(feature = "websocket"))]
+pub type Attempt = Option<std::convert::Infallible>;
 
 /// Attach what a session needs, and say whether this is an attempt at one.
-#[cfg_attr(
-    not(any(feature = "websocket", feature = "edge")),
-    allow(clippy::unnecessary_wraps)
-)]
-pub(crate) fn attempt<B>(
+#[cfg_attr(not(feature = "websocket"), allow(clippy::unnecessary_wraps))]
+pub fn attempt<B>(
     request: &mut Request<B>,
     sessions: &SessionSpawner,
 ) -> Result<Attempt, http::StatusCode> {
     attach_sessions(request, sessions);
-    #[cfg(any(feature = "websocket", feature = "edge"))]
+    #[cfg(feature = "websocket")]
     return claviron_http::socket::attach(request, sessions);
-    #[cfg(not(any(feature = "websocket", feature = "edge")))]
+    #[cfg(not(feature = "websocket"))]
     Ok(None)
 }
 
 /// End an attempt with what the plan answered. An ordinary request has none and
 /// is not touched.
-pub(crate) fn finished(
+pub fn finished(
     attempt: Attempt,
     response: RouteResponse,
 ) -> RouteResponse {
-    #[cfg(any(feature = "websocket", feature = "edge"))]
+    #[cfg(feature = "websocket")]
     if let Some(offer) = attempt {
         return offer.finish(response);
     }
-    #[cfg(not(any(feature = "websocket", feature = "edge")))]
+    #[cfg(not(feature = "websocket"))]
     let _ = attempt;
     response
 }

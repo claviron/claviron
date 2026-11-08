@@ -112,6 +112,7 @@ fn plain_listener_policies_skip_application_factories_and_keep_bodies_unread() {
             .is_none()
     );
     let connection = Arc::new(ConnCtx {
+        transport: claviron_http::listener::ListenerTransport::Tcp,
         state: Default::default(),
         listener: id.clone(),
         proto: Some(HttpProtocol::H1),

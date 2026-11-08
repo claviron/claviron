@@ -25,11 +25,12 @@ mod h2 {
     use std::sync::Arc;
 
     use bytes::Bytes;
+    use claviron::http::config::{ListenerDefinition, ListenerOverrides};
+    use claviron::http::listener::HttpProtocol;
     use claviron::http::session::SessionOwner;
     use claviron::http::{bytes_body, empty_body};
     use claviron::runtime::AppState;
     use claviron::runtime::gate::Gate;
-    use claviron::transport::doors::{Bind, Doors, Protocols};
     use claviron::transport::tcp::listener::TcpListenerSnapshot;
     use claviron::transport::tcp::plain;
     use claviron::upstream::proxy::service::UpstreamService;
@@ -65,14 +66,18 @@ mod h2 {
             let listener =
                 runtime.block_on(TcpListener::bind("127.0.0.1:0"))?;
             let address = listener.local_addr()?;
-            let doors = Doors::new(
-                vec![Bind::Tcp(address)],
-                Protocols { h1: false, h2: true },
+            let config = Arc::new(
+                ListenerDefinition::tcp(address, vec![HttpProtocol::H2])
+                    .resolve(
+                        "application".parse()?,
+                        &ListenerOverrides::default(),
+                    )?,
             );
-            let door = doors.doors().into_iter().next().expect("one door");
-            let snapshot = door
-                .cleartext(Arc::new(Bench))
-                .map_err(|error| error.into_std())?;
+            let snapshot = Arc::new(
+                plain::Single::shared(config, Arc::new(Bench))
+                    .map_err(|error| error.into_std())?
+                    .prior_knowledge(false),
+            );
             let config = snapshot.listener();
             let gate = Gate::new(
                 config.limits.max_connections.map(|value| value.get()),

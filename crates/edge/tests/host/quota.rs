@@ -64,6 +64,7 @@ fn public_register_quota_binds_the_same_admission_to_canonical_and_alias() {
         .register_other("example.test", |_, _, _| Ok(OtherService::new(Reply)));
     let snapshot = registry.build_table(&state, &table, None).unwrap();
     let connection = Arc::new(claviron_http::ext::ConnCtx {
+        transport: claviron_http::listener::ListenerTransport::Tcp,
         state: Default::default(),
         listener: "public".parse().unwrap(),
         proto: Some(claviron_http::listener::HttpProtocol::H1),

@@ -29,7 +29,7 @@ access-log = [
     "claviron-logging/pipeline",
     "claviron-pipeline/access-log",
 ]
-websocket = ["tcp", "claviron-http/websocket", "claviron-pipeline/websocket"]
+websocket = ["claviron-transport?/websocket", "tcp", "claviron-http/websocket", "claviron-pipeline/websocket"]
 # Pure host declarations only; Broadcast owns its opt-in execution/session adapter.
 # Native Link dispatch to an application process over Orbit shared memory.
 orbit = [
@@ -43,15 +43,15 @@ orbit = [
 ]
 db = ["dep:claviron-db", "dep:claviron-hosting", "claviron-hosting/server"]
 postgres = ["db", "claviron-db/postgres", "claviron-hosting/postgres"]
-metrics = ["axum", "claviron-http/metrics", "claviron-pipeline/metrics"]
+metrics = ["claviron-transport?/metrics", "axum", "claviron-http/metrics", "claviron-pipeline/metrics"]
 http3 = ["claviron-http/http3"]
 webtransport = ["http3", "dep:h3-quinn", "dep:h3-webtransport", "claviron-http/websocket", "claviron-pipeline/websocket"]
 # What a transport's native drivers need from host selection. The drivers
 # themselves live in claviron-transport; these open no sockets.
-tcp = ["claviron-types/ssl", "dep:hyper", "dep:hyper-util"]
-tls = []
+tcp = ["dep:claviron-transport", "claviron-transport/tcp", "claviron-types/ssl", "dep:hyper", "dep:hyper-util"]
+tls = ["tcp", "claviron-transport/tls", "dep:rustls", "dep:tokio-rustls", "dep:orbitive"]
 # The H3 driver always offers WebTransport sessions to the hosts that bind them.
-quic = ["http3", "webtransport", "claviron-types/ssl"]
+quic = ["dep:h3", "dep:claviron-transport", "claviron-transport/quic", "dep:quinn", "dep:quinn-deferred-config", "dep:rustls", "dep:orbitive", "http3", "webtransport", "claviron-types/ssl"]
 
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
@@ -65,6 +65,8 @@ claviron-pipeline.workspace = true
 claviron-runtime.workspace = true
 claviron-tls.workspace = true
 claviron-types.workspace = true
+claviron-transport = { workspace = true, optional = true }
+claviron-sys.workspace = true
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
@@ -96,8 +98,16 @@ tracing.workspace = true
 bytes.workspace = true
 
 # ── HTTP/3 (QUIC) ───────────────────────────────────────────────────────
+h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, features = ["datagram"], optional = true }
 h3-webtransport = { workspace = true, optional = true }
+
+# Transport adapters
+rustls = { workspace = true, optional = true, features = ["std"] }
+tokio-rustls = { workspace = true, optional = true }
+quinn = { workspace = true, optional = true, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
+quinn-deferred-config = { workspace = true, optional = true, features = ["rustls-aws-lc-rs"] }
+orbitive = { workspace = true, optional = true, features = ["rustls"] }
 
 [dev-dependencies]
 regex.workspace = true

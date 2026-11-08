@@ -165,8 +165,11 @@ pub async fn serve<S: Quic>(
     let listener = initial.listener();
     let mut endpoints = Vec::new();
     // Complete all addresses before accepting traffic on this listener.
-    for addr in &listener.listen {
-        let socket = bind_socket(*addr, run_mode).map_err(|error| {
+    for address in &listener.listen {
+        let addr = address
+            .socket()
+            .ok_or_else(|| Error::msg("QUIC listener requires IP addresses"))?;
+        let socket = bind_socket(addr, run_mode).map_err(|error| {
             Error::msg(format!(
                 "H3 listener '{}': bind {addr}: {error}",
                 listener.id
@@ -357,6 +360,7 @@ async fn accept_streams<S: Quic>(
     };
 
     let facts = ConnCtx {
+        transport: claviron_http::listener::ListenerTransport::Quic,
         state: Default::default(),
         listener: snapshot.listener().id.clone(),
         proto: Some(H3),

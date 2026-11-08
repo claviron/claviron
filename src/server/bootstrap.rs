@@ -459,14 +459,14 @@ pub fn register(state: &AppState) -> Result<()> {
 pub(super) fn with_http_services(runtime: Runtime) -> Runtime {
     #[cfg(all(feature = "edge", feature = "tls"))]
     let runtime = runtime.with_services::<(
-        claviron_transport::edge::tcp::HttpServer,
-        claviron_transport::edge::tcp::HttpsServer,
+        claviron_edge::listeners::tcp::HttpServer,
+        claviron_edge::listeners::tcp::HttpsServer,
     )>();
     #[cfg(all(feature = "edge", not(feature = "tls")))]
     let runtime =
-        runtime.with_services::<claviron_transport::edge::tcp::HttpServer>();
+        runtime.with_services::<claviron_edge::listeners::tcp::HttpServer>();
     #[cfg(all(feature = "edge", feature = "http3"))]
     let runtime =
-        runtime.with_services::<claviron_transport::edge::quic::H3Server>();
+        runtime.with_services::<claviron_edge::listeners::quic::H3Server>();
     runtime
 }

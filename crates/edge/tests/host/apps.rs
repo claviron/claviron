@@ -518,6 +518,7 @@ listeners:
                 assert_eq!(app.kind(), "other");
             }
             let connection = Arc::new(ConnCtx {
+                transport: claviron_http::listener::ListenerTransport::Tcp,
                 state: Default::default(),
                 listener: id.clone(),
                 proto: Some(protocol),

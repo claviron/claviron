@@ -4,7 +4,7 @@ name = "claviron-transport"
 version.workspace = true
 publish.workspace = true
 edition.workspace = true
-description = "Socket acceptance and HTTP/1.1, HTTP/2 and HTTP/3 connection driving for Claviron, host-free or serving claviron-edge"
+description = "Application-agnostic listener lifecycle and HTTP/1.1, HTTP/2 and HTTP/3 connection driving"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
@@ -15,20 +15,16 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 
 [features]
 default = []
-# Serve Edge's virtual hosts. The only feature that brings Edge in; each
-# driver below asks Edge for its side of that driver when both are selected.
-edge = ["dep:claviron-edge", "pipeline", "dep:async-trait", "dep:serde", "dep:claviron-types", "claviron-http/websocket"]
 # A site compiled by claviron-pipeline as a listener's owner.
 pipeline = ["dep:claviron-pipeline"]
 # TCP bind, admission and drain; Hyper HTTP/1.1 settings and socket I/O.
 tcp = [
     "dep:claviron-sys", "dep:hyper", "dep:hyper-util", "dep:socket2",
-    "claviron-edge?/tcp",
 ]
 # TLS accept, ALPN selection and HTTP/2 over TCP.
 tls = [
     "tcp", "dep:claviron-tls", "dep:claviron-types", "claviron-types/ssl",
-    "dep:rustls", "dep:tokio-rustls", "claviron-edge?/tls",
+    "dep:rustls", "dep:tokio-rustls",
 ]
 # HTTP/3 stream and connection handling over QUIC. The H3 error variants this
 # reads are public only with the WebTransport crate selected, so the two go
@@ -37,17 +33,17 @@ quic = [
     "dep:h3", "dep:h3-webtransport", "dep:h3-quinn", "dep:quinn",
     "dep:quinn-deferred-config", "dep:rustls", "dep:claviron-sys",
     "dep:claviron-tls", "dep:claviron-types", "claviron-types/ssl",
-    "claviron-http/http3", "claviron-edge?/quic",
+    "claviron-http/http3",
 ]
-webtransport = ["quic", "claviron-edge?/webtransport"]
+webtransport = ["quic",]
 # Fill a connection's country from the peer address.
 geoip = ["dep:claviron-geoip"]
 # Dispatch a host plan that is one Axum router without its extra layer.
-axum = ["dep:axum", "claviron-http/axum", "claviron-pipeline?/axum", "claviron-edge?/axum"]
+axum = ["dep:axum", "claviron-http/axum", "claviron-pipeline?/axum",]
 # The door with no socket: an edge reaches this process's lane over Orbit.
 orbit = ["dep:claviron-app", "dep:claviron-orbit", "dep:tokio-util", "claviron-http/websocket"]
 # Let an HTTP/1.1 connection be upgraded.
-websocket = ["tcp", "claviron-edge?/websocket", "claviron-http/websocket"]
+websocket = ["tcp", "claviron-http/websocket"]
 # An owner's WebSocket spoken on the sockets, with whole messages like Link's.
 websocket-session = ["websocket", "dep:claviron-types", "dep:fastwebsockets"]
 # Count accepted and open connections per listener.
@@ -55,7 +51,6 @@ metrics = ["claviron-http/metrics"]
 
 [dependencies]
 claviron-app = { workspace = true, optional = true }
-claviron-edge = { workspace = true, optional = true }
 claviron-geoip = { workspace = true, optional = true }
 claviron-http = { workspace = true, features = ["server"] }
 claviron-orbit = { workspace = true, optional = true }
@@ -66,7 +61,7 @@ claviron-tls = { workspace = true, optional = true }
 claviron-types = { workspace = true, optional = true }
 
 arc-swap.workspace = true
-async-trait = { workspace = true, optional = true }
+async-trait.workspace = true
 bytes.workspace = true
 http.workspace = true
 http-body.workspace = true
@@ -75,8 +70,8 @@ http-body-util.workspace = true
 axum = { workspace = true, optional = true }
 hyper = { workspace = true, optional = true, features = ["http1", "http2", "server"] }
 hyper-util = { workspace = true, optional = true, features = ["server-auto", "tokio"] }
-serde = { workspace = true, optional = true, features = ["derive"] }
 socket2 = { workspace = true, optional = true }
+libc.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 tracing.workspace = true

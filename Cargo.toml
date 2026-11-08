@@ -106,9 +106,8 @@ edge = [
     "dep:claviron-edge",
     "dep:claviron-pipeline",
     "claviron-edge/tcp",
-    # The listeners that serve Edge's hosts live in the transport.
+    # Socket driving and named listener Runnables are transport-owned.
     "dep:claviron-transport",
-    "claviron-transport/edge",
     "claviron-transport/tcp",
 ]
 
@@ -134,7 +133,7 @@ module = ["application", "server", "dep:claviron-module"]
 # ── Protocols ────────────────────────────────────────────────────────
 http3 = [
     "tls", "claviron-edge/quic", "dep:quinn",
-    "dep:claviron-transport", "claviron-transport/edge", "claviron-transport/quic",
+    "dep:claviron-transport", "claviron-transport/quic",
 ]
 # DNS origins are always available; the application binds the resolver
 # (`dyn ResolverFactory`, e.g. `resolver-hickory`). A hostname origin with no

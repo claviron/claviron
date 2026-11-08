@@ -25,7 +25,7 @@ use crate::{Error, Result};
 /// value. Downstream applications must not set it themselves.
 pub const WORKER_BOOTSTRAP_ENV: &str = "CLAVIRON_INTERNAL_WORKER_BOOTSTRAP";
 
-const BOOTSTRAP_VERSION: u8 = 6;
+const BOOTSTRAP_VERSION: u8 = 7;
 
 /// How the current executable entered the Claviron server bootstrap.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -99,6 +99,7 @@ pub struct WorkerBootstrap {
     /// application's options, and this exists only because a worker is a
     /// re-exec that deliberately does not inherit the command line.
     launch: LaunchBlob,
+    descriptors: Vec<(Box<str>, i32)>,
 }
 
 impl WorkerBootstrap {
@@ -202,6 +203,7 @@ impl WorkerBootstrap {
             environment: claviron_runtime::env::PRODUCTION.into(),
             config_dir,
             launch,
+            descriptors: Vec::new(),
         })
     }
 
@@ -270,6 +272,73 @@ impl WorkerBootstrap {
         RunMode::Worker(self.worker_id)
     }
 
+    /// Spawn-only descriptor numbers. The process owner keeps their owners
+    /// alive until spawn completes; the worker adopts them once at entry.
+    pub(crate) fn with_descriptors(
+        mut self,
+        descriptors: Vec<(Box<str>, i32)>,
+    ) -> Self {
+        self.descriptors = descriptors;
+        self
+    }
+
+    /// Adopt descriptors only from the verified parent bootstrap, once.
+    ///
+    /// # Safety
+    /// Each manifest FD must be an owned inherited descriptor, not already
+    /// owned by another Rust value. Call once in the worker's server entry.
+    pub unsafe fn install_resources(
+        &self,
+        state: &claviron_runtime::AppState,
+    ) -> Result<()> {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        if self.descriptors.is_empty() {
+            return Ok(());
+        }
+        let mut names = std::collections::BTreeSet::new();
+        let mut numbers = std::collections::BTreeSet::new();
+        for (name, fd) in &self.descriptors {
+            if name.is_empty()
+                || *fd <= 2
+                || !names.insert(name)
+                || !numbers.insert(*fd)
+            {
+                return Err(Error::bootstrap(
+                    "invalid inherited descriptor manifest",
+                ));
+            }
+            if unsafe { libc::fcntl(*fd, libc::F_GETFD) } < 0 {
+                return Err(Error::bootstrap(
+                    "inherited descriptor is not open",
+                ));
+            }
+        }
+        let mut descriptors = Vec::with_capacity(self.descriptors.len());
+        for (name, fd) in &self.descriptors {
+            // SAFETY: the parent passed unique open descriptors, validated above.
+            let owned = unsafe { OwnedFd::from_raw_fd(*fd) };
+            let flags =
+                unsafe { libc::fcntl(owned.as_raw_fd(), libc::F_GETFD) };
+            if unsafe {
+                libc::fcntl(
+                    owned.as_raw_fd(),
+                    libc::F_SETFD,
+                    flags | libc::FD_CLOEXEC,
+                )
+            } < 0
+            {
+                return Err(Error::bootstrap(
+                    std::io::Error::last_os_error().to_string(),
+                ));
+            }
+            descriptors.push((name.clone(), owned));
+        }
+        claviron_runtime::process::ProcessResources::register(state)
+            .map_err(Error::Bootstrap)?
+            .inherit(descriptors)
+            .map_err(|error| Error::bootstrap(error.to_string()))
+    }
+
     /// Attach this bootstrap envelope to a worker command.
     pub fn apply_to(
         &self,
@@ -334,6 +403,7 @@ impl WorkerBootstrap {
             launch,
         )?
         .with_environment(wire.environment)
+        .map(|value| value.with_descriptors(wire.descriptors))
     }
 }
 
@@ -359,6 +429,8 @@ struct WorkerBootstrapWire {
     /// same as setting an empty one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     launch: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    descriptors: Vec<(Box<str>, i32)>,
 }
 
 /// The master's kernel identity and generation, as bytes on the wire. The
@@ -375,6 +447,7 @@ impl From<&WorkerBootstrap> for WorkerBootstrapWire {
     fn from(value: &WorkerBootstrap) -> Self {
         Self {
             version: BOOTSTRAP_VERSION,
+            descriptors: value.descriptors.clone(),
             worker_id: value.worker_id.raw(),
             fleet_node_id: value.fleet_node_id.raw(),
             worker_count: value.worker_count.raw(),

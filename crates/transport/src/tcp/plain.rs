@@ -170,9 +170,14 @@ pub async fn serve<S: Cleartext>(
         }
     };
     let ctx = Arc::new(ConnCtx {
+        transport: claviron_http::listener::ListenerTransport::Tcp,
         state: Default::default(),
         listener: listener.clone(),
-        proto: Some(HttpProtocol::H1),
+        proto: if snapshot.prior_knowledge().is_some() {
+            None
+        } else {
+            Some(HttpProtocol::H1)
+        },
         remote: peer,
         local_ip: local.ip(),
         local_port: local.port(),
@@ -194,9 +199,8 @@ pub async fn serve<S: Cleartext>(
     let (stream, errors) = super::io::TcpIo::split(stream);
     let connection = super::protocol::h1(snapshot.h1())
         .serve_connection(TokioIo::new(stream), service);
-    // Edge hosts accept upgrades by policy: Link and upstream both answer 101
-    // before the connection is handed over, so it has to survive that answer.
-    #[cfg(any(feature = "websocket", feature = "edge"))]
+    // The owner may accept an upgrade; preserve its connection after a 101.
+    #[cfg(feature = "websocket")]
     let connection = connection.with_upgrades();
     tokio::pin!(connection);
     let serving = async {

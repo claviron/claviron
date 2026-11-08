@@ -60,7 +60,18 @@ pub(crate) fn spawn_worker(
             .unwrap_or_default(),
     )?
     .with_environment(state.environment())?;
+    let resources = claviron_runtime::process::ProcessResources::register(
+        state,
+    )
+    .map_err(|error| {
+        Error::service(format!("prepare worker resources: {error}"))
+    })?;
+    let descriptors = resources.for_child().map_err(|error| {
+        Error::service(format!("prepare worker descriptors: {error}"))
+    })?;
+    let bootstrap = bootstrap.with_descriptors(descriptors.manifest());
     bootstrap.apply_to(&mut cmd)?;
+    descriptors.attach(&mut cmd);
 
     let child = cmd.spawn().map_err(|e| {
         Error::service(format!("Worker #{id} failed to spawn {}", e))

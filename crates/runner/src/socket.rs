@@ -1,130 +1,121 @@
-//! The application behind the transport's sockets.
-//!
-//! Accepting and driving connections is `claviron_transport::doors`, the same
-//! drivers an edge's listeners run. What is here is what makes them this
-//! runner's: every request goes to the one [`Application`], with no vhost, and
-//! the same service runs unchanged under the Orbit ingress, where there is no
-//! socket at all.
-//!
-//! What it attaches is the edge's: the accepted connection's facts in
-//! `ConnCtx` (none for a Unix socket, which has no addresses), the client
-//! after [`Trust`] in `RealIpExt`, a trusted proxy's word in `Forwarded`, and
-//! when the request arrived in `ReceivedAt`.
+//! The single-application adapter for transport-owned listener Runnables.
 
 use std::future::Future;
-use std::num::NonZeroU32;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 use async_trait::async_trait;
-use claviron_http::config::ListenerOverrides;
+use claviron_http::config::ListenerConfig;
 use claviron_http::ext::{ConnCtx, RealIpExt, ReceivedAt, RequestArrival};
 use claviron_http::trust::Trust;
 use claviron_http::{RouteBody, RouteResponse};
 use claviron_runtime::{
-    AppState, Component, ExecutionSpec, RunContext, RunMode, Runnable,
-    RunnableInstance, ServiceStartPolicy, registry,
+    AppState, Component, RunContext, RunnableInstance, registry,
 };
-pub use claviron_transport::doors::{Bind, Protocols};
-use claviron_transport::doors::{Door, Doors};
+use claviron_transport::listener::{Adapter, Listener};
 use claviron_transport::owner::Owner as TransportOwner;
 use http::Request;
 
 use crate::routing::{AppRequest, Application, RequestBody};
 
-/// Every socket the application answers on. Each runs on its own, under its
-/// own name; enumerating them opens nothing.
+/// Cold declarations. Transport owns every named serving generation.
 pub struct SocketIngress {
-    doors: Doors,
-    running: OnceLock<Vec<Arc<SocketDoor>>>,
+    listeners: Vec<Arc<Listener<ApplicationListener>>>,
 }
 
 impl SocketIngress {
-    pub fn new(
-        binds: Vec<Bind>,
-        protocols: Protocols,
-    ) -> Self {
-        Self { doors: Doors::new(binds, protocols), running: OnceLock::new() }
+    pub fn new(configs: Vec<Arc<ListenerConfig>>) -> Self {
+        Self {
+            listeners: configs
+                .into_iter()
+                .map(|config| {
+                    Arc::new(Listener::new(ApplicationListener {
+                        config,
+                        #[cfg(feature = "tls")]
+                        tls: None,
+                    }))
+                })
+                .collect(),
+        }
     }
 
-    /// Set the pending TCP connection queue before starting this ingress.
-    pub fn tcp_backlog(
-        self,
-        backlog: NonZeroU32,
-    ) -> Self {
-        Self { doors: self.doors.tcp_backlog(backlog), ..self }
-    }
-
-    /// What a listener in `http.yaml` could say, for every door here.
-    pub fn listener(
-        self,
-        listener: ListenerOverrides,
-    ) -> Self {
-        Self { doors: self.doors.listener(listener), ..self }
-    }
-
-    /// Serve TLS on the TCP sockets. A Unix socket ignores it.
     #[cfg(feature = "tls")]
     pub fn tls(
         self,
         tls: Option<crate::Tls>,
     ) -> Self {
-        Self { doors: self.doors.tls(tls), ..self }
+        Self {
+            listeners: self
+                .listeners
+                .iter()
+                .map(|listener| {
+                    Arc::new(Listener::new(ApplicationListener {
+                        config: listener.config.clone(),
+                        tls: tls.clone(),
+                    }))
+                })
+                .collect(),
+        }
     }
 }
 
 impl Component<AppState> for SocketIngress {
     type Deps = (Arc<Application>, Option<Arc<Trust>>);
 
-    fn name(&self) -> &'static str {
+    fn name(&self) -> &str {
         "SocketIngress"
     }
 
-    /// A Unix socket file is one process's: workers cannot each bind it the
-    /// way they share a TCP port. Refused at launch, in the master, rather
-    /// than as a worker that fails and is restarted forever.
     fn validate(
         &self,
         state: &AppState,
     ) -> registry::Result<()> {
-        if !matches!(state.run_mode(), RunMode::Standalone)
-            && let Some(Bind::Uds(path)) = self
-                .doors
-                .binds()
-                .iter()
-                .find(|bind| matches!(bind, Bind::Uds(_)))
-        {
-            return Err(registry::Error::msg(format!(
-                "unix:{} cannot be served by several workers; serve it standalone, or reach \
-                 the workers over TCP or Orbit",
-                path.display()
-            )));
+        for listener in &self.listeners {
+            #[cfg(unix)]
+            claviron_transport::unix::prepare(state, &listener.config)?;
         }
         Ok(())
     }
 
-    /// The same doors for every enumeration: an unchanged door stays running.
     fn runnables(self: Arc<Self>) -> Vec<RunnableInstance<AppState>> {
-        self.running
-            .get_or_init(|| {
-                self.doors
-                    .doors()
-                    .into_iter()
-                    .map(|door| Arc::new(SocketDoor(door)))
-                    .collect()
-            })
-            .iter()
-            .map(|door| {
-                RunnableInstance::new(door.0.id().to_string(), door.clone())
-            })
-            .collect()
+        self.listeners.iter().map(Listener::instance).collect()
     }
 }
 
-struct SocketDoor(Door);
+struct ApplicationListener {
+    config: Arc<ListenerConfig>,
+    #[cfg(feature = "tls")]
+    tls: Option<crate::Tls>,
+}
 
-/// One application behind the doors: what they accept, attached to and handed
-/// on.
+#[async_trait]
+impl Adapter for ApplicationListener {
+    type Deps = (Arc<Application>, Option<Arc<Trust>>);
+
+    fn config(&self) -> Arc<ListenerConfig> {
+        self.config.clone()
+    }
+
+    async fn serve(
+        self: Arc<Self>,
+        (application, trust): Self::Deps,
+        state: AppState,
+        context: RunContext,
+    ) -> registry::Result<()> {
+        let owner =
+            Arc::new(Front { application, trust: trust.unwrap_or_default() });
+        claviron_transport::single::serve(
+            self.config.clone(),
+            owner,
+            #[cfg(feature = "tls")]
+            self.tls.as_ref(),
+            &state,
+            &context,
+        )
+        .await
+    }
+}
+
 struct Front {
     application: Arc<Application>,
     trust: Arc<Trust>,
@@ -141,57 +132,17 @@ impl TransportOwner for Front {
     }
 }
 
-#[async_trait]
-impl Runnable<AppState, (Arc<Application>, Option<Arc<Trust>>)> for SocketDoor {
-    fn execution_spec(
-        &self,
-        _: &AppState,
-    ) -> ExecutionSpec {
-        self.0.execution_spec()
-    }
-
-    /// A master with workers serves nothing; its workers do. Standalone is not
-    /// a master and still runs.
-    fn start_policy(
-        &self,
-        state: &AppState,
-    ) -> ServiceStartPolicy {
-        if state.is_master() {
-            ServiceStartPolicy::Unavailable
-        } else {
-            ServiceStartPolicy::Automatic
-        }
-    }
-
-    async fn run(
-        self: Arc<Self>,
-        (application, trust): (Arc<Application>, Option<Arc<Trust>>),
-        state: AppState,
-        context: RunContext,
-    ) -> registry::Result<()> {
-        let trust = trust.unwrap_or_default();
-        tracing::info!(
-            trusted =
-                if trust.is_empty() { "nobody" } else { "registered peers" },
-            door = %self.0.id(),
-            "an application door is opening"
-        );
-        self.0
-            .serve(
-                Arc::new(Front { application, trust }),
-                &context,
-                state.run_mode(),
-            )
-            .await
-    }
-}
-
 fn prepare(
     request: Request<RouteBody>,
     connection: Option<&Arc<ConnCtx>>,
     trust: &Trust,
 ) -> AppRequest {
-    let peer = connection.map(|connection| connection.remote);
+    let peer = connection
+        .filter(|connection| {
+            connection.transport
+                != claviron_http::listener::ListenerTransport::Unix
+        })
+        .map(|connection| connection.remote);
     let resolved = trust.resolve(peer, request.headers());
     let (mut parts, body) = request.into_parts();
     if let Some(host) = resolved.host.as_deref()

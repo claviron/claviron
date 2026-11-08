@@ -5,21 +5,19 @@
 //! composed, not to which crate an application started from: one handler for
 //! everything, or the virtual hosts of `claviron-edge`.
 //!
-//! Without the `edge` feature this crate knows no virtual host, route or
-//! backend. With it, the [`edge`] module borrows Edge and is the only place an
-//! Edge type is named.
+//! Request owners and host selection are supplied by consumers. This crate
+//! does not depend on Edge.
 
-#[cfg(feature = "tcp")]
-pub mod doors;
-#[cfg(feature = "edge")]
-pub mod edge;
 pub mod geo;
 pub mod instances;
+pub mod listener;
 #[cfg(feature = "orbit")]
 pub mod orbit;
 pub mod owner;
 #[cfg(feature = "quic")]
 pub mod quic;
+#[cfg(feature = "tcp")]
+pub mod single;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 #[cfg(all(feature = "tcp", unix))]

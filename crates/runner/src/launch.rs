@@ -199,15 +199,14 @@ pub fn register_doors(
     if runner.names_a_socket() {
         #[cfg(not(feature = "socket"))]
         return Err(registry::Error::msg(
-            "tcp: and uds: need claviron-runner's `socket` feature \
+            "listeners: need claviron-runner's `socket` feature \
              (`runner-socket` on the facade)",
         ));
         #[cfg(feature = "socket")]
         {
-            let ingress =
-                crate::SocketIngress::new(runner.binds(), runner.protocols())
-                    .tcp_backlog(runner.tcp_backlog())
-                    .listener(runner.listener().map_err(registry::Error::msg)?);
+            let ingress = crate::SocketIngress::new(
+                runner.socket_listeners().map_err(registry::Error::msg)?,
+            );
             #[cfg(feature = "tls")]
             let ingress = ingress.tls(runner.tls());
             state.registry_ref().register(Arc::new(ingress))?;

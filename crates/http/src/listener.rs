@@ -1,6 +1,8 @@
 //! Shared listener identity. Socket ownership belongs to transport crates.
 
+mod address;
 mod snapshots;
+pub use address::ListenAddress;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -17,6 +19,7 @@ pub use snapshots::{ActiveListeners, ListenerSnapshot, ListenerSnapshots};
 #[serde(rename_all = "snake_case")]
 pub enum ListenerTransport {
     Tcp,
+    Unix,
     Quic,
 }
 

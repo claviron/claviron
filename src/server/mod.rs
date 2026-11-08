@@ -525,7 +525,7 @@ where
                     primary_environment?,
                 )
             }
-            ProcessEntry::Worker(worker) => (
+            ProcessEntry::Worker(ref worker) => (
                 worker.run_mode(),
                 worker.fleet_node_id(),
                 worker.worker_count(),
@@ -627,6 +627,13 @@ where
             config_environment,
         );
 
+        #[cfg(feature = "supervisor")]
+        if let ProcessEntry::Worker(worker) = &entry {
+            // SAFETY: ProcessEntry verified our parent; this server entry
+            // uniquely adopts the inherited descriptors before registration.
+            unsafe { worker.install_resources(&state) }
+                .map_err(|error| registry::Error::msg(error.to_string()))?;
+        }
         #[cfg(feature = "supervisor")]
         if let Some(identity) = worker_identity {
             state.registry_ref().insert(Arc::new(identity))?;

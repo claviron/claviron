@@ -314,3 +314,25 @@ fn deny_defaults_participate_in_snapshot_reload_comparison() {
     assert!(declared != empty);
     assert!(declared != changed);
 }
+
+#[test]
+fn unix_listener_resolves_a_named_local_stream_without_an_ip_bind() {
+    let snapshot: HttpSnapshot = serde_yaml::from_str(
+        "defaults: {listener: {requests: {max_body_size: off, body_read_timeout: off}}}\nlisteners:\n  local:\n    transport: unix\n    listen: unix:/run/example.sock\n    protocols: [h1, h2]\n"
+    ).unwrap();
+    let listener = snapshot.listeners.values().next().unwrap();
+    assert_eq!(listener.transport(), crate::listener::ListenerTransport::Unix);
+    assert!(listener.listen[0].socket().is_none());
+    for declaration in [
+        "transport: unix, listen: '127.0.0.1:8080', protocols: h1",
+        "transport: unix, listen: 'unix:/run/example.sock', protocols: h1, tls: true",
+        "transport: quic, listen: 'unix:/run/example.sock', protocols: h3",
+    ] {
+        assert!(
+            serde_yaml::from_str::<HttpSnapshot>(&format!(
+                "listeners: {{local: {{{declaration}}}}}"
+            ))
+            .is_err()
+        );
+    }
+}

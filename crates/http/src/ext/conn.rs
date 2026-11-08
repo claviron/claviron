@@ -138,6 +138,7 @@ impl ConnStateBuilder {
 /// Vhost/SNI resolution is handled separately and passed via VhostCtx
 #[derive(Clone)]
 pub struct ConnCtx {
+    pub transport: crate::listener::ListenerTransport,
     /// Prepared once while the connection was accepted; shared even when a
     /// request clones the facts to resolve forwarding.
     pub state: ConnState,

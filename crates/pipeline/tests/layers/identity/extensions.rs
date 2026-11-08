@@ -18,6 +18,7 @@ fn direct() -> (Arc<ConnCtx>, VhostCtx) {
         vhost_key: HostKey(Arc::new("app.test".parse().unwrap())),
     };
     let connection = Arc::new(ConnCtx {
+        transport: claviron_http::listener::ListenerTransport::Tcp,
         state: Default::default(),
         listener: "public".parse().unwrap(),
         proto: Some(claviron_http::listener::HttpProtocol::H1),

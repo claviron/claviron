@@ -1,13 +1,12 @@
 # claviron-edge
 
-HTTP host selection, native dispatch and optional TCP/QUIC drivers.
+HTTP host selection, native dispatch and optional listener adapters.
 
 ## Boundaries
 
 - `loader` prepares host declarations and publishes names, policy and applications
   together. Congif owns configuration reads and source watching.
-- Binding an accepted connection to a ready host plan is
-  `claviron_transport::edge::service`'s; this crate selects the host.
+- `service` binds an accepted connection to its prepared host plan.
 - `config` keeps a `HostConfig`: how a connection finds a `Site` (names,
   listeners, handshake and protocol terms). The `Site` itself, what one
   application serves, is `claviron-pipeline`'s. A route
@@ -17,7 +16,7 @@ HTTP host selection, native dispatch and optional TCP/QUIC drivers.
   registries keyed by host. Axum is a Rust application
   adapter; files, Embed, Upstream and Link use native dispatch.
 - Wire framing, native body adaptation, accepted connections and sessions belong
-  to `claviron-transport`, which borrows this crate; this crate opens no socket.
+  to `claviron-transport`; Edge supplies its publication and request adapters.
   Engine execution belongs to the corresponding runtime crate.
 
 ```mermaid
@@ -427,11 +426,10 @@ and their preparation paths:
 
 ### Native drivers
 
-The TCP and QUIC drivers and their listener owners are not in this crate. They
-live in [`claviron-transport`](../transport/ARCHITECTURE.md), whose `edge`
-module borrows this crate through [`transport.rs`](src/transport.rs). The `tcp`,
-`tls` and `quic` features here compile only the host-selection support those
-drivers call.
+Socket drivers and the named Listener Runnable live in
+[`claviron-transport`](../transport/ARCHITECTURE.md). The `tcp`, `tls` and `quic`
+features here enable Edge adapters under `listeners/`: host admission and
+coherent host/TLS/pipeline publication, without duplicating socket drivers.
 
 ## `tests/`
 
@@ -478,3 +476,22 @@ ownership and isolated state transitions without provider boot or live listeners
 
 - [`quota.rs`](tests/host/layers/quota.rs) — Borrowed connection identity, shared debt, cancellation and committed reply headers.
 - [`quota/prepare.rs`](tests/host/layers/quota/prepare.rs) — Resource collisions, prefix selection, config checks and reload restrictions.
+
+## Listener adapters
+
+Edge depends on `claviron-transport`; transport does not depend on Edge. Edge
+prepares listener-local host, TLS and pipeline publications and supplies adapters
+to transport's named `Listener` Runnable. The transport owns accept, executor,
+wire protocol and connection drain; request admission remains here.
+
+- `listeners/tcp/plain/{server,conn,handler}.rs`: cleartext publication, accepted-stream adapter, authority selection. Unix and TCP use this same host selection.
+- `listeners/tcp/secure/{server,conn,tls,error}.rs`: TLS publication, selected host, TLS policy and errors.
+- `listeners/tcp/service.rs`: TLS connection-local authority admission and dispatch.
+- `listeners/quic/{server,conn,tls}.rs`: QUIC publication, selected host/session and TLS selection.
+- `listeners/{mod,tls}.rs`, `listeners/tcp/{mod,plain,secure}.rs`, `listeners/quic/mod.rs`: adapter exports and shared TLS preparation.
+- `service.rs`, `service/{authority,host}.rs`, `service/host/{cache,dispatch,policy}.rs`: protocol-independent host admission, publication-aware selection cache and native pipeline handoff.
+
+Unix declarations are prepared in the master without binding during configuration
+checks. Socket opening and worker inheritance belong to transport/runtime, not to
+host preparation. Tests for these adapters live in `tests/listeners/` and
+`tests/service/`.

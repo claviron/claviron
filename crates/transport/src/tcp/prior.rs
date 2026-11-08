@@ -75,8 +75,7 @@ where
 
 /// A door with one owner advertises what it can offer; whether an attempt becomes
 /// a session is the owner's to say, and an attempt nobody claims is refused.
-const OFFERS_SESSIONS: bool =
-    cfg!(any(feature = "websocket", feature = "edge"));
+const OFFERS_SESSIONS: bool = cfg!(feature = "websocket");
 
 /// Either protocol with the same settings its own builder applies.
 fn auto(

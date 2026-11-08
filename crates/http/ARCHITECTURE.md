@@ -1331,3 +1331,12 @@ used by transport listeners, middleware-bearing crates, and
 handler crates without those callers' concerns leaking back. If a
 new feature would need to know about a downstream consumer's
 specifics, it belongs in that consumer.
+
+## Listener addresses
+
+`listener/address.rs` defines `ListenAddress`: an IP socket address or
+`unix:<path>`. Named listener declarations use `transport: tcp`, `unix` or `quic`;
+resolution rejects addresses of another family and TLS on Unix. Stream listeners
+accept H1, H2 prior knowledge or both. QUIC accepts H3. The common definition
+resolves execution, connection limits and protocol settings for Edge and runners.
+`ConnCtx.transport` distinguishes TCP, Unix and QUIC from the HTTP version.

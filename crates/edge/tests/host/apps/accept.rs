@@ -95,6 +95,7 @@ fn a_selected_host_prepares_once_at_acceptance_and_its_requests_read_it() {
         let host: Host = name.parse().unwrap();
         let before = runs.load(Ordering::Relaxed);
         let mut connection = ConnCtx {
+            transport: claviron_http::listener::ListenerTransport::Tcp,
             state: Default::default(),
             listener: "public".parse().unwrap(),
             proto: Some(claviron_http::listener::HttpProtocol::H2),

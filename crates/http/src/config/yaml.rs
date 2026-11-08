@@ -157,7 +157,9 @@ impl HttpYaml {
             for previous in listeners.values() {
                 if previous.transport() == listener.transport() {
                     for addr in &listener.listen {
-                        if addr.port() != 0 && previous.listen.contains(addr) {
+                        if !addr.is_ephemeral()
+                            && previous.listen.contains(addr)
+                        {
                             return Err(ConfigError::listener(
                                 &id,
                                 format!(

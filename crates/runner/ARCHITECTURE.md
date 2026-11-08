@@ -16,7 +16,7 @@ Every runner has grown the same skeleton:
 | piece | what it is |
 |---|---|
 | options | application name, fleet name, TCP / Unix socket / Orbit ingress, request and response policy |
-| socket ingress | the application and its proxy trust behind `claviron_transport::doors` |
+| socket ingress | the application and its proxy trust behind `claviron_transport::listener` |
 | Orbit ingress | the application behind `claviron_transport::orbit`, as a runnable in every process kind |
 | proxy trust | which peers' forwarding headers count |
 | admission | framing refused, a tunnel refused, an upgrade to whoever claims it |
@@ -168,8 +168,8 @@ own copies:
   reach services through `AppState` and `claviron::http::ext` extractors
   (`Provide`, `Inject`, `Env`, `RealIp`).
 - **Connection facts** are the edge's types. An `Arc<ConnCtx>` describes
-  only a connection this process accepted (none for a Unix socket, which has
-  no addresses); `RealIpExt` is the client after trust; `ReceivedAt` when it
+  only a connection this process accepted; Unix ingress is identified explicitly
+  and uses loopback as its local identity; `RealIpExt` is the client after trust; `ReceivedAt` when it
   arrived. What a trusted hop reported — a proxy's forwarding headers, or the
   edge over Orbit, where this process accepted nothing — is
   `claviron::http::trust::Forwarded`, never folded into `ConnCtx`. The owner
@@ -217,9 +217,11 @@ unknown keys, which is why the file is divided by hand.
 name: shop                     # application / instance address
 fleet_name: shop               # independent process-family namespace
 orbit: true
-tcp: 127.0.0.1:8000
-tcp_backlog: 1024              # pending TCP connections per socket; OS may cap it
-uds: /run/shop.sock
+listeners:
+  application:
+    transport: tcp
+    listen: 127.0.0.1:8000
+    protocols: [h1, h2]
 tls_cert: ...                  # with tls
 tls_key: ...
 trusted: [10.0.0.0/8]          # peers whose forwarding headers count
@@ -245,15 +247,14 @@ the written list; `--try-files` enables probing. Neither form enables directory
 indexes, and the shared file service still rejects private paths and dynamic
 source files.
 
-`tcp_backlog` is an optional positive count through 2147483647, also available
-as `--tcp-backlog`. Omission uses HTTP's declared `TcpConfig.backlog` default
-(1024); an explicit command-line value overrides the file. Worker launch
-serialization retains the declaration. `SocketIngress::tcp_backlog` carries
-the resolved setting to `sys::net::create_tcp_listener` for each TCP bind; UDS
-does not use it. A Unix socket's queue is `listener.uds.backlog`, read through
-the same `listener:` block as the HTTP settings; unwritten, the operating
-system's maximum. Sys has no implicit queue value. Socket opening is the only
-execution point, with no request-path lookup or check.
+Named socket listeners use HTTP's common `ListenerDefinition` and resolver.
+The runner owns the application adapter in `socket.rs`; it defines no socket
+Runnable. Transport's `Listener` owns `Listener:<id>`, executor placement and
+start policy. Connection limits and TCP/Unix/H1/H2 options are per declaration.
+Request and response policy remains application-wide at the runner root; a
+per-listener request/response declaration is rejected rather than ignored.
+Forwarding uses the runner's application-wide `trusted` contract; a nonempty
+listener proxy policy is rejected.
 
 Request execution bounds remain opt-in: an unwritten one bounds nothing.
 Everything serializes, because a master hands its resolved launch to its
@@ -271,20 +272,12 @@ before server construction, not a panic from converting an unchecked string.
 
 ## Ingress
 
-- **Socket** — TCP and Unix sockets on `claviron_transport::doors`, the same
-  drivers an edge runs; one that cannot be bound ends the others at boot. The
-  launch's options are declared as a listener the way `http.yaml` declares one,
-  without a header-read deadline of its own. HTTP/1 and HTTP/2 on one handler,
-  HTTP/2 by prior knowledge on cleartext; TLS on TCP with ALPN from the protocols
-  served; upgrades the owner claims (an ASGI WebSocket) handed to it with the
-  connection's upgrade handle, others refused; forwarded headers applied only
-  from trusted peers (a Unix socket is trusted, as opening it already
-  required the filesystem's permission). Workers share a TCP port the way
-  Claviron's own do. A Unix socket is one process's: a stale file is removed
-  only when nothing answers on it, and several workers on one are refused at
-  launch until the master binds it for them. Shutdown stops accepting, asks
-  connections to finish and joins them and their sessions, with no deadline
-  of its own.
+- **Socket** — named TCP, TLS or Unix listeners, using transport's common
+  Runnable and drivers. The same owner receives all of them. TCP worker sockets
+  use port sharing; Unix worker sockets inherit one master-bound FD. Worker
+  stop/restart closes only its descriptor copies, never the shared path.
+  Check-config opens nothing. See transport's architecture for the current
+  replacement-master descriptor recovery limitation.
 - **Orbit** — the lane in the configured `fleet_name` under the owner's runtime
   name, read by one Tokio task through `InboxReceiver`; SHM holds the frame
   and a named descriptor bell wakes the reactor directly, with no poll and no
