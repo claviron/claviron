@@ -71,9 +71,9 @@ impl Register<AppState> for BenchService {
 impl Routable for BenchService {
     fn routes(
         self: Arc<Self>,
-        _state: &AppState,
+        state: &AppState,
     ) -> registry::Result<Option<axum::Router<AppState>>> {
-        Ok(Some(crate::bench::routes().with_state(())))
+        Ok(Some(crate::bench::routes_with_state(state).with_state(())))
     }
 }
 

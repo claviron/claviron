@@ -6,12 +6,13 @@ use std::time::Duration;
 use axum::Json;
 use axum::Router;
 use axum::body::Bytes;
-use axum::extract::Query;
+use axum::extract::{Extension, Query};
 use axum::http::header::{
     CACHE_CONTROL, CONTENT_TYPE, HeaderName, HeaderValue,
 };
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{MethodRouter, get, post};
+use claviron_runtime::AppState;
 use claviron_runtime::activity::ACTIVITY;
 
 /// What the caller wants this route to do: how long to take, and how much
@@ -100,19 +101,28 @@ fn spread(bound: u64) -> u64 {
 }
 
 /// The native baseline, under `/_bench`.
-fn baseline_routes() -> Router {
+fn baseline_routes(stats: MethodRouter) -> Router {
     Router::new()
         .route("/rust", get(rust).post(rust))
-        .route("/stats", get(stats))
+        .route("/stats", stats)
 }
 
 /// One workload router for both Edge and standalone runners.
 pub fn routes() -> Router {
+    workload_routes(get(stats))
+}
+
+/// The same workloads with process identity on `/_bench/stats` only.
+pub fn routes_with_state(state: &AppState) -> Router {
+    workload_routes(get(stats).layer(Extension(state.clone())))
+}
+
+fn workload_routes(stats: MethodRouter) -> Router {
     Router::new()
         .route("/bench/plain", get(plain))
         .route("/bench/json", get(json))
         .route("/bench/echo", post(echo))
-        .nest("/_bench", baseline_routes())
+        .nest("/_bench", baseline_routes(stats))
 }
 
 async fn plain() -> &'static str {
@@ -171,12 +181,42 @@ async fn rust(
         .into_response()
 }
 
-async fn stats() -> impl IntoResponse {
-    let body = format!(
-        r#"{{"in_flight":{},"total":{},"sessions":{}}}"#,
-        ACTIVITY.in_flight(),
-        ACTIVITY.total(),
-        ACTIVITY.sessions()
-    );
-    ([(CONTENT_TYPE, "application/json"), (CACHE_CONTROL, "no-store")], body)
+#[derive(serde::Serialize)]
+struct Stats<'a> {
+    in_flight: u64,
+    total: u64,
+    sessions: u64,
+    #[serde(flatten)]
+    identity: Option<StatsIdentity<'a>>,
+}
+
+#[derive(serde::Serialize)]
+struct StatsIdentity<'a> {
+    application: &'a str,
+    runtime: &'static str,
+    fleet: &'a str,
+    pid: u32,
+    worker: Option<u8>,
+}
+
+async fn stats(
+    state: Option<Extension<AppState>>
+) -> axum::response::Response {
+    let identity = state.as_ref().map(|Extension(state)| StatsIdentity {
+        application: state.name(),
+        runtime: "rust",
+        fleet: state.fleet_name(),
+        pid: std::process::id(),
+        worker: state.worker_id(),
+    });
+    (
+        [(CACHE_CONTROL, "no-store")],
+        Json(Stats {
+            in_flight: ACTIVITY.in_flight(),
+            total: ACTIVITY.total(),
+            sessions: ACTIVITY.sessions(),
+            identity,
+        }),
+    )
+        .into_response()
 }

@@ -399,3 +399,9 @@ required by the enabled subsystems. Cross runners also need the matching FreeBSD
 toolchain, sysroot, and target libraries. The workflow does not provision an app,
 load an app's `.env`, or install those dependencies. `Cargo.lock` is not tracked
 in this library workspace, so these recipes do not use `--locked`.
+
+## Benchmark routes
+
+The optional `bench` API supplies native workload routes. `bench::routes_with_state`
+adds process identity only to `/_bench/stats`; `BenchService` uses it for its
+registered hosts. Plain, JSON and echo routes receive no diagnostic state layer.

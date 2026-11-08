@@ -7,10 +7,14 @@
 //! a Cargo feature exposes the service, not an implicit registration. Edges
 //! serving benchmarks disable access logging for those hosts in their own
 //! configuration.
+//!
+//! [`routes_with_state`] adds application, runtime, fleet, PID and worker
+//! identity to `/_bench/stats`, alongside its activity counters. Only that
+//! diagnostic route receives the state; plain, JSON and echo workloads do not.
 #![forbid(unsafe_code)]
 
 mod handlers;
 mod service;
 
-pub use handlers::{Ask, routes};
+pub use handlers::{Ask, routes, routes_with_state};
 pub use service::{BenchService, Config};
