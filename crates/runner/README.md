@@ -166,7 +166,7 @@ engine.
 
 The main option groups are:
 
-- Identity and transport: `name`, `fleet_name`, `listeners`, `listener` defaults and `trusted`; TLS fields are available with TLS support.
+- Identity and transport: `name`, `fleet_name`, `listeners`, `defaults.listener` and `trusted`; TLS fields are available with TLS support.
 - Request/reply policy: `requests` and `responses`.
 - Orbit ingress capacity: `max_in_flight`.
 - Static routing: `files`, `try_files`, and `assets` when file support is selected.
@@ -181,12 +181,14 @@ runner fallback. Operators must choose their desired admission and body limits.
 Socket listeners use the same named declarations as an Edge:
 
 ```yaml
+defaults:
+  listener:
+    execution: dedicated
 listeners:
   application:
     transport: unix
     listen: unix:/run/example/application.sock
     protocols: [h1, h2]
-    execution: dedicated
     uds:
       mode: "0660"
 ```
@@ -201,6 +203,9 @@ survive replacement of their master is not supported yet.
 Listener connection/protocol settings are per declaration. Request and response
 policy stays application-wide under `requests` and `responses` at the runner
 root. Per-listener body policy is rejected rather than silently ignored.
+`defaults.listener` supplies shared socket settings and Orbit's execution
+selection. Each named socket listener can override those defaults. The former
+top-level `listener` key is no longer accepted.
 
 The application name and fleet name are separate. An explicit fleet name avoids
 requiring the application name itself to satisfy Orbit's naming constraints.

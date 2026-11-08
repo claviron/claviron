@@ -217,6 +217,9 @@ unknown keys, which is why the file is divided by hand.
 name: shop                     # application / instance address
 fleet_name: shop               # independent process-family namespace
 orbit: true
+defaults:
+  listener:
+    execution: shared
 listeners:
   application:
     transport: tcp
@@ -248,6 +251,10 @@ indexes, and the shared file service still rejects private paths and dynamic
 source files.
 
 Named socket listeners use HTTP's common `ListenerDefinition` and resolver.
+`RunnerOptions.defaults` carries `defaults.listener`; named declarations override
+these shared settings, and Orbit takes its execution selection from the same
+defaults. `listener_defaults()` validates the nested block before either ingress
+is prepared. Request and response policy belongs at the runner root.
 The runner owns the application adapter in `socket.rs`; it defines no socket
 Runnable. Transport's `Listener` owns `Listener:<id>`, executor placement and
 start policy. Connection limits and TCP/Unix/H1/H2 options are per declaration.

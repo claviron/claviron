@@ -243,9 +243,9 @@ pub fn register_doors(
             let name = runner.name.clone().ok_or_else(|| {
                 registry::Error::msg("the launch was prepared without a name")
             })?;
-            // The runner's listener settings place every door, Orbit's too.
+            // Orbit uses the same execution default as named socket listeners.
             let execution = runner
-                .listener()
+                .listener_defaults()
                 .map_err(registry::Error::msg)?
                 .execution
                 .resolve(&claviron_http::config::ListenerExecution::default())

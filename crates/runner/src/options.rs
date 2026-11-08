@@ -88,9 +88,10 @@ pub struct RunnerOptions {
     #[cfg_attr(feature = "cli", arg(skip))]
     pub listeners: Option<serde_yaml::Value>,
 
-    /// Shared listener defaults. Each named listener overrides them.
+    /// Shared transport defaults under `defaults.listener`. Named listeners
+    /// override them; Orbit also uses their execution selection.
     #[cfg_attr(feature = "cli", arg(skip))]
-    pub listener: Option<serde_yaml::Value>,
+    pub defaults: Option<serde_yaml::Value>,
 
     /// Peers whose forwarding headers to believe: an address or a CIDR,
     /// repeatable. Nobody, unless stated. Carried as the text it was written
@@ -189,7 +190,7 @@ impl RunnerOptions {
         "fleet_name",
         "orbit",
         "edge_shutdown_policy",
-        "listener",
+        "defaults",
         "listeners",
         "trusted",
         #[cfg(feature = "tls")]
@@ -243,7 +244,7 @@ impl RunnerOptions {
                 self.edge_shutdown_policy
             },
             listeners: self.listeners.or(written.listeners),
-            listener: self.listener.or(written.listener),
+            defaults: self.defaults.or(written.defaults),
             // One decision: a command line that names any peer is the whole
             // list.
             trusted: if self.trusted.is_empty() {
@@ -288,7 +289,6 @@ impl RunnerOptions {
 
     /// What cannot be served as written, said before anything starts.
     pub fn validate(&self) -> Result<(), String> {
-        self.listener()?;
         self.socket_listeners()?;
         self.site()?;
         if let Some(name) = &self.fleet_name {
@@ -320,20 +320,26 @@ impl RunnerOptions {
         Ok(())
     }
 
-    /// The sockets' listener settings. A request or reply policy here would be
-    /// silently ignored by the driver, so it has to be said where it applies.
-    pub fn listener(&self) -> Result<ListenerOverrides, String> {
-        let Some(written) = &self.listener else {
+    /// The common listener defaults, including Orbit's execution selection.
+    /// Request and reply policy belongs at the application root.
+    pub fn listener_defaults(&self) -> Result<ListenerOverrides, String> {
+        #[derive(Default, Deserialize)]
+        #[serde(default, deny_unknown_fields)]
+        struct Defaults {
+            listener: ListenerOverrides,
+        }
+
+        let Some(written) = &self.defaults else {
             return Ok(ListenerOverrides::default());
         };
-        let listener: ListenerOverrides =
-            serde_yaml::from_value(written.clone())
-                .map_err(|error| format!("listener: {error}"))?;
+        let defaults: Defaults = serde_yaml::from_value(written.clone())
+            .map_err(|error| format!("defaults: {error}"))?;
+        let listener = defaults.listener;
         if listener.requests != Default::default()
             || listener.responses != Default::default()
         {
             return Err(
-                "listener: requests and responses are the runner's own keys"
+                "defaults.listener: requests and responses belong at the runner root"
                     .into(),
             );
         }
@@ -403,15 +409,14 @@ impl RunnerOptions {
         Vec<std::sync::Arc<claviron_http::config::ListenerConfig>>,
         String,
     > {
+        self.listener_defaults()?;
         let mut written = serde_yaml::Mapping::new();
         if let Some(listeners) = &self.listeners {
             written.insert("listeners".into(), listeners.clone());
         }
-        let mut defaults = serde_yaml::Mapping::new();
-        if let Some(listener) = &self.listener {
-            defaults.insert("listener".into(), listener.clone());
+        if let Some(defaults) = &self.defaults {
+            written.insert("defaults".into(), defaults.clone());
         }
-        written.insert("defaults".into(), defaults.into());
         if let Some(declarations) =
             self.listeners.as_ref().and_then(serde_yaml::Value::as_mapping)
         {

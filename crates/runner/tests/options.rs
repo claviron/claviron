@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn named_listeners_survive_worker_serialization_and_keep_their_settings() {
     let (shared, own) = split(serde_yaml::from_str(
-        "listeners:\n  private:\n    transport: unix\n    listen: unix:/tmp/example.sock\n    protocols: [h1, h2]\n    execution: dedicated\n    uds: {backlog: 17}\n"
+        "defaults:\n  listener:\n    execution: dedicated\n    uds: {backlog: 17}\nlisteners:\n  private:\n    transport: unix\n    listen: unix:/tmp/example.sock\n    protocols: [h1, h2]\n  shared:\n    transport: unix\n    listen: unix:/tmp/shared.sock\n    protocols: h1\n    execution: shared\n"
     ).unwrap()).unwrap();
     assert!(own.as_mapping().unwrap().is_empty());
     let written: RunnerOptions = serde_yaml::from_value(shared).unwrap();
@@ -14,8 +14,22 @@ fn named_listeners_survive_worker_serialization_and_keep_their_settings() {
         RunnerOptions::default().over(written),
     ] {
         let listeners = options.socket_listeners().unwrap();
-        assert_eq!(listeners.len(), 1);
+        assert_eq!(listeners.len(), 2);
         assert_eq!(listeners[0].id.as_str(), "private");
+        assert_eq!(
+            options.listener_defaults().unwrap().execution,
+            claviron_http::config::Override::Value(
+                claviron_http::config::ListenerExecution::Dedicated
+            )
+        );
+        assert_eq!(
+            listeners[0].execution,
+            claviron_http::config::ListenerExecution::Dedicated
+        );
+        assert_eq!(
+            listeners[1].execution,
+            claviron_http::config::ListenerExecution::Shared
+        );
         assert_eq!(
             listeners[0].transport(),
             claviron_http::listener::ListenerTransport::Unix
@@ -146,14 +160,13 @@ fn assets_and_probe_survive_the_launch_and_command_line_precedence() {
     assert!(invalid.validate().is_err());
 }
 
-/// A request policy here would be silently ignored by the driver, so it is an
-/// error; everything a listener says about its sockets is accepted.
+/// File-only defaults and application policy survive explicit-option layering.
 #[test]
 fn what_only_a_file_says_survives_on_either_side_of_a_layering() {
     let (shared, _) = split(
         serde_yaml::from_str(
             "edge_shutdown_policy: shutdown\n\
-             listener: { execution: dedicated }\n\
+             defaults: { listener: { execution: dedicated } }\n\
              requests: { max_body_size: 1 MiB }\n\
              responses: { max_body_size: 1 MiB }\n",
         )
@@ -166,28 +179,46 @@ fn what_only_a_file_says_survives_on_either_side_of_a_layering() {
         RunnerOptions::default().over(file),
     ] {
         assert_eq!(options.edge_shutdown_policy, EdgeShutdownPolicy::Shutdown);
-        assert!(options.listener.is_some());
+        assert!(options.defaults.is_some());
         assert!(options.requests.is_some());
         assert!(options.responses.is_some());
     }
 }
 
 #[test]
-fn the_sockets_listener_settings_are_checked_when_read() {
+fn runner_listener_defaults_are_checked_when_read() {
     use claviron_http::config::{ListenerExecution, Override};
     let written = |listener: &str| RunnerOptions {
-        listener: Some(serde_yaml::from_str(listener).unwrap()),
+        defaults: Some(
+            serde_yaml::from_str(&format!("{{listener: {listener}}}")).unwrap(),
+        ),
         ..RunnerOptions::default()
     };
     let listener = written("{execution: dedicated, max_connections: 8}")
-        .listener()
+        .listener_defaults()
         .unwrap();
     assert_eq!(
         listener.execution,
         Override::Value(ListenerExecution::Dedicated)
     );
-    assert!(written("{requests: {max_body_size: off}}").listener().is_err());
+    assert!(written("{requests: {max_body_size: off}}")
+        .socket_listeners()
+        .is_err());
+    assert!(written("{responses: {idle_timeout: 1s}}")
+        .listener_defaults()
+        .is_err());
     assert!(written("{mistyped: true}").validate().is_err());
+    let unknown_default = RunnerOptions {
+        defaults: Some(serde_yaml::from_str("{headers: {}}").unwrap()),
+        ..RunnerOptions::default()
+    };
+    assert!(unknown_default.validate().is_err());
+    assert!(
+        serde_yaml::from_str::<RunnerOptions>(
+            "listener: {execution: dedicated}"
+        )
+        .is_err()
+    );
 }
 
 /// A site declares its own files: with `files` beside it, one would silently
