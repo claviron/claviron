@@ -66,7 +66,6 @@ claviron-runtime.workspace = true
 claviron-tls.workspace = true
 claviron-types.workspace = true
 claviron-transport = { workspace = true, optional = true }
-claviron-sys.workspace = true
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 arc-swap.workspace = true
@@ -74,7 +73,6 @@ async-trait.workspace = true
 futures-util.workspace = true
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }
-
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde = { workspace = true, features = ["derive", "rc"] }
