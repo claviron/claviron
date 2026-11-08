@@ -1,0 +1,112 @@
+{
+  "transport": "link",
+  "workload": "echo",
+  "body_bytes": 1024,
+  "buffer_size": null,
+  "max_live": null,
+  "max_streams": null,
+  "in_flight": 8,
+  "edge_threads": 2,
+  "application_threads": 2,
+  "edge_pid": 48050,
+  "application_pid": 48051,
+  "exchanges": 3265162,
+  "wall_ns": 10014305207,
+  "exchanges_per_second": 326049.7790418502,
+  "edge": {
+    "cpu_ns": 4544.7607193762515,
+    "user_ns": 2806.9970188309185,
+    "system_ns": 1737.7637005453328,
+    "voluntary_switches": 0.005498961460411459,
+    "involuntary_switches": 0.23270759613152425
+  },
+  "application": {
+    "cpu_ns": 4956.571220662252,
+    "user_ns": 3435.451594744763,
+    "system_ns": 1521.119625917489,
+    "voluntary_switches": 0.00047991493224532197,
+    "involuntary_switches": 0.19063372659610764
+  },
+  "samples": [
+    {
+      "exchanges": 655594,
+      "wall_ns": 2005014000,
+      "edge": {
+        "user_ns": 1832253000,
+        "system_ns": 1139647000,
+        "voluntary_switches": 3668,
+        "involuntary_switches": 152547
+      },
+      "application": {
+        "user_ns": 2243577000,
+        "system_ns": 996618000,
+        "voluntary_switches": 286,
+        "involuntary_switches": 124862
+      }
+    },
+    {
+      "exchanges": 659196,
+      "wall_ns": 2002647541,
+      "edge": {
+        "user_ns": 1836307000,
+        "system_ns": 1131965000,
+        "voluntary_switches": 3615,
+        "involuntary_switches": 153219
+      },
+      "application": {
+        "user_ns": 2251427000,
+        "system_ns": 989869000,
+        "voluntary_switches": 309,
+        "involuntary_switches": 125429
+      }
+    },
+    {
+      "exchanges": 658204,
+      "wall_ns": 2000408000,
+      "edge": {
+        "user_ns": 1833709000,
+        "system_ns": 1142106000,
+        "voluntary_switches": 3592,
+        "involuntary_switches": 152717
+      },
+      "application": {
+        "user_ns": 2249527000,
+        "system_ns": 997086000,
+        "voluntary_switches": 315,
+        "involuntary_switches": 124509
+      }
+    },
+    {
+      "exchanges": 654282,
+      "wall_ns": 2005012166,
+      "edge": {
+        "user_ns": 1833350000,
+        "system_ns": 1130453000,
+        "voluntary_switches": 3545,
+        "involuntary_switches": 152492
+      },
+      "application": {
+        "user_ns": 2243124000,
+        "system_ns": 992095000,
+        "voluntary_switches": 306,
+        "involuntary_switches": 125224
+      }
+    },
+    {
+      "exchanges": 637886,
+      "wall_ns": 2001223500,
+      "edge": {
+        "user_ns": 1829681000,
+        "system_ns": 1129909000,
+        "voluntary_switches": 3535,
+        "involuntary_switches": 148853
+      },
+      "application": {
+        "user_ns": 2229651000,
+        "system_ns": 991034000,
+        "voluntary_switches": 351,
+        "involuntary_switches": 122426
+      }
+    }
+  ]
+}
