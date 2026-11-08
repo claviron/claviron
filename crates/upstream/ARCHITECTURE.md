@@ -146,182 +146,50 @@ There is no pool member that is merely "created but not connected".
 Configured origins and client factories are runtime plans, not pool
 members.
 
-### Profile ownership and reload
+### Pool management
 
-A service has one immutable current `ServiceEpoch` member view: pool handles,
-view generation and its maintenance tracker. A stable `ProfileLifetime` owns
-profile admission, force, tunnel IO, breaker/retry budgets and every active or
-still-draining `OwnedOrigin`. Each concrete origin has an inert OriginTransport
-(native generation, request Gate, force token and native IO tracker).
-H1 connection drivers and Hyper's H2 connection/request-writer executor register
-with that origin's owner, rather than a profile-wide tracker. Closing one origin's
-native IO neither cancels another origin nor forces the profile request gate.
-Stopping the current profile closes every active/draining native owner and
-joins their trackers plus tunnel IO before reporting Stopped. Accepted
-request/response bodies retain the stable profile's separate force token.
+Each serving process owns one pool per profile/origin. A profile chooses H1 or
+H2; each origin chooses its transport.
 
-With `dns`, `replace_membership` accepts a compiled member-only candidate.
-Profile policy changes are rejected before sealing the serving view. Identical
-members return the same service; state binding errors retain it. A changed view
-shares the stable lifetime and unchanged native owners, including when dense
-view indexes move or accepted responses/H2 writers are still running. A new
-origin gets fresh native ownership; a removed origin is sealed immediately.
-The old view rejects new requests permanently; stop() on that replaced handle
-joins its maintenance and removed owners only. Unchanged accepted IO belongs
-to the stable current profile, whose stop still joins removed owners even when
-the old view stop has not been called. This explicit transfer does not weaken
-current-profile stop semantics. Stop selection and member transfer share the
-admission mutex, so a racing old stop cannot close a newly shared profile gate.
-Maintenance is view-owned. After joining old maintenance, retirement primes
-the stable lifetime's latest view through a weak current-service projection.
-Several views may have replaced and dropped the immediate successor while an
-earlier warm future still owned the shared replenishing flag; completion must wake the latest
-view. The projection is rebound on membership transfer and operator restart,
-and adds no strong cycle or request-path lock.
-DNS `ReservedOriginId` is a distinct type from the native dense `OriginId`.
-ResolvedSet assignments, snapshot ranges and ResolverPlan names keep the stable
-canonical reservation across membership changes; a materializer separately
-chooses dense indexes in each service view. No implicit conversion exists. The
-cold API's `resolve::OriginId` compatibility name denotes ReservedOriginId;
-serialized snapshot numbers and the kind-245 shape remain unchanged.
-Native driver-end projections are weak and rebound to the current view/index;
-connections retain their original native generation. Breaker and retry budgets
-are shared, so view changes cannot double capacity. Worker outlier streaks,
-ban deadlines and ejection history are remapped by unchanged transport identity;
-weighted candidate ordering starts anew for the new membership. The provider publication operation below attaches this local transfer to
-registry/app publication through the managed resolver consumer.
-It never reclaims/reuses a kind-222 row. The unified DNS table below now fences physical named health and native joins;
-Revision-checked registry/app adoption is driven by UpstreamResolver;
-UpstreamProvider prepares file-declared names and completes bounded boot first.
-Typed cold desired preparation/materialization is documented below.
-Origin admission precedes pool acquisition on all four HTTP/tunnel paths and
-buffered retries. Response and request-writer permits are independent, so an
-origin seal rejects new acquisitions without forcing its accepted response or
-H2 writer. Both streaming and buffered replay bodies retain their writer lease
-through outbound EOF/drop. A failed attempt refunds its origin permits before
-trying another origin; replay collection does not release outbound ownership.
-Tunnels explicitly observe the origin force token as well as profile force.
-The origin tracker covers the complete dial/handshake future before its first
-poll, HTTP send/upgrade handoff phases, native drivers and upgraded copy futures.
-An origin close cancels a pending dial as pool Closed, without reachability
-failure; a dial attached after close is never polled. A handoff phase cannot
-escape a join between driver EOF and session submission. Tunnels remain jointly
-tracked by their profile and origin owners. These local permits/joins are not
-fleet retirement receipts or health-slot fencing.
-Explicit `stop()` closes admission,
-cancels maintenance and closes idle H1 sockets immediately. Leased H1 sockets
-finish their accepted response; H2 connections stay until their last accepted
-stream/writer lease drains. Sealing fences stream admission and wakes queued
-acquisitions immediately without dropping accepted connection ownership;
-closing after drain additionally releases it. Pool closure is not an origin
-reachability failure. It waits for accepted IO under the configured
-`lifecycle.drain_timeout` (default 30s). After that explicit bound, it cancels
-and joins epoch-owned IO before reporting Stopped. Ordinary response bodies
-retain their request lease; an unfinished request writer has an independent
-Gate permit, since H2 may return a response before the request reaches EOF.
-Hyper's internally spawned H2 transport/writer tasks use the origin executor;
-stopping only the outer connection future would leave those sockets open.
-`start()` publishes fresh pools with a new generation and preserves bound fleet health.
-An old response cannot return a connection into the new pools. Gate's remaining
-count describes outstanding IO legs, not necessarily distinct requests.
+| HTTP mode | TCP target | UDS target | Admission per connection |
+| --- | --- | --- | --- |
+| H1 plain | `tcp://` | `unix:` | One request |
+| H1 TLS | `tls://`, ALPN `http/1.1` | Not supported | One request |
+| H2c | `tcp://`, prior knowledge | `unix:`, prior knowledge | Effective local/peer stream limit |
+| H2 TLS | `tls://`, ALPN `h2` | Not supported | Effective local/peer stream limit |
 
-The inbound `SessionSpawner` still owns upgraded tunnel submission and listener
-admission. Profile stop separately tracks and cancels its outbound work under
-its explicit bound. It does not install a timeout on an indefinite listener
-drain; the [GRACEFUL_OWNERSHIP](../../docs/design/GRACEFUL_OWNERSHIP.md)
-contract remains unchanged.
+```text
+request -> profile balance policy -> origin A -> pool A -> connection -> stream
+                                 -> origin B -> pool B -> connection -> stream
+```
 
-Reload parses and validates before adoption. Unchanged profiles retain their
-service, pools and generation; changed/removed profiles retire through `stop()`
-while new lookups see the replacement. Registry publication synchronously seals
-changed/removed handles under their admission mutex before exposing the new
-snapshot; it does not wait for the retirement driver to be scheduled. Accepted
-H1/H2 IO still drains through stop(), which joins maintenance and outbound IO.
-This seal alone is not a drain receipt or fleet-wide adoption acknowledgement.
-Registry retirement is permanent: start() on a captured retired handle returns
-its sealed generation without reopening pools, including while its drain holds
-the operation mutex. Ordinary operator stop()/start() remains reversible.
-Invalid config retains the live registry.
-The process owner drives retirement even if the reload caller is cancelled.
+| Setting | Effective scope | H1 | H2c / H2 TLS |
+| --- | --- | --- | --- |
+| `balance.algorithm` | Across the profile's eligible origins | Selects an origin | Selects an origin |
+| `capacity.max_live` | Each origin's pool, per process | Physical connection ceiling | Physical connection ceiling, including dialing/draining connections |
+| `capacity.max_idle` | Each origin's pool, per process | Retention ceiling for empty connections | Retention ceiling for empty connections |
+| `capacity.min_idle` | Each H1 pool | Live floor, including leased/connecting connections | Rejected |
+| `capacity.max_streams` | Each H2 connection | Rejected | Optional local ceiling; effective limit also respects peer SETTINGS |
+| `capacity.warmup` | Lifecycle activation of each origin pool | Async preparation of the min_idle floor | Async preparation of one connection |
+| `connection.idle_timeout` | Each connection | Expiry checked on reuse above the floor | Driver-owned idle expiry |
+| Origin `max_live` | `balance.algorithm: first` only | In-flight request threshold | In-flight stream threshold, not a physical connection limit |
 
-Provider-created UpstreamApp handles retain one process-local
-atomic binding per selected profile, while their route matcher stays immutable.
-Registry publication seals a replaced service before advancing that binding.
-An already captured native application can select the replacement without a vhost
-router rebuild. Selection clones one immutable UpstreamService; its accepted
-request/response remains under the selected epoch. An extracted service handle
-itself remains frozen. An unchanged profile retains its service and pools.
-Removed bindings keep their sealed last service in captured apps, preserving
-route ownership and 503 rather than falling through to another route/static IO;
-re-adding the same profile name creates a new binding and never revives it in
-old apps. No-DNS builds and explicitly constructed UpstreamApp::new handles use
-direct fixed clones. The DNS-enabled provider path includes an atomic load even
-for literal profiles. Historical allocation measurements included this actual
-registry path, excluding separate origin runtime threads from both the service
-and Hyper floor.
-With `dns`, `UpstreamProvider::publish_membership` accepts a member-only compiled
-candidate against a MembershipTarget captured before preparation. It freezes
-both service identity and epoch generation; an operator stop/start can retain
-the service handle while superseding that target.
-Registry publication holds its write lock while checking service identity. The
-epoch generation check and seal/transfer share lifecycle admission exclusion,
-so a racing restart cannot slip between validation and handoff. The operation
-then seals/transfers the old view, queues its process-owned retirement, and
-advances the captured-app binding/current-service map. A superseded, removed
-or reloaded view cannot publish a late answer. Identical membership is inert;
-failed binding/policy validation leaves serving handles and bindings unchanged.
-The publishing caller does not own drain and cancellation cannot abandon it.
-`profile()` returns the current serving profile; the registry separately retains
-the compiled desired config. An identical desired-config reload preserves the
-current DNS member view/pools instead of resetting it to boot membership. A
-changed desired config follows ordinary full-service replacement semantics.
-`publish_resolved_membership` adopts a complete named view against exact
-`(ResolutionEntry, revision)` approvals. Registry write -> lifecycle admission ->
-resolution-table mutex/flock is the cold lock order. Native owners are prepared
-before locking the resolution table. The same table exclusion covers revision
-and complete active-member validation, old-view seal, retirement queueing,
-captured-app binding and current-service publication. The commit callback must
-not register owners, read/lock this table or re-enter lifecycle admission.
-Each approved active assignment appears exactly once with its physical stamp,
-socket and weight; every candidate named member is approved, and every currently
-serving named binding is represented. Local assignment cells cannot stand in
-for authoritative members. Stale revisions also reject otherwise inert no-ops.
-Rejected preparation consumes only unique inert new owners; unchanged serving
-owners and registry/app bindings remain intact. The unchecked registry operation
-rejects named views. Literal/local capability publication retains its existing
-behavior. Initial/reload adoption validates all changed profiles under one table
-exclusion; the physical retirement/health capability is documented below.
+`warmup` defaults to false. `max_idle` defaults to max_live and is a ceiling,
+not a target to replenish. H2 reuses available streams first, opens another
+connection when all are full and the pool can grow, and otherwise queues.
 
-Request/response timers contain `Sleep` directly and pass frames without
-copying. Empty requests skip the timeout wrapper. H1 sends concrete
-`UpstreamBody` without a second request box. Hyper 1.11's H2 connection requires
-an Unpin body, so nonempty H2 requests pin the timed wrapper once; empty H2
-requests and both response timers need no extra timer box. This remaining H2
-request box is an accepted allocation boundary (owner decision 2026-09-17):
-one extra allocation per nonempty H2 request, with no frame copying or
-per-frame allocation. Removing it is not a Phase 2 acceptance requirement;
-total allocation acceptance is closed under the owner-approved plan §6.5 budgets.
+| Balance algorithm | Origin-selection input |
+| --- | --- |
+| `round_robin` (default) | Origin order and weights |
+| `least_connections` | Total in-flight work across each origin's pool, adjusted by weight; worker or fleet scope |
+| `peak_ewma` | Origin latency estimate and total pool in-flight work |
+| `consistent_hash` | Configured request key and prepared origin hash ring |
+| `first` | Worker-relative origin order; total pool load, available streams and remaining physical capacity |
 
-Hyper's internally spawned H2 work uses a pinned `OriginTask` with one future
-field and one owned cancellation waiter, tracked by the origin's TaskTracker.
-Cancellation is polled first, preserving force priority and tracked destruction
-before join. This replaces the async select wrapper whose generated state
-crossed Tokio's automatic boxing threshold for native request futures in the
-measured debug build. No task tracking or cancellation is omitted to save
-allocations. Exact nonempty H2 request lengths missing Content-Length are
-formatted into a 20-byte u64 decimal buffer and copied once into HeaderValue;
-provided lengths and unknown/zero-length body semantics remain unchanged.
-Hyper would emit the same length on this path, using two allocations for its
-numeric HeaderValue conversion. These changes reduce measured H2C 1-KiB POST
-overhead from 7/8.005 to 4/5.005 direct/bypass, and H2C GET from 3/4.005
-to 2/3.005, without changing the Hyper floor.
-Owner decision 2026-09-17 accepts measured direct/bypass overhead ceilings:
-H1 GET/POST 4.05/5.05, H2C GET 2.05/3.05, H2C POST 4.05/5.05. This closes
-plan §6.5 by revising its original H1 GET/bypass targets, rather than claiming
-they were all attained. The 0.05 batch allowance covers at most 10 allocations
-over 200 requests. The harness retains stronger original direct H1 POST and
-H2 GET/POST guards. Request construction and the Hyper floor remain unchanged;
-these budgets are test acceptance expectations, independent of runtime policy.
+Balance policy does not select connections inside a pool. H1 reuses an empty
+connection or opens one; H2 reserves a stream on a reusable connection before
+considering another dial. Empty retention and idle expiry never discard an
+accepted request/body writer.
 
 ### Allocation sizing policy
 
@@ -748,205 +616,10 @@ dynamic-response wrapper.
 
 ---
 
-### DNS preparation and ownership capability (Phase 6)
+### DNS preparation
 
-DNS origins are always compiled; there is no feature for them. The crate
-consumes `resolver` for its contracts only, and DNS runs only in the
-cold membership coordinator, never in pool acquire. Which resolver answers is
-the application's decision: at boot and reload the provider resolves the registry's
-`dyn claviron_resolver::ResolverFactory` binding and opens one resolver per
-profile from that factory with the profile's `resolve` transport policy. No
-default exists in this crate or in the facade; a profile with DNS origins and
-no bound factory fails boot naming the profile, whatever features the build
-has. `claviron-full` binds
-`HickoryFactory`; an adapter over an in-process DNS service is bound the
-same way. `resolve::ResolveConfig` separates shared DNS
-transport/cache policy from upstream family, refresh, address limit and
-boot/failure policy. Inactive builds consume `resolve` through IgnoredAny and
-start no DNS capability; enabled policies validate during profile compilation.
-Fixed policy records remain strict.
-
-`resolve.retry_interval` defaults to 5s and must be positive. It owns occupied
-election retries, error retries and the fallback for already expired/zero-TTL
-answers; `interval: 0` still follows positive remaining TTL. Negative/backend
-retries do not reuse an expired deadline or enter a zero-delay query loop. These
-are upstream scheduling settings, independent of backend timeout/attempts.
-
-`resolve::lookup` is a cold operation over a borrowed Resolver. One caller-owned
-total budget covers A/AAAA and every SRV target query. Missing A or AAAA data may
-coexist with a positive other family; NXDOMAIN and transport errors fail the
-whole lookup, avoiding a partial answer that would retire healthy endpoints.
-SRV preserves priority, zero weight and port; target failures never silently
-remove part of the answer. Endpoint normalization is deterministic, duplicates
-coalesce, and truncation is explicit. Existing answer expiry is preserved exactly
-and the earliest SRV/target expiry wins; reading cache never adds a minimum TTL.
-
-`resolve::ResolvedSet` reserves a contiguous OriginId range, sorts/diffs desired
-endpoints and issues separate activation, metadata-update and retirement changes.
-Retired assignments are immediately absent from its active projection, keep
-their slot until an exact joined-drain receipt, and cannot be resurrected early
-when an address reappears. Assignment generation fences late receipts from
-releasing a successor. Desired/pending membership stays bounded while old slots
-drain. Transport failures retain membership even with `on_failure: empty`;
-only negative answers honor empty. Stale entry is returned once per episode
-for the resolution owner's warning. Success clears stale without changing
-assignment identity on an unchanged answer. This model writes no health table
-and publishes no health event; the owning loop consumes the physical joined
-retirement proof documented below.
-
-`resolve::ResolutionTable` now holds authoritative snapshots and named health
-in dedicated kind 248. Its 64-byte immutable header validates the complete
-row/cell/native stride, named-entry/payload/address/owner geometry, magic and
-version. Each aligned row holds the full escaped 96-byte key, tenure high-water
-mark, two bounded snapshot/eligibility banks and reusable canonical health cells.
-Build geometry is `ORBIT_UPSTREAM_RESOLUTION_CAPACITY` (16 named entries),
-`ORBIT_UPSTREAM_RESOLUTION_PAYLOAD_CAPACITY` (8192 bytes per bank),
-`ORBIT_UPSTREAM_RESOLUTION_ADDRESS_CAPACITY` (16 canonical slots per name,
-including retiring assignments), and `ORBIT_UPSTREAM_RESOLUTION_OWNER_CAPACITY`
-(64 concurrent native owners per canonical slot across all processes). Peers must
-agree: runtime growth changes physical offsets. The compact defaults occupy
-1,367,104 bytes. A pre-release kind-248 segment created with the former
-64-entry/64-address geometry must be removed once while inactive before this
-build starts; it is not migrated in place. `max_addresses` may request a smaller
-reservation; ProfileResolver rejects an oversized range before queries.
-Full native registration closes/refuses the inert new transport safely.
-Kind 245's incompatible snapshot-only v1 is retained as deployment history;
-no reader/writer migrates, resets or unlinks it. New and old segments can coexist. Full tables and oversized snapshots fail explicitly without replacing
-current truth. Kind 244 belonged to retired PHP invalidations and is not reused.
-
-Reads, installation, claims and publication take a local mutex plus the same
-process flock. Snapshots include desired/pending membership, active/retiring
-assignments, their installation generations, stale/truncated flags and a host
-CLOCK_MONOTONIC expiry. Cache expiry crosses processes as remaining lifetime,
-with conservative sample ordering, floored deadlines and a rounded-up reader
-clock; no fractional millisecond of fresh TTL, wall time or
-serialized std::Instant is used. Restoring a snapshot validates slot identity,
-range, endpoint uniqueness and active/desired consistency before adoption.
-
-A completed replacement's JSON and per-canonical active stamps are written
-only into the inactive bank. One release revision/bank selector publishes both;
-a process dying before it leaves the last answer and serving eligibility intact.
-Scopes compare the full selector before/after eligibility; comparing only the
-bank would admit an ABA after two commits. A new native registration takes the
-same publication flock and cannot enter a retired assignment. An admitted
-health scope remains counted through its whole callback/dial/probe. Removing
-an address denies new scopes without writing Down or producing a health event.
-Physical reset occurs only for a new stamp whose prior published retirement is
-joined; retained assignment/metadata keeps health, pressure and native pools.
-Publication itself validates this proof, so a forged early model receipt cannot
-replace authoritative truth. Canonical ranges cannot change in place, a retired
-assignment cannot reactivate, and a fresh assignment's stamp must exceed the
-previous membership generation. `ResolverDuty` contention is per profile. Claim and
-publication validate/renew the caller's exact profile lease under the publication
-lock, and the resource-side monotonic tenure fence rejects superseded writers.
-The caller must supply the lock from this table's fleet; keys/tenures are not
-cross-fleet authorization tokens. An expected publication revision rejects a
-late same-owner query. Publication revision is independent of membership
-ResolutionGeneration so TTL/stale refreshes can announce changes without
-reassigning unchanged endpoints. Same-generation membership rewrites fail.
-Private memory generations use local claims; fleet-memory and SHM tables reject
-local claims/publication, so losing a fleet capability cannot fall back locally.
-
-UpstreamResolutionProvider is a managed Reuse/Preserve resource ordered after
-FleetProvider, before UpstreamProvider. Validation inspects existing full geometry
-and a read-only header without create/resize/reset; finalize preserves answers.
-A typed ResolutionChanged event carries identity/revision only and shares the
-existing event bridge. Construct/emit it after a successful commit. Peers read
-the table; receiving a hint is neither the answer nor adoption acknowledgement.
-Late peers require no event replay. No resolver Runnable or query is started by
-registration. With `dns`, the provider accepts names through desired preparation
-and materializes concrete serving origins only after bounded boot.
-
-`resolve::ProfileResolver` prepares immutable named bindings from ResolverPlan
-and an injected shared Resolver, with explicit Local/Fleet authority. Ranges
-are nonempty and nonoverlapping, labels unique, and authority must match the
-table. Each table identity includes a full BLAKE3 desired-binding fingerprint
-(label, source, reserved range, resolve policy and total budget), URL-safe encoded
-without truncation. Changed desired configuration cannot adopt old answer bytes;
-unchanged reconstruction and late peers read current truth without querying.
-Old identities remain resident until a separately authorized lifecycle cleanup;
-full capacity fails explicitly. The serialized snapshot remains numeric and strict; physical kind 248 has its
-separate unified header/geometry. Retained kind 245 is untouched.
-
-One exact per-profile lease covers all its names, including query and refresh
-sleep. Its lifetime is twice the supplied total lookup budget and renewal occurs
-no later than one budget: this is a tenure safety derivation, not a hidden DNS
-refresh interval. Budgets must be at least 1ms for Orbit deadline resolution and
-fit the clock. Local ownership is resource-fenced; fleet failure never falls back
-locally. A lost tenure drops the pending query and discards its result; completion
-and publication both revalidate ownership. A competing revision is re-read, never
-overwritten. Events and the once-per-stale-episode warning follow successful
-publication; stale state survives ownership transfer in the snapshot.
-
-The same cold owner completes published retirements only after
-`ResolutionEntry::retirement_ready` proves native IO join and zero admitted
-physical scopes, or exact kernel death. It reads current authoritative truth,
-finishes the exact model receipts and publishes under the retained exact tenure
-and expected revision. Publication rechecks physical proof under its flock.
-Pending addresses then acquire the freed canonical slot with a newer assignment
-stamp. A superseded local owner exits without committing; a lost fleet tenure
-re-enters election without overwriting the successor.
-While retirements remain, existing `retry_interval` bounds cold receipt checks.
-It is a polling fallback, not a drain deadline: a live owner or admitted scope
-retains its slot indefinitely. Receipt checks neither issue DNS queries nor
-reschedule their due times, grant fresh TTL, clear stale/truncated policy flags,
-emit reachability/serving events or start recovery. ResolutionChanged remains
-an after-commit hint: retirement and due query may commit in the same poll, so
-a consumer must accept newer table truth than the hint's revision.
-
-ProfileResolver::boot applies one total budget to election waiting and all
-missing names. Subscribe-before-read uses ResolutionChanged as a wake-up hint
-while waiting, with retry_interval as the lost-hint fallback. Required boot
-rejects empty active membership and names the profile/source/error, retaining
-the resolver error source. Allow-empty commits the bounded stale/empty model.
-Existing publications require no election or independent query. Cancel/timeout
-drops the pending caller future and releases only its exact tenure. This does
-not promise joining Hickory's shared background work.
-
-ProfileResolver::run is a cold future polled by its caller, with no child-task
-spawn, private timer service or request-path query. It keeps one due time per
-name, holds and renews ownership across queries/sleeps, refreshes by configured
-cadence or existing TTL, and observes RunContext/process shutdown. Preparation
-and registration start none of this work implicitly. UpstreamProvider completes
-boot before atomic registry adoption; UpstreamResolver polls owners and consumers
-inside one managed Runnable generation. Changed-plan reload cancels and observes
-release of this process's old query/exact-lease futures before cold preparation.
-Boot never revokes a peer's live previous-config lease. Failed preparation keeps
-serving services/app bindings intact and resumes the previous resolution duty.
-
-`resolve::DesiredUpstreams::prepare` now separately prepares immutable desired
-profiles. A declaration is a literal index or a typed TCP/TLS host/SRV name;
-its private common policy contains concrete literals only, never a placeholder
-socket. Named-only TLS prepares SNI and trust/client/ALPN material before an
-address exists. Literal/config policy compilation and concrete origin
-construction are shared with the ordinary compiler. Named labels are unique;
-canonical ranges and the maximum possible dense view must fit their distinct
-u16 domains. SRV supplies port/weight and requires explicit HTTP authority.
-Names reject userinfo, path, query and fragment; literals keep their existing
-contract. Desired equality excludes runtime state and includes prepared policy,
-names/authority/TLS identity, ordering and reserved ranges.
-
-`DesiredProfile::materialize` accepts only its exact prepared ProfileResolver
-plan, reads complete authoritative publications without querying/electing,
-and returns an inert concrete profile plus exact entry/revision approvals for
-checked adoption. It walks declaration order, sorts each name's active sockets,
-and chooses fresh dense native IDs separately from canonical reserved IDs.
-Literal policies retain dense internal indexes even when a preceding name later
-expands into several members. Named labels append the socket for deterministic
-peer hash rings; bounded BLAKE3-derived state/probe keys include full declared
-identity and real address, independently of DNS-name/IPv6 textual length.
-HTTP authority/Host and TLS SNI retain declared names. Trust material stays shared;
-L7 URI arrays, balancer rings and metric indexes follow the new dense view.
-Materialized H1 warm floors are revalidated against the configured breaker.
-Preparation/materialization register no native owners or start IO. A later
-revision change rejects checked adoption and cleans only newly prepared owners.
-
-SRV priority is process-owned origin metadata, not a change to either SHM ABI.
-An otherwise eligible higher-priority member yields to an eligible lower-priority
-member of the same resolution binding. Unrelated names and literals do not
-suppress a group's backups; reachability/serving/ejection unavailability enables
-its next priority. Zero SRV weight remains zero. These request checks use the
-existing scoped atomic state boundary and do not query DNS or acquire a flock.
+Named origins require an application-bound `ResolverFactory`; DNS queries run outside request handling during cold membership preparation.
+Materialization produces concrete origin members for revision-checked publication, preserving the current pools when preparation or adoption fails.
 
 ### Managed desired boot and serving adoption
 
