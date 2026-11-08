@@ -73,6 +73,16 @@ impl H2Connection {
         if self.sender.is_closed() || !self.capacity.try_reserve() {
             return None;
         }
+        if let Some(limit) = self.capacity.first_full()
+            && let Some(pool) = self.pool.upgrade()
+        {
+            tracing::info!(
+                origin = pool.label(),
+                conn = self.id,
+                streams = limit,
+                "upstream h2 connection reached its stream limit"
+            );
+        }
         Some(H2Permit::new(self.clone()))
     }
 }
@@ -147,23 +157,37 @@ where
             driver_capacity.update_peer(conn.current_max_send_streams());
             result
         });
-        let result = tokio::select! {
+        let (status, result) = tokio::select! {
             biased;
             _ = force.cancelled() => return,
-            _ = driver_capacity.wait_idle(idle_timeout), if pooled => Ok(()),
-            result = drive => result,
+            _ = driver_capacity.wait_idle(idle_timeout), if pooled => ("idle", Ok(())),
+            result = drive => (if result.is_ok() { "clean" } else { "driver_error" }, result),
         };
+        let in_flight = driver_capacity.used();
         driver_capacity.seal();
         if let Some(ctx) = driver_end
             && let Some((service, epoch, origin_index)) = owner.projection()
             && let Some(pool) = ctx.pool.upgrade()
         {
-            tracing::debug!(
-                origin =
-                    service.inner.profile.origins[origin_index].label.as_ref(),
-                status = if result.is_ok() { "clean" } else { "driver_error" },
-                "upstream h2 connection ended"
-            );
+            let origin =
+                service.inner.profile.origins[origin_index].label.as_ref();
+            match &result {
+                Ok(()) => tracing::info!(
+                    origin,
+                    conn = conn_id,
+                    status,
+                    in_flight,
+                    "upstream h2 connection ended"
+                ),
+                Err(error) => tracing::info!(
+                    origin,
+                    conn = conn_id,
+                    status,
+                    in_flight,
+                    %error,
+                    "upstream h2 connection ended"
+                ),
+            }
             if result.is_ok() {
                 service.spawn_h2_driver_clean_end(
                     origin_index,

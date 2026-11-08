@@ -19,7 +19,11 @@ pub struct H2TargetPool {
     profile: Arc<Profile>,
     pub(crate) breaker: Option<Arc<crate::proxy::service::breaker::State>>,
     generation: PoolGeneration,
+    origin: crate::origin::OriginId,
     live: Arc<Semaphore>,
+    // Set when a dial was refused because every connection allowed is open,
+    // cleared when one leaves: the operator log says it once per episode.
+    live_reported: AtomicBool,
     next_conn_id: AtomicU64,
     connections: ArcSwap<Vec<Arc<H2Connection>>>,
     mutation: std::sync::Mutex<()>,
@@ -66,6 +70,8 @@ impl H2TargetPool {
             live: Arc::new(Semaphore::new(profile.capacity.max_live())),
             profile,
             generation,
+            origin,
+            live_reported: AtomicBool::new(false),
             next_conn_id: AtomicU64::new(1),
             connections: ArcSwap::from_pointee(Vec::new()),
             mutation: std::sync::Mutex::new(()),
@@ -75,6 +81,10 @@ impl H2TargetPool {
             closed: AtomicBool::new(false),
             changed: Arc::new(Notify::new()),
         }
+    }
+    /// The origin's label, for operator logs.
+    pub(super) fn label(&self) -> &str {
+        self.profile.origins[self.origin.index()].label.as_ref()
     }
     pub(crate) fn in_flight(&self) -> usize {
         self.in_flight.load(Ordering::Acquire)
@@ -163,7 +173,16 @@ impl H2TargetPool {
             Err(tokio::sync::TryAcquireError::Closed) => {
                 return Err(H2AcquireError::Pool(RequestFailure::Closed));
             }
-            Err(tokio::sync::TryAcquireError::NoPermits) => return Ok(None),
+            Err(tokio::sync::TryAcquireError::NoPermits) => {
+                if demand && !self.live_reported.swap(true, Ordering::AcqRel) {
+                    tracing::info!(
+                        origin = self.label(),
+                        max_live = self.profile.capacity.max_live(),
+                        "upstream h2 pool at max_live: every connection is at its stream limit"
+                    );
+                }
+                return Ok(None);
+            }
         };
         let mut connecting =
             Connecting { pool: self, _guard: Some(guard), live: Some(live) };
@@ -188,7 +207,17 @@ impl H2TargetPool {
             }
             let mut next = self.connections.load_full().as_ref().clone();
             next.push(connection.clone());
+            let connections = next.len();
             self.connections.store(Arc::new(next));
+            tracing::info!(
+                origin = self.label(),
+                conn = id,
+                connections,
+                max_live = self.profile.capacity.max_live(),
+                streams = ?connection.capacity.limit(),
+                demand,
+                "upstream h2 connection opened"
+            );
         }
         Ok(Some(connection))
     }
@@ -218,6 +247,7 @@ impl H2TargetPool {
             .cloned()
             .collect();
         self.connections.store(Arc::new(next));
+        self.live_reported.store(false, Ordering::Release);
         self.changed.notify_waiters();
     }
     pub async fn clear_connections(&self) {

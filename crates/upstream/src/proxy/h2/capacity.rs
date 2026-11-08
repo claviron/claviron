@@ -17,6 +17,9 @@ pub(super) struct StreamCapacity {
     peer: AtomicUsize,
     peer_known: AtomicBool,
     state: AtomicUsize,
+    // Set once this connection has carried as many streams as its limit
+    // allows, so the operator log says so once rather than per request.
+    full_reported: AtomicBool,
     idle_since: Mutex<Option<Instant>>,
     idle_changed: Notify,
     changed: Arc<Notify>,
@@ -31,6 +34,7 @@ impl StreamCapacity {
             peer: AtomicUsize::new(0),
             peer_known: AtomicBool::new(false),
             state: AtomicUsize::new(0),
+            full_reported: AtomicBool::new(false),
             idle_since: Mutex::new(Some(Instant::now())),
             idle_changed: Notify::new(),
             changed,
@@ -87,6 +91,14 @@ impl StreamCapacity {
             self.idle_changed.notify_one();
         }
         true
+    }
+    /// The limit, the first time this connection is carrying that many streams;
+    /// `None` before then and every time after.
+    pub(super) fn first_full(&self) -> Option<usize> {
+        let limit = self.limit()?;
+        (self.used() >= limit
+            && !self.full_reported.swap(true, Ordering::AcqRel))
+        .then_some(limit)
     }
     /// The caller releases only after both response and request writer finish.
     pub(super) fn release(&self) -> bool {
