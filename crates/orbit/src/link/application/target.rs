@@ -87,16 +87,10 @@ impl ApplicationTarget {
     pub fn send(
         &self,
         request: Exchange,
-        body_follows: bool,
     ) -> Result<Pending> {
         let lanes =
             self.0.lanes.load(self.0.client.inbox(), &self.0.application);
-        self.0.client.send_to(
-            &self.0.application,
-            &lanes.lanes,
-            request,
-            body_follows,
-        )
+        self.0.client.send_to(&self.0.application, &lanes.lanes, request)
     }
 }
 

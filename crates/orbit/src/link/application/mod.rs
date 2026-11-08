@@ -23,7 +23,8 @@ pub(crate) use error::map_link_error;
 pub use error::{Error, Result};
 pub use frame::{
     ApplicationStateNotice, ControlCommand, ControlTarget, Exchange,
-    ExchangeReply, FrameKind, Headers, HttpVersion, ShutdownNotice, frame_kind,
+    ExchangeBody, ExchangeReply, FrameKind, Headers, HttpVersion,
+    ShutdownNotice, fit_inline, frame_kind,
 };
 use geometry::link_spec;
 pub use geometry::*;

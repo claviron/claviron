@@ -97,7 +97,7 @@ async fn buffered_fin_does_not_complete_a_head_wait_or_consume_body_bytes() {
             correlation: 1,
             status: 200,
             headers: Vec::new(),
-            body: None,
+            body: ExchangeBody::Empty,
         })
         .unwrap();
     assert_eq!(head.await.unwrap().status, 200);
@@ -116,7 +116,7 @@ async fn a_delivered_head_wins_over_a_later_body_reset() {
             correlation: 1,
             status: 200,
             headers: Vec::new(),
-            body: None,
+            body: ExchangeBody::Empty,
         })
         .unwrap();
     remote.reset();

@@ -19,20 +19,11 @@ use super::websocket::Input;
 pub(super) fn upload(
     body: RouteBody,
     input: LentWrite,
-    whole: bool,
 ) -> AbortOnDropHandle<()> {
     // Construct the reset owner before spawning: cancellation before the task's
     // first poll must release the same input as cancellation during a write.
     let mut input = Input::new(input);
     AbortOnDropHandle::new(tokio::spawn(async move {
-        if whole {
-            if let Ok(collected) = body.collect().await
-                && input.write_all(&collected.to_bytes()).await.is_ok()
-            {
-                let _ = input.shutdown().await;
-            }
-            return;
-        }
         let mut body = body;
         while let Some(frame) = body.frame().await {
             let Ok(frame) = frame else {
@@ -46,6 +37,20 @@ pub(super) fn upload(
             }
         }
         let _ = input.shutdown().await;
+    }))
+}
+
+/// The rest of a body held whole, after what went into the stream before the
+/// frame: written, then ended, under the same owner as a streamed upload.
+pub(super) fn upload_rest(
+    rest: Bytes,
+    input: LentWrite,
+) -> AbortOnDropHandle<()> {
+    let mut input = Input::new(input);
+    AbortOnDropHandle::new(tokio::spawn(async move {
+        if input.write_all(&rest).await.is_ok() {
+            let _ = input.shutdown().await;
+        }
     }))
 }
 

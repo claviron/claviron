@@ -1,4 +1,15 @@
-//! What crosses the inbox: one exchange's control, never its body.
+//! What crosses the inbox: one exchange's control, and its body when the body
+//! is whole and fits.
+//!
+//! ## One crossing per direction
+//!
+//! A body held whole — a buffered request, a reply whose size is known — rides
+//! after the frame's head, so the frame that wakes the far side carries
+//! everything it needs and nothing else crosses. Only a body that streams, or
+//! one larger than the frame, goes on the exchange's stream, which is then a
+//! second crossing and usually a second wake. The frame says which.
+//!
+//! ## Layout
 //!
 //! A fixed prologue and then length-prefixed bytes. No self-describing format,
 //! no varints, no serde — decoding is a struct read and one walk forward, and
@@ -20,6 +31,7 @@
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
+use bytes::Bytes;
 use orbitive::NetId64;
 use orbitive::stream::{Side, StreamId, Ticket};
 
@@ -377,7 +389,54 @@ impl From<HttpVersion> for http::Version {
 /// repetition it had.
 pub type Headers = Vec<(Vec<u8>, Vec<u8>)>;
 
-/// One request, without its body.
+/// Where one direction's body is.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum ExchangeBody {
+    /// None: the direction ended before the frame was written.
+    #[default]
+    Empty,
+    /// The whole body, carried in the frame after its head.
+    Inline(Bytes),
+    /// On the exchange's stream, as it comes.
+    Stream,
+}
+
+impl ExchangeBody {
+    fn flag(&self) -> u8 {
+        match self {
+            Self::Empty => 0,
+            Self::Inline(_) => FLAG_INLINE,
+            Self::Stream => FLAG_STREAMED,
+        }
+    }
+
+    /// The inline bytes; empty for a body that is not inline.
+    pub fn inline(&self) -> &[u8] {
+        match self {
+            Self::Inline(bytes) => bytes,
+            Self::Empty | Self::Stream => &[],
+        }
+    }
+
+    /// Read from the flags, the inline bytes being the rest of the frame.
+    fn decode(
+        flags: u8,
+        frame: &Bytes,
+        at: usize,
+    ) -> Result<Self> {
+        match (flags & FLAG_INLINE != 0, flags & FLAG_STREAMED != 0) {
+            (false, false) if at == frame.len() => Ok(Self::Empty),
+            (true, false) => Ok(Self::Inline(frame.slice(at..))),
+            (false, true) if at == frame.len() => Ok(Self::Stream),
+            (true, true) => {
+                Err(Error::Malformed("a body is both inline and streamed"))
+            }
+            _ => Err(Error::Malformed("a frame has bytes past its head")),
+        }
+    }
+}
+
+/// One request.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Exchange {
     /// Matches the reply to this request. The caller mints it; nobody else
@@ -400,9 +459,12 @@ pub struct Exchange {
     pub headers: Headers,
     pub client: Option<SocketAddr>,
     pub server: Option<SocketAddr>,
-    /// Where the body is, if there is one. Absent means no body at all, not
-    /// an empty one that still needs reading.
-    pub body: Option<Ticket>,
+    /// The exchange's stream: what a streamed body travels on in either
+    /// direction, and how the application learns the edge has gone before it
+    /// answers. Present on every exchange an edge sends.
+    pub stream: Option<Ticket>,
+    /// The request body: none, carried here, or on the stream.
+    pub body: ExchangeBody,
     /// A message-session request: H1/H2 WebSocket or one reliable H3
     /// WebTransport bidi stream. The application answers 101 to accept or an
     /// error status to refuse. Edge translates that acknowledgment to the
@@ -411,27 +473,49 @@ pub struct Exchange {
     pub upgrade: bool,
 }
 
-/// One reply, without its body.
+/// One reply. Its stream, when the body streams, is the exchange's own.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ExchangeReply {
     pub correlation: u64,
     pub status: u16,
     pub headers: Headers,
-    pub body: Option<Ticket>,
+    pub body: ExchangeBody,
 }
 
-const FLAG_BODY: u8 = 1 << 0;
+/// The exchange carries a stream ticket.
+const FLAG_STREAM: u8 = 1 << 0;
 const FLAG_CLIENT: u8 = 1 << 1;
 const FLAG_SERVER: u8 = 1 << 2;
 /// A request asking to become an application message session.
 const FLAG_UPGRADE: u8 = 1 << 3;
+/// The body follows the head, to the end of the frame.
+const FLAG_INLINE: u8 = 1 << 4;
+/// The body travels on the stream.
+const FLAG_STREAMED: u8 = 1 << 5;
+/// Where the flags byte sits in every frame's prologue.
+const FLAGS_AT: usize = 2;
 
 impl Exchange {
+    /// The whole frame in one buffer. [`Self::encode_head`] and
+    /// [`Self::inline`] give the same bytes as two parts, for a vectored
+    /// write that does not join them.
     pub fn encode(&self) -> Result<Vec<u8>> {
+        let mut out = self.encode_head()?;
+        out.extend_from_slice(self.body.inline());
+        Ok(out)
+    }
+
+    /// The inline body, written after [`Self::encode_head`]; empty otherwise.
+    pub fn inline(&self) -> &[u8] {
+        self.body.inline()
+    }
+
+    /// Everything but the inline body.
+    pub fn encode_head(&self) -> Result<Vec<u8>> {
         let mut out = Vec::with_capacity(512);
-        let mut flags = 0u8;
-        if self.body.is_some() {
-            flags |= FLAG_BODY;
+        let mut flags = self.body.flag();
+        if self.stream.is_some() {
+            flags |= FLAG_STREAM;
         }
         if self.client.is_some() {
             flags |= FLAG_CLIENT;
@@ -451,7 +535,7 @@ impl Exchange {
         out.extend_from_slice(&0u16.to_le_bytes()); // status, a reply's field
         out.extend_from_slice(&self.correlation.to_le_bytes());
 
-        put_ticket(&mut out, self.body.as_ref());
+        put_ticket(&mut out, self.stream.as_ref());
         put_addr(&mut out, self.client.as_ref());
         put_addr(&mut out, self.server.as_ref());
 
@@ -464,8 +548,9 @@ impl Exchange {
         Ok(out)
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let mut cursor = Cursor::new(bytes);
+    /// Taken by value: an inline body is a slice of the frame, not a copy.
+    pub fn decode(frame: Bytes) -> Result<Self> {
+        let mut cursor = Cursor::new(&frame);
         if FrameKind::from_byte(cursor.byte()?)? != FrameKind::Request {
             return Err(Error::Malformed(
                 "a reply arrived where a request belongs",
@@ -478,32 +563,71 @@ impl Exchange {
         cursor.u16()?; // status
         let correlation = cursor.u64()?;
 
-        let body = cursor.ticket(flags & FLAG_BODY != 0)?;
+        let stream = cursor.ticket(flags & FLAG_STREAM != 0)?;
         let client = cursor.addr(flags & FLAG_CLIENT != 0)?;
         let server = cursor.addr(flags & FLAG_SERVER != 0)?;
+        let method = cursor.string()?;
+        let scheme = cursor.string()?;
+        let path = cursor.string()?;
+        let raw_path = cursor.bytes()?.to_vec();
+        let query = cursor.bytes()?.to_vec();
+        let headers = cursor.headers()?;
+        let at = cursor.at;
 
         Ok(Self {
             correlation,
             origin,
-            method: cursor.string()?,
-            scheme: cursor.string()?,
+            method,
+            scheme,
             version,
-            path: cursor.string()?,
-            raw_path: cursor.bytes()?.to_vec(),
-            query: cursor.bytes()?.to_vec(),
-            headers: cursor.headers()?,
+            path,
+            raw_path,
+            query,
+            headers,
             client,
             server,
-            body,
+            stream,
+            body: ExchangeBody::decode(flags, &frame, at)?,
             upgrade: flags & FLAG_UPGRADE != 0,
         })
     }
 }
 
+/// Fit a whole body into a frame whose head is already encoded: inline when
+/// head and body together are within `capacity`, otherwise marked as streamed
+/// and handed back for the stream. The flag is changed in the encoded head, so
+/// the head is not encoded twice.
+pub fn fit_inline(
+    head: &mut [u8],
+    body: ExchangeBody,
+    capacity: usize,
+) -> (ExchangeBody, Option<Bytes>) {
+    match body {
+        ExchangeBody::Inline(bytes) if head.len() + bytes.len() > capacity => {
+            head[FLAGS_AT] = head[FLAGS_AT] & !FLAG_INLINE | FLAG_STREAMED;
+            (ExchangeBody::Stream, Some(bytes))
+        }
+        body => (body, None),
+    }
+}
+
 impl ExchangeReply {
+    /// The whole frame in one buffer; see [`Exchange::encode`].
     pub fn encode(&self) -> Result<Vec<u8>> {
+        let mut out = self.encode_head()?;
+        out.extend_from_slice(self.body.inline());
+        Ok(out)
+    }
+
+    /// The inline body, written after [`Self::encode_head`]; empty otherwise.
+    pub fn inline(&self) -> &[u8] {
+        self.body.inline()
+    }
+
+    /// Everything but the inline body.
+    pub fn encode_head(&self) -> Result<Vec<u8>> {
         let mut out = Vec::with_capacity(256);
-        let flags = if self.body.is_some() { FLAG_BODY } else { 0 };
+        let flags = self.body.flag();
 
         out.push(FrameKind::Reply as u8);
         out.push(HttpVersion::default() as u8);
@@ -513,13 +637,13 @@ impl ExchangeReply {
         out.extend_from_slice(&self.status.to_le_bytes());
         out.extend_from_slice(&self.correlation.to_le_bytes());
 
-        put_ticket(&mut out, self.body.as_ref());
         put_headers(&mut out, &self.headers)?;
         Ok(out)
     }
 
-    pub fn decode(bytes: &[u8]) -> Result<Self> {
-        let mut cursor = Cursor::new(bytes);
+    /// Taken by value: an inline body is a slice of the frame, not a copy.
+    pub fn decode(frame: Bytes) -> Result<Self> {
+        let mut cursor = Cursor::new(&frame);
         if FrameKind::from_byte(cursor.byte()?)? != FrameKind::Reply {
             return Err(Error::Malformed(
                 "a request arrived where a reply belongs",
@@ -531,12 +655,14 @@ impl ExchangeReply {
         cursor.u16()?; // origin
         let status = cursor.u16()?;
         let correlation = cursor.u64()?;
+        let headers = cursor.headers()?;
+        let at = cursor.at;
 
         Ok(Self {
             correlation,
             status,
-            body: cursor.ticket(flags & FLAG_BODY != 0)?,
-            headers: cursor.headers()?,
+            headers,
+            body: ExchangeBody::decode(flags, &frame, at)?,
         })
     }
 }

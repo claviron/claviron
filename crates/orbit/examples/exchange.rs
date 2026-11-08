@@ -117,8 +117,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // A GET has nothing to send, so the request direction is ended before the
     // application is told about it. The slot stays open: it belongs to the
     // exchange, not to the request.
-    let pending = client.send(&application, request, false)?;
-    let (_request_body, mut response_body, reply) = pending.split();
+    let pending = client.send(&application, request)?;
+    let (_request_body, mut response_body, reply, _) = pending.split();
 
     let head = reply.head().await?;
     println!("← {} ({} headers)", head.status, head.headers.len());

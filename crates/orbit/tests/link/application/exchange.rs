@@ -7,12 +7,14 @@
 
 use std::sync::Arc;
 
+use bytes::Bytes;
 use orbitive::{Fleet, NodeId};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::*;
 use crate::link::application::{
-    ApplicationBodies, ApplicationSegment, Exchange, ExchangeReply,
+    ApplicationBodies, ApplicationSegment, Exchange, ExchangeBody,
+    ExchangeReply,
 };
 
 const EDGE: usize = 0;
@@ -97,7 +99,8 @@ async fn a_request_and_its_reply_cross_shared_memory() {
         headers: vec![(b"content-type".to_vec(), b"application/json".to_vec())],
         client: None,
         server: None,
-        body: Some(ticket),
+        stream: Some(ticket),
+        body: ExchangeBody::Stream,
         upgrade: false,
     };
     edge.inbox
@@ -115,13 +118,13 @@ async fn a_request_and_its_reply_cross_shared_memory() {
     );
     assert_eq!(frame_kind(&frame).expect("kind"), FrameKind::Request);
 
-    let arrived = Exchange::decode(&frame).expect("decode");
+    let arrived = Exchange::decode(Bytes::from(frame)).expect("decode");
     assert_eq!(arrived.method, "POST");
     assert_eq!(arrived.path, "/orders");
     assert_eq!(arrived.correlation, 7);
 
     let mut server_end =
-        worker.bodies.accept(arrived.body.expect("ticket")).expect("accept");
+        worker.bodies.accept(arrived.stream.expect("ticket")).expect("accept");
     let mut body = Vec::new();
     server_end.read_to_end(&mut body).await.expect("read request body");
     assert_eq!(body, b"{\"sku\":\"abc\"}");
@@ -133,7 +136,7 @@ async fn a_request_and_its_reply_cross_shared_memory() {
         correlation: arrived.correlation,
         status: 201,
         headers: vec![(b"content-type".to_vec(), b"application/json".to_vec())],
-        body: Some(ticket),
+        body: ExchangeBody::Stream,
     };
     // Back to the lane the request named, not to whoever is idle: only the
     // worker holding the client's connection can use this reply.
@@ -151,7 +154,7 @@ async fn a_request_and_its_reply_cross_shared_memory() {
     );
     assert_eq!(frame_kind(&frame).expect("kind"), FrameKind::Reply);
 
-    let answered = ExchangeReply::decode(&frame).expect("decode");
+    let answered = ExchangeReply::decode(Bytes::from(frame)).expect("decode");
     assert_eq!(answered.correlation, 7);
     assert_eq!(answered.status, 201);
 
@@ -176,7 +179,7 @@ async fn an_exchange_with_no_request_body_still_carries_a_reply() {
         scheme: "http".to_owned(),
         path: "/health".to_owned(),
         raw_path: b"/health".to_vec(),
-        body: Some(ticket),
+        stream: Some(ticket),
         ..Default::default()
     };
     edge.inbox
@@ -188,9 +191,9 @@ async fn an_exchange_with_no_request_body_still_carries_a_reply() {
 
     let mut frame = Vec::new();
     worker.inbox.inbox().read(WORKER, &mut frame).expect("read");
-    let arrived = Exchange::decode(&frame).expect("decode");
+    let arrived = Exchange::decode(Bytes::from(frame)).expect("decode");
     let mut server_end =
-        worker.bodies.accept(arrived.body.expect("ticket")).expect("accept");
+        worker.bodies.accept(arrived.stream.expect("ticket")).expect("accept");
 
     let mut empty = Vec::new();
     server_end.read_to_end(&mut empty).await.expect("read request body");

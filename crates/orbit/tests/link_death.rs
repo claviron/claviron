@@ -53,8 +53,8 @@ fn a_killed_application_ends_what_waits_on_it_and_refuses_what_follows() {
             &Access::OwnerOnly,
         )
         .unwrap();
-        let (_request, _response, reply) =
-            client.send("example-app", exchange(), false).unwrap().split();
+        let (_request, _response, reply, _) =
+            client.send("example-app", exchange()).unwrap().split();
 
         kill(child, Signal::SIGKILL).unwrap();
 
@@ -65,7 +65,7 @@ fn a_killed_application_ends_what_waits_on_it_and_refuses_what_follows() {
             .await
             .expect("a dead application left its exchange waiting");
         assert!(head.is_err());
-        match client.send("example-app", exchange(), false) {
+        match client.send("example-app", exchange()) {
             Err(Error::NoConsumer(_)) => {}
             Err(error) => panic!("refused as {error:?}"),
             Ok(_) => panic!("a request was queued for a dead application"),

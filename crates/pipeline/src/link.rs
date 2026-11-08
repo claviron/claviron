@@ -10,13 +10,16 @@
 //! to it. It reads the lanes serving that name, picks the idlest — a depth it
 //! reads rather than a load anybody reports — and writes.
 //!
-//! ## Streaming, both ways
+//! ## Whole or streamed, both ways
 //!
-//! The request body is pumped into the exchange's stream while the reply is
-//! being waited for, and the response body is handed to the client as a stream
-//! rather than collected. Both matter: the first is what lets an application
-//! answer a large upload with 413 without reading it, and the second is what
-//! makes SSE and chunked output arrive as they are produced.
+//! A body the policy holds whole is collected first and carried in the frame
+//! with the request, and a reply whose size the application knew comes back
+//! in its frame: one crossing each way, one wake each way while the far side
+//! is parked. A body that streams is pumped into the exchange's stream while
+//! the reply is being waited for, and a streamed reply is handed to the client
+//! as it arrives rather than collected. Both matter: the first is what lets an
+//! application answer a large upload with 413 without reading it, and the
+//! second is what makes SSE and chunked output arrive as they are produced.
 
 use std::sync::Arc;
 
@@ -31,7 +34,7 @@ use claviron_http::ext::{ConnCtx, PathPrefix};
 use claviron_http::policy::{BodyNeed, RequestPolicy, RequestPolicyOverride};
 use claviron_http::socket::Offer;
 use claviron_orbit::link::application::{
-    ApplicationService, ApplicationTarget, Exchange, HttpVersion,
+    ApplicationService, ApplicationTarget, Exchange, ExchangeBody, HttpVersion,
     LINK_BUFFER_BYTES,
 };
 use claviron_runtime::{AppState, FleetName};
@@ -197,11 +200,33 @@ async fn dispatch(
         .extensions
         .get::<claviron_http::session::SessionSpawner>()
         .cloned();
+    // Known empty — a GET, or a declared length of zero — means there is
+    // nothing to pump, and the direction can end before the application looks.
+    // A WebSocket keeps it open: once accepted, its messages travel on it. A
+    // body the policy holds whole is collected here, before the frame, so it
+    // can travel in it.
+    let declared = http_body::Body::size_hint(&body).exact();
+    let (request_body, streamed) = if websocket {
+        (ExchangeBody::Stream, None)
+    } else if http_body::Body::is_end_stream(&body) {
+        (ExchangeBody::Empty, None)
+    } else if policy
+        .delivery(BodyNeed::Stream, declared, false)
+        .takes_whole(declared)
+    {
+        match http_body_util::BodyExt::collect(body).await {
+            Ok(collected) => (ExchangeBody::Inline(collected.to_bytes()), None),
+            Err(error) => return body_failure(&error),
+        }
+    } else {
+        (ExchangeBody::Stream, Some(body))
+    };
     let exchange = Exchange {
         // The caller fills these three; they are its own address book.
         correlation: 0,
         origin: 0,
-        body: None,
+        stream: None,
+        body: request_body,
         method: parts.method.as_str().to_owned(),
         scheme: claviron_http::ext::request_scheme(&parts.extensions)
             .map_or_else(
@@ -226,11 +251,7 @@ async fn dispatch(
         upgrade: websocket,
     };
 
-    // Known empty — a GET, or a declared length of zero — means there is
-    // nothing to pump, and the direction can end before the application looks.
-    // A WebSocket keeps it open: once accepted, its messages travel on it.
-    let body_follows = !http_body::Body::is_end_stream(&body);
-    let pending = match target.send(exchange, body_follows || websocket) {
+    let pending = match target.send(exchange) {
         Ok(pending) => pending,
         // Capacity or absence, never time: nothing has run, so this is a 503
         // and the client may try again.
@@ -247,17 +268,17 @@ async fn dispatch(
     // that starts before the body finishes is a feature of the slot, not a
     // case to handle.
     let correlation = pending.correlation;
-    let (request_body, response_body, reply) = pending.split();
+    let (request_body, response_body, reply, unsent) = pending.split();
     let (to_application, upload) = if websocket {
         (Some(websocket::Input::new(request_body)), None)
-    } else if body_follows {
-        let declared = http_body::Body::size_hint(&body).exact();
-        let whole = policy
-            .delivery(BodyNeed::Stream, declared, false)
-            .takes_whole(declared);
+    } else if let Some(body) = streamed {
         // The task retains independent upload backpressure. Its abort-on-drop
         // owner stays with this head wait, then with the response body.
-        (None, Some(body::upload(body, request_body, whole)))
+        (None, Some(body::upload(body, request_body)))
+    } else if let Some(rest) = unsent {
+        // Held whole but larger than the frame and the stream's window: the
+        // rest follows the head on the stream.
+        (None, Some(body::upload_rest(rest, request_body)))
     } else {
         // Already ended by send; return the unused half immediately.
         drop(request_body);
@@ -303,6 +324,22 @@ async fn dispatch(
         response = response.header(name, value);
     }
 
+    // In the frame: the reply is whole, and the stream carried nothing.
+    let response_body = match head.body {
+        ExchangeBody::Stream => response_body,
+        ExchangeBody::Empty => {
+            drop(response_body);
+            let body = body::with_upload(claviron_http::empty_body(), upload);
+            return finish(response, body, correlation);
+        }
+        ExchangeBody::Inline(bytes) => {
+            drop(response_body);
+            let body =
+                body::with_upload(claviron_http::bytes_body(bytes), upload);
+            return finish(response, body, correlation);
+        }
+    };
+
     // Streamed, not collected: an event held back to fill a buffer is an event
     // delivered late, and a response longer than memory is a response that
     // must not be held in it.
@@ -320,12 +357,36 @@ async fn dispatch(
             .map(|chunk| chunk.map(http_body::Frame::data)),
     ));
     let body = body::with_upload(body, upload);
+    finish(response, body, correlation)
+}
+
+fn finish(
+    response: http::response::Builder,
+    body: RouteBody,
+    correlation: u64,
+) -> RouteResponse {
     match response.body(body) {
         Ok(response) => response,
         Err(error) => {
             tracing::debug!(correlation, "reply could not be rebuilt: {error}");
             gateway_failure()
         }
+    }
+}
+
+/// A body held whole that could not be read to its end. Too large or stalled
+/// is the client's, and says so; anything else is a client that went away,
+/// which nobody will read an answer to.
+fn body_failure(error: &claviron_http::RouteBodyError) -> RouteResponse {
+    use claviron_http::body::BodyLimit;
+    match error.downcast_ref::<BodyLimit>() {
+        Some(BodyLimit::TooLarge { .. }) => {
+            err_status(StatusCode::PAYLOAD_TOO_LARGE)
+        }
+        Some(BodyLimit::Stalled { .. }) => {
+            err_status(StatusCode::REQUEST_TIMEOUT)
+        }
+        None => err_status(StatusCode::BAD_REQUEST),
     }
 }
 

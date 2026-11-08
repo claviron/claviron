@@ -39,9 +39,9 @@ pub use claviron_orbit::link::application::Endpoint;
 use claviron_orbit::link::application::{
     ApplicationBodies, ApplicationLinkSetup, ApplicationSegment,
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
-    EdgeDisconnected, Exchange, ExchangeReply, FrameKind, HttpVersion, Inbox,
-    LINK_BUFFER_BYTES, LinkJoined, Peers, Received, ShutdownNotice, Ticket,
-    frame_kind,
+    EdgeDisconnected, Exchange, ExchangeBody, ExchangeReply, FrameKind,
+    HttpVersion, Inbox, LINK_BUFFER_BYTES, LINK_INBOX_PAYLOAD_CAPACITY,
+    LinkJoined, Peers, Received, ShutdownNotice, fit_inline, frame_kind,
 };
 pub use claviron_orbit::stream::{ReadHalf, WriteHalf};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
@@ -86,7 +86,6 @@ struct Handshake {
     segment: Arc<ApplicationSegment>,
     origin: usize,
     correlation: u64,
-    body: Option<Ticket>,
 }
 
 impl Handshake {
@@ -99,8 +98,14 @@ impl Handshake {
         headers: Vec<(Vec<u8>, Vec<u8>)>,
     ) -> bool {
         let correlation = self.correlation;
-        let reply =
-            ExchangeReply { correlation, status, headers, body: self.body };
+        // Accepted, the session's records travel on the stream; refused, the
+        // stream ends with nothing on it.
+        let reply = ExchangeReply {
+            correlation,
+            status,
+            headers,
+            body: ExchangeBody::Stream,
+        };
         match reply.encode() {
             Ok(frame) => {
                 if let Err(error) =
@@ -612,7 +617,7 @@ async fn serve<O: Owner>(
             return;
         }
     }
-    let exchange = match Exchange::decode(&frame) {
+    let mut exchange = match Exchange::decode(Bytes::from(frame)) {
         Ok(exchange) => exchange,
         Err(error) => {
             tracing::debug!(
@@ -633,9 +638,11 @@ async fn serve<O: Owner>(
         exchange.path
     );
 
-    // The slot the edge created carries both bodies: the request arrives on
-    // one direction and the reply leaves on the other.
-    let body = match exchange.body {
+    // The slot the edge created carries whichever body streams: the request
+    // arrives on one direction and the reply leaves on the other. Opened even
+    // when neither does, because its far side going away is how this side
+    // learns the edge stopped waiting.
+    let body = match exchange.stream {
         Some(ticket) => match bodies.accept(ticket) {
             Ok(endpoint) => Some(endpoint),
             Err(error) => {
@@ -649,12 +656,8 @@ async fn serve<O: Owner>(
     };
 
     if exchange.upgrade {
-        let handshake = Handshake {
-            segment: Arc::clone(&segment),
-            origin,
-            correlation,
-            body: exchange.body,
-        };
+        let handshake =
+            Handshake { segment: Arc::clone(&segment), origin, correlation };
         match body {
             Some(endpoint) => {
                 session(
@@ -672,18 +675,34 @@ async fn serve<O: Owner>(
         return;
     }
 
-    // The request body is handed on as it arrives rather than read to its end
-    // first; a body the edge cut short ends in an error, not an end.
-    let (mut reply_body, request_body) = match body {
+    // A streamed request body is handed on as it arrives rather than read to
+    // its end first; a body the edge cut short ends in an error, not an end.
+    // An inline one is already whole, and its direction is already ended.
+    let (incoming, mut reply_body) = match body {
         Some(endpoint) => {
             let (incoming, outgoing) = endpoint.split();
+            (Some(incoming), Some(outgoing))
+        }
+        None => (None, None),
+    };
+    let request_body = match (std::mem::take(&mut exchange.body), incoming) {
+        (ExchangeBody::Stream, Some(incoming)) => {
             let piece = declared_length(&exchange.headers)
                 .map_or(LINK_BUFFER_BYTES, |length| {
                     length.clamp(1, LINK_BUFFER_BYTES)
                 });
-            (Some(outgoing), RequestBody::new(SlotBody::new(incoming, piece)))
+            RequestBody::new(SlotBody::new(incoming, piece))
         }
-        None => (None, RequestBody::empty()),
+        (ExchangeBody::Stream, None) => {
+            tracing::debug!(
+                "exchange {correlation} streams a body it gave no stream for"
+            );
+            return;
+        }
+        (ExchangeBody::Inline(bytes), _) => {
+            RequestBody::new(http_body_util::Full::new(bytes))
+        }
+        (ExchangeBody::Empty, _) => RequestBody::empty(),
     };
     let request = match build_request(&exchange, request_body) {
         Ok(request) => request,
@@ -733,7 +752,7 @@ async fn serve<O: Owner>(
         streaming = Some(response_body);
         Bytes::new()
     };
-    let reply = ExchangeReply {
+    let mut reply = ExchangeReply {
         correlation,
         status: parts.status.as_u16(),
         headers: parts
@@ -743,46 +762,14 @@ async fn serve<O: Owner>(
                 (name.as_str().as_bytes().to_vec(), value.as_bytes().to_vec())
             })
             .collect(),
-        body: exchange.body,
+        body: match (whole, bytes.is_empty()) {
+            (true, true) => ExchangeBody::Empty,
+            (true, false) => ExchangeBody::Inline(bytes.clone()),
+            (false, _) => ExchangeBody::Stream,
+        },
     };
-
-    // A whole body goes first when it fits the stream's window: ended before
-    // the head, it is waiting when the head wakes the edge, which then never
-    // parks on an empty slot. A larger body would wait for a reader not yet
-    // told to read, so it follows the head.
-    if whole && let Some(outgoing) = reply_body.as_mut() {
-        if !bytes.is_empty()
-            && let Err(error) = outgoing.write_all(&bytes).await
-        {
-            tracing::debug!(
-                correlation,
-                "🛰 ✗ reply body was cut short: {error}"
-            );
-            return;
-        }
-        if let Err(error) = outgoing.shutdown().await {
-            tracing::debug!(
-                correlation,
-                "🛰 ✗ reply body did not close: {error}"
-            );
-        }
-    }
-    let status = reply.status;
-    match reply.encode() {
-        Ok(frame) => {
-            if let Err(error) = publish_reply_head(
-                segment.inbox(),
-                origin,
-                &frame,
-                reply_body.as_mut(),
-            ) {
-                tracing::debug!(
-                    correlation,
-                    "🛰 ✗ reply was not delivered: {error}"
-                );
-                return;
-            }
-        }
+    let mut head = match reply.encode_head() {
+        Ok(head) => head,
         Err(error) => {
             if let Some(outgoing) = reply_body.as_mut() {
                 outgoing.reset();
@@ -793,6 +780,54 @@ async fn serve<O: Owner>(
             );
             return;
         }
+    };
+    let (body, spill) = fit_inline(
+        &mut head,
+        std::mem::take(&mut reply.body),
+        LINK_INBOX_PAYLOAD_CAPACITY,
+    );
+    match (&body, spill, reply_body.as_mut()) {
+        // Whole and in the frame: the stream's reply direction carries
+        // nothing, and the frame says so, so it ends without waking anyone.
+        (ExchangeBody::Empty | ExchangeBody::Inline(_), _, Some(outgoing)) => {
+            outgoing.finish_quietly();
+        }
+        // Whole but larger than the frame. It goes first when it fits the
+        // stream's window: ended before the head, it is waiting when the head
+        // wakes the edge, which then never parks on an empty slot.
+        (ExchangeBody::Stream, Some(bytes), Some(outgoing)) => {
+            if let Err(error) = outgoing.write_all(&bytes).await {
+                tracing::debug!(
+                    correlation,
+                    "🛰 ✗ reply body was cut short: {error}"
+                );
+                return;
+            }
+            if let Err(error) = outgoing.shutdown().await {
+                tracing::debug!(
+                    correlation,
+                    "🛰 ✗ reply body did not close: {error}"
+                );
+            }
+        }
+        (ExchangeBody::Stream, Some(_), None) => {
+            tracing::debug!(
+                correlation,
+                "🛰 ✗ reply body outgrows the frame and the edge gave no stream"
+            );
+            return;
+        }
+        _ => {}
+    }
+    let status = reply.status;
+    if let Err(error) = publish_reply_head(
+        segment.inbox(),
+        origin,
+        &[&head, body.inline()],
+        reply_body.as_mut(),
+    ) {
+        tracing::debug!(correlation, "🛰 ✗ reply was not delivered: {error}");
+        return;
     }
     // The head is away: the moment the edge can start answering its client.
     let answered = arrived.elapsed();
@@ -940,10 +975,10 @@ async fn session<O: Owner>(
 fn publish_reply_head(
     inbox: &Inbox,
     origin: usize,
-    frame: &[u8],
+    frame: &[&[u8]],
     outgoing: Option<&mut claviron_orbit::stream::WriteHalf>,
 ) -> Result<(), String> {
-    inbox.write(origin, frame).map(|_| ()).map_err(|error| {
+    inbox.write_vectored(origin, frame).map(|_| ()).map_err(|error| {
         // The response direction is already owned by this exchange. RESET
         // wakes its caller even after a buffered response published FIN.
         if let Some(outgoing) = outgoing {

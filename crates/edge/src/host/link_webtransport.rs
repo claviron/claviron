@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use claviron_http::config::routes::OrbitRouteConfig;
 use claviron_orbit::link::application::client::{LentRead, LentWrite};
 use claviron_orbit::link::application::{
-    ApplicationService, ApplicationTarget, Exchange, HttpVersion,
+    ApplicationService, ApplicationTarget, Exchange, ExchangeBody, HttpVersion,
 };
 use claviron_runtime::{AppState, registry};
 use claviron_types::Host;
@@ -104,9 +104,9 @@ impl Handler {
         cancellation: impl std::future::Future<Output = ()>,
     ) -> Result<Channel, StatusCode> {
         let pending = target
-            .send(exchange, true)
+            .send(exchange)
             .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
-        let (outgoing, incoming, reply) = pending.split();
+        let (outgoing, incoming, reply, _) = pending.split();
         let channel = Channel { outgoing, incoming, finished: false };
         let head = tokio::select! {
             biased;
@@ -172,6 +172,8 @@ impl WebTransportHandler for Handler {
                 ctx.conn.local_ip,
                 ctx.conn.local_port,
             )),
+            // The session's records travel on the stream.
+            body: ExchangeBody::Stream,
             upgrade: true,
             ..Exchange::default()
         };

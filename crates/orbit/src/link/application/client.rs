@@ -44,6 +44,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
+use bytes::Bytes;
 use claviron_runtime::{FleetName, ProcessEventBus};
 use orbitive::link::Received;
 use orbitive::stream::{Endpoint, ReadHalf, ResetSignal, Ticket, WriteHalf};
@@ -53,8 +54,9 @@ use tokio::sync::oneshot;
 use super::{
     Access, ApplicationBodies, ApplicationConnected, ApplicationDisconnected,
     ApplicationLinkSetup, ApplicationSegment, ApplicationStateNotice,
-    ControlCommand, Error, Exchange, ExchangeReply, FrameKind, LinkJoined,
-    Peers, Result, frame_kind,
+    ControlCommand, Error, Exchange, ExchangeBody, ExchangeReply, FrameKind,
+    LINK_INBOX_PAYLOAD_CAPACITY, LinkJoined, Peers, Result, fit_inline,
+    frame_kind,
 };
 
 /// The runtime tag an edge worker's lane carries. It serves no name — its lane
@@ -74,8 +76,13 @@ pub struct Pending {
     /// Where the request body goes. Returns its stream to the hot-slot cache
     /// when the caller drops it.
     pub request_body: LentWrite,
-    /// Where the response body comes from.
+    /// Where the response body comes from, when the reply says it streams.
     pub response_body: LentRead,
+    /// What of a whole request body is still to be written to
+    /// [`Self::request_body`], then ended: present only when the body did not
+    /// fit the frame and more of it remained than the stream's window took
+    /// before the frame went.
+    pub unsent: Option<Bytes>,
     reply: ReplyWait,
 }
 
@@ -86,8 +93,8 @@ impl Pending {
     /// the response body may start arriving before the request body is
     /// finished. Holding them together would make that a borrow problem
     /// rather than the ordinary case it is.
-    pub fn split(self) -> (LentWrite, LentRead, ReplyWait) {
-        (self.request_body, self.response_body, self.reply)
+    pub fn split(self) -> (LentWrite, LentRead, ReplyWait, Option<Bytes>) {
+        (self.request_body, self.response_body, self.reply, self.unsent)
     }
 }
 
@@ -658,22 +665,21 @@ impl ApplicationClient {
     /// It returns as soon as the frame is in the target's mailbox. The bodies
     /// and the reply are the caller's to drive from there.
     ///
-    /// `body_follows` is false for a request known to have no body. Its
-    /// direction is then ended here, before the frame that announces it: the
-    /// application's first look at the body finds the end already there and
-    /// never parks for it, and since nobody has opened the far side yet,
-    /// ending it rings no one. Ended after the frame instead — by the caller,
-    /// from a task of its own — the application was usually parked by then,
-    /// and every bodiless request paid a wake for its missing body.
+    /// The request body travels as the exchange says. Empty or inline, its
+    /// direction is ended here, before the frame that announces it: nobody has
+    /// opened the far side yet, so ending it rings no one, and the application
+    /// never parks for a body it already has. An inline body too large for the
+    /// frame goes into the stream instead, as much as its window takes before
+    /// the frame is written — the far side finds it waiting — and the rest is
+    /// [`Pending::unsent`].
     pub fn send(
         &self,
         application: &str,
         request: Exchange,
-        body_follows: bool,
     ) -> Result<Pending> {
         let lanes =
             Directory::resolve(&self.directory, self.inbox(), application);
-        self.send_to(application, &lanes, request, body_follows)
+        self.send_to(application, &lanes, request)
     }
 
     pub(super) fn send_to(
@@ -681,7 +687,6 @@ impl ApplicationClient {
         application: &str,
         lanes: &[usize],
         mut request: Exchange,
-        body_follows: bool,
     ) -> Result<Pending> {
         let targets = self.inbox().ready(lanes);
         let Some((_, idlest)) = targets.first().copied() else {
@@ -713,16 +718,37 @@ impl ApplicationClient {
         // tells the far side a new exchange has begun and it must not carry a
         // slot that still holds the last one's state.
         let (mut endpoint, ticket) = self.take_hot()?;
-        if !body_follows {
-            let _ = endpoint.finish();
-        }
 
         let correlation = self.correlation.fetch_add(1, Ordering::Relaxed);
         request.correlation = correlation;
         request.origin = self.lane as u16;
-        request.body = Some(ticket);
+        request.stream = Some(ticket);
 
-        let frame = request.encode()?;
+        let mut head = request.encode_head()?;
+        let (body, spill) = fit_inline(
+            &mut head,
+            std::mem::take(&mut request.body),
+            LINK_INBOX_PAYLOAD_CAPACITY,
+        );
+        let mut unsent = None;
+        match (&body, spill) {
+            (ExchangeBody::Stream, Some(bytes)) => {
+                let written = match endpoint.try_write(&bytes) {
+                    Ok(written) => written,
+                    Err(orbitive::stream::Error::WouldBlock) => 0,
+                    Err(error) => return Err(Error::Stream(error)),
+                };
+                if written == bytes.len() {
+                    let _ = endpoint.finish();
+                } else {
+                    unsent = Some(bytes.slice(written..));
+                }
+            }
+            (ExchangeBody::Stream, None) => {}
+            (ExchangeBody::Empty | ExchangeBody::Inline(_), _) => {
+                let _ = endpoint.finish();
+            }
+        }
         let (sender, receiver) = oneshot::channel();
         // Registered before the write, because the application may answer
         // before this function returns.
@@ -737,7 +763,9 @@ impl ApplicationClient {
         };
         self.waiting.insert(correlation, owner, sender);
 
-        if let Err(error) = self.segment.inbox().write(target, &frame) {
+        if let Err(error) =
+            self.segment.inbox().write_vectored(target, &[&head, body.inline()])
+        {
             self.waiting.take(correlation);
             self.segment.reclaim_if_gone(target);
             tracing::debug!(
@@ -765,6 +793,7 @@ impl ApplicationClient {
                 loan: Arc::clone(&loan),
             },
             response_body: LentRead { half: Some(read), loan },
+            unsent,
             reply: ReplyWait {
                 reply: receiver,
                 reset,
@@ -857,7 +886,9 @@ impl ApplicationClient {
                 match receiver.next(&mut frame).await {
                     Ok(Received::Frame) => match frame_kind(&frame) {
                         Ok(FrameKind::ApplicationState) => accept_application_state(&application_states, &segment, &frame),
-                        _ => deliver(&waiting, &frame),
+                        // Handed over whole, so an inline body is a slice of
+                        // it rather than a copy.
+                        _ => deliver(&waiting, Bytes::from(std::mem::take(&mut frame))),
                     },
                     Ok(Received::Event) => match &link {
                         Some(link) => link.accept(&frame),
@@ -1147,9 +1178,9 @@ mod tests;
 /// Hand one frame to whoever is waiting for it.
 fn deliver(
     waiting: &Waiting,
-    frame: &[u8],
+    frame: Bytes,
 ) {
-    match frame_kind(frame) {
+    match frame_kind(&frame) {
         Ok(FrameKind::Reply) => {}
         Ok(FrameKind::Request) => {
             // An edge's lane takes replies. A request here was written to the

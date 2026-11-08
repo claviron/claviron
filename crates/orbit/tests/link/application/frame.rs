@@ -1,5 +1,6 @@
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
+use bytes::Bytes;
 use orbitive::NetId64;
 use orbitive::stream::{Side, StreamId, Ticket};
 
@@ -29,7 +30,8 @@ fn request() -> Exchange {
         ],
         client: Some(SocketAddr::new(Ipv4Addr::new(10, 0, 0, 7).into(), 51234)),
         server: Some(SocketAddr::new(Ipv4Addr::new(10, 0, 0, 1).into(), 443)),
-        body: Some(ticket()),
+        stream: Some(ticket()),
+        body: ExchangeBody::Stream,
         upgrade: true,
     }
 }
@@ -37,7 +39,7 @@ fn request() -> Exchange {
 #[test]
 fn a_request_survives_the_round_trip() {
     let original = request();
-    let decoded = Exchange::decode(&original.encode().unwrap()).unwrap();
+    let decoded = Exchange::decode(original.encode().unwrap().into()).unwrap();
     assert_eq!(decoded, original);
 }
 
@@ -47,9 +49,10 @@ fn a_reply_survives_the_round_trip() {
         correlation: 99,
         status: 201,
         headers: vec![(b"location".to_vec(), b"/orders/42".to_vec())],
-        body: Some(ticket()),
+        body: ExchangeBody::Inline(Bytes::from_static(b"{\"id\":42}")),
     };
-    let decoded = ExchangeReply::decode(&original.encode().unwrap()).unwrap();
+    let decoded =
+        ExchangeReply::decode(original.encode().unwrap().into()).unwrap();
     assert_eq!(decoded, original);
 }
 
@@ -68,7 +71,7 @@ fn headers_arrive_exactly_as_they_were_sent() {
         ],
         ..request()
     };
-    let decoded = Exchange::decode(&awkward.encode().unwrap()).unwrap();
+    let decoded = Exchange::decode(awkward.encode().unwrap().into()).unwrap();
     assert_eq!(
         decoded.headers, awkward.headers,
         "casing, repeats and order must all survive"
@@ -85,22 +88,52 @@ fn the_decoded_and_raw_paths_are_both_carried() {
         raw_path: b"/orders/a%20b".to_vec(),
         ..request()
     };
-    let decoded = Exchange::decode(&encoded.encode().unwrap()).unwrap();
+    let decoded = Exchange::decode(encoded.encode().unwrap().into()).unwrap();
     assert_eq!(decoded.path, "/orders/a b");
     assert_eq!(decoded.raw_path, b"/orders/a%20b");
 }
 
 #[test]
-fn an_exchange_without_a_body_carries_no_ticket() {
-    let bodyless =
-        Exchange { body: None, client: None, server: None, ..request() };
-    let decoded = Exchange::decode(&bodyless.encode().unwrap()).unwrap();
+fn an_exchange_without_a_body_carries_none() {
+    let bodyless = Exchange {
+        stream: None,
+        body: ExchangeBody::Empty,
+        client: None,
+        server: None,
+        ..request()
+    };
+    let decoded = Exchange::decode(bodyless.encode().unwrap().into()).unwrap();
     assert_eq!(
-        decoded.body, None,
-        "absent means no body, not an empty one to read"
+        decoded.body,
+        ExchangeBody::Empty,
+        "empty means no body, not one still to read"
     );
+    assert_eq!(decoded.stream, None);
     assert_eq!(decoded.client, None);
     assert_eq!(decoded.server, None);
+}
+
+/// A whole body rides in the frame when head and body fit, and is otherwise
+/// handed back for the stream with the head saying so — decoded, it reads as
+/// streamed, not as an inline body cut short.
+#[test]
+fn a_whole_body_travels_inline_only_when_it_fits() {
+    let body = Bytes::from_static(b"0123456789");
+    let exchange =
+        Exchange { body: ExchangeBody::Inline(body.clone()), ..request() };
+    let mut head = exchange.encode_head().unwrap();
+    let room = head.len() + body.len();
+
+    let (fitted, spill) =
+        fit_inline(&mut head.clone(), exchange.body.clone(), room);
+    assert_eq!((fitted, spill), (ExchangeBody::Inline(body.clone()), None));
+    let decoded = Exchange::decode(exchange.encode().unwrap().into()).unwrap();
+    assert_eq!(decoded.body, ExchangeBody::Inline(body.clone()));
+
+    let (fitted, spill) = fit_inline(&mut head, exchange.body, room - 1);
+    assert_eq!((fitted, spill), (ExchangeBody::Stream, Some(body)));
+    let decoded = Exchange::decode(head.into()).unwrap();
+    assert_eq!(decoded.body, ExchangeBody::Stream);
 }
 
 #[test]
@@ -110,7 +143,7 @@ fn an_ipv6_peer_round_trips() {
         8443,
     );
     let encoded = Exchange { client: Some(addr), ..request() };
-    let decoded = Exchange::decode(&encoded.encode().unwrap()).unwrap();
+    let decoded = Exchange::decode(encoded.encode().unwrap().into()).unwrap();
     assert_eq!(decoded.client, Some(addr));
 }
 
@@ -122,11 +155,11 @@ fn a_reply_is_not_mistaken_for_a_request() {
         ExchangeReply { correlation: 1, status: 200, ..Default::default() };
     let bytes = reply.encode().unwrap();
     assert_eq!(frame_kind(&bytes).unwrap(), FrameKind::Reply);
-    assert!(Exchange::decode(&bytes).is_err());
+    assert!(Exchange::decode(bytes.into()).is_err());
 
     let request = request().encode().unwrap();
     assert_eq!(frame_kind(&request).unwrap(), FrameKind::Request);
-    assert!(ExchangeReply::decode(&request).is_err());
+    assert!(ExchangeReply::decode(request.into()).is_err());
 }
 
 /// The bytes come from another process. Every length in them is a claim, and a
@@ -136,12 +169,15 @@ fn a_truncated_frame_is_refused_rather_than_guessed_at() {
     let bytes = request().encode().unwrap();
     for cut in 0..bytes.len() {
         assert!(
-            Exchange::decode(&bytes[..cut]).is_err(),
+            Exchange::decode(Bytes::copy_from_slice(&bytes[..cut])).is_err(),
             "decoding {cut} of {} bytes should have failed",
             bytes.len()
         );
     }
-    assert!(Exchange::decode(&bytes).is_ok(), "the whole frame still decodes");
+    assert!(
+        Exchange::decode(bytes.into()).is_ok(),
+        "the whole frame still decodes"
+    );
 }
 
 #[test]
@@ -176,7 +212,7 @@ fn control_command_has_a_distinct_strict_frame() {
     );
     assert!(ControlCommand::decode(&[3]).is_err());
     assert!(ControlCommand::decode(&[3, 1, 0]).is_err());
-    assert!(Exchange::decode(&frame).is_err());
+    assert!(Exchange::decode(frame.into()).is_err());
 }
 
 #[test]
@@ -220,7 +256,7 @@ fn every_http_version_keeps_its_asgi_spelling() {
     ] {
         assert_eq!(version.as_str(), spelling);
         let decoded = Exchange::decode(
-            &Exchange { version, ..request() }.encode().unwrap(),
+            Exchange { version, ..request() }.encode().unwrap().into(),
         )
         .unwrap();
         assert_eq!(decoded.version, version);
