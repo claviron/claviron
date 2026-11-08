@@ -331,6 +331,18 @@ it is independent of active connection admission and request concurrency.
 change, so a live policy reload cannot claim to apply it. Stop/start of the
 owning listener is required. Accepted connections retain their own generation.
 
+`UdsConfig` holds what belongs to a Unix socket rather than to HTTP over it:
+a door that serves a listener on a Unix socket (`claviron-transport`'s
+`unix`) takes the listener's `h1`, `h2`, limits and execution like TCP, and
+reads `uds` for the socket. `UdsConfig.backlog` is an optional positive
+`NonZeroU32`; unwritten, the socket listens with the operating system's
+maximum (`listen(-1)`, which Linux reads as `net.core.somaxconn`), the
+behaviour before the field existed. `defaults.listener.uds.backlog` inherits
+by field and `listeners.<name>.uds.backlog` overrides it; values above
+2147483647 fail preparation. A TCP socket does not read `uds`, and a QUIC
+listener rejects it. Like the TCP backlog, `same_binding` treats a change as a
+socket-binding change.
+
 ### 2.1 Desired data versus resolved snapshots
 
 In `edge-config`, `HttpYaml` holds `HttpDefaults` and a `BTreeMap<ListenerId,

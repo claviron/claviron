@@ -61,6 +61,115 @@ impl TcpConfig {
     }
 }
 
+/// The Unix socket a door binds for this listener. HTTP over it takes the
+/// listener's `h1`, `h2`, limits and execution like TCP; only the socket
+/// differs, and this is what can be said of it.
+#[derive(
+    Debug, Deserialize, Clone, PartialEq, Eq, claviron_macros::Overridable,
+)]
+#[overridable(helpers = "crate::config::helpers")]
+#[serde(deny_unknown_fields)]
+pub struct UdsConfig {
+    /// Pending connections on the socket, before accept. Unwritten, the
+    /// operating system's maximum: `listen(-1)`, which Linux reads as
+    /// `net.core.somaxconn`. This is not an active-connection limit.
+    /// Changing it requires restarting the listener, not a policy reload.
+    #[serde(default)]
+    pub backlog: Option<NonZeroU32>,
+
+    /// Permission bits of the socket file, set right after it is bound.
+    /// Connecting needs write permission on it, so the default `0600` admits
+    /// only processes of the user the listener runs as.
+    #[serde(default = "default_uds_mode")]
+    pub mode: FileMode,
+
+    /// The group the socket file is handed to, by name or id. Unwritten, it
+    /// keeps the creating process's group. Without root, only a group the
+    /// process belongs to is accepted; anything else fails the bind.
+    #[serde(default)]
+    pub group: Option<SocketGroup>,
+}
+
+impl Default for UdsConfig {
+    fn default() -> Self {
+        Self { backlog: None, mode: default_uds_mode(), group: None }
+    }
+}
+
+/// Owner-only: the listener's own user may connect, nobody else.
+fn default_uds_mode() -> FileMode {
+    FileMode(0o600)
+}
+
+/// File permission bits, read as octal however they are written: `600`,
+/// `0600` and `"0o600"` are all owner read/write. Only the twelve permission
+/// bits (`0o7777`) are accepted.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileMode(u32);
+
+impl FileMode {
+    /// The permission bits, as `chmod` takes them.
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+
+    fn from_octal(text: &str) -> Result<Self, String> {
+        let digits = text.strip_prefix("0o").unwrap_or(text);
+        let bits = u32::from_str_radix(digits, 8)
+            .map_err(|_| format!("`{text}` is not an octal file mode"))?;
+        if bits > 0o7777 {
+            return Err(format!("`{text}` is above the file mode bits 0o7777"));
+        }
+        Ok(Self(bits))
+    }
+}
+
+impl<'de> Deserialize<'de> for FileMode {
+    fn deserialize<D: Deserializer<'de>>(de: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Written {
+            // YAML reads `0600` and `600` as the decimal number 600: its
+            // digits are what was meant, so they are read again as octal.
+            Number(u32),
+            Text(String),
+        }
+        let text = match Written::deserialize(de)? {
+            Written::Number(number) => number.to_string(),
+            Written::Text(text) => text,
+        };
+        Self::from_octal(&text).map_err(serde::de::Error::custom)
+    }
+}
+
+/// A Unix group named the way the system names it, or by its id.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+pub enum SocketGroup {
+    Id(u32),
+    Name(Box<str>),
+}
+
+impl UdsConfig {
+    pub(crate) fn validate(&self) -> Result<(), super::ConfigError> {
+        if self
+            .backlog
+            .is_some_and(|backlog| i32::try_from(backlog.get()).is_err())
+        {
+            return Err(super::ConfigError::global(
+                "uds.backlog must be at most 2147483647",
+            ));
+        }
+        if matches!(&self.group, Some(SocketGroup::Name(name)) if name.is_empty())
+        {
+            return Err(super::ConfigError::global(
+                "uds.group must name a group",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Preserve the existing socket queue default in the public TCP configuration.
 fn default_tcp_backlog() -> NonZeroU32 {
     NonZeroU32::new(1024).expect("the default TCP backlog is positive")

@@ -5,7 +5,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use claviron_http::config::H1Config;
+use claviron_http::config::{
+    H1Config, ListenerSettings, SocketGroup, UdsConfig,
+};
 use claviron_http::session::{ConnectionScope, SessionOwner, SessionSpawner};
 use claviron_runtime::RunContext;
 use claviron_runtime::gate::{Gate, GateDrainOutcome};
@@ -87,8 +89,14 @@ impl Drop for SocketFile {
 
 /// Bind a Unix socket. A file already at the path is left alone if something
 /// answers on it — it belongs to a live process — and removed if nothing
-/// does: a process that is gone left it behind.
-fn bind(path: &Path) -> std::io::Result<UnixListener> {
+/// does: a process that is gone left it behind. `uds.backlog` sizes the
+/// queue (unwritten, the operating system's maximum, as `UnixListener::bind`
+/// does); `uds.mode` and `uds.group` are applied to the file before the
+/// listener is handed back, so it never accepts with other permissions.
+fn bind(
+    path: &Path,
+    uds: &UdsConfig,
+) -> std::io::Result<UnixListener> {
     if std::fs::symlink_metadata(path).is_ok() {
         match std::os::unix::net::UnixStream::connect(path) {
             Ok(_) => {
@@ -108,7 +116,44 @@ fn bind(path: &Path) -> std::io::Result<UnixListener> {
             Err(error) => return Err(error),
         }
     }
-    UnixListener::bind(path)
+    let listener = match uds.backlog {
+        None => UnixListener::bind(path)?,
+        Some(backlog) => {
+            let socket = tokio::net::UnixSocket::new_stream()?;
+            socket.bind(path)?;
+            socket.listen(backlog.get())?
+        }
+    };
+    if let Err(error) = permit(path, uds) {
+        let _ = std::fs::remove_file(path);
+        return Err(error);
+    }
+    Ok(listener)
+}
+
+/// Give the socket file its configured mode and group.
+fn permit(
+    path: &Path,
+    uds: &UdsConfig,
+) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(
+        path,
+        std::fs::Permissions::from_mode(uds.mode.bits()),
+    )?;
+    let Some(group) = &uds.group else {
+        return Ok(());
+    };
+    let gid = match group {
+        SocketGroup::Id(id) => *id,
+        SocketGroup::Name(name) => claviron_sys::group::group_id(name)?,
+    };
+    std::os::unix::fs::chown(path, None, Some(gid)).map_err(|error| {
+        std::io::Error::new(
+            error.kind(),
+            format!("hand the socket to group {gid}: {error}"),
+        )
+    })
 }
 
 /// Bind `path` and serve until `context` is cancelled and every accepted
@@ -126,7 +171,11 @@ pub async fn serve<S: Unix>(
             path.display()
         ))
     };
-    let socket = bind(path).map_err(failure)?;
+    let uds = match &listener.settings {
+        ListenerSettings::Tcp(settings) => settings.uds.clone(),
+        ListenerSettings::Quic(_) => UdsConfig::default(),
+    };
+    let socket = bind(path, &uds).map_err(failure)?;
     let _file = SocketFile::owned(path.to_path_buf()).map_err(failure)?;
     let gate = Gate::new(
         listener.limits.max_connections.map(|value| value.get()),

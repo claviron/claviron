@@ -11,6 +11,8 @@
 //! (`claviron-net`, `sysinfo`, hand-rolled `/proc` parsers in
 //! per-feature crates). All converge here.
 
+#[cfg(unix)]
+pub mod group;
 pub mod net;
 pub mod process;
 pub mod rss;

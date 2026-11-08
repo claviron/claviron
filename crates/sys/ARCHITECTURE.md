@@ -10,6 +10,8 @@ The crate keeps low-level platform work out of higher-level services:
 - TCP/UDP socket creation helpers
 - socket options and bind behavior
 - physical short-hostname discovery
+- Unix group lookup by name (`group::group_id`, `getgrnam_r`), for socket
+  files handed to a group
 - process RSS/system memory helpers
 - stable process identity, liveness waiting, and exact-process signaling
 - non-blocking named process exclusion with an owned OS lock

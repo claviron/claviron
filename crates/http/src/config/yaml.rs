@@ -23,8 +23,9 @@ pub use quic::{QuicConfig, QuicOverride};
 use regex::RegexSet;
 use serde::Deserialize;
 pub use tcp::{
-    AcceptRetryConfig, AcceptRetryOverride, H1Config, H1Override, H2Config,
-    H2Override, HeaderReadTimeout, TcpConfig, TcpOverride,
+    AcceptRetryConfig, AcceptRetryOverride, FileMode, H1Config, H1Override,
+    H2Config, H2Override, HeaderReadTimeout, SocketGroup, TcpConfig,
+    TcpOverride, UdsConfig, UdsOverride,
 };
 
 use crate::ListenerId;

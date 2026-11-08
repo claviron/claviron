@@ -164,6 +164,67 @@ fn tcp_backlog_preserves_full_positive_socket_range() {
 }
 
 #[test]
+fn uds_settings_read_octal_modes_and_reject_what_cannot_be_bound() {
+    let listener = |uds: &str| {
+        format!(
+            "listeners:\n  example:\n    transport: tcp\n{uds}    protocols: h1\n    listen: '127.0.0.1:0'\n    requests: {{max_body_size: off, body_read_timeout: off}}\n"
+        )
+    };
+    let uds = |source: &str| {
+        let snapshot: HttpSnapshot = serde_yaml::from_str(source).unwrap();
+        let ListenerSettings::Tcp(tcp) =
+            &snapshot.listeners.values().next().unwrap().settings
+        else {
+            panic!("expected TCP settings")
+        };
+        tcp.uds.clone()
+    };
+    let unwritten = uds(&listener(""));
+    assert_eq!(unwritten.backlog, None);
+    assert_eq!(unwritten.mode.bits(), 0o600);
+    assert_eq!(unwritten.group, None);
+    // YAML reads 0660 and 660 as decimal 660; both mean the octal mode.
+    for written in ["0660", "660", "'0o660'"] {
+        let read = uds(&listener(&format!("    uds: {{mode: {written}}}\n")));
+        assert_eq!(read.mode.bits(), 0o660, "mode={written}");
+    }
+    let named = uds(&listener(
+        "    uds: {backlog: 4096, group: example, mode: 0600}\n",
+    ));
+    assert_eq!(named.backlog.map(|value| value.get()), Some(4096));
+    assert_eq!(named.group, Some(SocketGroup::Name("example".into())));
+    assert_eq!(
+        uds(&listener("    uds: {group: 33}\n")).group,
+        Some(SocketGroup::Id(33))
+    );
+    for invalid in [
+        "{mode: 0680}",
+        "{mode: 17777}",
+        "{backlog: 0}",
+        "{backlog: 2147483648}",
+        "{group: ''}",
+    ] {
+        let source = listener(&format!("    uds: {invalid}\n"));
+        assert!(
+            serde_yaml::from_str::<HttpSnapshot>(&source).is_err(),
+            "uds={invalid}"
+        );
+    }
+    let original: HttpSnapshot =
+        serde_yaml::from_str(&listener("    uds: {mode: 0600}\n")).unwrap();
+    let changed: HttpSnapshot =
+        serde_yaml::from_str(&listener("    uds: {mode: 0660}\n")).unwrap();
+    assert!(
+        !original
+            .listeners
+            .values()
+            .next()
+            .unwrap()
+            .same_binding(changed.listeners.values().next().unwrap())
+    );
+}
+
+#[test]
 fn tcp_backlog_changes_require_rebinding_for_plain_and_tls() {
     for tls in [false, true] {
         let source = format!(

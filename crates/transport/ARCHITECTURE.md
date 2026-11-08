@@ -50,7 +50,7 @@ connection facts (`ConnCtx`), request policy and the body types.
 
 ### `unix.rs`
 
-HTTP over a Unix socket with the same drain and HTTP settings as TCP. `Unix` is what such a listener publishes; `tcp::plain::Single` implements it. It removes the socket file it created and refuses a path a live process answers on.
+HTTP over a Unix socket with the same drain and HTTP settings as TCP. `Unix` is what such a listener publishes; `tcp::plain::Single` implements it. It removes the socket file it created and refuses a path a live process answers on. The socket listens with the listener's `uds.backlog`, or with the operating system's maximum when that is unwritten.
 
 ### `quic/`
 

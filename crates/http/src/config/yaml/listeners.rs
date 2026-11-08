@@ -13,7 +13,7 @@ use super::{
     ConfigError, H1Config, H1Override, H2Config, H2Override, HttpPolicy,
     ListenerExecution, Override, ProxyConfig, ProxyOverride, QuicConfig,
     QuicOverride, RequestPolicy, RequestPolicyOverride, ResponsePolicy,
-    ResponsePolicyOverride, TcpConfig, TcpOverride,
+    ResponsePolicyOverride, TcpConfig, TcpOverride, UdsConfig, UdsOverride,
 };
 use crate::ListenerId;
 use crate::listener::{HttpProtocol, ListenerTransport};
@@ -39,6 +39,8 @@ pub struct ListenerOverrides {
     pub redirect_port: Override<NonZeroU16>,
     #[serde(default)]
     pub tcp: TcpOverride,
+    #[serde(default)]
+    pub uds: UdsOverride,
     #[serde(default)]
     pub h1: H1Override,
     #[serde(default)]
@@ -82,6 +84,10 @@ pub struct ListenerDefinition {
     pub redirect_port: Override<NonZeroU16>,
     #[serde(default)]
     pub tcp: Override<TcpOverride>,
+    /// The Unix socket's own settings, where a door serves this listener on
+    /// one. A TCP socket does not read them.
+    #[serde(default)]
+    pub uds: Override<UdsOverride>,
     #[serde(default)]
     pub h1: Override<H1Override>,
     #[serde(default)]
@@ -177,6 +183,7 @@ impl ListenerConfig {
         let same_driver = match (&self.settings, &other.settings) {
             (ListenerSettings::Tcp(a), ListenerSettings::Tcp(b)) => {
                 a.tcp.backlog == b.tcp.backlog
+                    && a.uds == b.uds
                     && matches!(
                         (&a.security, &b.security),
                         (
@@ -212,6 +219,8 @@ pub struct TcpListenerConfig {
     pub security: TcpSecurity,
     pub protocols: Vec<HttpProtocol>,
     pub tcp: TcpConfig,
+    /// Read only where a door serves this listener on a Unix socket.
+    pub uds: UdsConfig,
     pub h1: H1Config,
     pub h2: H2Config,
 }
@@ -242,6 +251,7 @@ impl ListenerOverrides {
 
     pub(crate) fn validate(&self) -> Result<(), ConfigError> {
         self.tcp.apply(&TcpConfig::default()).validate()?;
+        self.uds.apply(&UdsConfig::default()).validate()?;
         super::tcp::validate(
             &self.h1.apply(&H1Config::default()),
             &self.h2.apply(&H2Config::default()),
@@ -278,6 +288,7 @@ impl ListenerDefinition {
             proxy: Override::default(),
             redirect_port: Override::default(),
             tcp: Override::default(),
+            uds: Override::default(),
             h1: Override::default(),
             h2: Override::default(),
             quic: Override::default(),
@@ -296,6 +307,7 @@ impl ListenerDefinition {
             proxy: self.proxy.clone(),
             redirect_port: self.redirect_port,
             tcp: self.tcp.resolve(&TcpOverride::default()),
+            uds: self.uds.resolve(&UdsOverride::default()),
             h1: self.h1.resolve(&H1Override::default()),
             h2: self.h2.resolve(&H2Override::default()),
             quic: self.quic.resolve(&QuicOverride::default()),
@@ -369,6 +381,10 @@ impl ListenerDefinition {
                     .tcp
                     .apply(&defaults.tcp.apply(&TcpConfig::default()));
                 tcp.validate().map_err(|error| fail(&error.message))?;
+                let uds = options
+                    .uds
+                    .apply(&defaults.uds.apply(&UdsConfig::default()));
+                uds.validate().map_err(|error| fail(&error.message))?;
                 let h1 =
                     options.h1.apply(&defaults.h1.apply(&H1Config::default()));
                 let h2 =
@@ -407,6 +423,7 @@ impl ListenerDefinition {
                     security,
                     protocols: self.protocols.clone(),
                     tcp,
+                    uds,
                     h1,
                     h2,
                 })
@@ -419,11 +436,12 @@ impl ListenerDefinition {
                     return Err(fail("QUIC listeners support only h3"));
                 }
                 if !self.tcp.is_inherit()
+                    || !self.uds.is_inherit()
                     || !self.h1.is_inherit()
                     || !self.h2.is_inherit()
                 {
                     return Err(fail(
-                        "QUIC listeners cannot contain tcp/h1/h2 options",
+                        "QUIC listeners cannot contain tcp/uds/h1/h2 options",
                     ));
                 }
                 if !self.redirect_port.is_inherit() {

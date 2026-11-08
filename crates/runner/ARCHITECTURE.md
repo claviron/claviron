@@ -250,7 +250,9 @@ as `--tcp-backlog`. Omission uses HTTP's declared `TcpConfig.backlog` default
 (1024); an explicit command-line value overrides the file. Worker launch
 serialization retains the declaration. `SocketIngress::tcp_backlog` carries
 the resolved setting to `sys::net::create_tcp_listener` for each TCP bind; UDS
-does not use it. Sys has no implicit queue value. Socket opening is the only
+does not use it. A Unix socket's queue is `listener.uds.backlog`, read through
+the same `listener:` block as the HTTP settings; unwritten, the operating
+system's maximum. Sys has no implicit queue value. Socket opening is the only
 execution point, with no request-path lookup or check.
 
 Request execution bounds remain opt-in: an unwritten one bounds nothing.
