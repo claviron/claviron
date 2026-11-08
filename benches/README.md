@@ -51,8 +51,8 @@ These targets use the same static `/plain` response on one persistent connection
 
 | Target | Server path |
 | --- | --- |
-| `http1-plain-hyper` | Native Hyper service. |
-| `http1-plain-axum` | Native `axum::serve` with the same Axum router. |
+| `http1-hyper` | Native Hyper service. |
+| `http1-axum` | Native `axum::serve` with the same Axum router. |
 | `http1-plain-edge-other` | Native Edge driver and registered Other handler. |
 | `http1-plain-edge-axum` | Native Edge driver and registered Axum router. |
 | `http1-plain-edge-routable` | Native Edge driver and registered Routable contribution. |
@@ -228,10 +228,9 @@ python3 scripts/bench-http.py dispatch-edge-other \
 ```
 
 For the secondary JSON workload, use `dispatch-hyper`, `dispatch-axum` or
-`dispatch-edge-json`. Native HTTP/1 JSON controls are `http1-hyper` and
-`http1-axum`; pass the same timing arguments. Keep JSON workloads separate from
-the full Edge plain-path comparison. Each completed response is checked for
-the expected status, content type and body.
+`dispatch-edge-json`; pass the same timing arguments. Keep JSON workloads
+separate from the full Edge plain-path comparison. Each completed response is
+checked for the expected status, content type and body.
 
 ## Results
 

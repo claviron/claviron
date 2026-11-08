@@ -1,4 +1,4 @@
-//! Native axum::serve, its router and Json over persistent loopback HTTP/1.1.
+//! Native axum::serve over an established HTTP/1.1 connection, with the plain workload.
 
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -8,7 +8,7 @@ pub mod support;
 fn benchmark(criterion: &mut Criterion) {
     support::http1::run(
         criterion,
-        "transport/http1/native/axum/json",
+        "transport/http1/native/axum/plain",
         support::http1::axum,
     );
 }

@@ -8,7 +8,6 @@
 
 use std::convert::Infallible;
 use std::error::Error;
-use std::fmt::Debug;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::time::Instant;
@@ -25,7 +24,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 
-use super::{json, plain};
+use super::plain;
 
 pub struct Server {
     pub address: SocketAddr,
@@ -77,11 +76,6 @@ where
 
 #[cfg(feature = "axum")]
 pub async fn axum() -> Server {
-    axum_router(super::axum::router()).await
-}
-
-#[cfg(feature = "axum")]
-pub async fn axum_plain() -> Server {
     axum_router(super::axum::plain_router()).await
 }
 
@@ -144,61 +138,10 @@ pub async fn edge(connection: super::edge::Connection) -> Server {
     Server { address, stop, task, selects_host: true }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum Workload {
-    Json,
-    Plain,
-}
-
-impl Workload {
-    fn request(self) -> json::Input {
-        match self {
-            Self::Json => json::request(),
-            Self::Plain => plain::request(),
-        }
-    }
-
-    async fn consume<B>(
-        self,
-        response: Response<B>,
-    ) where
-        B: Body<Data = Bytes>,
-        B::Error: Debug,
-    {
-        match self {
-            Self::Json => json::consume(response).await,
-            Self::Plain => plain::consume(response).await,
-        }
-    }
-}
-
 pub fn run<F, Started>(
     criterion: &mut Criterion,
     name: &str,
     start: F,
-) where
-    F: FnOnce() -> Started,
-    Started: Future<Output = Server>,
-{
-    run_workload(criterion, name, start, Workload::Json);
-}
-
-pub fn run_plain<F, Started>(
-    criterion: &mut Criterion,
-    name: &str,
-    start: F,
-) where
-    F: FnOnce() -> Started,
-    Started: Future<Output = Server>,
-{
-    run_workload(criterion, name, start, Workload::Plain);
-}
-
-fn run_workload<F, Started>(
-    criterion: &mut Criterion,
-    name: &str,
-    start: F,
-    workload: Workload,
 ) where
     F: FnOnce() -> Started,
     Started: Future<Output = Server>,
@@ -217,7 +160,7 @@ fn run_workload<F, Started>(
                 .unwrap();
         (client, tokio::spawn(connection))
     });
-    runtime.block_on(preflight(&mut client, workload, server.selects_host));
+    runtime.block_on(preflight(&mut client, server.selects_host));
     let mut group = criterion.benchmark_group(name);
     group.throughput(Throughput::Elements(1));
     group.bench_function("request", |bencher| {
@@ -226,8 +169,8 @@ fn run_workload<F, Started>(
                 let started = Instant::now();
                 for _ in 0..iterations {
                     let response =
-                        client.send_request(workload.request()).await.unwrap();
-                    workload.consume(response).await;
+                        client.send_request(plain::request()).await.unwrap();
+                    plain::consume(response).await;
                 }
                 started.elapsed()
             })
@@ -250,14 +193,11 @@ pub(crate) async fn preflight(
     client: &mut hyper::client::conn::http1::SendRequest<
         http_body_util::Empty<Bytes>,
     >,
-    workload: Workload,
     selects_host: bool,
 ) {
     client.ready().await.unwrap();
-    workload
-        .consume(client.send_request(workload.request()).await.unwrap())
-        .await;
-    let mut missing = workload.request();
+    plain::consume(client.send_request(plain::request()).await.unwrap()).await;
+    let mut missing = plain::request();
     missing.headers_mut().insert(header::HOST, "missing.test".parse().unwrap());
     client.ready().await.unwrap();
     let response = client.send_request(missing).await.unwrap();
@@ -269,16 +209,14 @@ pub(crate) async fn preflight(
         );
         response.into_body().collect().await.unwrap();
     } else {
-        workload.consume(response).await;
+        plain::consume(response).await;
     }
-    let mut alias = workload.request();
+    let mut alias = plain::request();
     alias
         .headers_mut()
         .insert(header::HOST, "alias.benchmark.test".parse().unwrap());
     client.ready().await.unwrap();
-    workload.consume(client.send_request(alias).await.unwrap()).await;
+    plain::consume(client.send_request(alias).await.unwrap()).await;
     client.ready().await.unwrap();
-    workload
-        .consume(client.send_request(workload.request()).await.unwrap())
-        .await;
+    plain::consume(client.send_request(plain::request()).await.unwrap()).await;
 }

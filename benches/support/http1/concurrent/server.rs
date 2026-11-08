@@ -96,7 +96,7 @@ pub(super) async fn start(args: &Args) -> Result<Server> {
     };
     assert_eq!(tokio::runtime::Handle::current().runtime_flavor(), expected);
     match args.target {
-        Target::Axum => Ok(crate::support::http1::axum_plain().await),
+        Target::Axum => Ok(crate::support::http1::axum().await),
         Target::Hyper => {
             let acceptor = match args.mode {
                 Mode::Plain => None,

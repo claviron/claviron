@@ -43,10 +43,8 @@ executes the compiled plan.
 
 | File | Cargo target | Server / workload |
 | --- | --- | --- |
-| [hyper.rs](transport/http1/native/hyper.rs) | `http1-hyper` | Hyper / JSON. |
-| [axum.rs](transport/http1/native/axum.rs) | `http1-axum` | `axum::serve` / JSON. |
-| [hyper_plain.rs](transport/http1/native/hyper_plain.rs) | `http1-plain-hyper` | Hyper / plain. |
-| [axum_plain.rs](transport/http1/native/axum_plain.rs) | `http1-plain-axum` | `axum::serve` / plain. |
+| [hyper.rs](transport/http1/native/hyper.rs) | `http1-hyper` | Hyper / plain. |
+| [axum.rs](transport/http1/native/axum.rs) | `http1-axum` | `axum::serve` / plain. |
 
 ### `transport/http1/edge/`
 

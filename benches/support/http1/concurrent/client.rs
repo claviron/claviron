@@ -14,10 +14,7 @@ use hyper_util::rt::TokioIo;
 use tokio::{net::TcpStream, sync::Barrier, task::JoinHandle};
 
 use super::{Args, Result, Target, Window, tls};
-use crate::support::{
-    http1::{Workload, preflight},
-    plain,
-};
+use crate::support::{http1::preflight, plain};
 
 pub(super) struct Clients {
     connections: Vec<SendRequest<Empty<Bytes>>>,
@@ -61,8 +58,7 @@ impl Clients {
             if secure.is_some() {
                 named_preflight(&mut sender, target.selects_host()).await?;
             } else {
-                preflight(&mut sender, Workload::Plain, target.selects_host())
-                    .await;
+                preflight(&mut sender, target.selects_host()).await;
             }
             connections.push(sender);
         }

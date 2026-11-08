@@ -1,4 +1,4 @@
-//! Native Hyper HTTP/1.1 server over an isolated persistent loopback connection.
+//! Native Hyper over an established HTTP/1.1 connection, with the plain workload.
 
 use std::convert::Infallible;
 use std::future::ready;
@@ -11,13 +11,19 @@ use hyper::body::Incoming;
 pub mod support;
 
 fn benchmark(criterion: &mut Criterion) {
-    support::http1::run(criterion, "transport/http1/native/hyper/json", || {
-        support::http1::hyper(hyper::service::service_fn(
-            |request: Request<Incoming>| {
-                ready(Ok::<_, Infallible>(support::json::response(request)))
-            },
-        ))
-    });
+    support::http1::run(
+        criterion,
+        "transport/http1/native/hyper/plain",
+        || {
+            support::http1::hyper(hyper::service::service_fn(
+                |request: Request<Incoming>| {
+                    ready(Ok::<_, Infallible>(support::plain::response(
+                        request,
+                    )))
+                },
+            ))
+        },
+    );
 }
 
 criterion_group!(benches, benchmark);

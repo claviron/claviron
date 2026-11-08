@@ -314,20 +314,6 @@ test = false
 required-features = ["edge", "axum"]
 
 [[bench]]
-name = "http1-plain-hyper"
-path = "benches/transport/http1/native/hyper_plain.rs"
-harness = false
-test = false
-required-features = ["edge"]
-
-[[bench]]
-name = "http1-plain-axum"
-path = "benches/transport/http1/native/axum_plain.rs"
-harness = false
-test = false
-required-features = ["edge", "axum"]
-
-[[bench]]
 name = "http1-plain-edge-other"
 path = "benches/transport/http1/edge/other.rs"
 harness = false

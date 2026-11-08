@@ -7,7 +7,7 @@ pub mod support;
 
 fn benchmark(criterion: &mut Criterion) {
     let connection = support::edge::connection(support::edge::Owner::Routable);
-    support::http1::run_plain(
+    support::http1::run(
         criterion,
         "transport/http1/edge/routable/plain",
         || support::http1::edge(connection),
