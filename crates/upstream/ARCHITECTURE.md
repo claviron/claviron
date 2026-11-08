@@ -174,9 +174,12 @@ request -> profile balance policy -> origin A -> pool A -> connection -> stream
 | `connection.idle_timeout` | Each connection | Expiry checked on reuse above the floor | Driver-owned idle expiry |
 | Origin `max_live` | `balance.algorithm: first` only | In-flight request threshold | In-flight stream threshold, not a physical connection limit |
 
-`warmup` defaults to false. `max_idle` defaults to max_live and is a ceiling,
-not a target to replenish. H2 reuses available streams first, opens another
-connection when all are full and the pool can grow, and otherwise queues.
+`upstreams.<profile>.capacity.warmup` is a boolean, default `false`.
+When true, boot/reload schedules preparation asynchronously without waiting
+for connection readiness: H1 prepares its min_idle floor; H2 prepares one
+connection per origin. `max_idle` defaults to max_live and is a ceiling, not a
+target to replenish. H2 reuses available streams first, opens another connection
+when all are full and the pool can grow, and otherwise queues.
 
 | Balance algorithm | Origin-selection input |
 | --- | --- |
@@ -1168,172 +1171,24 @@ replenisher state.
 
 ## 12. Current Origin State Table
 
-`state/layout.rs` owns the kind-222 ABI: a 64-byte header and fixed 160-byte
-slots. Key/hash fields are atomic as well as runtime fields, so structural
-installation needs no mutable reference over concurrent readers. The listed
-fields occupy 136 bytes; explicit reserved bytes complete the promised stride.
-Geometry is pinned at build time by `ORBIT_UPSTREAM_STATE_CAPACITY` (default
-1024, power of two), matching the other fleet table geometries.
+Origin state stores health, serving eligibility, failures and request pressure;
+connections and pools remain process-local.
 
-`UpstreamStateProvider` is registered through the managed SHM lifecycle and
-orders after `FleetProvider`; `UpstreamProvider` orders after the state provider.
-Every fleet user can access this state, so activity evidence comes from the
-existing process-family authority, not an upstream-specific heartbeat. It owns
-any full-interval observation. Unknown evidence disables destructive boot and
-preserves the table. Finalize always preserves. Physical validation maps only
-the existing header read-only and never uses an open-or-create API. Locked
-creation publishes initialized header/slots; compatible attachments reuse
-atomics, and reset is confined to the physical adapter after quiescence proof.
-The canonical lifecycle contract remains in claviron-orbit/ARCHITECTURE.md.
+| Module | Responsibility |
+| --- | --- |
+| `state/layout.rs` | Literal-origin ABI: kind 222, 64-byte header, 160-byte slots, 96-byte identity keys. |
+| `state.rs` | Full-key installation, collision checks and stable slot handles; a full table rejects adoption. |
+| `state/provider.rs` | Managed SHM lifecycle; fleet-less runtimes use memory backing. |
+| `state/access.rs` | Scoped `SlotRef` operations; stale assignments reject admission and state updates. |
+| `state/verdict.rs`, `origin/health.rs` | Atomic reachability transitions and health/serving values. |
+| `state/assignment.rs` | Reusable local assignments and their native ownership. |
+| `resolve/table/layout.rs` | Named-origin snapshots, health cells and native records in kind 248. |
+| `resolve/table/membership.rs` | Generation-fenced admission, pressure accounting and joined retirement. |
 
-The immutable header is published by coordinator boot before worker consumers;
-retained headers never change during reuse or reset. No-fleet runtimes lazily
-use the same slot layout in memory. A fleet runtime requires the booted managed
-capability and cannot silently switch to memory.
-
-Compilation prepares each origin's escaped identity key once. The default
-label repeats the address, so `profile|u|address` encodes that case without
-storing the address twice. Other labels use `profile|n:label|address`; separators
-and backslashes are escaped. The full key is checked against the frozen 96-byte
-region rather than truncated. Installation compares complete keys to resolve
-hash collisions; its structural lock covers installation and fleet outlier publication/expiry. A returned SlotRef
-retains its backing mapping at an immutable slot index. Serving code cannot dereference
-SlotRef into retained raw atomics. `state/access.rs` owns semantic health,
-serving, validator reservation, slow-start clock and traffic pressure access.
-Compound updates and pressure CAS/release execute inside SlotRef's scoped
-read/write operation; closures cannot return borrowed physical slot references.
-Invalid-assignment fallbacks at this boundary are fail-closed (Down/No, refused validator,
-maximum pressure, Closed traffic admission and ignored stale release). Resident
-literal slots always admit those scopes. Health transitions capture before/after
-inside the same scoped mutation; projections read optional real verdicts, so a
-retirement fallback cannot manufacture a Down transition or purge an accepted H2
-session. Recovery scheduling and active rounds reject unavailable assignments. An explicit raw helper exists only in
-unit builds to seed/inspect physical ABI fixtures. It is absent in serving builds.
-Reusable assignments validate their stamp after admission CAS and retain a
-counted scope through the entire mutation, including validator cancellation.
-The local capability and unified fleet capability below use separate native
-ownership evidence; literal kind 222 retains its original contract.
-
-
-With `dns`, `state/assignment.rs` adds an explicit **local** reusable health
-capability. `UpstreamService::local_membership_state` reserves a fixed canonical
-range for its fleet-less memory runtime; a capability cannot bind another
-runtime's table and rejects a managed/fleet context. Its cells are separate from
-kind 222 and hold an assignment stamp, a closed/count scope gate, native owner
-count and cold identity mutex. `bind` checks the concrete socket, nonzero/newer
-stamp and full assignment identity. Metadata changes retain health and native
-owners. `retire` closes new scopes without writing Down or emitting health
-signals; `drained` requires the exact assignment, closed zero-count gate and no
-native owners. A newer bind resets atomics only after that proof. All raw fields
-remain atomic; reset creates no mutable aliases. The scope count stays reserved
-through the entire callback or admitted dial/probe, and the stamp is checked
-**after** its CAS, so a cached open gate cannot admit an old handle into a
-reopened generation. Late traffic Drop and validator cancellation are refused.
-
-Each concrete OriginTransport registers one owner before serving IO; unchanged
-membership views share that owner. Losing registration closes the inert
-transport. Admission, native dial and HTTP handoff check assignment scope.
-Close/force alone is not ACK: only force plus tracker join releases ownership,
-exactly once, including forced stop with a retained unpolled response. A refused
-membership candidate consumes only its unique inert new owners before sealing
-or registering any in the serving lifetime. Unique transport/pool ownership,
-zero admission, absent projections and closed empty native tracker prove that
-abort has no IO to join; unchanged serving owners are never aborted. A refused
-registration returns StateBinding and preserves the live view and binding.
-Dropping
-the native owner handle does not acknowledge anything; it leaves the cell
-conservatively unavailable. Membership identity includes the assignment binding,
-so the same socket with a fresh stamp cannot inherit a retired pool. Assignment
-binding remains excluded from desired-file config equality. This capability
-adds no timer, task, SHM shape or named-config activation. It is usable by the
-local cold membership API, not a substitute for cross-process participant
-registration, authoritative snapshot commit or fleet joined retirement. Those
-boundaries still block named serving config and UpstreamResolver integration.
-
-The foundation installs keys before registry adoption and fails boot/reload
-with StateFull naming the key/capacity. Failed reload retains live services.
-Removed keys remain until a quiescent reset; there is no active deletion.
-Provider boot binds the installed SlotRef onto each prepared Origin before
-registry adoption. Detached construction binds its private config copy to its
-own memory backing; it cannot mutate a caller's shared Profile or steal a
-managed mapping. Binding identity is excluded from desired-config equality,
-so unchanged reloads still retain their service/pools. Public detached
-construction accommodates the compiled origin count; managed geometry stays
-fixed and full tables still fail before adoption.
-
-`origin/health.rs` decodes the frozen u8 Healthy/Down/HalfOpen and Yes/No axes.
-Passive failure accounting saturates atomically, recovery reserves Down with
-CAS, and success clears failures without clearing a serving ejection. Recovery
-publishes its healthy timestamp before making the origin selectable; ordinary
-successful requests keep the clock. No ServiceState mutex or local OriginState
-copy remains. The round-robin cursor is worker-local and atomic.
-
-UpstreamRecoveryProbe is an Automatic Runnable ordered after UpstreamProvider.
-Its generation owns one cold future per nonhealthy origin, identified by profile
-PoolGeneration and OriginId. The shared round scheduler polls these futures
-inside the generation without spawning child tasks. Request/event paths notify
-registry observers; they never create validators. There is no recovery_tasks
-vector, validator_active query or local recovery-running health bit. Cancelling
-recovery drops its futures/leases without cancelling active or the profile.
-A cancelled probe returns
-only its owned HalfOpen reservation to Down without recording failure. An
-exact-lease renewal fences a lost tenure from abandoning a successor's
-reservation or publishing a probe result; an acquired successor can reclaim
-crash-left HalfOpen. Typed duties renew recovery across the whole delay/probe.
-Active, recovery and bridge are independently runnable; their outcome boundary
-is shared. The memory fixture includes locks, events and the state table.
-Live application verification covers master/eight workers, kind-222 ABI and
-page-rounded size, H1/H2C forwarding and graceful Preserve shutdown.
-
-
----
-
-### Unified named health and native receipts
-
-With `dns`, `resolve/table/membership.rs` binds a concrete prepared origin to an
-exact active assignment/publication through `UpstreamService::resolved_origin`.
-The parent runtime/authority context is checked cold. This explicit capability
-does not yet accept named file configuration. Cold member transfer retains the
-existing local health projection when reusing an equal physical assignment and
-its native owner; a newly prepared equal projection has no registration itself.
-
-Each physical canonical cell has a bounded set of 64-byte native records. A
-record holds a monotonically increasing native generation, kernel PID/start
-identity, one generation-tagged closed/count scope gate, pressure and receipt phase. The same 64-bit scope CAS carries a 32-bit native generation and 31-bit
-scope count plus closure bit. Receipt phases carry the same generation tag,
-so a paused old finalizer cannot ACK a successor with outstanding scopes. A cached old CAS cannot enter a reopened native
-record: a post-CAS refund would race a foreign process's death cleanup. Native
-generation never wraps; an exhausted record stays unavailable. Only that
-process may increment or drop scopes in its record; copied/forked handles cannot use it. No global
-anonymous scope counter can survive a killed owner without attributable proof.
-A native tracker join (or consumed unique inert construction) closes its gate
-and marks joined. The last already admitted scope clears pressure and publishes
-Free. Close alone, response EOF alone, dropped Arc, heartbeat absence, lease TTL
-and master restart are not ACK. There is no public ACK method or Drop receipt.
-
-Cold registration/retirement/publication reconcile an exact process only when a
-successful kernel start identity differs or signal-zero returns ESRCH. Failed
-identity lookup with a live/permission-denied/unknown PID preserves ownership.
-No polling timer, implicit timeout or process signal is added. A physical cell
-can reset only when every native record is Free with a closed zero-count gate.
-`ResolutionEntry::retirement_ready` also requires the exact currently published
-retirement. Publication revalidates the proof under its flock before reuse.
-
-Fleet request pressure lives in the native records, summed for least-connections.
-Every Traffic reservation freezes its original native generation and assignment;
-force plus native join clears that record even when a logical response remains
-retained. Late Drop cannot decrement a reused record, including operator restart
-of the same assignment/socket. Health/validator operations require active bank
-eligibility. Accepted pressure releases may finish during retirement until the
-native join closes their record. Neither pressure cleanup nor retirement records
-a reachability failure or starts recovery. Steady request operations use atomics and owned Arc loads, without a process
-flock, JSON decode or DNS query; historical warm allocation measurements covered this path.
-
-Production resolver Runnable and provider desired boot/adoption are connected.
-Typed desired materialization and joined local handoff are documented above.
-The registry's revision-checked adoption capability is documented above. The physical capability
-was exercised with real H1/H2 retained responses and exec'd SHM peers, including
-one cooperative native join and one killed process holding native IO and a scope.
+`ORBIT_UPSTREAM_STATE_CAPACITY` defaults to 1024 slots and must be a power of
+two; fleet peers must agree on physical geometry. Literal keys remain installed
+until a quiescent reset; named assignments require their scopes and native IO
+to drain before reuse. Unknown process-liveness evidence preserves ownership.
 
 ---
 
