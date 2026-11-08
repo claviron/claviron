@@ -22,9 +22,8 @@ registration remains explicit.
 | `GET` or `POST /_bench/rust` | Collect the input, optionally delay, and return a native baseline reply. |
 | `GET /_bench/stats` | Read process-local activity counters. |
 
-GET routes also receive Axum's HEAD behavior. `routes()` builds the full router;
-`baseline_routes()` exposes `/rust` and `/stats` relative to a caller-selected
-mount.
+GET routes also receive Axum's HEAD behavior. `routes()` builds the router,
+the same everywhere.
 
 The native baseline accepts optional `min` and `max` delay bounds in milliseconds
 and a `payload` size. Without either delay bound, it adds no wait. Its `x-received`
@@ -38,31 +37,31 @@ local observations, not a fleet-wide accounting or benchmark-results service.
 
 ## Register with the existing composition
 
-For an Edge application, enable `bench` and `edge` and register the adapter in the
-application's service-registration callback:
+`claviron::bench::BenchService` is one service for an Edge and a runner alike.
+It is a `HostRoutable` (`claviron::pipeline::routing`): routes that also select
+the hosts they answer on. Register it in the application's service-registration
+callback:
 
 ```rust
 use claviron::runtime::{AppState, Register, registry};
 
 fn register_bench(state: &AppState) -> registry::Result<()> {
-    <claviron::bench::edge::BenchService as Register<AppState>>::register(state)
+    <claviron::bench::BenchService as Register<AppState>>::register(state)
 }
 ```
 
-The Edge adapter reads optional `bench.yaml` configuration under the runtime's
-configuration directory. Its `hosting` field uses Edge's `VhostDocument` schema.
-An absent file declares no benchmark hosts. `register_with_path` selects another
-source explicitly. Prepared host declarations participate in Edge publication
-and reload, while existing listener, TLS, ACL, and HTTP policy remain authoritative.
+It reads optional `bench.yaml` configuration under the runtime's
+configuration directory. Its `vhosts` field names hosts declared in `vhost.yaml`;
+it declares none itself. An absent file selects no hosts. `register_with_path`
+selects another source explicitly. Listener, TLS, ACL and HTTP policy are the
+host's, as `vhost.yaml` declares them.
 
-For a host-free runner, enable `bench` and `runner`, then register
-`claviron::bench::runner::BenchService` through the same `Register<AppState>`
-contract. It contributes routes to the existing routing registry and declares
-no vhost or configuration file. `register_with_alias_prefix` optionally adds a
-caller-selected mount for the baseline routes. Application interceptors retain
+Where the process serves hosts, an Edge, the routes stand in front of each
+selected host's own owner, and a path or method they do not declare goes on to
+it. A runner serves the same routes host-free. Application interceptors retain
 precedence.
 
-These adapters register shared handlers; they do not start a background task,
+It registers shared handlers; it does not start a background task,
 select an interpreter, add a database dependency, or choose deployment admission
 policy. Keep benchmark exposure an explicit deployment decision.
 

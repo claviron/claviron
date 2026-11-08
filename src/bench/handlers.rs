@@ -99,8 +99,8 @@ fn spread(bound: u64) -> u64 {
     x % bound
 }
 
-/// Relative native-baseline paths for an application-selected mount.
-pub fn baseline_routes() -> Router {
+/// The native baseline, under `/_bench`.
+fn baseline_routes() -> Router {
     Router::new()
         .route("/rust", get(rust).post(rust))
         .route("/stats", get(stats))

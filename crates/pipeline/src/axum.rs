@@ -78,3 +78,65 @@ impl HostHandler for AxumApplication {
         )
     }
 }
+
+/// Adapt routes that stand in front of a host's own owner: a path or method
+/// they do not declare is returned Unhandled, with its unread body, as a
+/// runner hands it to its owner.
+pub fn routes(router: Router) -> Arc<dyn HostHandler> {
+    Arc::new(FrontRoutes(
+        router.fallback(unmatched).method_not_allowed_fallback(unmatched),
+    ))
+}
+
+struct FrontRoutes(Router);
+
+/// The request no route declared, carried back out of the router.
+#[derive(Clone)]
+struct Unmatched(Arc<std::sync::Mutex<Option<axum::extract::Request>>>);
+
+async fn unmatched(
+    request: axum::extract::Request
+) -> axum::response::Response {
+    let mut response = axum::response::Response::default();
+    response
+        .extensions_mut()
+        .insert(Unmatched(Arc::new(std::sync::Mutex::new(Some(request)))));
+    response
+}
+
+impl HostHandler for FrontRoutes {
+    fn call(
+        &self,
+        request: HostRequest,
+    ) -> HostHandlerFuture {
+        let router = self.0.clone();
+        Box::pin(async move {
+            let response = match router
+                .oneshot(request.into_request().map(axum::body::Body::new))
+                .await
+            {
+                Ok(response) => response,
+                Err(never) => match never {},
+            };
+            let unmatched = response.extensions().get::<Unmatched>().and_then(
+                |Unmatched(slot)| {
+                    slot.lock().expect("unmatched request lock poisoned").take()
+                },
+            );
+            match unmatched {
+                Some(request) => ServiceResult::Unhandled(HostRequest::new(
+                    request.map(|body| {
+                        use http_body_util::BodyExt;
+                        body.map_err(|error| -> claviron_http::RouteBodyError {
+                            Box::new(error)
+                        })
+                        .boxed_unsync()
+                    }),
+                )),
+                None => ServiceResult::Handled(
+                    claviron_http::from_axum_response(response),
+                ),
+            }
+        })
+    }
+}

@@ -59,6 +59,9 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
     let registry = state.registry_ref();
     VhostResolver::register(state)?;
     registry.insert(Arc::new(HostAppRegistry::default()))?;
+    // Host-selecting routables (`HostRoutable`) a host puts in front of its owner.
+    #[cfg(feature = "axum")]
+    claviron_pipeline::routing::register(state)?;
     #[cfg(feature = "websocket")]
     registry.insert(Arc::new(H1UpgradeRegistry::default()))?;
     #[cfg(feature = "webtransport")]
@@ -105,55 +108,6 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
     }
     registry.register(Arc::new(HostAppResolver::default()))?;
     Ok(())
-}
-
-/// Declare a host during application registration, after [`register`].
-///
-/// This declaration survives boot and reload. File and code declarations
-/// share one namespace: duplicate host keys or conflicting aliases fail
-/// preparation rather than silently replacing another host. Listener and TLS
-/// preparation use the ordinary Edge lifecycle; this does not open a listener.
-/// Routes are registered separately with `register_routable`.
-pub fn register_host(
-    state: &AppState,
-    host: Host,
-    config: impl Into<Arc<HostConfig>>,
-) -> RegistryResult<()> {
-    let config = config.into();
-    register_hosts(state, move |_| {
-        Ok(vec![(host.clone(), Arc::clone(&config))])
-    })
-}
-
-/// Declare hosts from a consumer's prepared configuration snapshot.
-///
-/// Register the source once, after [`register`] and before boot. It is called
-/// only while rebuilding the host table, including on reload and vhost source
-/// changes, never for a request. Return an empty list to declare no hosts.
-/// Errors retain the previously published table.
-///
-/// Read the consumer's prepared `state.config_reader().snapshot::<Owner>()`,
-/// not its boot-published resources, and do not perform file IO here. A full
-/// reload prepares configuration owners before rebuilding hosts; a consumer's
-/// runtime snapshot might still belong to the previous generation at that
-/// point. A consumer-specific observer alone does not reload listeners or
-/// routers; use the normal full reload to apply its hosting changes.
-/// [`VhostDocument`] can be nested in the owner's config without duplicating
-/// the host schema or its declaration equality; return its `declarations()`.
-pub fn register_hosts(
-    state: &AppState,
-    source: impl Fn(&AppState) -> Result<Vec<(Host, Arc<HostConfig>)>>
-    + Send
-    + Sync
-    + 'static,
-) -> RegistryResult<()> {
-    let resolver = state
-        .registry_ref()
-        .resolve::<VhostResolver>()
-        .ok_or_else(|| RegistryError::msg("VhostResolver not registered"))?;
-    resolver
-        .register_hosts(source)
-        .map_err(|error| RegistryError::msg(error.to_string()))
 }
 
 /// Register a provider that contributes routes to selected edge hosts.

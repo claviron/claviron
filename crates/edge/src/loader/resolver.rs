@@ -51,11 +51,6 @@ type VhostDeps = (
     Option<Arc<claviron_tls::CertificateProvider>>,
 );
 
-/// Cold preparation only: the caller supplies prepared config values.
-type HostSource = dyn Fn(&AppState) -> crate::Result<Vec<(Host, Arc<HostConfig>)>>
-    + Send
-    + Sync;
-
 type Preparation = dyn Fn(&VhostTable, &VhostTable) -> crate::Result<Arc<dyn Any + Send + Sync>>
     + Send
     + Sync;
@@ -66,9 +61,6 @@ pub struct VhostResolver {
     /// declared hosts, before alias hydration. `replace_all` builds the
     /// published table from this, never from the file.
     document: ArcSwap<VhostDocument>,
-    /// Retained registration-time sources, evaluated on table rebuild, never
-    /// at request time. Consumer config files remain their owners' concern.
-    sources: RwLock<Vec<Arc<HostSource>>>,
     preparations: RwLock<Vec<(TypeId, Arc<Preparation>)>>,
     publication: Mutex<()>,
     #[cfg(any(feature = "tcp", feature = "quic"))]
@@ -101,7 +93,6 @@ impl Default for VhostResolver {
         Self {
             config_path: PathBuf::from(CONFIG_FILE),
             document: ArcSwap::from_pointee(VhostDocument::default()),
-            sources: RwLock::new(Vec::new()),
             preparations: RwLock::new(Vec::new()),
             publication: Mutex::new(()),
             #[cfg(any(feature = "tcp", feature = "quic"))]
@@ -268,42 +259,6 @@ impl VhostResolver {
             .iter()
             .map(|listener| listener.prepare(hosts, refresh_factories))
             .collect()
-    }
-
-    pub(crate) fn register_hosts(
-        &self,
-        source: impl Fn(&AppState) -> crate::Result<Vec<(Host, Arc<HostConfig>)>>
-        + Send
-        + Sync
-        + 'static,
-    ) -> crate::Result<()> {
-        self.sources
-            .write()
-            .map_err(|_| {
-                crate::Error::other("vhost source registration lock poisoned")
-            })?
-            .push(Arc::new(source));
-        Ok(())
-    }
-
-    /// Invoke caller code without holding the registration lock. An invalid
-    /// combined declaration fails before anything publishes a live table.
-    fn declared_table(
-        &self,
-        state: &AppState,
-    ) -> crate::Result<VhostTable> {
-        let sources = self
-            .sources
-            .read()
-            .map_err(|_| {
-                crate::Error::other("vhost source registration lock poisoned")
-            })?
-            .clone();
-        let mut hosts = Vec::new();
-        for source in sources {
-            hosts.extend(source(state)?);
-        }
-        self.document.load().table_with(hosts)
     }
 
     pub fn new(state: &AppState) -> Self {
@@ -483,14 +438,12 @@ impl VhostResolver {
 
     async fn build_snapshot(
         &self,
-        state: &AppState,
         _hosting: &HostingDeps,
     ) -> crate::Result<VhostTable> {
-        // Combine retained sources with Congif's prepared `vhost.yaml` and includes
-        // (with `${ENV_KEY}` expanded from the environment bound to this
-        // owner) before boot or in the reload batch. Nothing opens the file
-        // here.
-        let table = self.declared_table(state)?;
+        // Congif's prepared `vhost.yaml` and includes (with `${ENV_KEY}`
+        // expanded from the environment bound to this owner), before boot or
+        // in the reload batch. Nothing opens the file here.
+        let table = self.document.load().table()?;
 
         #[allow(unused_mut)]
         let mut snapshot = VhostSnapshot::from_config(table);
@@ -543,7 +496,7 @@ impl VhostResolver {
         state: &AppState,
         (http, hosting, _channels, _certificates): &VhostDeps,
     ) -> claviron_runtime::registry::Result<()> {
-        let mut next = self.build_snapshot(state, hosting).await?;
+        let mut next = self.build_snapshot(hosting).await?;
         let http = http.as_ref().map(|provider| provider.snapshot());
         next.validate_listeners(http.as_deref())?;
         #[cfg(feature = "access-log")]
@@ -577,7 +530,7 @@ impl VhostResolver {
         state: &AppState,
     ) -> claviron_runtime::registry::Result<(usize, usize)> {
         let (_, hosting, _, _) = VhostDeps::resolve(state.registry_ref())?;
-        let desired = self.build_snapshot(state, &hosting).await?;
+        let desired = self.build_snapshot(&hosting).await?;
         let current = self.snapshot();
         let want: std::collections::HashMap<&Host, &Host> =
             desired.alias_entries().collect();
@@ -753,7 +706,7 @@ impl Configurable for VhostResolver {
         ConfigFile::yaml(&self.config_path)
     }
 
-    /// No `vhost.yaml`: only registration-time sources declare hosts.
+    /// No `vhost.yaml`: no hosts.
     fn absent_source(&self) -> Option<VhostDocument> {
         Some(VhostDocument::default())
     }
@@ -825,18 +778,6 @@ impl VhostResolver {
         let previous = self.document.load_full();
         let mut document = config.clone();
         document.retain_unchanged(&previous);
-        let sources = self
-            .sources
-            .read()
-            .map_err(|_| congif::Error::msg("vhost source lock poisoned"))?
-            .clone();
-        let mut hosts = Vec::new();
-        for source in sources {
-            hosts.extend(source(state).map_err(congif::Error::msg)?);
-        }
-        // Check the complete declaration namespace, including registered code
-        // sources, without replacing their active records.
-        document.table_with(hosts).map_err(congif::Error::msg)?;
         let desired = document.table().map_err(congif::Error::msg)?;
         let declared_previous = previous.table().map_err(congif::Error::msg)?;
         let current = self.snapshot();

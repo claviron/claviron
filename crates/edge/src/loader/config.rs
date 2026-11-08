@@ -14,7 +14,6 @@ use std::sync::Arc;
 use claviron_runtime::congif::{
     self, ConfigFile, ConfigReader, ConfigValue, Configurable,
 };
-use claviron_types::Host;
 use serde::Deserialize;
 use serde::de::{Deserializer, Error as _};
 
@@ -80,20 +79,6 @@ impl VhostDocument {
         }
     }
 
-    /// Typed declarations for `claviron::edge::register_hosts` sources.
-    /// Values share the prepared configuration Arcs; nothing is re-decoded.
-    pub fn declarations(&self) -> crate::Result<Vec<(Host, Arc<HostConfig>)>> {
-        self.hosts
-            .iter()
-            .map(|(key, config)| {
-                let host = key.parse().map_err(|error| {
-                    crate::Error::Invalid(format!("{key}: {error}"))
-                })?;
-                Ok((host, Arc::clone(config)))
-            })
-            .collect()
-    }
-
     /// Fold an included document in. A canonical host declared twice is a
     /// hard error: a reload fails loudly rather than publish a surprising
     /// table.
@@ -116,24 +101,10 @@ impl VhostDocument {
 
     /// The declared hosts as a table: canonical keys parsed, aliases seeded.
     pub(crate) fn table(&self) -> crate::Result<VhostTable> {
-        self.table_with(std::iter::empty())
-    }
-
-    /// Consumer declarations share the file hosts' validation and alias
-    /// namespace; neither source silently replaces the other.
-    pub(crate) fn table_with(
-        &self,
-        hosts: impl IntoIterator<Item = (Host, Arc<HostConfig>)>,
-    ) -> crate::Result<VhostTable> {
         VhostTable::from_host_map(
             self.hosts
                 .iter()
-                .map(|(host, config)| (host.clone(), config.clone()))
-                .chain(
-                    hosts
-                        .into_iter()
-                        .map(|(host, config)| (host.to_string(), config)),
-                ),
+                .map(|(host, config)| (host.clone(), config.clone())),
         )
     }
 

@@ -151,10 +151,8 @@ impl HostConfig {
     }
 
     /// An empty host declaration with an explicit file root and the same
-    /// policy defaults as a deserialized host. Register it with
-    /// `claviron::edge::register_host`; routes still belong to `Routable`.
-    /// For a consumer-owned configuration file, deserialize `HostConfig`
-    /// directly instead, including its normal routes and directives.
+    /// policy defaults as a deserialized host. Hosts are declared in
+    /// `vhost.yaml`; this is for building one in code, such as in a test.
     pub fn new(root: impl Into<PathBuf>) -> Self {
         Self {
             site: Arc::new(Site::new(root)),

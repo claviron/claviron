@@ -221,24 +221,17 @@ lua:
 
 ## Adding an application
 
-In a server registration callback, declare a host and attach an application-owned
-Axum router:
+Declare the host in `vhost.yaml`, then attach an application-owned Axum router
+to it in a server registration callback:
 
 ```rust
 use claviron::{
     axum::{Router, routing::get},
-    edge::{self, Host, HostAppRegistry, HostConfig},
+    edge::HostAppRegistry,
     runtime::{AppState, registry},
 };
 
-fn register_host(state: &AppState) -> registry::Result<()> {
-    edge::register_host(
-        state,
-        "example.test".parse::<Host>()
-            .map_err(|error| registry::Error::msg(error.to_string()))?,
-        HostConfig::new("public"),
-    )?;
-
+fn register_app(state: &AppState) -> registry::Result<()> {
     let apps = state.registry_ref().resolve::<HostAppRegistry>()
         .ok_or_else(|| registry::Error::msg("edge registration is required"))?;
 
@@ -252,12 +245,7 @@ fn register_host(state: &AppState) -> registry::Result<()> {
 This uses the root `edge` and `axum` features and assumes the standard edge
 infrastructure has already been registered. It does not configure or start a
 listener. The key passed to `register_router` selects the canonical vhost, not
-an arbitrary alias.
-
-`register_hosts` lets an integration supply multiple declarations from its
-prepared configuration. Host-source callbacks run while rebuilding the host
-table, never for individual requests; they should consume prepared snapshots
-rather than perform their own file I/O.
+an arbitrary alias. Hosts are declared only in `vhost.yaml`.
 
 ## Application shapes
 

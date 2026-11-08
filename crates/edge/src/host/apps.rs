@@ -551,6 +551,24 @@ impl HostAppRegistry {
             );
         }
 
+        // Routes that select this host, in front of its owner.
+        #[cfg(feature = "axum")]
+        if let Some(routables) = state
+            .registry_ref()
+            .resolve::<claviron_pipeline::routing::RoutableRegistry>(
+        ) {
+            for routable in routables.host_routables() {
+                if !routable.match_host(canonical) {
+                    continue;
+                }
+                if let Some(router) = routable.routes(state)? {
+                    applications.push(claviron_pipeline::axum::routes(
+                        router.with_state(state.clone()),
+                    ));
+                }
+            }
+        }
+
         let local_bindings = self
             .binding_providers
             .read()
