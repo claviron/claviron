@@ -89,6 +89,7 @@ impl UpstreamService {
                             epoch,
                             driver_end,
                             &self.inner.profile.connection,
+                            self.inner.profile.capacity.max_streams(),
                         )
                         .await
                     }
@@ -108,6 +109,7 @@ impl UpstreamService {
                             epoch,
                             driver_end,
                             &self.inner.profile.connection,
+                            self.inner.profile.capacity.max_streams(),
                         )
                         .await
                     }
@@ -126,6 +128,7 @@ impl UpstreamService {
                             epoch,
                             driver_end,
                             &self.inner.profile.connection,
+                            self.inner.profile.capacity.max_streams(),
                         )
                         .await
                     }

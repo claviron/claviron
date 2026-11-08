@@ -45,13 +45,23 @@ pub enum Capacity {
         max_live: usize,
         min_idle: usize,
         max_idle: usize,
+        warmup: bool,
         replenish: crate::config::profile::capacity::ReplenishConfig,
     },
     H2 {
-        max_streams: usize,
+        max_live: usize,
+        max_idle: usize,
+        max_streams: Option<usize>,
+        warmup: bool,
+        replenish: crate::config::profile::capacity::ReplenishConfig,
     },
 }
 impl Capacity {
+    pub fn warmup(&self) -> bool {
+        match self {
+            Self::H1 { warmup, .. } | Self::H2 { warmup, .. } => *warmup,
+        }
+    }
     pub fn min_idle(&self) -> usize {
         match self {
             Self::H1 { min_idle, .. } => *min_idle,
@@ -61,20 +71,18 @@ impl Capacity {
 
     pub fn max_live(&self) -> usize {
         match *self {
-            Self::H1 { max_live, .. } => max_live,
-            Self::H2 { max_streams } => max_streams,
+            Self::H1 { max_live, .. } | Self::H2 { max_live, .. } => max_live,
         }
     }
-    pub fn max_streams(&self) -> usize {
+    pub fn max_streams(&self) -> Option<usize> {
         match *self {
-            Self::H1 { .. } => 1,
-            Self::H2 { max_streams } => max_streams,
+            Self::H1 { .. } => Some(1),
+            Self::H2 { max_streams, .. } => max_streams,
         }
     }
     pub fn max_idle(&self) -> usize {
         match *self {
-            Self::H1 { max_idle, .. } => max_idle,
-            Self::H2 { .. } => 0,
+            Self::H1 { max_idle, .. } | Self::H2 { max_idle, .. } => max_idle,
         }
     }
 }
@@ -85,42 +93,40 @@ impl CapacityConfig {
         protocol: UpstreamProtocol,
         _worker_count: Option<usize>,
     ) -> Result<Capacity, ConfigError> {
-        if self.max_live == 0 {
-            return Err(ConfigError::ZeroMaxLive);
-        }
-
-        let max_idle = self.max_idle.unwrap_or(self.max_live);
         let invalid =
             |field, detail| ConfigError::InvalidCapacity { field, detail };
+        let min_idle = self.min_idle.unwrap_or(0);
+        let max_live = self.max_live.ok_or_else(|| {
+            invalid("max_live", "a physical connection ceiling is required")
+        })?;
+        if max_live == 0 {
+            return Err(ConfigError::ZeroMaxLive);
+        }
+        let max_idle = self.max_idle.unwrap_or(max_live);
+        if max_idle > max_live {
+            return Err(invalid("max_idle", "must not exceed max_live"));
+        }
         if protocol == UpstreamProtocol::H1 {
             if self.max_streams.is_some() {
                 return Err(invalid(
                     "max_streams",
-                    "h1 carries one request per connection; `max_live` is its whole capacity",
+                    "h1 carries one request per connection; use max_live",
                 ));
             }
-            if self.min_idle > max_idle || max_idle > self.max_live {
-                return Err(invalid(
-                    "min_idle/max_idle/max_live",
-                    "must satisfy min_idle <= max_idle <= max_live",
-                ));
-            }
-            if self.min_idle > 0
-                && (self.replenish.initial_backoff.is_zero()
-                    || self.replenish.max_backoff.is_zero()
-                    || self.replenish.initial_backoff
-                        > self.replenish.max_backoff)
-            {
-                return Err(invalid(
-                    "replenish",
-                    "enabled warm floor requires 0 < initial_backoff <= max_backoff",
-                ));
+            if min_idle > max_idle {
+                return Err(invalid("min_idle", "must not exceed max_idle"));
             }
         } else {
-            if self.min_idle > 0 {
+            if max_live > tokio::sync::Semaphore::MAX_PERMITS {
+                return Err(invalid(
+                    "max_live",
+                    "must fit the physical connection semaphore",
+                ));
+            }
+            if self.min_idle.is_some() {
                 return Err(invalid(
                     "min_idle",
-                    "warm connection floor is only supported by h1",
+                    "h2 grows on stream demand; use warmup for initial preconnect",
                 ));
             }
             if self.max_streams == Some(0) {
@@ -129,17 +135,40 @@ impl CapacityConfig {
                     "must be greater than zero",
                 ));
             }
+            if self.warmup && max_idle == 0 {
+                return Err(invalid(
+                    "warmup",
+                    "h2 preconnect requires max_idle greater than zero",
+                ));
+            }
+        }
+
+        if ((protocol == UpstreamProtocol::H1 && min_idle > 0)
+            || (protocol == UpstreamProtocol::H2 && self.warmup))
+            && (self.replenish.initial_backoff.is_zero()
+                || self.replenish.max_backoff.is_zero()
+                || self.replenish.initial_backoff > self.replenish.max_backoff)
+        {
+            return Err(invalid(
+                "replenish",
+                "enabled warm maintenance requires 0 < initial_backoff <= max_backoff",
+            ));
         }
 
         Ok(match protocol {
             UpstreamProtocol::H1 => Capacity::H1 {
-                max_live: self.max_live,
-                min_idle: self.min_idle,
+                max_live,
+                min_idle,
                 max_idle,
+                warmup: self.warmup,
                 replenish: self.replenish.clone(),
             },
             UpstreamProtocol::H2 => Capacity::H2 {
-                max_streams: self.max_streams.unwrap_or(self.max_live),
+                max_live,
+                max_idle,
+                max_streams: self.max_streams,
+                warmup: self.warmup,
+                replenish: self.replenish.clone(),
             },
         })
     }
@@ -278,10 +307,8 @@ impl UpstreamYaml {
 /// Build the final `HealthConfig` for a profile from two layers:
 ///
 /// 1. Protocol-aware built-in base. The only protocol-sensitive field is
-///    `drop_probe.enabled` — true for H2 (single-session model: a drop is
-///    a real reachability signal) and false for H1 (multi-conn pool: a
-///    single conn dying is noise, request-path failure counting catches
-///    real outages with less probe traffic).
+///    `drop_probe.enabled` — true for H2 and false for H1. A driver error
+///    requests independent origin reachability confirmation.
 /// 2. Per-profile `health` overlay (sparse — unset fields retain the
 ///    protocol-aware built-in policy).
 fn compile_health(
@@ -381,3 +408,7 @@ fn validate_health(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../../tests/compile/profile.rs"]
+mod tests;

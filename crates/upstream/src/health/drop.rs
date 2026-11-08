@@ -103,9 +103,8 @@ impl UpstreamService {
             return;
         }
 
-        // drop_probe is the operator gate: H2 defaults on (single session,
-        // drop is a real signal), H1 defaults off (multi-conn pool, request
-        // path catches outages with less noise). Operator can flip per profile.
+        // The operator gate is protocol-aware: H2 defaults on, H1 off.
+        // A connection error needs independent origin reachability confirmation.
         if !self.inner.profile.health.drop_probe.enabled {
             return;
         }

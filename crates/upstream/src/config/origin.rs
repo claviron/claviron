@@ -56,9 +56,8 @@ pub struct DetailedOriginConfig {
     #[serde(default = "default_weight")]
     pub weight: u32,
     /// Requests this worker may have in flight to this origin before `first`
-    /// moves on to the next one. Absent, the profile's `capacity.max_live` is
-    /// the limit — the pool is full, so the next origin — which is what
-    /// HAProxy's `maxconn` is for `balance first`. Read by `first` only.
+    /// moves on to the next one. Absent, H1 uses capacity.max_live and H2 uses
+    /// the effective local/peer stream limit. Read by `first` only.
     #[serde(default)]
     pub max_live: Option<usize>,
 }

@@ -52,6 +52,7 @@ pub(crate) struct ServiceEpoch {
 impl ServiceEpoch {
     pub(crate) fn admit_input(&self) -> Result<InputLease, RequestFailure> {
         Ok(InputLease {
+            h2: None,
             origin: None,
             breaker: None,
             _permit: self

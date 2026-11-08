@@ -269,19 +269,31 @@ impl Iterator for Candidates<'_> {
                             ),
                         ),
                         Prepared::First => {
-                            // Full is the pool's own capacity unless the origin says
-                            // otherwise — HAProxy's `maxconn`, which is both. The
-                            // rank is the distance from this worker's start, not
-                            // the declared index.
+                            // Compare in-flight requests with request capacity:
+                            // H1 connections, H2 streams (including the peer limit).
+                            // Rank starts at this worker's origin.
                             let load =
                                 self.health.pools.in_flight(origins[index].id)
                                     as u64;
                             let limit =
                                 origins[index].max_live.unwrap_or_else(|| {
-                                    self.selection.profile.capacity.max_live()
+                                    match &self.health.pools {
+                                        crate::proxy::service::ProtocolPools::H1(_) =>
+                                            self.selection.profile.capacity.max_live(),
+                                        crate::proxy::service::ProtocolPools::H2(pools) =>
+                                            pools[index].stream_limit().unwrap_or(usize::MAX),
+                                    }
                                 }) as u64;
+                            let full = match &self.health.pools {
+                                crate::proxy::service::ProtocolPools::H2(
+                                    pools,
+                                ) if origins[index].max_live.is_none() => {
+                                    pools[index].is_full()
+                                }
+                                _ => load >= limit,
+                            };
                             Score::Fill {
-                                full: load >= limit,
+                                full,
                                 index: offset as u64,
                                 load,
                                 limit,

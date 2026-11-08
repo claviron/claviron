@@ -1,11 +1,11 @@
-//! Stream admission with lock-free session reads and single-flight connect.
+//! Per-origin H2 connections; snapshot selection and serialized cold dials.
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use arc_swap::ArcSwapOption;
+use arc_swap::ArcSwap;
 use hyper::client::conn::http2::SendRequest;
-use tokio::sync::{Mutex, Semaphore};
+use tokio::sync::{Mutex, Notify, Semaphore};
 
 use super::conn::H2Connection;
 use super::permit::H2Permit;
@@ -19,13 +19,15 @@ pub struct H2TargetPool {
     profile: Arc<Profile>,
     pub(crate) breaker: Option<Arc<crate::proxy::service::breaker::State>>,
     generation: PoolGeneration,
-    streams: Arc<Semaphore>,
+    live: Arc<Semaphore>,
     next_conn_id: AtomicU64,
-    connection: ArcSwapOption<H2Connection>,
+    connections: ArcSwap<Vec<Arc<H2Connection>>>,
+    mutation: std::sync::Mutex<()>,
     connecting: Mutex<()>,
-    pub(crate) peer_max_streams: AtomicUsize,
-    admitted: AtomicUsize,
+    pub(super) warming: AtomicBool,
+    pub(super) in_flight: AtomicUsize,
     closed: AtomicBool,
+    pub(super) changed: Arc<Notify>,
     slot: crate::state::SlotRef,
 }
 #[derive(Debug)]
@@ -39,128 +41,233 @@ pub enum H2AcquireError<E> {
     AcquireTimeout,
     Pool(RequestFailure),
 }
+// Wake capacity waiters even when a dial is cancelled before publication.
+struct Connecting<'a> {
+    pool: &'a H2TargetPool,
+    _guard: Option<tokio::sync::MutexGuard<'a, ()>>,
+    live: Option<tokio::sync::OwnedSemaphorePermit>,
+}
+impl Drop for Connecting<'_> {
+    fn drop(&mut self) {
+        self.live.take();
+        self._guard.take();
+        self.pool.changed.notify_waiters();
+    }
+}
 impl H2TargetPool {
     pub(crate) fn new(
         profile: Arc<Profile>,
         generation: PoolGeneration,
         origin: crate::origin::OriginId,
     ) -> Self {
-        let configured = profile.capacity.max_streams();
         Self {
             breaker: None,
             slot: profile.origins[origin.index()].slot.get().clone(),
-            streams: Arc::new(Semaphore::new(configured)),
+            live: Arc::new(Semaphore::new(profile.capacity.max_live())),
             profile,
             generation,
             next_conn_id: AtomicU64::new(1),
-            connection: ArcSwapOption::empty(),
+            connections: ArcSwap::from_pointee(Vec::new()),
+            mutation: std::sync::Mutex::new(()),
             connecting: Mutex::new(()),
-            peer_max_streams: AtomicUsize::new(usize::MAX),
-            admitted: AtomicUsize::new(configured),
+            warming: AtomicBool::new(false),
+            in_flight: AtomicUsize::new(0),
             closed: AtomicBool::new(false),
+            changed: Arc::new(Notify::new()),
         }
     }
     pub(crate) fn in_flight(&self) -> usize {
-        self.admitted
-            .load(Ordering::Acquire)
-            .saturating_sub(self.streams.available_permits())
+        self.in_flight.load(Ordering::Acquire)
     }
-    pub(crate) fn apply_peer_limit(
-        &self,
-        peer: usize,
-    ) {
-        reconcile_permits(
-            &self.streams,
-            &self.admitted,
-            self.profile.capacity.max_streams(),
-            peer,
-        );
+    /// Capacity of the currently established pool, not a connection count.
+    pub(crate) fn stream_limit(&self) -> Option<usize> {
+        self.connections.load().iter().try_fold(0_usize, |sum, conn| {
+            conn.capacity.limit().map(|limit| sum.saturating_add(limit))
+        })
+    }
+    pub(crate) fn is_full(&self) -> bool {
+        self.live.available_permits() == 0
+            && self.connections.load().iter().all(|conn| !conn.has_room())
     }
     pub async fn acquire<F, Fut, E>(
-        &self,
+        self: &Arc<Self>,
         acquire_timeout: Option<Duration>,
         connect: F,
     ) -> Result<H2AcquiredStream, H2AcquireError<E>>
     where
-        F: FnOnce(u64, PoolGeneration) -> Fut,
+        F: Fn(u64, PoolGeneration) -> Fut,
         Fut: Future<Output = Result<H2Connection, E>>,
     {
-        let stream = crate::proxy::body::timeout::within(
-            acquire_timeout,
-            self.streams.clone().acquire_owned(),
-        )
-        .await
-        .map_err(|_| H2AcquireError::AcquireTimeout)?
-        .map_err(|_| H2AcquireError::Pool(RequestFailure::Closed))?;
+        let mut remaining = acquire_timeout;
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if self.closed.load(Ordering::Acquire) {
+                return Err(H2AcquireError::Pool(RequestFailure::Closed));
+            }
+            for connection in self.connections.load().iter() {
+                if let Some(permit) = connection.try_acquire() {
+                    let traffic = crate::proxy::balance::least_connections::Traffic::acquire(
+                        &self.slot,
+                    ).map_err(H2AcquireError::Pool)?;
+                    return Ok(H2AcquiredStream {
+                        sender: connection.sender(),
+                        permit: permit.with_traffic(traffic),
+                    });
+                }
+            }
+            if self.ensure_connection(&connect, true).await?.is_some() {
+                continue;
+            }
+            let started = tokio::time::Instant::now();
+            crate::proxy::body::timeout::within(remaining, changed)
+                .await
+                .map_err(|_| H2AcquireError::AcquireTimeout)?;
+            remaining = remaining
+                .map(|budget| budget.saturating_sub(started.elapsed()));
+        }
+    }
+    /// Warmup reuses any connection. Demand reuses available streams first,
+    /// then opens one connection within the same physical capacity budget.
+    pub(super) async fn ensure_connection<F, Fut, E>(
+        self: &Arc<Self>,
+        connect: &F,
+        demand: bool,
+    ) -> Result<Option<Arc<H2Connection>>, H2AcquireError<E>>
+    where
+        F: Fn(u64, PoolGeneration) -> Fut,
+        Fut: Future<Output = Result<H2Connection, E>>,
+    {
+        let Ok(guard) = self.connecting.try_lock() else {
+            return Ok(None);
+        };
         if self.closed.load(Ordering::Acquire) {
             return Err(H2AcquireError::Pool(RequestFailure::Closed));
         }
-        let traffic =
-            crate::proxy::balance::least_connections::Traffic::acquire(
-                &self.slot,
-            )
-            .map_err(H2AcquireError::Pool)?;
-        let connection = if let Some(connection) = self.connection.load_full() {
-            connection
-        } else {
-            let _connecting = self.connecting.lock().await;
-            if let Some(connection) = self.connection.load_full() {
-                connection
-            } else {
-                let budget = self
-                    .breaker
-                    .as_ref()
-                    .map(|state| state.connection())
-                    .transpose()
-                    .map_err(H2AcquireError::Pool)?;
-                let id = self.next_conn_id.fetch_add(1, Ordering::Relaxed);
-                let mut connection = connect(id, self.generation)
-                    .await
-                    .map_err(H2AcquireError::Connect)?;
-                connection.breaker = budget;
-                let connection = Arc::new(connection);
-                if self.closed.load(Ordering::Acquire) {
-                    return Err(H2AcquireError::Pool(RequestFailure::Closed));
-                }
-                self.connection.store(Some(connection.clone()));
-                // Close can race the check above and publication. Recheck after
-                // publishing; a later close itself clears the published slot.
-                if self.closed.load(Ordering::Acquire) {
-                    self.clear_connection(id).await;
-                    return Err(H2AcquireError::Pool(RequestFailure::Closed));
-                }
-                connection
+        {
+            let current = self.connections.load();
+            if let Some(connection) =
+                current.iter().find(|conn| !demand || conn.has_room())
+            {
+                return Ok(Some(connection.clone()));
             }
+            // Let the new connection publish protocol capacity before deciding
+            // that another physical connection is needed.
+            if current.iter().any(|conn| conn.capacity.pending_peer()) {
+                return Ok(None);
+            }
+        }
+        let live = match self.live.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(tokio::sync::TryAcquireError::Closed) => {
+                return Err(H2AcquireError::Pool(RequestFailure::Closed));
+            }
+            Err(tokio::sync::TryAcquireError::NoPermits) => return Ok(None),
         };
-        debug_assert!(self.profile.capacity.max_streams() > 0);
-        Ok(H2AcquiredStream {
-            sender: connection.sender(),
-            permit: connection.permit(stream).with_traffic(traffic),
-        })
+        let mut connecting =
+            Connecting { pool: self, _guard: Some(guard), live: Some(live) };
+        let budget = self
+            .breaker
+            .as_ref()
+            .map(|state| state.connection())
+            .transpose()
+            .map_err(H2AcquireError::Pool)?;
+        let id = self.next_conn_id.fetch_add(1, Ordering::Relaxed);
+        let mut connection = connect(id, self.generation)
+            .await
+            .map_err(H2AcquireError::Connect)?;
+        connection.breaker = budget;
+        connection.live = connecting.live.take();
+        let connection = Arc::new(connection);
+        {
+            let _mutation =
+                self.mutation.lock().unwrap_or_else(|p| p.into_inner());
+            if self.closed.load(Ordering::Acquire) {
+                return Err(H2AcquireError::Pool(RequestFailure::Closed));
+            }
+            let mut next = self.connections.load_full().as_ref().clone();
+            next.push(connection.clone());
+            self.connections.store(Arc::new(next));
+        }
+        Ok(Some(connection))
+    }
+    pub(super) fn needs_warmup(&self) -> bool {
+        !self.closed.load(Ordering::Acquire)
+            && self.connections.load().is_empty()
     }
     pub async fn clear_connection(
         &self,
         id: u64,
     ) {
-        let current = self.connection.load_full();
-        if current.as_ref().is_some_and(|connection| connection.id == id) {
-            // A late driver end must never clear a replacement connection.
-            self.connection.compare_and_swap(&current, None);
+        let _mutation = self.mutation.lock().unwrap_or_else(|p| p.into_inner());
+        let current = self.connections.load();
+        if !current.iter().any(|conn| conn.id == id) {
+            return;
         }
+        let next = current
+            .iter()
+            .filter(|conn| {
+                if conn.id == id {
+                    conn.capacity.seal();
+                    false
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect();
+        self.connections.store(Arc::new(next));
+        self.changed.notify_waiters();
     }
-    pub async fn clear_current_connection(&self) {
-        // Serialize cleanup with publication; a connecting session cannot escape Down.
-        let _connecting = self.connecting.lock().await;
-        self.connection.store(None);
+    pub async fn clear_connections(&self) {
+        let _mutation = self.mutation.lock().unwrap_or_else(|p| p.into_inner());
+        for connection in self.connections.load().iter() {
+            connection.capacity.seal();
+        }
+        self.connections.store(Arc::new(Vec::new()));
+        self.changed.notify_waiters();
     }
-    /// Stop stream admission while accepted streams retain the shared session.
+    pub(super) fn trim_idle(&self) {
+        let _mutation = self.mutation.lock().unwrap_or_else(|p| p.into_inner());
+        let current = self.connections.load();
+        let max_idle = self.profile.capacity.max_idle();
+        if current.iter().filter(|conn| conn.in_flight() == 0).count()
+            <= max_idle
+        {
+            return;
+        }
+        let mut retained = 0;
+        let next = current
+            .iter()
+            .filter(|conn| {
+                if conn.in_flight() != 0 {
+                    return true;
+                }
+                if retained < max_idle {
+                    retained += 1;
+                    true
+                } else {
+                    !conn.capacity.seal_if_idle()
+                }
+            })
+            .cloned()
+            .collect();
+        self.connections.store(Arc::new(next));
+    }
+    /// Sealing rejects new work; accepted stream leases retain their connection.
     pub(crate) fn seal(&self) {
+        let _mutation = self.mutation.lock().unwrap_or_else(|p| p.into_inner());
         self.closed.store(true, Ordering::Release);
-        self.streams.close();
+        self.live.close();
+        for connection in self.connections.load().iter() {
+            connection.capacity.seal();
+        }
+        self.changed.notify_waiters();
     }
     pub(crate) fn close(&self) {
         self.seal();
-        self.connection.store(None);
+        self.connections.store(Arc::new(Vec::new()));
     }
 }
 
@@ -285,22 +392,6 @@ impl UpstreamService {
 
 use crate::proxy::h2::conn::H2DriverEndContext;
 
-fn reconcile_permits(
-    streams: &Semaphore,
-    admitted: &AtomicUsize,
-    configured: usize,
-    peer: usize,
-) {
-    let target = configured.min(peer);
-    let current = admitted.load(Ordering::Acquire);
-    if target == current {
-        return;
-    }
-    if target < current {
-        let removed = streams.forget_permits(current - target);
-        admitted.fetch_sub(removed, Ordering::AcqRel);
-    } else {
-        streams.add_permits(target - current);
-        admitted.store(target, Ordering::Release);
-    }
-}
+#[cfg(test)]
+#[path = "../../../tests/proxy/h2/pool.rs"]
+mod tests;

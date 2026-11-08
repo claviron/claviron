@@ -23,6 +23,7 @@ pub(crate) struct RequestLease {
 /// The request-body leg, tracked apart from the response leg: H2 may answer
 /// before a streaming writer has finished, and neither needs an `Arc<Permit>`.
 pub(crate) struct InputLease {
+    pub(crate) h2: Option<super::h2::permit::H2WriterLease>,
     pub(crate) origin: Option<Permit>,
     pub(crate) breaker: Option<std::sync::Arc<breaker::Admission>>,
     pub(crate) _permit: Permit,

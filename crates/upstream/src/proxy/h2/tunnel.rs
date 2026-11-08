@@ -62,7 +62,12 @@ impl UpstreamService {
         let origin_index = origin_id.index();
         let origin = &self.inner.profile.origins[origin_index];
         let mut sender = acquired.sender;
-        let permit = acquired.permit;
+        let mut permit = acquired.permit;
+        if let Some(input) =
+            &mut scope.lease.as_mut().expect("admitted request").request
+        {
+            input.h2 = Some(permit.retain_writer());
+        }
 
         let claim = req
             .extensions()

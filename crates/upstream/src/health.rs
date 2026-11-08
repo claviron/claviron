@@ -126,7 +126,7 @@ impl UpstreamService {
                     self.inner.profile.origins.get(origin_index).cloned();
                 if tokio::runtime::Handle::try_current().is_ok() {
                     self.spawn_background_for(&epoch, async move {
-                        pool.clear_current_connection().await;
+                        pool.clear_connections().await;
                         if let Some(origin) = origin {
                             tracing::debug!(
                                 profile = %profile,

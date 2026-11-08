@@ -119,7 +119,7 @@ H1Connection:
   one real TCP/UDS, optionally TLS, + Hyper H1 connection
 
 H2TargetPool:
-  physical stream-capacity pool for one OriginId; owns one H2 connection
+  physical connection pool for one OriginId; each connection owns stream capacity
 
 H2Connection:
   one real TCP/UDS, optionally TLS, + Hyper H2 connection with many concurrent streams
@@ -130,9 +130,10 @@ idle, leased, connecting, live capacity, generation, passive health,
 and dirty-drop behavior live.
 
 `H2TargetPool` does not reuse the H1 idle/lease lifecycle. H2 capacity
-is stream based: a session remains open while `H2Permit` instances
-bound concurrent streams, and response bodies release their permit when
-the stream reaches EOF, errors, or is dropped. This is also the SSE
+is stream based within each connection. `H2Permit` retains the connection
+and its stream reservation through response EOF/error/drop. Nonempty request
+bodies share that reservation with their InputLease, so an early response
+cannot free capacity or close an unfinished upload. This is also the SSE
 cancellation contract: SSE is a normal response body, not an upgrade;
 dropping the downstream body closes the H1 lease dirty or releases the
 H2 stream permit.
@@ -209,9 +210,9 @@ tracked by their profile and origin owners. These local permits/joins are not
 fleet retirement receipts or health-slot fencing.
 Explicit `stop()` closes admission,
 cancels maintenance and closes idle H1 sockets immediately. Leased H1 sockets
-finish their accepted response; the shared H2 session stays until its last
-accepted permit drains. Sealing closes the H2 stream semaphore and rejects
-queued/new acquisitions immediately without dropping that shared session;
+finish their accepted response; H2 connections stay until their last accepted
+stream/writer lease drains. Sealing fences stream admission and wakes queued
+acquisitions immediately without dropping accepted connection ownership;
 closing after drain additionally releases it. Pool closure is not an origin
 reachability failure. It waits for accepted IO under the configured
 `lifecycle.drain_timeout` (default 30s). After that explicit bound, it cancels
@@ -456,8 +457,18 @@ duration; required durations reject null.
 `Capacity::H1` and `Capacity::H2` distinguish connections from stream permits.
 H1 capacity validates `min_idle <= max_idle <= max_live` without silently
 clamping limits. `min_idle` defaults to zero and is a per-serving-worker
-floor on live connections, including leases. H2 rejects a nonzero floor.
-Enabled H1 replenishment owns its retry policy in `capacity.replenish`:
+floor on live connections, including leases. `capacity.warmup` defaults to
+false for both protocols. H1 starts floor maintenance at first acquisition;
+opt-in warmup starts it at lifecycle activation. H2 grows an origin's pool
+when every existing connection has exhausted its effective local/peer stream
+capacity. `max_live` bounds physical connections, including connecting and
+still-draining ones; `max_idle` bounds empty retention. H2 rejects `min_idle`.
+Optional `max_streams` limits each connection; omission uses peer SETTINGS and
+never falls back to max_live. Physical-capacity metrics count max_live per
+origin. `first` uses total pool stream load/capacity and considers an H2 pool
+full only when it has neither an available stream nor room for another
+connection. Explicit per-origin request limits remain independent.
+Enabled warm maintenance owns its retry policy in `capacity.replenish`:
 `initial_backoff` (100ms default) and `max_backoff` (5s default), validated
 positive and ordered; disabled replenishment does not repair unused values.
 These maintenance retries are separate from request and probe deadlines.
@@ -631,7 +642,9 @@ upstreams:
     origins:
       - tcp://127.0.0.1:3040
     capacity:
-      max_live: 32
+      max_live: 4
+      max_idle: 2
+      max_streams: 32
 
 apps:
   panel:
@@ -1125,22 +1138,11 @@ the active holder.
 
 ### Why drop_probe defaults differ per protocol
 
-H2 pools hold a single shared session per origin. When that session's
-driver task ends with an error, the pool has *no other connection* to
-probe through, and the next request would otherwise pay the discovery
-cost. The drop probe gives the system one chance to confirm reachability
-immediately; if it fails, the origin transitions to Down without waiting
-for a request to notice. Cardinality is naturally one — one session, one
-driver, one drop, one probe.
-
-H1 pools hold many parallel connections. When an origin dies, every warm
-connection's driver fires `Err` more or less simultaneously, and naively
-spawning a probe per event creates N parallel probes for one logical
-outage. The request path is already taking the discovery cost on every
-in-flight acquire, so the marginal value of the drop probe shrinks. By
-default H1 keeps drop_probe off and lets the request path drive the
-Down transition. Operators with a quiet H1 workload and a hard SLO on
-DOWN detection can flip `drop_probe.enabled: true` per profile.
+`drop_probe` remains enabled by default for H2 and disabled for H1. It is a
+one-shot transport reachability confirmation after a driver error, not a
+verdict that one closed pooled connection proves the entire origin is down.
+The existing probe duty/lock and outcome mechanisms own confirmation and
+publication. Operators can change the policy per profile.
 
 ### Probe is availability, not application health
 
@@ -1190,12 +1192,12 @@ The H2 backend service is an h2c session-backed balancer:
 
 ```text
 select selectable origins by the profile's balancer (round_robin by default)
-  -> acquire origin H2TargetPool stream permit
-  -> open TCP/UDS + Hyper H2 session if none exists
+  -> reserve a stream on a reusable connection in that origin's H2TargetPool
+  -> if all are full, open TCP/UDS + Hyper H2 within max_live; otherwise queue
   -> poll H2 sender readiness
   -> rewrite request as absolute http://authority/path
   -> send request once
-  -> response body wrapper owns stream permit until EOF/error/drop
+  -> response and any request-body writer retain the stream until both finish
 ```
 
 H2 request cleanup uses the same forwarding helper as H1, but does not
@@ -1206,14 +1208,26 @@ HTTP/2 PING keepalive frames using `connection.keep_alive_timeout` and
 `connection.keep_alive_while_idle`. H1 currently ignores those keepalive
 fields; H1 reuse is controlled by `capacity.max_idle` and `idle_timeout`.
 
-The current H2 capacity guard is local and conservative:
-`capacity.max_live` is used as the per-session stream permit count, and
-Hyper's H2 sender readiness still gates actual protocol capacity.
-The driver reads Hyper's `current_max_send_streams()` after polling and
-records the peer SETTINGS limit on the pool. The warm connection read uses
-`ArcSwapOption`; an async mutex serializes connection creation only.
-GOAWAY drain, REFUSED_STREAM telemetry and H2-specific metrics remain
-follow-up H2 work, not H1 abstractions.
+`proxy/h2/capacity` owns each connection's effective stream limit, active
+reservation count and idle deadline. The driver updates the peer limit after
+polling Hyper. Admission waits for that protocol capacity before growing a
+newly opened connection's pool again. `proxy/h2/pool` reads an ArcSwap snapshot
+of connections, reserves available streams atomically, and serializes cold
+connection establishment. The physical semaphore counts both dialing and
+retained connections. Cancelled dials refund it before waking waiters; a full
+pool parks on notifications under the declared queue budget.
+
+max_idle trimming and configured idle expiry atomically seal only empty
+connections. They cannot evict a racing accepted stream. Physical capacity is
+released when the connection drops; removed but draining connections still
+consume it. The per-connection driver owns the event-driven idle deadline;
+there is no sweep or polling cadence. Explicit invalidation clears only the
+matching conn_id, so late driver completion cannot remove a replacement.
+
+A nonempty request shares one stream lease allocation between input and
+response; empty requests keep the lease inline. This retains upload IO after
+an early response and lets idle cleanup wait for both halves. Neither path
+copies body frames. GOAWAY-specific telemetry remains follow-up work.
 
 If the H2 sender is not ready before request bytes are sent, the session
 is cleared and the service may try the next healthy origin. Once
@@ -1331,8 +1345,9 @@ the shared `Arc<Profile>` and reject late returns to a closed generation.
 H1 `pool/warm` maintains the configured per-serving-worker floor on live,
 including leased and connecting sockets. Wiring weak service/epoch callbacks
 is inert in constructors. Provider boot/reload prepares and publishes services;
-the provider's automatic runtime primes worker/standalone pools after boot and
-after registry changes. Master roles remain ineligible even after health or serving transitions.
+the provider's automatic runtime schedules worker/standalone warm work after
+boot and registry changes, without awaiting readiness. Pools with warmup off
+remain inactive until their first real acquisition. Master roles remain ineligible even after health or serving transitions.
 Acquire/release and recovery/resumed serving recheck deficits. One AtomicBool
 compare-exchange admits a replenisher; its cancellation-safe guard releases the
 flag, and normal completion rechecks after releasing it to close deficit races.
@@ -1846,14 +1861,23 @@ closure share a synchronous gate; cancelled generations cannot start cold jobs
 after return. The run guard also seals attachment if its future is abandoned,
 without claiming an awaited drain. A new normal run receives a fresh tracker.
 
+`proxy/service/warm` dispatches to H1 floor maintenance or H2 preconnect.
+`proxy/h2/warm` prepares one initial connection through the same
+serialized dial as request acquisition. It reserves connection capacity,
+but no stream or traffic permit. Concurrent warm passes share a cancellable
+job flag; configured replenish backoff handles failed preparation. Both h2c
+and TLS use the normal connector and ALPN validation. No boot readiness barrier
+is introduced.
+
 Warm jobs remain tracked by their captured profile epoch as well. The provider
 boundary wraps dialing and configured backoff through cancellation, while epoch
 stop and stale-generation checks keep their existing authority. It never
 cancels the epoch background/force token, request gate, native response/tunnel IO
 or independently managed health work. Registry replacement passes the same
 provider control to fresh profiles. Direct service runtimes have no provider
-control and keep epoch-only ownership. No timer, poll or request hot-path
-lookup is introduced.
+control and keep epoch-only ownership. Provider tracking adds no polling
+cadence or request hot-path lookup; each H2 driver owns its configured idle
+deadline.
 
 ## Coherent reachability verdict
 

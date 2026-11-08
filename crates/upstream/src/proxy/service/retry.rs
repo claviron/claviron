@@ -462,7 +462,12 @@ impl SendLeg for [Arc<crate::proxy::h2::pool::H2TargetPool>] {
             cause: None,
         })?;
         let mut sender = acquired.sender;
-        let permit = acquired.permit;
+        let mut permit = acquired.permit;
+        if let Some(input) =
+            &mut scope.lease.as_mut().expect("admitted request").request
+        {
+            input.h2 = Some(permit.retain_writer());
+        }
         let result = crate::proxy::body::timeout::within(
             scope.responses.idle_timeout,
             sender.send_request(req.map(|_| {

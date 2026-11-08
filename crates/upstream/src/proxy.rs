@@ -16,3 +16,7 @@ pub(crate) mod h1;
 pub(crate) mod h2;
 pub(crate) mod lease;
 pub mod service;
+
+#[cfg(test)]
+#[path = "../tests/proxy/profile.rs"]
+mod test_profile;

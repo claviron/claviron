@@ -71,8 +71,11 @@ Pools are process-local. Workers may share availability and membership facts
 through Orbit, but never borrow each other's live TCP connections.
 
 For H1, `max_live` bounds live, leased, idle, and connecting capacity per origin.
-`max_idle` caps retained idle connections; `min_idle` and replenishment policy
-can declare a warm floor. A response retains its lease until EOF. Dropping a
+`max_idle` caps retained idle connections; `min_idle` declares a live connection
+floor, including leased and connecting sockets. With `warmup: false` (the
+default), floor maintenance starts at the first real acquisition. With
+`warmup: true`, lifecycle activation starts it asynchronously. A response
+retains its lease until EOF. Dropping a
 partial body closes that connection rather than returning unread bytes to the
 pool.
 
@@ -80,10 +83,19 @@ pool.
 and reuse policy, including why a warm floor is not an unconditional promise
 that a client is immediately available.
 
-H2 uses a process-local connection per origin with stream-based admission.
-`max_streams` sets the stream limit, falling back to `max_live` when omitted.
-Finishing or cancelling a response releases its stream permit, not unrelated
-streams. SSE remains a streaming HTTP body, not an upgrade special case.
+H2 has a process-local connection pool per origin. `max_streams` is an optional
+per-connection ceiling, additionally bounded by the peer's advertised limit;
+omitting it adds no local ceiling. When all connections are full, demand opens
+another up to `max_live`, counting connecting and still-draining connections.
+`max_idle` bounds retained empty connections and `connection.idle_timeout`
+expires them. Active streams are retained until both the response and any
+request-body writer finish. H2 rejects `min_idle`.
+
+For both protocols, `warmup` defaults to `false`. H2's `warmup: true` schedules
+one initial connection per origin, not max_idle connections. H1 prepares its
+configured floor. Boot and reload never await warm connection readiness.
+`balance` selects origins; pool admission accounts for all their connections.
+SSE remains a streaming HTTP body, not an upgrade special case.
 
 Transparent H1 upgrades and H2 WebSocket extended CONNECT require the ingress's
 explicit permission. Accepted tunnels retain outbound origin/profile ownership

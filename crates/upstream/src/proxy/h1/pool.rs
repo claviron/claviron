@@ -24,6 +24,7 @@ pub struct TargetPool {
     leased: usize,
     connecting: usize,
     warming: usize,
+    maintaining: bool,
     replenishing: AtomicBool,
     warm_context: Option<warm::WarmContext>,
     closed: bool,
@@ -40,6 +41,7 @@ impl TargetPool {
         generation: PoolGeneration,
     ) -> Self {
         Self {
+            maintaining: profile.capacity.warmup(),
             profile,
             breaker: None,
             generation,
@@ -60,7 +62,9 @@ impl TargetPool {
         self.leased + self.connecting - self.warming
     }
     fn needs_replenish(&self) -> bool {
-        !self.closed && self.live() < self.profile.capacity.min_idle()
+        self.maintaining
+            && !self.closed
+            && self.live() < self.profile.capacity.min_idle()
     }
     pub fn can_reuse(&self) -> bool {
         self.profile.capacity.max_idle() > 0
@@ -78,6 +82,7 @@ impl TargetPool {
         if self.closed {
             return Err(RequestFailure::Closed);
         }
+        self.maintaining = true;
         while let Some(mut connection) = self.idle.pop() {
             if connection.generation != self.generation
                 || (self.live() >= self.profile.capacity.min_idle()
@@ -326,3 +331,7 @@ pub(crate) fn detach_pooled_upgrade(
     pooled.accounting.release();
     pooled.connection
 }
+
+#[cfg(test)]
+#[path = "../../../tests/proxy/h1/pool.rs"]
+mod tests;

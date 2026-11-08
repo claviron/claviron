@@ -1,6 +1,7 @@
 //! Owns the H2 request leg, multiplexed connections and stream permits.
 
 mod body;
+mod capacity;
 pub(crate) mod conn;
 pub(crate) mod permit;
 pub(crate) mod pool;
@@ -13,3 +14,4 @@ mod handler;
 mod tunnel;
 
 mod executor;
+mod warm;

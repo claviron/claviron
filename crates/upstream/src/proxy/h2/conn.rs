@@ -2,7 +2,6 @@
 
 use std::fmt;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use hyper::client::conn::http2::SendRequest;
 use tokio::task::JoinHandle;
@@ -17,7 +16,9 @@ pub struct H2Connection {
     pub generation: PoolGeneration,
     sender: SendRequest<H2Body>,
     driver: JoinHandle<()>,
-    in_flight: Arc<AtomicUsize>,
+    pub(super) capacity: Arc<super::capacity::StreamCapacity>,
+    pub(super) pool: std::sync::Weak<H2TargetPool>,
+    pub(super) live: Option<tokio::sync::OwnedSemaphorePermit>,
     pub(crate) breaker: Option<crate::proxy::service::breaker::Connection>,
 }
 
@@ -36,12 +37,14 @@ impl fmt::Debug for H2Connection {
 }
 
 impl H2Connection {
-    pub fn new(
+    pub(super) fn new(
         id: u64,
         origin: OriginId,
         generation: PoolGeneration,
         sender: SendRequest<H2Body>,
         driver: JoinHandle<()>,
+        capacity: Arc<super::capacity::StreamCapacity>,
+        pool: std::sync::Weak<H2TargetPool>,
     ) -> Self {
         Self {
             id,
@@ -49,7 +52,9 @@ impl H2Connection {
             generation,
             sender,
             driver,
-            in_flight: Arc::new(AtomicUsize::new(0)),
+            capacity,
+            pool,
+            live: None,
             breaker: None,
         }
     }
@@ -59,20 +64,26 @@ impl H2Connection {
     }
 
     pub fn in_flight(&self) -> usize {
-        self.in_flight.load(Ordering::Acquire)
+        self.capacity.used()
     }
-
-    pub(crate) fn permit(
-        &self,
-        stream: tokio::sync::OwnedSemaphorePermit,
-    ) -> H2Permit {
-        H2Permit::new(self.id, self.generation, stream, self.in_flight.clone())
+    pub(super) fn has_room(&self) -> bool {
+        !self.sender.is_closed() && self.capacity.has_room()
+    }
+    pub(super) fn try_acquire(self: &Arc<Self>) -> Option<H2Permit> {
+        if self.sender.is_closed() || !self.capacity.try_reserve() {
+            return None;
+        }
+        Some(H2Permit::new(self.clone()))
     }
 }
 
 impl Drop for H2Connection {
     fn drop(&mut self) {
         self.driver.abort();
+        self.live.take();
+        if let Some(pool) = self.pool.upgrade() {
+            pool.changed.notify_waiters();
+        }
     }
 }
 
@@ -97,10 +108,20 @@ pub(crate) async fn handshake_h2_connection<I>(
     epoch: &crate::proxy::service::lifecycle::ServiceEpoch,
     driver_end: Option<H2DriverEndContext>,
     connection: &ConnectionConfig,
+    max_streams: Option<usize>,
 ) -> Result<H2Connection, OriginReachabilityFailure>
 where
     I: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    let pool =
+        driver_end.as_ref().map(|ctx| ctx.pool.clone()).unwrap_or_default();
+    let changed =
+        pool.upgrade().map(|pool| pool.changed.clone()).unwrap_or_default();
+    let capacity =
+        Arc::new(super::capacity::StreamCapacity::new(max_streams, changed));
+    let driver_capacity = capacity.clone();
+    let idle_timeout = connection.idle_timeout;
+    let pooled = driver_end.is_some();
     let transport = epoch.transport(origin.id);
     let generation = transport.generation;
     let force = transport.force.clone();
@@ -123,31 +144,45 @@ where
     let driver = tasks.spawn(async move {
         let drive = std::future::poll_fn(|cx| {
             let result = std::pin::Pin::new(&mut conn).poll(cx);
-            if let Some(pool) = driver_end.as_ref().and_then(|ctx| ctx.pool.upgrade()) {
-                let peer = conn.current_max_send_streams();
-                pool.peer_max_streams.store(peer, std::sync::atomic::Ordering::Relaxed);
-                pool.apply_peer_limit(peer);
-            }
+            driver_capacity.update_peer(conn.current_max_send_streams());
             result
         });
-        let result =
-            tokio::select! { biased; _ = force.cancelled() => return, result = drive => result };
+        let result = tokio::select! {
+            biased;
+            _ = force.cancelled() => return,
+            _ = driver_capacity.wait_idle(idle_timeout), if pooled => Ok(()),
+            result = drive => result,
+        };
+        driver_capacity.seal();
         if let Some(ctx) = driver_end
             && let Some((service, epoch, origin_index)) = owner.projection()
             && let Some(pool) = ctx.pool.upgrade()
         {
             tracing::debug!(
-                origin = service.inner.profile.origins[origin_index].label.as_ref(),
+                origin =
+                    service.inner.profile.origins[origin_index].label.as_ref(),
                 status = if result.is_ok() { "clean" } else { "driver_error" },
                 "upstream h2 connection ended"
             );
             if result.is_ok() {
-                service.spawn_h2_driver_clean_end(origin_index, conn_id, pool, epoch)
+                service.spawn_h2_driver_clean_end(
+                    origin_index,
+                    conn_id,
+                    pool,
+                    epoch,
+                )
             } else {
-                service.spawn_h2_driver_error_probe(origin_index, conn_id, pool, epoch)
+                service.spawn_h2_driver_error_probe(
+                    origin_index,
+                    conn_id,
+                    pool,
+                    epoch,
+                )
             }
         }
     });
 
-    Ok(H2Connection::new(conn_id, origin.id, generation, sender, driver))
+    Ok(H2Connection::new(
+        conn_id, origin.id, generation, sender, driver, capacity, pool,
+    ))
 }

@@ -1,9 +1,58 @@
-//! Provider-generation ownership for warm maintenance, separate from profile IO.
+//! Protocol warmup dispatch and provider-generation ownership, separate from profile IO.
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
+
+use super::{ProtocolPools, UpstreamService};
+
+impl UpstreamService {
+    /// Lifecycle callers schedule work; they never await connection readiness.
+    pub(crate) fn warm_pools(&self) {
+        let epoch = self.epoch();
+        match &epoch.pools {
+            ProtocolPools::H1(pools)
+                if self.inner.profile.capacity.min_idle() > 0 =>
+            {
+                for pool in pools.iter() {
+                    crate::proxy::h1::pool::warm::kick(pool);
+                }
+            }
+            ProtocolPools::H2(pools)
+                if self.inner.profile.capacity.warmup() =>
+            {
+                for (index, pool) in pools.iter().enumerate() {
+                    self.warm_h2_pool(index, pool, &epoch);
+                }
+            }
+            _ => {}
+        }
+    }
+    pub(crate) fn warm_origin(
+        &self,
+        index: usize,
+    ) {
+        let epoch = self.epoch();
+        match &epoch.pools {
+            ProtocolPools::H1(pools)
+                if self.inner.profile.capacity.min_idle() > 0 =>
+            {
+                if let Some(pool) = pools.get(index) {
+                    crate::proxy::h1::pool::warm::kick(pool);
+                }
+            }
+            ProtocolPools::H2(pools)
+                if self.inner.profile.capacity.warmup() =>
+            {
+                if let Some(pool) = pools.get(index) {
+                    self.warm_h2_pool(index, pool, &epoch);
+                }
+            }
+            _ => {}
+        }
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct Owner {

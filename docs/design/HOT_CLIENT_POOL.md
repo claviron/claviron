@@ -15,8 +15,9 @@ and the floor has to be read in the terms of the protocol that owns it.
 Configuration and construction are not readiness. The general client-pool
 API performs no network IO in its constructor: acquisition can create a client
 lazily, while its running lifecycle maintains the configured floor. Upstream's
-H1 pools are primed from provider boot/reload or explicit profile start, not
-from a constructor secretly requiring a running reactor.
+H1 and H2 pools support `capacity.warmup` (default `false`). When enabled,
+provider boot/reload or explicit profile start schedules preparation without
+waiting for network readiness. Constructors perform no dialing.
 
 Warm-up is owned work. Connection creation consumes the real capacity budget,
 only the serving role starts the relevant maintenance, and stop/reload must
@@ -27,13 +28,14 @@ not let an old generation replenish itself after retirement.
 | Owner | What is retained / maintained |
 | --- | --- |
 | General client pool (`claviron::clients`) | Adapter-owned physical clients, bounded request admission and a `min_idle` floor maintained by `run()`. |
-| Upstream H1 | Exclusive reusable connections; the implementation's warm floor counts live connections, including leased and connecting ones. |
-| Upstream H2 | A retained multiplexed session with separate stream admission and single-flight connection establishment. |
+| Upstream H1 | Exclusive reusable connections; `min_idle` counts live, leased and connecting connections. Maintenance starts on first demand, or at lifecycle activation with `warmup: true`. |
+| Upstream H2 | Multiplexed connections per origin; stream saturation grows the pool up to max_live, max_idle bounds retention, and opt-in warmup prepares one initial connection. No min_idle floor. |
 | FastCGI | Keepalive connections with `min_live` replenishment and an idle retention cap; an optional ping validates newly opened connections. |
 
 These mechanisms do not mean an idle client is guaranteed at every instant.
 A zero floor, startup, an unavailable peer or fully leased capacity can leave
-an acquisition without a ready client. H2 also creates its session on demand.
+an acquisition without a ready client. With warmup disabled, H2 creates its
+connection on demand.
 Those are observable states, not evidence that an empty placeholder is a live
 connection.
 

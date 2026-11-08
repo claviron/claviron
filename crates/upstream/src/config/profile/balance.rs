@@ -64,8 +64,9 @@ pub enum Algorithm {
     #[serde(alias = "consistent-hash")]
     ConsistentHash,
     /// Fill-first, HAProxy's `balance first`: the first healthy origin that is
-    /// below its limit — the pool's `capacity.max_live`, or the origin's own
-    /// `max_live` — so a light load stays on few processes, awake and warm,
+    /// below its request limit — H1's `capacity.max_live`, H2's effective
+    /// local/peer stream limit, or the origin's explicit `max_live` — so a
+    /// light load stays on few processes, awake and warm,
     /// and the rest sleep. Each edge worker starts from its own origin, so the
     /// workers fill different processes. When every origin is at its limit,
     /// the least full of them — never a refusal.

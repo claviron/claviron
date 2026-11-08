@@ -44,30 +44,6 @@ impl UpstreamService {
             }
         }
     }
-    /// Provider boot/reload and explicit profile start prime serving-worker pools.
-    pub(crate) fn warm_pools(&self) {
-        if self.inner.profile.capacity.min_idle() == 0 {
-            return;
-        }
-        if let ProtocolPools::H1(pools) = &self.epoch().pools {
-            for pool in pools.iter() {
-                kick(pool);
-            }
-        }
-    }
-    pub(crate) fn warm_origin(
-        &self,
-        index: usize,
-    ) {
-        if self.inner.profile.capacity.min_idle() == 0 {
-            return;
-        }
-        if let ProtocolPools::H1(pools) = &self.epoch().pools
-            && let Some(pool) = pools.get(index)
-        {
-            kick(pool);
-        }
-    }
 }
 struct Replenishing(Arc<Mutex<TargetPool>>);
 impl Drop for Replenishing {

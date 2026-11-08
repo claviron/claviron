@@ -5,23 +5,31 @@ use serde::Deserialize;
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CapacityConfig {
-    /// H1 connection ceiling. For H2 this remains the compatibility fallback
-    /// when `max_streams` is omitted.
-    pub max_live: usize,
-    /// Concurrent streams admitted on this worker's H2 connection.
+    /// Physical connection ceiling per origin and serving worker; required.
+    #[serde(default)]
+    pub max_live: Option<usize>,
+    /// Local concurrent-stream ceiling on this worker's H2 connection.
+    /// Omitted: use the peer limit without an additional configured ceiling.
     #[serde(default)]
     pub max_streams: Option<usize>,
     #[serde(default)]
     pub max_idle: Option<usize>,
     /// Warm floor on live H1 connections per serving worker; leased counts too.
     #[serde(default = "default_min_idle")]
-    pub min_idle: usize,
+    pub min_idle: Option<usize>,
+    /// Prepare connections asynchronously at lifecycle activation. H1 prepares
+    /// its min_idle floor; H2 prepares one multiplexed connection.
+    #[serde(default = "default_warmup")]
+    pub warmup: bool,
     #[serde(default)]
     pub replenish: ReplenishConfig,
 }
 
-fn default_min_idle() -> usize {
-    0
+fn default_min_idle() -> Option<usize> {
+    None
+}
+fn default_warmup() -> bool {
+    false
 }
 /// Event-driven maintenance retry policy, separate from request/probe timeouts.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
