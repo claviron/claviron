@@ -246,7 +246,7 @@ futures-util.workspace = true
 http.workspace = true
 http-body.workspace = true
 http-body-util.workspace = true
-hyper = { workspace = true, features = ["client", "http1", "server"] }
+hyper = { workspace = true, features = ["client", "http1", "http2", "server"] }
 hyper-util = { workspace = true, features = ["service", "tokio"] }
 serde = { workspace = true, features = ["derive"] }
 clap = { workspace = true, features = ["derive"] }
@@ -340,6 +340,20 @@ path = "benches/transport/http1/concurrent.rs"
 harness = false
 test = false
 required-features = ["edge", "axum", "tls"]
+
+[[bench]]
+name = "link-concurrent"
+path = "benches/transport/link/concurrent.rs"
+harness = false
+test = false
+required-features = ["edge", "orbit", "runner-orbit"]
+
+[[bench]]
+name = "h2-concurrent"
+path = "benches/transport/h2/concurrent.rs"
+harness = false
+test = false
+required-features = ["edge", "runner-socket"]
 
 [workspace]
 members = [

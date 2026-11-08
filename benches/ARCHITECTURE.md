@@ -56,6 +56,16 @@ All three use the native Edge accepted-stream handler, including host selection.
 | [axum.rs](transport/http1/edge/axum.rs) | `http1-plain-edge-axum` | Axum router. |
 | [routable.rs](transport/http1/edge/routable.rs) | `http1-plain-edge-routable` | `Routable` contribution. |
 
+### Two-process transports
+
+| File | Cargo target | Edge → application |
+| --- | --- | --- |
+| [link/concurrent.rs](transport/link/concurrent.rs) | `link-concurrent` | `LinkBackend` dispatch to `OrbitDoor`; `--buffer-size` sets the request policy. |
+| [h2/concurrent.rs](transport/h2/concurrent.rs) | `h2-concurrent` | `UpstreamProvider` booted from a written `upstream.yaml`, `--max-live` × `--max-streams`, to the runner's cleartext TCP door. |
+
+Neither has an Edge listener or host routing. Each run writes one JSON report;
+`results/<transport>/<commit>/` keeps reports to compare a later run with.
+
 ### Concurrent entry point
 
 [transport/http1/concurrent.rs](transport/http1/concurrent.rs) defines the
@@ -86,6 +96,7 @@ concurrent::run
 | [edge.rs](support/edge.rs) | Register Other/Axum/Routable owners, compile host plans and prepare production HTTP/1 connection handlers, cleartext and TLS. |
 | [setup.rs](support/setup.rs) | Parse embedded HTTP/vhost fixtures and prepare dispatch connection facts without provider boot. |
 | [http1.rs](support/http1.rs) | Serial loopback servers, Hyper client, host preflight and Criterion RTT timing; concurrent clients reuse preflight and reply checks. |
+| [application.rs](support/application.rs) | Two-process harness for `link-concurrent` and `h2-concurrent`: the application child and its control pipe, the `/bench/plain` and `/bench/echo` owner, per-window CPU and context switches of both processes, the JSON report and removal of the run's own fleet. |
 
 ### `support/http1/`
 

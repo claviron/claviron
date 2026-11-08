@@ -14,6 +14,9 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the file index and call paths.
 | `transport/http1/native/` | Real Hyper and `axum::serve` over persistent loopback HTTP/1.1. |
 | `transport/http1/edge/` | Native Edge HTTP/1 driver, including host selection, for Other, Axum and Routable. |
 | `transport/http1/concurrent.rs` | Separate server/client processes; concurrent plain requests and server CPU accounting. |
+| `transport/link/concurrent.rs` | An edge and an application process over Orbit Link: production `LinkBackend` to `OrbitDoor`. |
+| `transport/h2/concurrent.rs` | The same two processes over HTTP/2 cleartext: the Edge's upstream pool to the runner's TCP door. |
+| `results/` | JSON reports of the two-process targets, by transport and Claviron commit, kept for comparison. |
 | `support/` | Shared workloads, typed config fixtures and preparation outside timing. |
 
 Dispatch excludes HTTP decoding, host selection, sockets and TLS. Serial HTTP/1
