@@ -20,6 +20,8 @@ pub struct LoggingConfig {
     /// The channel HTTP access records go to. Unwritten, none are made.
     #[serde(default)]
     pub access_log: Option<String>,
+    /// Unwritten, there are none, as with an absent file.
+    #[serde(default)]
     pub channels: BTreeMap<String, ChannelConfig>,
 }
 
