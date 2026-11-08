@@ -101,8 +101,9 @@ pub struct RunnerOptions {
     pub tcp_backlog: Option<NonZeroU32>,
 
     /// What a listener in `http.yaml` could say, for every socket here:
-    /// execution, limits, and the TCP, HTTP/1 and HTTP/2 settings. Unwritten,
-    /// no limit and no deadline. Written down, not typed.
+    /// execution, limits, and the TCP, HTTP/1 and HTTP/2 settings. Its
+    /// `execution` places the Orbit door too. Unwritten, no limit and no
+    /// deadline. Written down, not typed.
     #[cfg_attr(feature = "cli", arg(skip))]
     pub listener: Option<serde_yaml::Value>,
 

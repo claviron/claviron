@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use claviron_orbit::placement::{Scope, Scoped};
 use claviron_runtime::{
-    AppState, Component, FleetIncarnation, RunContext, Runnable,
+    AppState, Component, ExecutionSpec, FleetIncarnation, RunContext, Runnable,
     ServiceStartPolicy, registry,
 };
 use claviron_transport::orbit::OrbitDoor;
@@ -18,7 +18,10 @@ use crate::routing::Application;
 
 /// This process's place in its configured transport fleet, as a runnable
 /// Claviron owns.
-pub struct OrbitIngress(OrbitDoor);
+pub struct OrbitIngress {
+    door: OrbitDoor,
+    execution: ExecutionSpec,
+}
 
 impl OrbitIngress {
     /// `runtime` is what the lane says answers the name (`php`, `asgi`); a
@@ -30,7 +33,20 @@ impl OrbitIngress {
         runtime: &'static str,
         max_in_flight: Option<usize>,
     ) -> Self {
-        Self(OrbitDoor::new(application, runtime, max_in_flight))
+        Self {
+            door: OrbitDoor::new(application, runtime, max_in_flight),
+            execution: ExecutionSpec::default(),
+        }
+    }
+
+    /// Where the door, and so each exchange it hands the application, runs in
+    /// each process: the same choice a socket's listener makes.
+    pub fn execution(
+        mut self,
+        execution: ExecutionSpec,
+    ) -> Self {
+        self.execution = execution;
+        self
     }
 }
 
@@ -62,6 +78,13 @@ impl Scoped for OrbitIngress {
 
 #[async_trait]
 impl Runnable<AppState, <Self as Component<AppState>>::Deps> for OrbitIngress {
+    fn execution_spec(
+        &self,
+        _: &AppState,
+    ) -> ExecutionSpec {
+        self.execution.clone()
+    }
+
     fn start_policy(
         &self,
         _state: &AppState,
@@ -75,6 +98,6 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for OrbitIngress {
         state: AppState,
         context: RunContext,
     ) -> registry::Result<()> {
-        self.0.serve(application, incarnation, state, context).await
+        self.door.serve(application, incarnation, state, context).await
     }
 }

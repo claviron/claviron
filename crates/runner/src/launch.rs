@@ -244,12 +244,24 @@ pub fn register_doors(
             let name = runner.name.clone().ok_or_else(|| {
                 registry::Error::msg("the launch was prepared without a name")
             })?;
+            // The runner's listener settings place every door, Orbit's too.
+            let execution = runner
+                .listener()
+                .map_err(registry::Error::msg)?
+                .execution
+                .resolve(&claviron_http::config::ListenerExecution::default())
+                .for_listener(&"orbit".parse().map_err(
+                    |error: claviron_http::listener::InvalidListenerId| {
+                        registry::Error::msg(error.to_string())
+                    },
+                )?);
             state.registry_ref().register(Arc::new(
                 crate::OrbitIngress::new(
                     name,
                     runtime,
                     runner.max_in_flight.or(default_in_flight),
-                ),
+                )
+                .execution(execution),
             ))?;
         }
     }
