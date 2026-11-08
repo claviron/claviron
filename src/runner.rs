@@ -4,6 +4,8 @@ pub use claviron_runner::*;
 
 mod composition;
 pub use composition::Composition;
+mod launch_file;
+pub use launch_file::{expand_launch, launch_environment};
 #[cfg(feature = "supervisor")]
 pub use composition::worker_launch;
 

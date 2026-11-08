@@ -203,20 +203,8 @@ impl Runner {
                 serde_json::from_slice(worker.launch().as_bytes())?;
             return Ok(inherited.runner);
         }
-        let environment = if self.options.production {
-            claviron_runtime::env::PRODUCTION
-        } else {
-            self.options
-                .environment
-                .as_deref()
-                .unwrap_or(claviron_runtime::env::LOCAL)
-        };
-        let environment = claviron_runtime::env::ConfigEnvironment::load(
-            &claviron_sys::short_hostname(),
-            environment,
-            Path::new(".env"),
-        )
-        .map_err(registry_error)?;
+        let environment = super::launch_environment(&self.options)
+            .map_err(registry::Error::msg)?;
         let reader = claviron_runtime::ConfigReader::new()
             .with_builtin_parsers()
             .map_err(registry_error)?;
