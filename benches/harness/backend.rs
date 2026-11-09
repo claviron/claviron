@@ -79,7 +79,10 @@ impl Backend {
                 };
                 response
             }
-            Self::H2(service) => service.handle(request).await,
+            // Boxed as the pipeline boxes it for an Edge: inline, its state
+            // would size this future for every transport, and every request
+            // of every transport would move it.
+            Self::H2(service) => Box::pin(service.handle(request)).await,
         };
         let status = response.status();
         Ok((status, response.into_body().collect().await?.to_bytes()))
