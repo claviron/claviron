@@ -729,3 +729,102 @@ async fn creator_probe_discards_a_never_opened_loan_without_reusing_its_ticket()
     ));
     assert!(!case.client.creator.contended());
 }
+
+/// Bounded receivers are filled one at a time from the sender's own home, so a
+/// receiver stays busy instead of every receiver getting a thin share; senders
+/// with different lanes start at different receivers.
+#[tokio::test]
+async fn bounded_receivers_fill_from_each_senders_home() {
+    let name = format!("ch{:x}", std::process::id() % 0x10_0000);
+    let spec = orbitive::link::LinkSpec::new(
+        8,
+        super::super::LINK_SPEC.inbox_kind,
+        orbitive::link::InboxGeometry::new(32, 1024),
+        orbitive::stream::StreamSpec::new(
+            super::super::LINK_SPEC.streams.kind,
+            16,
+            1024,
+        ),
+    );
+    let segment = Arc::new(
+        ApplicationSegment::for_fleet_with_spec(
+            &name,
+            spec,
+            &Access::OwnerOnly,
+        )
+        .unwrap(),
+    );
+    let receivers: Vec<_> = (0..3)
+        .map(|incarnation| {
+            segment
+                .join_with_capacity("example", "rust", incarnation + 1, Some(2))
+                .unwrap()
+        })
+        .collect();
+    let first = ApplicationClient::join_segment(
+        Arc::clone(&segment),
+        "a",
+        10,
+        None,
+        None,
+    )
+    .unwrap();
+    let second = ApplicationClient::join_segment(
+        Arc::clone(&segment),
+        "b",
+        11,
+        None,
+        None,
+    )
+    .unwrap();
+    let lanes: Vec<usize> =
+        receivers.iter().map(|joined| joined.lane).collect();
+    let order = |client: &ApplicationClient| -> Vec<usize> {
+        let home = client.lane() % lanes.len();
+        (0..lanes.len())
+            .map(|offset| lanes[(home + offset) % lanes.len()])
+            .collect()
+    };
+    // Joining clients ask every application for its state with a control
+    // frame; count only what the sends below add.
+    let before: Vec<u64> = lanes
+        .iter()
+        .map(|&lane| segment.inbox().depth(lane).unwrap())
+        .collect();
+    let depth = |lane: usize| {
+        let at = lanes.iter().position(|&known| known == lane).unwrap();
+        segment.inbox().depth(lane).unwrap() - before[at]
+    };
+
+    // The two senders' homes differ because their lanes do.
+    assert_ne!(order(&first)[0], order(&second)[0]);
+
+    // One sender fills its home to the bound, then the next, then the last.
+    let target = first.target("example");
+    let mut sent = Vec::new();
+    for receiver in order(&first) {
+        for expected in 1..=2 {
+            sent.push(target.send(Exchange::default()).unwrap());
+            assert_eq!(
+                depth(receiver),
+                expected,
+                "receiver {receiver} fills first"
+            );
+        }
+    }
+    assert!(matches!(
+        target.send(Exchange::default()),
+        Err(Error::CapacityFull)
+    ));
+
+    drop(sent);
+    let bodies =
+        ApplicationBodies::for_segment(&segment, first.lane(), 10).unwrap();
+    first.leave();
+    second.leave();
+    for joined in &receivers {
+        let _ = segment.inbox().release_lane(joined.lane);
+    }
+    let _ = bodies.unlink();
+    let _ = segment.unlink();
+}

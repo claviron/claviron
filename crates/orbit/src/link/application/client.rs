@@ -374,7 +374,7 @@ pub struct ApplicationClient {
     /// The lane's lock, let go in [`ApplicationClient::leave`] after the lane.
     hold: Mutex<Option<orbitive::shm::LaneHold>>,
     correlation: AtomicU64,
-    /// Which of the idlest targets to take next. See [`ApplicationClient::send`].
+    /// Advances the two random choices made for unbounded receivers.
     rotation: AtomicU64,
     directory: Mutex<Directory>,
     creator: CreatorAdmission,
@@ -654,17 +654,8 @@ impl ApplicationClient {
             lane,
             hold: Mutex::new(Some(joined.hold)),
             correlation: AtomicU64::new(1),
-            // Seeded with this caller's own lane, not with zero.
-            //
-            // Every edge worker reads the same targets in the same order and
-            // steps through them by one. Starting them all at the same place
-            // makes independent rotation move in lockstep: at any instant all
-            // of them are writing to the same application process while its
-            // siblings sit idle, and they move on together. The counter was
-            // meant to spread the tie and it was spreading it in unison.
-            //
-            // The lane index is already unique per process in the fleet, so
-            // it costs nothing to start from it.
+            // Seeded with this caller's own lane, not with zero, so callers
+            // that start together do not draw the same receivers in lockstep.
             rotation: AtomicU64::new(lane as u64),
             directory: Mutex::default(),
             creator: CreatorAdmission::default(),
@@ -767,7 +758,7 @@ impl ApplicationClient {
         self.hot.available(&self.bodies) || self.bodies.streams().can_create()
     }
 
-    /// Whether `send_to` considers `lane` at all, and its depth if so.
+    /// Whether a lane can take work at all, and its depth if so.
     fn candidate(
         &self,
         lane: usize,
@@ -803,41 +794,56 @@ impl ApplicationClient {
         }
     }
 
-    /// The shipped policy: every lane, sorted by depth, ties by rotation.
-    fn choose_scan(
+    /// Which receiver takes this exchange.
+    ///
+    /// ## Keep receivers busy rather than spread
+    ///
+    /// A receiver that gets a thin share of the work drains its lane, parks,
+    /// and has to be rung for the next exchange: a bell, a reactor wake and an
+    /// unpark on both sides, every time. Spreading consecutive exchanges evenly
+    /// over every receiver maximises exactly that. So a bounded receiver is
+    /// filled up to its declared admission before the next one gets work — the
+    /// upstream balancer's `first`, HAProxy's `balance first` — and each sender
+    /// starts from its own receiver, chosen by its lane, so senders fill
+    /// different receivers instead of piling onto one. Measured on a 32 × 32
+    /// two-socket host, this cut serving CPU per exchange by 15–24% and moved
+    /// the accepted load up by a third against an even spread.
+    ///
+    /// The receiver's bound is what makes that safe: concentration stops where
+    /// the receiver said it would. A receiver that declares no bound gives no
+    /// stopping point, so unbounded receivers get two random choices instead,
+    /// the shallower first — constant cost, without reading every lane.
+    ///
+    /// Either way, when neither yields a reservation, every lane is tried once
+    /// in the same order, so a full fleet still reads as full and an empty one
+    /// as having no consumer.
+    fn choose(
         &self,
-        application: &str,
         lanes: &[usize],
     ) -> Result<(Option<Chosen>, bool)> {
-        let mut targets: Vec<_> = lanes
-            .iter()
-            .copied()
-            .filter_map(|lane| self.candidate(lane).map(|depth| (lane, depth)))
-            .collect();
-        targets.sort_by_key(|(_, depth)| *depth);
-        let Some((_, idlest)) = targets.first().copied() else {
-            return Err(Error::NoConsumer(application.to_owned()));
-        };
-        let tied =
-            targets.iter().take_while(|(_, depth)| *depth == idlest).count();
-        let turn = self.rotation.fetch_add(1, Ordering::Relaxed) as usize;
+        if lanes.is_empty() {
+            return Ok((None, false));
+        }
+        let home = self.lane % lanes.len();
+        let bounded =
+            self.inbox().work_capacity(lanes[home]).ok().flatten().is_some();
+        if !bounded && let (Some(chosen), full) = self.choose_two(lanes)? {
+            return Ok((Some(chosen), full));
+        }
         let mut full = false;
-        for offset in 0..targets.len() {
-            let index = if offset < tied {
-                (turn.wrapping_add(offset)) % tied
-            } else {
-                offset
-            };
-            if let Some(selected) =
-                self.try_reserve(targets[index].0, &mut full)?
-            {
-                return Ok((Some(selected), full));
+        for offset in 0..lanes.len() {
+            let target = lanes[(home + offset) % lanes.len()];
+            if self.candidate(target).is_none() {
+                continue;
+            }
+            if let Some(chosen) = self.try_reserve(target, &mut full)? {
+                return Ok((Some(chosen), full));
             }
         }
         Ok((None, full))
     }
 
-    /// Plan #3 `two`: two lanes at random, the shallower first.
+    /// Two receivers picked at random, the shallower tried first.
     fn choose_two(
         &self,
         lanes: &[usize],
@@ -864,32 +870,8 @@ impl ApplicationClient {
             (None, None) => [None, None],
         };
         for target in order.into_iter().flatten() {
-            if let Some(selected) = self.try_reserve(target, &mut full)? {
-                return Ok((Some(selected), full));
-            }
-        }
-        Ok((None, full))
-    }
-
-    /// Plan #3 `home`: this sender's own receiver first, then the next ones in
-    /// a fixed order, each up to its admission bound. Senders start from
-    /// different receivers because their lanes differ.
-    fn choose_home(
-        &self,
-        lanes: &[usize],
-    ) -> Result<(Option<Chosen>, bool)> {
-        let mut full = false;
-        if lanes.is_empty() {
-            return Ok((None, full));
-        }
-        let start = self.lane % lanes.len();
-        for offset in 0..lanes.len() {
-            let target = lanes[(start + offset) % lanes.len()];
-            if self.candidate(target).is_none() {
-                continue;
-            }
-            if let Some(selected) = self.try_reserve(target, &mut full)? {
-                return Ok((Some(selected), full));
+            if let Some(chosen) = self.try_reserve(target, &mut full)? {
+                return Ok((Some(chosen), full));
             }
         }
         Ok((None, full))
@@ -902,17 +884,7 @@ impl ApplicationClient {
         request: &mut Exchange,
         acquisition: G,
     ) -> Result<Pending> {
-        // Plan #3 experiment: the selection policy is chosen at build time.
-        let (selected, full) = if experiment::HOME {
-            self.choose_home(lanes)?
-        } else if experiment::TWO {
-            match self.choose_two(lanes)? {
-                (Some(selected), full) => (Some(selected), full),
-                (None, _) => self.choose_scan(application, lanes)?,
-            }
-        } else {
-            self.choose_scan(application, lanes)?
-        };
+        let (selected, full) = self.choose(lanes)?;
         let Some((target, admission)) = selected else {
             return Err(if full {
                 Error::CapacityFull
@@ -1440,37 +1412,3 @@ fn deliver(
 
 /// A receiver chosen for one exchange, and its admission when it is bounded.
 type Chosen = (usize, Option<super::WorkReservation>);
-
-/// Plan #3 experiment, playground only: which selection policy this build uses,
-/// from `CLAVIRON_TARGET_CHOICE` at compile time (`scan`, `two` or `home`).
-mod experiment {
-    const CHOICE: &str = match option_env!("CLAVIRON_TARGET_CHOICE") {
-        Some(choice) => choice,
-        None => "scan",
-    };
-
-    const fn same(
-        a: &str,
-        b: &str,
-    ) -> bool {
-        let (a, b) = (a.as_bytes(), b.as_bytes());
-        if a.len() != b.len() {
-            return false;
-        }
-        let mut at = 0;
-        while at < a.len() {
-            if a[at] != b[at] {
-                return false;
-            }
-            at += 1;
-        }
-        true
-    }
-
-    pub(super) const TWO: bool = same(CHOICE, "two");
-    pub(super) const HOME: bool = same(CHOICE, "home");
-    const _: () = assert!(
-        same(CHOICE, "scan") || TWO || HOME,
-        "CLAVIRON_TARGET_CHOICE must be scan, two or home"
-    );
-}

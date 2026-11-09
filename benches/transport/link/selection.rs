@@ -7,10 +7,11 @@
 //!
 //! Two choices are timed over the same lanes:
 //!
-//! - `scan`: what `ApplicationClient::send_to` does before reserving, copied
-//!   here — every lane's admission, work capacity and depth, collected, sorted,
-//!   the tie broken by rotation.
-//! - `two`: the same reads for two lanes picked at random, the shallower kept.
+//! - `scan`: the selection Link made before it filled a home receiver, kept
+//!   here as the reference — every lane's admission, work capacity and depth,
+//!   collected, sorted, the tie broken by rotation.
+//! - `two`: the same reads for two lanes picked at random, the shallower kept;
+//!   what `ApplicationClient::choose` now does for unbounded receivers.
 //!
 //! Each runs beside other selectors doing the same: background threads that
 //! choose with the same policy and publish one frame to the lane they chose, as
@@ -44,7 +45,7 @@ const SELECTORS: [usize; 3] = [1, 8, 16];
 const OWNERS: usize = 4;
 const FRAME: &[u8] = &[0; 16];
 
-/// The selection `send_to` makes before reserving, over `lanes`.
+/// The former full-scan selection, over `lanes`.
 fn scan(
     inbox: &Inbox,
     lanes: &[usize],

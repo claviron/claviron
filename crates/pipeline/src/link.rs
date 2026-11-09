@@ -7,8 +7,10 @@
 //!
 //! The destination fleet and application name. Not a port, not a socket path, not an
 //! interpreter, not a virtual environment, and not how many processes answer
-//! to it. It reads the lanes serving that name, picks the idlest — a depth it
-//! reads rather than a load anybody reports — and writes.
+//! to it. It reads the lanes serving that name in shared memory, reserves a
+//! receiver — its own home receiver first when receivers declare a bound —
+//! and writes. See `ApplicationClient::choose` for why work is concentrated
+//! rather than spread.
 //!
 //! ## Whole or streamed, both ways
 //!
