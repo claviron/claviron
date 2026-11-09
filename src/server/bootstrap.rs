@@ -440,7 +440,7 @@ pub fn register(state: &AppState) -> Result<()> {
     {
         claviron_module::register_routes(state, hosts.site())?;
     }
-    #[cfg(feature = "upstream")]
+    #[cfg(all(feature = "upstream", feature = "edge"))]
     claviron_upstream::edge::register(state)?;
     // The static file cache learns about changed files from a reload, not
     // from the hot path. Application servers can own it without an edge.

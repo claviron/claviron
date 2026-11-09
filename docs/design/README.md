@@ -3,6 +3,11 @@
 Claviron's design choices, ownership boundaries and guarantees. These are living
 contracts, not protocol standards or chronological decision records.
 
+## Composition
+
+- [FIHI_MAFIH](FIHI_MAFIH.md): compose runtime capabilities into different
+  application roles and deployments while preserving their ownership contracts.
+
 ## Application and transport
 
 - [HOST_PIPELINE](HOST_PIPELINE.md): application composition, host admission and

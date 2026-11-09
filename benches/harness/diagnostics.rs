@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Wake, Waker};
 use std::time::Instant;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Default)]
 struct State {
@@ -24,16 +24,16 @@ struct State {
 #[derive(Clone)]
 pub struct Observations(Arc<State>);
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 pub struct Diagnostics {
-    pub edge_request_polls: u64,
-    pub edge_request_pending_polls: u64,
-    pub edge_request_waker_calls: u64,
+    pub client_request_polls: u64,
+    pub client_request_pending_polls: u64,
+    pub client_request_waker_calls: u64,
     pub completions: u64,
     pub round_trip_ns: u64,
     /// This high-water mark includes warmup; unlike counters it cannot be subtracted.
-    pub max_round_trip_ns_including_warmup: u64,
-    pub link_rejections: BTreeMap<String, u64>,
+    pub max_round_trip_ns_lifetime: u64,
+    pub returned_errors: BTreeMap<String, u64>,
 }
 
 impl Diagnostics {
@@ -42,26 +42,25 @@ impl Diagnostics {
         before: Self,
     ) -> Self {
         let rejections = self
-            .link_rejections
+            .returned_errors
             .into_iter()
             .filter_map(|(reason, count)| {
                 let count = count
-                    - before.link_rejections.get(&reason).copied().unwrap_or(0);
+                    - before.returned_errors.get(&reason).copied().unwrap_or(0);
                 (count != 0).then_some((reason, count))
             })
             .collect();
         Self {
-            edge_request_polls: self.edge_request_polls
-                - before.edge_request_polls,
-            edge_request_pending_polls: self.edge_request_pending_polls
-                - before.edge_request_pending_polls,
-            edge_request_waker_calls: self.edge_request_waker_calls
-                - before.edge_request_waker_calls,
+            client_request_polls: self.client_request_polls
+                - before.client_request_polls,
+            client_request_pending_polls: self.client_request_pending_polls
+                - before.client_request_pending_polls,
+            client_request_waker_calls: self.client_request_waker_calls
+                - before.client_request_waker_calls,
             completions: self.completions - before.completions,
             round_trip_ns: self.round_trip_ns - before.round_trip_ns,
-            max_round_trip_ns_including_warmup: self
-                .max_round_trip_ns_including_warmup,
-            link_rejections: rejections,
+            max_round_trip_ns_lifetime: self.max_round_trip_ns_lifetime,
+            returned_errors: rejections,
         }
     }
 }
@@ -84,20 +83,24 @@ impl Observations {
     pub fn new() -> Self {
         Self(Arc::new(State::default()))
     }
-    pub fn install(&self) -> super::Result<()> {
-        tracing::subscriber::set_global_default(self.clone())?;
-        Ok(())
+    pub fn rejected(
+        &self,
+        reason: &str,
+    ) {
+        let mut rejections =
+            self.0.rejections.lock().expect("diagnostic rejection lock");
+        *rejections.entry(reason.to_owned()).or_default() += 1;
     }
     pub fn snapshot(&self) -> Diagnostics {
         let get = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
         Diagnostics {
-            edge_request_polls: get(&self.0.polls),
-            edge_request_pending_polls: get(&self.0.pending_polls),
-            edge_request_waker_calls: get(&self.0.wake_calls),
+            client_request_polls: get(&self.0.polls),
+            client_request_pending_polls: get(&self.0.pending_polls),
+            client_request_waker_calls: get(&self.0.wake_calls),
             completions: get(&self.0.completions),
             round_trip_ns: get(&self.0.round_trip_ns),
-            max_round_trip_ns_including_warmup: get(&self.0.max_round_trip_ns),
-            link_rejections: self
+            max_round_trip_ns_lifetime: get(&self.0.max_round_trip_ns),
+            returned_errors: self
                 .0
                 .rejections
                 .lock()
@@ -141,71 +144,5 @@ impl Observations {
         self.0.max_round_trip_ns.fetch_max(elapsed, Ordering::Relaxed);
         self.0.completions.fetch_add(1, Ordering::Relaxed);
         result
-    }
-}
-
-#[derive(Default)]
-struct Message(String);
-impl tracing::field::Visit for Message {
-    fn record_debug(
-        &mut self,
-        field: &tracing::field::Field,
-        value: &dyn std::fmt::Debug,
-    ) {
-        if field.name() == "message" {
-            self.0 = format!("{value:?}");
-        }
-    }
-}
-impl tracing::Subscriber for Observations {
-    fn enabled(
-        &self,
-        metadata: &tracing::Metadata<'_>,
-    ) -> bool {
-        metadata.target() == "claviron_pipeline::link"
-            && *metadata.level() == tracing::Level::DEBUG
-    }
-    fn new_span(
-        &self,
-        _: &tracing::span::Attributes<'_>,
-    ) -> tracing::span::Id {
-        tracing::span::Id::from_u64(1)
-    }
-    fn record(
-        &self,
-        _: &tracing::span::Id,
-        _: &tracing::span::Record<'_>,
-    ) {
-    }
-    fn record_follows_from(
-        &self,
-        _: &tracing::span::Id,
-        _: &tracing::span::Id,
-    ) {
-    }
-    fn enter(
-        &self,
-        _: &tracing::span::Id,
-    ) {
-    }
-    fn exit(
-        &self,
-        _: &tracing::span::Id,
-    ) {
-    }
-    fn event(
-        &self,
-        event: &tracing::Event<'_>,
-    ) {
-        let mut message = Message::default();
-        event.record(&mut message);
-        // Count one canonical event, not both "exchange refused" and this one.
-        if let Some(reason) =
-            message.0.strip_prefix("Link dispatch unavailable: ")
-        {
-            let mut rejections =
-                self.0.rejections.lock().expect("diagnostic rejection lock");
-            *rejections.entry(reason.to_owned()).or_default() += 1;
-        }
     }
 }

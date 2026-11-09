@@ -190,6 +190,12 @@ Python/native profiling needs frame pointers through the final application and
 all native dependencies: select the Rust flag in the application's shared build
 configuration, not in a library build script or per-command environment.
 
+`Server` also boots managed non-HTTP applications: a supervisor and custom
+Runnables need no Edge listener. The facade's `upstream` feature enables outbound
+services without Edge; `edge` + `upstream` adds the backend adapter automatically.
+The supervised transport harness exercises this composition (see
+[bench architecture](benches/ARCHITECTURE.md#supervised-link-transports)).
+
 `edge` preserves the former `server` composition and boots cleartext H1 without
 certificate configuration. TLS termination is an explicit `tls` facade
 capability (which enables Hyper's TLS driver

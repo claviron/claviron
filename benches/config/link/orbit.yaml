@@ -1,0 +1,7 @@
+link:
+  # Fleet capacity follows the compiled ceiling on both participants.
+  geometry:
+    inbox_capacity: 128
+    inbox_payload_capacity: 17408
+    lane_capacity: 128
+    buffer_bytes: 65536

@@ -106,6 +106,7 @@ edge = [
     "dep:claviron-edge",
     "dep:claviron-pipeline",
     "claviron-edge/tcp",
+    "claviron-upstream?/edge",
     # Socket driving and named listener Runnables are transport-owned.
     "dep:claviron-transport",
     "claviron-transport/tcp",
@@ -138,7 +139,7 @@ http3 = [
 # DNS origins are always available; the application binds the resolver
 # (`dyn ResolverFactory`, e.g. `resolver-hickory`). A hostname origin with no
 # bound resolver is a boot error.
-upstream = ["edge", "dep:claviron-upstream", "claviron-upstream/edge", "resolver"]
+upstream = ["http", "dep:claviron-upstream", "resolver"]
 resolver = ["dep:claviron-resolver"]
 resolver-hickory = ["resolver", "claviron-resolver/hickory"]
 # http connect extensions
@@ -255,6 +256,7 @@ tokio-rustls.workspace = true
 
 # ── Time / identifiers ──────────────────────────────────────────────────
 humantime.workspace = true
+humantime-serde.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
@@ -348,14 +350,21 @@ name = "link-concurrent"
 path = "benches/transport/link/concurrent.rs"
 harness = false
 test = false
-required-features = ["edge", "orbit", "runner-orbit"]
+required-features = ["supervisor", "rust", "bench", "runner-orbit", "runner-socket", "upstream"]
 
 [[bench]]
 name = "h2-concurrent"
 path = "benches/transport/h2/concurrent.rs"
 harness = false
 test = false
-required-features = ["edge", "runner-socket"]
+required-features = ["supervisor", "rust", "bench", "runner-orbit", "runner-socket", "upstream"]
+
+[[bench]]
+name = "uds-h2-concurrent"
+path = "benches/transport/h2/unix.rs"
+harness = false
+test = false
+required-features = ["supervisor", "rust", "bench", "runner-orbit", "runner-socket", "upstream"]
 
 [workspace]
 members = [

@@ -14,8 +14,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the file index and call paths.
 | `transport/http1/native/` | Real Hyper and `axum::serve` over persistent loopback HTTP/1.1. |
 | `transport/http1/edge/` | Native Edge HTTP/1 driver, including host selection, for Other, Axum and Routable. |
 | `transport/http1/concurrent.rs` | Separate server/client processes; concurrent plain requests and server CPU accounting. |
-| `transport/link/concurrent.rs` | An edge and an application process over Orbit Link: production `LinkBackend` to `OrbitDoor`. |
-| `transport/h2/concurrent.rs` | The same two processes over HTTP/2 cleartext: the Edge's upstream pool to the runner's TCP door. |
+| `transport/link/concurrent.rs` | Supervised client and Runner workers over Orbit Link. |
+| `transport/h2/concurrent.rs` | The same supervised families over TCP/H2c. |
+| `transport/h2/unix.rs` | The same supervised families over UDS/H2. |
+| `harness/`, `config/link/` | Shared boot, phase control, process measurements and transport fixtures. |
 | `results/` | JSON reports of the two-process targets, by transport and Claviron commit, kept for comparison. |
 | `support/` | Shared workloads, typed config fixtures and preparation outside timing. |
 
@@ -257,74 +259,115 @@ HTTP execution placement; automatic history comparisons keep the same mode.
 Other measurement controls must still match. CPU totals include every serving
 process thread, not just the HTTP executor.
 
-### Link receiver admission
+## Supervised Link transports
 
-`link-concurrent` measures the production `LinkBackend` → `OrbitDoor` exchange
-between two processes. `--in-flight` is caller concurrency; `--max-in-flight`
-is the receiver's reservation/execution bound, retained through body completion.
-Omitting the latter keeps the unbounded control. The JSON records both values.
-
-Use one executable and identical workload, thread and timing settings when
-comparing them. A bound equal to caller concurrency measures admission overhead;
-a smaller bound also measures waiting and pacing. Keep plain, buffered echo and
-streamed echo separate. The report includes each process's user/system CPU per
-exchange and throughput; it does not record request latency percentiles.
-
-### Link backpressure reference
-
-Use the fixed caller population to press the same receiver, and declare its
-admission waiting budget explicitly:
+These targets measure Runner applications directly, through the production Link
+backend or upstream client. Both sides boot Claviron with their own supervisor
+and fleet. Client workers generate requests from a managed Runnable; they open
+no frontend HTTP listener. Application workers use the same benchmark router. The comparison includes each
+backend's target selection, admission and pool model; it does not isolate raw
+socket or shared-memory copying cost.
 
 ```sh
-cargo bench --features edge,orbit,runner-orbit --bench link-concurrent -- \
-  --workload plain --in-flight 1024 --edge-threads 2 --application-threads 2 \
+cargo bench --locked \
+  --features supervisor,rust,bench,runner-orbit,runner-socket,upstream \
+  --bench link-concurrent -- \
+  --workload plain --client-workers 2 --application-workers 2 \
+  --edge-threads 1 --application-threads 1 \
+  --in-flight 4 --pace 1 \
   --warmup-seconds 2 --measurement-seconds 10 --samples 5 \
-  --queue-timeout 100ms --keep-errors \
-  --output benches/results/link/reference-unbounded.json
+  --queue-timeout 100ms --output .benchmarks/link/orbit.json
 ```
 
-Repeat with `--max-in-flight 128` and a different output file. Build once; use
-unbounded / 128 / 128 / unbounded order. Keep the workload, physical SHM shape,
-thread counts, waiting budget and measurement controls identical. `100ms` here
-is a declared reference budget, not a library default. The application remains
-the production `OrbitDoor`; the caller remains the production `LinkBackend`.
-There is no external TCP listener, HTTP decoding or TLS in this measurement.
+`h2-concurrent` defaults to TCP/H2c; `uds-h2-concurrent` defaults to UDS/H2.
+Every executable also accepts `--transport orbit|h2c|uds-h2`, so one binary can
+compare all three. This feature set does not select Edge. Selecting additional
+features can boot additional services: reports record whether Edge and metrics
+were compiled in. Keep the feature set identical between comparisons.
 
-`--keep-errors` retains all callers and counts completed successes, 503, 502,
-other statuses, transport errors and invalid bodies in every window. Initial
-preflight still must pass. Without it, unexpected outcomes invalidate the run
-as before. Responses/s counts only success; attempts/s includes failure. Report
-both and the observed success fraction. Process CPU/success includes the work
-spent on failed attempts; CPU/attempt is also recorded. An all-error window has
-no CPU/success value. A faster stream of 503 responses is not higher capacity.
+### Load and acceptance
 
-`--queue-timeout` sets the production `requests.queue_timeout`: capacity ready
-means immediate dispatch, full capacity may wait up to this budget, and expiry
-returns 503 without ending accepted work. It is not an end-to-end response
-deadline. The caller count is not a socket count or measured receiver occupancy.
-This harness does not measure the admission wait distribution or an HTTP SLA
-latency percentile.
+Every run starts at **one outstanding request per client worker**. Each accepted
+phase adds `--pace` until `--in-flight`, the **per-worker ceiling**, or the first
+rejected phase. With two workers and `--in-flight 4`, total offered concurrency
+rises through 2, 4, 6 and 8. This replaces the old fixed-total-concurrency harness.
+A slot sends its next request after its previous request finishes; no arrival
+rate or receiver occupancy is guaranteed.
 
-The budget covers receiver-admission waiting. Other resource errors may still
-return immediately: creator stream-lane exhaustion currently does not wait for
-a reusable slot. Preserve that rejection reason separately from budget expiry.
+[config/link/client.yaml](config/link/client.yaml) declares a whole-response
+`request_timeout: 100ms` and `accept: 99.99`. A success requires a 2xx status and
+the exact complete body within that deadline. Preflight must pass for every
+client worker. Each phase has its own untimed warmup and measured windows;
+acceptance uses outcomes completed within those windows. Requests crossing a
+window boundary count where they complete. Drain completes before the next
+phase. No latency percentiles are measured.
 
-Run `--diagnostics` separately with the same controls. Diagnostic JSON records
-Edge request-future polls, pending polls, waker calls and completion time; a
-scoped subscriber counts the production Link rejection reasons. Waker wrapping,
-clocks, counters and rejection formatting perturb execution, so diagnostic CPU
-and throughput must not be compared with clean CPU runs. Rejection counts are
-completion-window observations and can straddle a boundary differently from
-response counts; the round-trip high-water mark includes warmup.
+Every report retains success, 503, 502, other statuses, transport errors, invalid
+bodies and deadline failures, including a rejected phase. `--keep-errors` lets a
+rejected measurement exit successfully; it does not continue increasing load.
 
-Request-waker calls are not IPC doorbell sends, kernel wakeups, receiver polls,
-or admission waits. A wake can coalesce without another poll. macOS context
-switch counters are marked unavailable instead of treating zero as no wakes.
-Use user/system CPU from clean runs to assess kernel cost; exact IPC/syscall
-counts require a separate platform tracing run against both process IDs.
+`--edge-threads` names the client process's main Tokio thread budget;
+`--application-threads` names the application's. Dedicated executors are selected
+separately in the client and Runner fixtures. These are per-process settings,
+not CPU affinity or a total host CPU allocation. Each family has an additional
+supervisor master, excluded from its worker CPU total.
 
-A reference record must keep the raw windows, outcome counts, commands,
-physical capacities, both repository revisions and dirty source hashes, binary
-hash, OS/architecture and run order. Record resource refusal and queue-budget
-expiry separately in diagnostics. Preserve a failing control; never compute a
-speedup from a run that stopped early or whose outcome counts are missing.
+### Capacity controls
+
+[config/link](config/link) is the default fixture directory; `--config` selects
+another. Each run writes its resolved YAML and launch data beneath
+`.benchmarks/link/run-…/`, and embeds the YAML in its JSON report.
+
+- Orbit: `--max-in-flight 128` bounds application admission through body/session
+  completion. Omit it for the unbounded admission control. SHM lane/inbox geometry
+  remains independently bounded; unbounded admission does not mean infinite slots.
+- H2: the common upstream fixture sets `max_live: 1`, `max_idle: 1` and
+  `max_streams: 128`. `--max-live` and `--max-streams` override the same pool
+  settings for TCP and Unix origins. There is no H2 `min_idle`.
+- `--queue-timeout 100ms` declares the production admission/acquire waiting budget.
+  For Link this includes receiver and creator-slot waiting under one budget.
+  It is separate from the whole-response client deadline. To distinguish budget
+  expiry from a client deadline, select an appropriately larger client deadline
+  in the fixture before the comparison.
+- `--workload echo --body-bytes N` validates a complete echoed request body.
+  `--buffer-size` selects Link request buffering policy; keep buffered/streamed
+  and plain-body measurements separate.
+
+For an admission comparison, use one binary, identical geometry and the same
+ramp with omitted `--max-in-flight` versus `--max-in-flight 128`. A bound equal
+to offered concurrency measures admission overhead; a smaller bound also measures
+waiting and pacing. Preserve rejected phases instead of comparing successful
+responses to a stream of immediate 503s.
+
+Worker counts must fit `CLAVIRON_FLEET_CAPACITY` independently for each family,
+including its master. Orbit's selected fleet geometry must fit both families
+combined, including both masters. For 40 + 40 workers, compile with
+`CLAVIRON_FLEET_CAPACITY=128` and `ORBIT_LINK_FLEET_CAPACITY=128`, and select
+compatible geometry. These are **build-time** ceilings, not runtime flags.
+
+### Reports and diagnostics
+
+Schema 3 records all worker/master identities, requested concurrency, resolved
+fixtures, client policy, raw per-process elapsed windows, outcomes and user/system
+CPU. Client and serving application CPU are reported per success and per attempt;
+masters are reported separately. Client CPU includes load generation and response
+validation. Windows are requested concurrently but start/end independently, so
+application CPU per client success is an overlapping-window estimate.
+
+`--diagnostics` separately records client request-future polls, pending polls,
+waker calls, completion time and returned transport errors. Its clocks, wrapped
+wakers and counters perturb execution. Never compare diagnostic CPU/throughput
+with clean runs. Waker calls are not IPC doorbells, kernel wakes, application polls
+or admission waits. The completion high-water mark includes warmup and prior
+phases. macOS context-switch counters are marked unavailable.
+
+Keep repository revisions, dirty source hashes, binary hash, OS/architecture and
+run order alongside raw JSON. Old two-process fixed-load reports are historical
+controls, not identical measurement boundaries. `results/` retains such records;
+new local output defaults to the ignored `.benchmarks/` area.
+
+The orchestrator stops client generation first, asks each production master to
+drain its workers, then clears only its own isolated fleets after both families
+exit and an exclusive fleet lock succeeds. Retained SHM under a generated name
+causes startup to fail rather than being adopted. Ctrl-C follows the same owned
+shutdown path; no private kill deadline is introduced.

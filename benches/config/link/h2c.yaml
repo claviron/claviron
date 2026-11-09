@@ -1,0 +1,4 @@
+transport: tcp
+listen: 127.0.0.1:0
+protocols: [h2]
+tcp: { backlog: 2048 }

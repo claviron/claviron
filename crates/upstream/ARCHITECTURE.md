@@ -17,6 +17,8 @@ selected application/profile handles at boot/reload and declares identity and
 external SSE ownership through Edge's common Backend contract. Edge depends on
 no Upstream implementation. There is no Axum dependency or Upstream RustRouter
 variant. Low-level outbound services remain available without the `edge` feature.
+The facade's `upstream` feature selects those services and their boot provider
+without Edge; selecting `edge` as well enables the adapter automatically.
 
 ## Boundary
 

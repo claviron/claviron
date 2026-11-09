@@ -1,0 +1,12 @@
+upstreams:
+  application:
+    protocol: h2
+    authority: application.example.test
+    # The harness supplies the isolated TCP or Unix origin before boot.
+    origins: []
+    connection: { connect_timeout: off }
+    capacity:
+      warmup: false
+      max_live: 1
+      max_idle: 1
+      max_streams: 128
