@@ -7,7 +7,9 @@ use claviron_http::config::HttpSnapshot;
 use claviron_runtime::AppState;
 use claviron_runtime::registry::{Error, Result};
 
-use super::{HostAppRegistry, VhostResolver, VhostTable};
+use super::VhostTable;
+use crate::VhostResolver;
+use crate::host::HostAppRegistry;
 
 pub type PreparedListener = Box<dyn FnOnce() + Send>;
 

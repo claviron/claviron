@@ -2,10 +2,11 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
+use crate::VhostResolver;
+use crate::transport::VhostTable;
 use crate::transport::publication::{
     self, ListenerPublication, PreparedListener,
 };
-use crate::transport::{VhostResolver, VhostTable};
 use arc_swap::{ArcSwap, ArcSwapOption};
 use async_trait::async_trait;
 use claviron_http::ListenerId;

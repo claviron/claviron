@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use crate::transport::{AuthContext, VhostCtx};
+use crate::host::AuthContext;
+use crate::transport::VhostCtx;
 use claviron_http::config::{HttpPolicy, RequestPolicy};
 use claviron_http::ext::{ConnCtx, RequestArrival};
 #[cfg(test)]

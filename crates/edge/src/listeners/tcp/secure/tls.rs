@@ -168,7 +168,7 @@ impl TlsAccept {
 
 fn allowed_protocols(
     tcp: &TcpListenerConfig,
-    host: &crate::transport::HostConfig,
+    host: &crate::config::HostConfig,
 ) -> Vec<claviron_tls::Proto> {
     // The listener bounds capabilities, but an explicit host list owns ALPN
     // preference. Preserve omission separately from an explicit empty list.

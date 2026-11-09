@@ -7,12 +7,13 @@
 use std::future::Future;
 use std::sync::Arc;
 
+use crate::VhostResolver;
+use crate::host::{
+    AnyAuthenticated, AuthContext, WebTransportBinding, WebTransportRegistry,
+};
 use crate::host::{H3WebTransportSession, WebTransportHandler};
 use crate::service::HostService;
-use crate::transport::{
-    AnyAuthenticated, AuthContext, VhostCtx, VhostResolver,
-    WebTransportBinding, WebTransportRegistry,
-};
+use crate::transport::VhostCtx;
 use claviron_http::authority::AcceptedAuthority;
 use claviron_http::config::ListenerConfig;
 use claviron_http::config::transport::EarlyDataPolicy;

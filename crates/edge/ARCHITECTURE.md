@@ -348,7 +348,7 @@ explicit host layers; TCP handoff installs no fallback policy executor. H3 owns 
 - [`config.rs`](src/config.rs) — Host identity, transport policy and normalized route views; read-only backend accessors.
 - [`provider.rs`](src/provider.rs) — Congif HTTP configuration owner; validate capabilities and atomically publish HttpSnapshot.
 - [`listener.rs`](src/listener.rs) — Hosting alias notifications and atomic candidate updates; PostgreSQL NOTIFY or hosting events.
-- [`transport.rs`](src/transport.rs) — What `claviron-transport` may use of this crate: host selection and connection-level handlers; the loader stays internal behind it.
+- [`transport.rs`](src/transport.rs) — Listener publication and authority selection from the private loader. Application resolvers and registries are exported from `host`, not this boundary; host configuration is exported from `config`.
 - [`transport/publication.rs`](src/transport/publication.rs) — Listener input selection, host compilation, weak publication contract and shared bind geometry.
 
 ### `config/`

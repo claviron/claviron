@@ -9,7 +9,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::service::HostService;
-use crate::transport::{HostBinding, HostRejection, VhostCtx, VhostResolver};
+use crate::transport::{HostRejection, VhostCtx};
+use crate::{HostBinding, VhostResolver};
 use claviron_http::config::ListenerConfig;
 use claviron_http::config::transport::TransportPolicy;
 use claviron_http::ext::ConnCtx;

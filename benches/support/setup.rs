@@ -4,10 +4,9 @@
 
 use std::sync::Arc;
 
+use claviron::edge::VhostResolver;
 use claviron::edge::service::HostService;
-use claviron::edge::transport::{
-    VhostResolver, VhostTable, resolve_sni_from_table,
-};
+use claviron::edge::transport::{VhostTable, resolve_sni_from_table};
 use claviron::http::config::{HttpSnapshot, ListenerConfig};
 use claviron::http::ext::ConnCtx;
 use claviron::http::listener::HttpProtocol;

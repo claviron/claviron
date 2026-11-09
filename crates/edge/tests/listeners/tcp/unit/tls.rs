@@ -7,7 +7,7 @@ fn host_alpn_preserves_explicit_preference_and_inherits_only_when_omitted() {
     let http = serde_yaml::from_str::<HttpYaml>("listeners: {tls: {transport: tcp, tls: true, protocols: [h2, h1], listen: '127.0.0.1:443', requests: {max_body_size: off, body_read_timeout: off}}}").unwrap().resolve().unwrap();
     let listener = http.listeners.values().next().unwrap();
     let ListenerSettings::Tcp(tcp) = &listener.settings else { unreachable!() };
-    let mut host: crate::transport::HostConfig =
+    let mut host: crate::config::HostConfig =
         serde_yaml::from_str("root: public").unwrap();
     assert_eq!(allowed_protocols(tcp, &host), [H2, H1]);
     host.transport.protocols = Some(vec![H1, H2]);
