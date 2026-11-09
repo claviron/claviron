@@ -147,7 +147,7 @@ impl Control {
             },
         };
         channel.send(&Reply::Ready(identity)).await?;
-        let mut load = None;
+        let mut load: Option<Load> = None;
         let mut window: Option<Window> = None;
         let mut backend = None;
         let body = Bytes::from(vec![b'x'; self.launch.args.body_bytes]);
@@ -165,21 +165,38 @@ impl Control {
                     Err(error) => { state.initiate_shutdown(); return Err(error); }
                 },
             };
-            let result: Result<Reply> = match command {
+            if matches!(command, Command::Shutdown) {
+                if let Some(load) = load.take() { load.drain().await?; }
+                channel.send(&Reply::Ack).await?;
+                state.initiate_shutdown();
+                return Ok(());
+            }
+            // Every command's failure is answered with Reply::Failed before
+            // this loop ends, so the orchestrator reports the cause.
+            let result: Result<Reply> = async { match command {
+                Command::Prepare => {
+                    if !state.is_master() && self.launch.side == Side::Client {
+                        if backend.is_some() { return Err("backend already prepared".into()); }
+                        backend = Some(Backend::prepare(state, &self.launch)?);
+                    }
+                    Ok(Reply::Ack)
+                }
                 Command::Preflight => {
                     if !state.is_master() && self.launch.side == Side::Client {
-                        let prepared = Backend::prepare(state, &self.launch)?;
+                        let prepared = backend.as_ref().ok_or("prepare must run before preflight")?;
                         let reply = tokio::time::timeout(self.launch.client.request_timeout,
-                            prepared.exchange(self.launch.args.workload, &body)).await??;
-                        if !reply.0.is_success() || reply.1 != expected { return Err("preflight response mismatch".into()); }
-                        backend = Some(prepared);
+                            prepared.exchange(self.launch.args.workload, &body)).await
+                            .map_err(|_| "preflight exchange exceeded the client deadline")??;
+                        if !reply.0.is_success() || reply.1 != expected {
+                            return Err(format!("preflight response mismatch: status {}", reply.0).into());
+                        }
                     }
                     Ok(Reply::Ack)
                 }
                 Command::Load { depth } => {
                     if load.is_some() { return Err("load already running".into()); }
                     if !state.is_master() && self.launch.side == Side::Client {
-                        let backend = backend.clone().ok_or("preflight must run before load")?;
+                        let backend = backend.clone().ok_or("prepare must run before load")?;
                         load = Some(Load::start(depth, backend, body.clone(), expected.clone(), &self.launch, observations.clone()).await?);
                     }
                     Ok(Reply::Ack)
@@ -199,13 +216,8 @@ impl Control {
                     if let Some(load) = load.take() { load.drain().await?; }
                     Ok(Reply::Ack)
                 }
-                Command::Shutdown => {
-                    if let Some(load) = load.take() { load.drain().await?; }
-                    channel.send(&Reply::Ack).await?;
-                    state.initiate_shutdown();
-                    return Ok(());
-                }
-            };
+                Command::Shutdown => unreachable!("handled before dispatch"),
+            } }.await;
             match result {
                 Ok(reply) => channel.send(&reply).await?,
                 Err(error) => { channel.send(&Reply::Failed(error.to_string())).await?; return Err(error); }

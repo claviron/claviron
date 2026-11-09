@@ -147,6 +147,11 @@ async fn measure(
     drop(fixtures.tcp_reservation.take());
     families.push(Family::spawn(fixtures.client.clone())?);
     families[1].ready(listener, args.client_workers).await?;
+    // Every caller attaches before any timed exchange: a caller's attachment
+    // traffic must not overlap another caller's first deadline.
+    process::require_ack(
+        process::broadcast(families, &Command::Prepare).await?,
+    )?;
     process::require_ack(
         process::broadcast(families, &Command::Preflight).await?,
     )?;

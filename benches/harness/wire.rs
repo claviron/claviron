@@ -156,6 +156,10 @@ pub struct Identity {
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub enum Command {
+    /// Attach every caller to its destination; acknowledged only once this
+    /// caller's backend is prepared, so the broadcast is a barrier.
+    Prepare,
+    /// One timed exchange per caller, after every caller has been prepared.
     Preflight,
     Load { depth: usize },
     Begin,
