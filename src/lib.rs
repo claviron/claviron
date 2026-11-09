@@ -74,6 +74,8 @@ pub use orbitive;
 pub use warp;
 #[cfg(feature = "clients")]
 pub mod clients;
+#[cfg(feature = "supervisor")]
+pub use server::Workers;
 #[cfg(feature = "server")]
 pub use server::{Server, ServerOptions, bootstrap};
 mod error;

@@ -8,10 +8,14 @@ Claviron is an embeddable Rust application runtime and server fabric. It brings
 service lifecycle, HTTP hosting, application execution, process supervision, and
 same-host shared state into one composable system.
 
+Compose it as an Edge, an application runner, a managed client, a task service
+or a VPN service. Select capabilities through Cargo features and service
+registration; keep them together or connect separate processes through explicit
+application contracts.
+
 Your application owns its binary, business logic, configuration, and deployment.
-Claviron supplies the infrastructure around it: register the services you need,
-select how requests reach them, and manage their execution through a common
-lifecycle.
+Claviron supplies the infrastructure around it: register the services you need
+and manage their execution through a common lifecycle.
 
 ## Write your own edge
 
@@ -19,13 +23,20 @@ Select the `edge` feature. Your binary starts the server; `http.yaml` declares
 listeners and `vhost.yaml` declares the hosts and their routes.
 
 ```rust
-use claviron::{Result, Server};
+use claviron::{Result, Server, Workers};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    Server::new().config_dir("config").workers(4).serve().await
+    Server::new().config_dir("config")
+        .workers(Workers::Available)
+        .serve().await
 }
 ```
+
+`Workers::Available` opens one worker process per OS-reported available logical
+CPU, plus the supervisor master. Use `workers(4)` for an explicit count. The
+resolved count must fit the compiled fleet capacity; it is never silently capped.
+This selects processes, independently of your Tokio runtime and listener execution.
 
 Each listener is a managed runnable. Edge prepares a pipeline for each selected
 listener/host combination; unused layers contribute no request-time action.
@@ -119,6 +130,59 @@ at boot/reload; request-time code runs only the actions that were installed.
 See [HostPipeline](docs/design/HOST_PIPELINE.md) and the
 [backend contract](docs/design/EDGE_BACKENDS.md) for ordering and ownership.
 
+### A configuration directive: CSRF
+
+An application can add typed configuration without changing Claviron's schema.
+Here `sites` is its `SiteRegistry`, `CsrfLayer` implements `RouteLayer`, and
+`verifier` owns session/token verification and rejection responses:
+
+```rust
+use claviron::pipeline::extension::{directive, RouteEffect};
+use std::sync::Arc;
+
+sites.register_route_extension(directive::<bool, _>("csrf", move |_, enabled| {
+    Ok(RouteEffect::Layer(Arc::new(CsrfLayer::new(enabled, verifier.clone()))))
+}))?;
+```
+
+The registered directive can then be selected for a path:
+
+```yaml
+routes:
+  /account:
+    csrf: true
+```
+
+`CsrfLayer::prepare` installs its request-head check only when enabled, before
+that scope's application handler. The application decides which methods require
+verification and how cookies, tokens and session scope are validated. `csrf` is
+an application-owned directive, not an implicit built-in policy. Typed decoding
+and layer preparation happen at boot/reload.
+
+## Embed PHP in your server
+
+[Claviron PHP](https://github.com/claviron/php) supplies in-process PHP SAPI and
+an independent FastCGI backend. Embed supports ordinary request scripts and
+persistent application mode. Register its backend in the same pipeline as Rust
+handlers and files.
+
+PHP Embed's native extensions expose selected host services: cache stores,
+SQL pools, events, shared state and logging. With a cache store prepared by the
+host, PHP can use it directly:
+
+```php
+$cache = claviron_cache_store();
+claviron_cache_put($cache, 'greeting', ['message' => 'Hello from PHP']);
+header('Content-Type: application/json');
+echo json_encode(claviron_cache_get($cache, 'greeting'), JSON_THROW_ON_ERROR);
+```
+
+The [claviron/sapi package](https://github.com/claviron/php/tree/main/php)
+supplies PHP declarations and a Monolog adapter. The native host selects and
+prepares the services; Composer alone does not provide them. See the
+[PHP integration guide](https://github.com/claviron/php#pipeline-integration)
+for engine and backend registration.
+
 ## Use a framework runner
 
 The framework keeps its routes, middleware and application conventions.
@@ -142,6 +206,22 @@ async fn main() -> lumenize::Result<()> {
 including its Composer package and persistent application mode.
 See its [Runner guide](https://github.com/claviron/lumenize/blob/main/docs/runner/README.md)
 for the launch configuration.
+
+Its `claviron/laravel` extensions connect Laravel cache, sessions, queues,
+database connections, logging and broadcasting to selected native host services.
+Laravel keeps its container, routes, Eloquent and authorization. After configuring
+a Claviron-backed default cache store, application code remains ordinary Laravel:
+
+```php
+use Illuminate\Support\Facades\Cache;
+
+Cache::put('greeting', 'Hello from Laravel');
+return response()->json(['message' => Cache::get('greeting')]);
+```
+
+Persistent Octane execution is an explicit mode. The same integration can be
+registered in an application-owned Edge without selecting Lumenize's Runner.
+See the [Laravel adapters](https://github.com/claviron/lumenize/tree/main/php).
 
 ### Python / ASGI with Gufi
 
@@ -205,7 +285,58 @@ The [Go binding](https://github.com/claviron/go) documents native library setup;
 its [complete example](https://github.com/claviron/go/tree/main/examples/plain)
 owns signals and process shutdown.
 
-For either application above, an Edge host can select it with:
+### C or C++: a native callback
+
+With the binding's `orbit.h`, write an HTTP handler:
+
+```c
+static uint32_t hello(orbit_request *request, void *context) {
+    (void)context;
+    uint32_t status = orbit_response_begin(request, 200);
+    if (status != ORBIT_OK) return status;
+    status = orbit_response_write(request, (const uint8_t *)"Hello!\n", 7);
+    return status == ORBIT_OK ? orbit_response_finish(request) : status;
+}
+```
+
+After opening a runtime and joining application `hello` on fleet `apps`:
+
+```c
+orbit_http_handler http = {.request = hello};
+uint32_t status = orbit_serve(app, &http, NULL, NULL);
+```
+
+The [C binding](https://github.com/claviron/c) provides runtime creation,
+explicit budgets and lifecycle APIs. Callbacks run on the calling thread;
+native Orbit I/O uses the selected runtime. The same handlers can attach to
+an existing event loop, including libuv. See its
+[complete example](https://github.com/claviron/c/blob/main/examples/echo.c)
+for error handling, shutdown and resource release.
+
+### Java: a handler on your executor
+
+Use `dev.claviron.orbit` with `CompletableFuture` and `Executors`. Within your
+application's lifecycle, `stopped` is a caller-owned `CountDownLatch` signalled
+during shutdown:
+
+```java
+var options = new ApplicationOptions("apps", "hello", 1, 128, 64, 64);
+try (var library = NativeLibrary.load();
+     var runtime = library.openRuntime(1024, 16 * 1024 * 1024, 2);
+     var handlers = Executors.newVirtualThreadPerTaskExecutor();
+     var app = runtime.join(options)) {
+    app.serve(request -> CompletableFuture.completedStage(
+            OrbitResponse.text("Hello from Java")), handlers);
+    stopped.await();
+}
+```
+
+The [Java binding](https://github.com/claviron/java) uses JDK FFM and a matching
+native library. Your application owns its JVM, executor and shutdown signal.
+See the [complete Java example](https://github.com/claviron/java/blob/main/examples/plain/PlainApplication.java)
+for imports and lifecycle setup, and the package guide for native-access flags.
+
+For any application above, an Edge host can select it with:
 
 ```yaml
 # config/vhost.yaml
@@ -256,7 +387,7 @@ path.
 | [transport](crates/transport/README.md) | Named listener runnables and socket/HTTP connection driving shared by Edge and Runner. | `transport` through `edge`; Runner sockets through `runner-socket` |
 | [tls](crates/tls/README.md) | TLS handshakes, shared certificate resolution, and mTLS client-auth policy. | `tls` (includes `ssl`) |
 | [files](crates/files/README.md) | Static-file serving, caching, and response construction. | `files`; included by `edge`, usable without it |
-| [upstream](crates/upstream/README.md) | HTTP origin selection, pools, forwarding, and reload. | `upstream` (includes Edge integration and resolver contracts) |
+| [upstream](crates/upstream/README.md) | HTTP origin selection, pools, forwarding, and reload. | `upstream`; selecting `edge` also enables its Edge adapter |
 | [resolver](crates/resolver/README.md) | DNS client contracts and optional Hickory implementation. | `resolver`; built-in driver: `resolver-hickory` |
 
 Upstream applications bind their resolver implementation explicitly.
@@ -281,10 +412,10 @@ Language engines and realtime backends live in independent repositories:
 
 | Integration | Project |
 | --- | --- |
-| Embedded PHP and FastCGI | `claviron-php` |
-| Embedded Python / ASGI | `claviron-asgi` |
-| Embedded Lua | `claviron-lua` |
-| Broadcast and Pusher compatibility | `claviron-broadcast` |
+| Embedded PHP and FastCGI | [claviron-php](https://github.com/claviron/php) |
+| Embedded Python / ASGI | [claviron-asgi](https://github.com/claviron/asgi) |
+| Embedded Lua | [claviron-lua](https://github.com/claviron/lua) |
+| Broadcast and Pusher compatibility | [claviron-broadcast](https://github.com/claviron/broadcast) |
 
 Applications register their selected adapters; each prepares its backend through
 the shared pipeline contract.
@@ -494,6 +625,7 @@ composition.
 These notes explain the choices behind Claviron's behavior, not new protocol
 standards. Their identifiers are stable search keys across code and documentation.
 
+- [FIHI_MAFIH](docs/design/FIHI_MAFIH.md) — compose the same runtime libraries into different application roles and explicit deployment boundaries.
 - [HOST_PIPELINE](docs/design/HOST_PIPELINE.md) — connection binding, prepared host policy and native application dispatch.
 - [EARLY_DATA_POLICY](docs/design/EARLY_DATA_POLICY.md) — separate 0-RTT support from permission to execute early requests.
 - [CONNECTION_HIJACK](docs/design/CONNECTION_HIJACK.md) — let PHP and Rust use the same request-owned PostgreSQL session.

@@ -83,6 +83,14 @@ registered instances. They neither configure nor start services. The builder's
 callback type is inferred, so callers use `let server = ...` rather than fixing
 it to the default `Server` type.
 
+`Server::workers` and `ServerOptions::workers` accept a count or
+`Workers::Available`. The latter is resolved once at primary initialization using
+`std::thread::available_parallelism`; worker re-execs inherit the concrete
+`WorkerCount`. Configuration checks keep zero workers. Detection failures and
+counts exceeding the compiled fleet capacity are errors, with no fallback or
+silent cap. This chooses processes, independently of the caller-owned Tokio
+runtime and each listener's execution policy.
+
 The order is: load identity, register providers, acquire the process-family
 lock, install signals, configure through the shared Congif reader, boot and
 validate providers, spawn runnables, wait,

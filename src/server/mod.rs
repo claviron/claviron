@@ -25,6 +25,10 @@ pub use error::{Error, Result};
 pub mod bootstrap;
 
 mod instance;
+#[cfg(feature = "supervisor")]
+mod workers;
+#[cfg(feature = "supervisor")]
+pub use workers::Workers;
 #[cfg(not(feature = "supervisor"))]
 mod signals;
 #[cfg(test)]
@@ -75,7 +79,7 @@ pub struct ServerOptions {
     fleet_name: FleetName,
     environment: EnvironmentChoice,
     #[cfg(feature = "supervisor")]
-    worker_count: u8,
+    workers: Workers,
     launch: LaunchBlob,
     signals: claviron_sys::signal::ServerSignals,
     system_log: Option<Option<logging::SystemLogConfig>>,
@@ -89,7 +93,7 @@ impl Default for ServerOptions {
             fleet_name: FleetName::from(DEFAULT_FLEET_NAME),
             environment: EnvironmentChoice::Local,
             #[cfg(feature = "supervisor")]
-            worker_count: 0,
+            workers: Workers::Count(0),
             launch: LaunchBlob::default(),
             signals: claviron_sys::signal::ServerSignals::default(),
             system_log: None,
@@ -192,15 +196,17 @@ impl ServerOptions {
         self
     }
 
-    /// Configure the initial desired number of worker children. Zero means
-    /// standalone. The fleet capacity is not an option: the build pins it
-    /// (`CLAVIRON_FLEET_CAPACITY`) beside the ring geometry it must match.
+    /// Select the initial worker processes: an explicit count (zero means
+    /// standalone), or [`Workers::Available`] for the OS-reported available
+    /// logical CPU count. The primary process resolves this before boot.
+    /// The result must fit the compiled `CLAVIRON_FLEET_CAPACITY`; it is never
+    /// silently reduced. Runtime threads and listener execution are separate.
     #[cfg(feature = "supervisor")]
     pub fn workers(
         mut self,
-        worker_count: u8,
+        workers: impl Into<Workers>,
     ) -> Self {
-        self.worker_count = worker_count;
+        self.workers = workers.into();
         self
     }
 
@@ -363,9 +369,9 @@ where
     #[cfg(feature = "supervisor")]
     pub fn workers(
         mut self,
-        worker_count: u8,
+        workers: impl Into<Workers>,
     ) -> Self {
-        self.options = self.options.workers(worker_count);
+        self.options = self.options.workers(workers);
         self
     }
 
@@ -492,11 +498,13 @@ where
 
                 // A check never takes the master's role: it spawns and adopts
                 // no workers, and must not read the live fleet's as its own.
-                let worker_count = WorkerCount::new(if check {
-                    0
+                let worker_count = if check {
+                    WorkerCount::ZERO
                 } else {
-                    self.options.worker_count
-                });
+                    self.options
+                        .workers
+                        .resolve(std::thread::available_parallelism)?
+                };
                 // Lane geometry is the build's: `CLAVIRON_FLEET_CAPACITY`
                 // beside the ring sizes, or the runtime's default.
                 let fleet_capacity = FleetCapacity::BUILT;
