@@ -767,30 +767,52 @@ impl ApplicationClient {
         self.hot.available(&self.bodies) || self.bodies.streams().can_create()
     }
 
-    fn send_acquiring<G>(
+    /// Whether `send_to` considers `lane` at all, and its depth if so.
+    fn candidate(
         &self,
-        application: &str,
-        lanes: &[usize],
-        request: &mut Exchange,
-        acquisition: G,
-    ) -> Result<Pending> {
+        lane: usize,
+    ) -> Option<u64> {
         // A bounded target may have every slot reserved and every published
         // frame still unread. Keep it in the candidate set: inbox fullness
         // must not turn execution saturation into "no consumer".
+        let admission = self.inbox().admits(lane).ok()?;
+        let bounded = self.inbox().work_capacity(lane).ok()?.is_some();
+        if admission == super::Admission::Accepted
+            || (bounded && admission == super::Admission::Full)
+        {
+            self.inbox().depth(lane).ok()
+        } else {
+            None
+        }
+    }
+
+    /// Try one receiver; `None` when it refused or is gone.
+    fn try_reserve(
+        &self,
+        target: usize,
+        full: &mut bool,
+    ) -> Result<Option<Chosen>> {
+        match self.segment.reserve_work(target, self.lane) {
+            Ok(admission) => Ok(Some((target, admission))),
+            Err(Error::CapacityFull) => {
+                *full = true;
+                Ok(None)
+            }
+            Err(Error::ReceiverGone) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    /// The shipped policy: every lane, sorted by depth, ties by rotation.
+    fn choose_scan(
+        &self,
+        application: &str,
+        lanes: &[usize],
+    ) -> Result<(Option<Chosen>, bool)> {
         let mut targets: Vec<_> = lanes
             .iter()
             .copied()
-            .filter_map(|lane| {
-                let admission = self.inbox().admits(lane).ok()?;
-                let bounded = self.inbox().work_capacity(lane).ok()?.is_some();
-                if admission == super::Admission::Accepted
-                    || (bounded && admission == super::Admission::Full)
-                {
-                    self.inbox().depth(lane).ok().map(|depth| (lane, depth))
-                } else {
-                    None
-                }
-            })
+            .filter_map(|lane| self.candidate(lane).map(|depth| (lane, depth)))
             .collect();
         targets.sort_by_key(|(_, depth)| *depth);
         let Some((_, idlest)) = targets.first().copied() else {
@@ -799,7 +821,6 @@ impl ApplicationClient {
         let tied =
             targets.iter().take_while(|(_, depth)| *depth == idlest).count();
         let turn = self.rotation.fetch_add(1, Ordering::Relaxed) as usize;
-        let mut selected = None;
         let mut full = false;
         for offset in 0..targets.len() {
             let index = if offset < tied {
@@ -807,19 +828,91 @@ impl ApplicationClient {
             } else {
                 offset
             };
-            let target = targets[index].0;
-            match self.segment.reserve_work(target, self.lane) {
-                Ok(admission) => {
-                    selected = Some((target, admission));
-                    break;
-                }
-                Err(Error::CapacityFull) => {
-                    full = true;
-                }
-                Err(Error::ReceiverGone) => {}
-                Err(error) => return Err(error),
+            if let Some(selected) =
+                self.try_reserve(targets[index].0, &mut full)?
+            {
+                return Ok((Some(selected), full));
             }
         }
+        Ok((None, full))
+    }
+
+    /// Plan #3 `two`: two lanes at random, the shallower first.
+    fn choose_two(
+        &self,
+        lanes: &[usize],
+    ) -> Result<(Option<Chosen>, bool)> {
+        let mut full = false;
+        if lanes.len() < 2 {
+            return Ok((None, full));
+        }
+        let turn = self.rotation.fetch_add(1, Ordering::Relaxed);
+        let random = turn
+            .wrapping_add(self.lane as u64)
+            .wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        let first = (random % lanes.len() as u64) as usize;
+        let mut second = ((random >> 32) % (lanes.len() as u64 - 1)) as usize;
+        if second >= first {
+            second += 1;
+        }
+        let (first, second) = (lanes[first], lanes[second]);
+        let order = match (self.candidate(first), self.candidate(second)) {
+            (Some(a), Some(b)) if b < a => [Some(second), Some(first)],
+            (Some(_), Some(_)) => [Some(first), Some(second)],
+            (Some(_), None) => [Some(first), None],
+            (None, Some(_)) => [Some(second), None],
+            (None, None) => [None, None],
+        };
+        for target in order.into_iter().flatten() {
+            if let Some(selected) = self.try_reserve(target, &mut full)? {
+                return Ok((Some(selected), full));
+            }
+        }
+        Ok((None, full))
+    }
+
+    /// Plan #3 `home`: this sender's own receiver first, then the next ones in
+    /// a fixed order, each up to its admission bound. Senders start from
+    /// different receivers because their lanes differ.
+    fn choose_home(
+        &self,
+        lanes: &[usize],
+    ) -> Result<(Option<Chosen>, bool)> {
+        let mut full = false;
+        if lanes.is_empty() {
+            return Ok((None, full));
+        }
+        let start = self.lane % lanes.len();
+        for offset in 0..lanes.len() {
+            let target = lanes[(start + offset) % lanes.len()];
+            if self.candidate(target).is_none() {
+                continue;
+            }
+            if let Some(selected) = self.try_reserve(target, &mut full)? {
+                return Ok((Some(selected), full));
+            }
+        }
+        Ok((None, full))
+    }
+
+    fn send_acquiring<G>(
+        &self,
+        application: &str,
+        lanes: &[usize],
+        request: &mut Exchange,
+        acquisition: G,
+    ) -> Result<Pending> {
+        // Plan #3 experiment: the selection policy is chosen at build time.
+        let (selected, full) = if experiment::HOME {
+            self.choose_home(lanes)?
+        } else if experiment::TWO {
+            match self.choose_two(lanes)? {
+                (Some(selected), full) => (Some(selected), full),
+                (None, _) => self.choose_scan(application, lanes)?,
+            }
+        } else {
+            self.choose_scan(application, lanes)?
+        };
         let Some((target, admission)) = selected else {
             return Err(if full {
                 Error::CapacityFull
@@ -1343,4 +1436,41 @@ fn deliver(
             let _ = sender.send(reply);
         }
     }
+}
+
+/// A receiver chosen for one exchange, and its admission when it is bounded.
+type Chosen = (usize, Option<super::WorkReservation>);
+
+/// Plan #3 experiment, playground only: which selection policy this build uses,
+/// from `CLAVIRON_TARGET_CHOICE` at compile time (`scan`, `two` or `home`).
+mod experiment {
+    const CHOICE: &str = match option_env!("CLAVIRON_TARGET_CHOICE") {
+        Some(choice) => choice,
+        None => "scan",
+    };
+
+    const fn same(
+        a: &str,
+        b: &str,
+    ) -> bool {
+        let (a, b) = (a.as_bytes(), b.as_bytes());
+        if a.len() != b.len() {
+            return false;
+        }
+        let mut at = 0;
+        while at < a.len() {
+            if a[at] != b[at] {
+                return false;
+            }
+            at += 1;
+        }
+        true
+    }
+
+    pub(super) const TWO: bool = same(CHOICE, "two");
+    pub(super) const HOME: bool = same(CHOICE, "home");
+    const _: () = assert!(
+        same(CHOICE, "scan") || TWO || HOME,
+        "CLAVIRON_TARGET_CHOICE must be scan, two or home"
+    );
 }

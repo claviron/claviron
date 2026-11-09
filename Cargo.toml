@@ -353,6 +353,13 @@ test = false
 required-features = ["supervisor", "rust", "bench", "runner-orbit", "runner-socket", "upstream"]
 
 [[bench]]
+name = "link-selection"
+path = "benches/transport/link/selection.rs"
+harness = false
+test = false
+required-features = ["orbit"]
+
+[[bench]]
 name = "h2-concurrent"
 path = "benches/transport/h2/concurrent.rs"
 harness = false
