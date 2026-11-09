@@ -10,7 +10,7 @@ async fn dropping_a_lent_reader_cancels_before_the_upload_returns() {
     let (origin, ticket) = streams.create().unwrap();
     let remote = streams.open(ticket).unwrap();
     let (read, write) = origin.split();
-    let hot = Arc::new(Mutex::new(Hot::default()));
+    let hot = Arc::new(Hot::default());
     let loan = Arc::new(Loan {
         hot: Arc::clone(&hot),
         ticket,
@@ -21,10 +21,10 @@ async fn dropping_a_lent_reader_cancels_before_the_upload_returns() {
     let (_incoming, mut outgoing) = remote.split();
     drop(reader);
     outgoing.peer_closed().await.unwrap();
-    assert!(hot.lock().unwrap().slots.is_empty());
+    assert!(hot.slots.lock().unwrap().is_empty());
     drop(writer);
     drop((_incoming, outgoing));
-    let (mut endpoint, _) = hot.lock().unwrap().slots.pop_front().unwrap();
+    let (mut endpoint, _) = hot.slots.lock().unwrap().pop_front().unwrap();
     endpoint.rearm(&streams).unwrap();
     let replacement = streams.open(ticket).unwrap();
     let (_read, mut write) = replacement.split();
@@ -219,4 +219,243 @@ fn inconsistent_row_count_cannot_complete_or_replace_a_batch() {
 
     state.accept(row(11, 1, 2), Some(42));
     assert_eq!(state.completed.as_ref().unwrap().rows, vec![vec![1], vec![2]]);
+}
+
+struct CreatorPressure {
+    segment: Arc<ApplicationSegment>,
+    worker: super::super::Joined,
+    bodies: ApplicationBodies,
+    receiver: super::super::ApplicationReceiver,
+    client: Arc<ApplicationClient>,
+}
+
+impl CreatorPressure {
+    fn new(tag: &str) -> Self {
+        let name = format!("cs{tag}{:x}", std::process::id());
+        let spec = orbitive::link::LinkSpec::new(
+            4,
+            super::super::LINK_SPEC.inbox_kind,
+            orbitive::link::InboxGeometry::new(4, 1024),
+            orbitive::stream::StreamSpec::new(
+                super::super::LINK_SPEC.streams.kind,
+                1,
+                1024,
+            ),
+        );
+        let segment = Arc::new(
+            ApplicationSegment::for_fleet_with_spec(
+                &name,
+                spec,
+                &Access::OwnerOnly,
+            )
+            .unwrap(),
+        );
+        let worker =
+            segment.join_with_capacity("example", "rust", 1, Some(1)).unwrap();
+        let bodies =
+            ApplicationBodies::for_segment(&segment, worker.lane, 1).unwrap();
+        let receiver = segment.application_receiver(worker.lane).unwrap();
+        let client = ApplicationClient::join_segment(
+            Arc::clone(&segment),
+            "caller",
+            2,
+            None,
+            None,
+        )
+        .unwrap();
+        Self { segment, worker, bodies, receiver, client }
+    }
+
+    async fn occupy(&mut self) -> (Pending, Endpoint) {
+        let pending =
+            self.client.target("example").send(Exchange::default()).unwrap();
+        let mut frame = Vec::new();
+        loop {
+            let received = self.receiver.next(&mut frame).await.unwrap();
+            if !matches!(received, Received::Work(_)) {
+                continue;
+            }
+            if let Some((_, execution)) = self
+                .segment
+                .accept_frame(self.worker.lane, received, &frame)
+                .unwrap()
+            {
+                let exchange =
+                    Exchange::decode(Bytes::copy_from_slice(&frame)).unwrap();
+                let remote =
+                    self.bodies.accept(exchange.stream.unwrap()).unwrap();
+                // Isolate creator pressure: the receiver admission slot is free,
+                // while the body transport deliberately still has both owners.
+                drop(execution);
+                return (pending, remote);
+            }
+        }
+    }
+
+    fn assert_receiver_is_free(&self) {
+        let reservation = self
+            .segment
+            .reserve_work(self.worker.lane, self.client.lane)
+            .unwrap();
+        assert!(reservation.is_some());
+        drop(reservation);
+    }
+}
+
+impl Drop for CreatorPressure {
+    fn drop(&mut self) {
+        self.client.leave();
+        let _ = self.segment.inbox().release_lane(self.worker.lane);
+        let _ = self.bodies.unlink();
+        let _ = self.segment.unlink();
+    }
+}
+
+#[tokio::test]
+async fn creator_wait_handles_both_release_orders_without_holding_receiver_admission()
+ {
+    for (tag, remote_first) in [("a", true), ("b", false)] {
+        let mut case = CreatorPressure::new(tag);
+        let (pending, remote) = case.occupy().await;
+        let target = case.client.target("example");
+        assert!(matches!(
+            target.send(Exchange::default()),
+            Err(Error::Stream(orbitive::stream::Error::Full { .. }))
+        ));
+        let mut sending = Box::pin(target.send_wait(Exchange::default()));
+        let mut cx = Context::from_waker(std::task::Waker::noop());
+        assert!(sending.as_mut().poll(&mut cx).is_pending());
+        case.assert_receiver_is_free();
+        // Control frames still pass through the receiver while the caller parks.
+        let command = ControlCommand {
+            application: "example".into(),
+            name: "status".into(),
+            payload: vec![],
+            target: None,
+        };
+        case.segment
+            .inbox()
+            .write(case.worker.lane, &command.encode().unwrap())
+            .unwrap();
+        let mut frame = Vec::new();
+        loop {
+            if case.receiver.next(&mut frame).await.unwrap() == Received::Frame
+            {
+                assert_eq!(frame_kind(&frame).unwrap(), FrameKind::Control);
+                break;
+            }
+        }
+        if remote_first {
+            drop(remote);
+            assert!(
+                sending.as_mut().poll(&mut cx).is_pending(),
+                "the local loan still holds the endpoint"
+            );
+            drop(pending);
+        } else {
+            drop(pending);
+            assert!(
+                sending.as_mut().poll(&mut cx).is_pending(),
+                "the peer still holds its claim"
+            );
+            case.assert_receiver_is_free();
+            drop(remote);
+        }
+        let sent = sending.await.unwrap();
+        assert_eq!(
+            sent.correlation, 2,
+            "failed attempts allocate no correlation and publish no exchange"
+        );
+    }
+}
+
+#[tokio::test]
+async fn creator_wait_cancels_without_publication_and_wakes_when_the_client_leaves()
+ {
+    let mut case = CreatorPressure::new("c");
+    let (pending, remote) = case.occupy().await;
+    let target = case.client.target("example");
+    let mut cancelled = Box::pin(target.send_wait(Exchange::default()));
+    assert!(
+        cancelled
+            .as_mut()
+            .poll(&mut Context::from_waker(std::task::Waker::noop()))
+            .is_pending()
+    );
+    drop(cancelled);
+    case.assert_receiver_is_free();
+    assert!(case.client.waiting.senders.lock().unwrap().contains_key(&1));
+    assert_eq!(case.client.waiting.senders.lock().unwrap().len(), 1);
+    let mut sending = Box::pin(target.send_wait(Exchange::default()));
+    assert!(
+        sending
+            .as_mut()
+            .poll(&mut Context::from_waker(std::task::Waker::noop()))
+            .is_pending()
+    );
+    case.client.leave();
+    assert!(matches!(sending.await, Err(Error::NoConsumer(_))));
+    drop((pending, remote));
+}
+
+#[test]
+fn the_last_returned_local_half_wakes_the_creator_waiter() {
+    use std::sync::atomic::AtomicUsize;
+    use std::task::{Wake, Waker};
+    #[derive(Default)]
+    struct Count(AtomicUsize);
+    impl Wake for Count {
+        fn wake(self: Arc<Self>) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+    let streams = orbitive::stream::Streams::new(
+        Arc::new(orbitive::Fleet::join("loan-return", 2).unwrap()),
+        orbitive::stream::Incarnation::new(1),
+    )
+    .unwrap();
+    let (origin, ticket) = streams.create().unwrap();
+    let _remote = streams.open(ticket).unwrap();
+    let (read, write) = origin.split();
+    let hot = Arc::new(Hot::default());
+    let loan = Arc::new(Loan {
+        hot: Arc::clone(&hot),
+        ticket,
+        halves: Mutex::new((None, None)),
+    });
+    let read = LentRead { half: Some(read), loan: Arc::clone(&loan) };
+    let write = LentWrite { half: Some(write), loan };
+    let count = Arc::new(Count::default());
+    let waker = Waker::from(Arc::clone(&count));
+    let mut returned = Box::pin(hot.returned.notified());
+    assert!(
+        returned.as_mut().poll(&mut Context::from_waker(&waker)).is_pending()
+    );
+    drop(read);
+    assert_eq!(count.0.load(Ordering::SeqCst), 0);
+    drop(write);
+    assert_eq!(count.0.load(Ordering::SeqCst), 1);
+    assert_eq!(hot.slots.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn creator_wait_expires_with_the_callers_queue_budget_without_publishing()
+{
+    let mut case = CreatorPressure::new("d");
+    let (_pending, _remote) = case.occupy().await;
+    let target = case.client.target("example");
+    // An already-expired caller budget tests cancellation without a sleep or
+    // an implementation-owned timer. The pipeline owns the real queue budget.
+    let deadline = tokio::time::Instant::now();
+    assert!(
+        tokio::time::timeout_at(
+            deadline,
+            target.send_wait(Exchange::default())
+        )
+        .await
+        .is_err()
+    );
+    case.assert_receiver_is_free();
+    assert_eq!(case.client.waiting.senders.lock().unwrap().len(), 1);
+    assert_eq!(case.client.correlation.load(Ordering::Relaxed), 2);
 }

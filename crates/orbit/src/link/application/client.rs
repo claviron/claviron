@@ -24,7 +24,7 @@
 //! re-arming hands that side to whichever process the next exchange is
 //! addressed to. The caller retains these slots in its internal hot-slot cache.
 //!
-//! Nothing else is. No health probe, no warm floor, no retry: there is no
+//! Nothing else is. No health probe, no warm floor, no request replay: there is no
 //! acknowledgement to retry against, and a request that was written was
 //! delivered while one that was not is a 503 before anything ran.
 //!
@@ -163,7 +163,8 @@ impl Drop for ReplyWait {
 /// which is the point — they are this worker's seats and nobody else's.
 #[derive(Default)]
 struct Hot {
-    slots: VecDeque<(Endpoint, Ticket)>,
+    slots: Mutex<VecDeque<(Endpoint, Ticket)>>,
+    returned: tokio::sync::Notify,
 }
 
 impl Hot {
@@ -180,18 +181,20 @@ impl Hot {
     /// Oldest first, since the slot that came home longest ago is the one most
     /// likely to have been let go.
     fn take(
-        &mut self,
+        &self,
         bodies: &ApplicationBodies,
     ) -> Option<(Endpoint, Ticket)> {
+        let mut slots =
+            self.slots.lock().expect("the hot-slot mutex is never poisoned");
         let mut at = 0;
-        while at < self.slots.len() {
-            match bodies.rearm(&mut self.slots[at].0) {
-                Ok(()) => return self.slots.remove(at),
+        while at < slots.len() {
+            match bodies.rearm(&mut slots[at].0) {
+                Ok(()) => return slots.remove(at),
                 Err(Error::Stream(orbitive::stream::Error::WouldBlock)) => {
                     at += 1
                 }
                 Err(_) => {
-                    self.slots.remove(at);
+                    slots.remove(at);
                 }
             }
         }
@@ -207,7 +210,7 @@ impl Hot {
 /// slot alone. Each puts itself here as it is dropped, and the second one to
 /// arrive rejoins them and puts the slot back.
 struct Loan {
-    hot: Arc<Mutex<Hot>>,
+    hot: Arc<Hot>,
     ticket: Ticket,
     halves: Mutex<(Option<ReadHalf>, Option<WriteHalf>)>,
 }
@@ -230,10 +233,11 @@ impl Loan {
         let Some(endpoint) = rejoined else { return };
 
         self.hot
+            .slots
             .lock()
             .expect("the hot-slot mutex is never poisoned")
-            .slots
             .push_back((endpoint, self.ticket));
+        self.hot.returned.notify_waiters();
     }
 }
 
@@ -349,7 +353,7 @@ pub struct ApplicationClient {
     /// Which of the idlest targets to take next. See [`ApplicationClient::send`].
     rotation: AtomicU64,
     directory: Mutex<Directory>,
-    hot: Arc<Mutex<Hot>>,
+    hot: Arc<Hot>,
     waiting: Arc<Waiting>,
     reader: Mutex<Option<tokio::task::JoinHandle<()>>>,
     last_seen: Arc<Mutex<HashMap<String, String>>>,
@@ -423,6 +427,7 @@ impl Directory {
 #[derive(Default)]
 struct Waiting {
     capacity_changed: tokio::sync::Notify,
+    membership_changed: tokio::sync::Notify,
     closed: AtomicBool,
     senders: Mutex<HashMap<u64, (LaneOwner, oneshot::Sender<ExchangeReply>)>>,
 }
@@ -857,6 +862,20 @@ impl ApplicationClient {
         &self.waiting.capacity_changed
     }
 
+    pub(super) fn streams_returned(&self) -> &tokio::sync::Notify {
+        &self.hot.returned
+    }
+
+    pub(super) fn membership_changed(&self) -> &tokio::sync::Notify {
+        &self.waiting.membership_changed
+    }
+
+    pub(super) fn stream_capacity_changed(
+        &self
+    ) -> orbitive::stream::CapacityChanged {
+        self.bodies.streams().capacity_changed()
+    }
+
     pub(super) fn watch_capacity(
         &self,
         lanes: &[usize],
@@ -871,11 +890,7 @@ impl ApplicationClient {
 
     /// A kept stream re-armed for this exchange, or a new one.
     fn take_hot(&self) -> Result<(Endpoint, Ticket)> {
-        let kept = self
-            .hot
-            .lock()
-            .expect("the hot-slot mutex is never poisoned")
-            .take(&self.bodies);
+        let kept = self.hot.take(&self.bodies);
         match kept {
             Some(slot) => Ok(slot),
             None => Ok(self.bodies.create()?),
@@ -890,6 +905,7 @@ impl ApplicationClient {
     pub fn leave(&self) {
         self.waiting.closed.store(true, Ordering::Release);
         self.waiting.capacity_changed.notify_waiters();
+        self.waiting.membership_changed.notify_waiters();
         let _ = self.segment.inbox().release_lane(self.lane);
         drop(self.hold.lock().expect("lane hold").take());
         if let Some(reader) = self.reader.lock().expect("reader handle").take()
@@ -972,6 +988,7 @@ impl ApplicationClient {
                     },
                     Ok(Received::Directory(_)) => {
                         waiting.capacity_changed.notify_waiters();
+                        waiting.membership_changed.notify_waiters();
                         while watches.try_join_next().is_some() {}
                         for peer in observe_applications(
                             &mut applications,
@@ -994,6 +1011,7 @@ impl ApplicationClient {
                         );
                         waiting.closed.store(true, Ordering::Release);
                         waiting.capacity_changed.notify_waiters();
+                        waiting.membership_changed.notify_waiters();
                         return;
                     }
                 }

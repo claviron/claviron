@@ -639,7 +639,16 @@ advertises shared admission slots, at most `LINK_INBOX_CAPACITY`; this is
 separate from unread inbox frames and creator-side body slots. All callers
 reserve the same target capacity before taking a body slot. `send` is fail-fast;
 `ApplicationTarget::send_wait` registers interest, rechecks and parks through the
-existing inbox bell. Pipeline waiting uses `requests.queue_timeout` when declared.
+existing inbox bell. Creator stream pressure also waits: local endpoint return
+and remote claim release are independent signals, with the latter delivered by
+the existing stream doorbell. Each wait arms before retrying. Failed attempts
+release receiver admission before parking; no body slot or receiver reservation
+is held by the wait. Directory/close notifications interrupt creator waits
+independently of receiver-capacity returns, avoiding self-wake from a failed
+attempt's reservation rollback. Already-published requests are never retried.
+Pipeline waiting wraps the whole send in one `requests.queue_timeout` when
+declared; retries do not renew it. Cancellation removes the pending observations,
+not accepted remote work. Inbox publication failure remains fail-fast.
 
 `ApplicationReceiver` keeps reading control/events while work runs and observes
 exact originating-process exit for abandoned reservations. `accept_frame`

@@ -93,7 +93,8 @@ impl ApplicationTarget {
         self.0.client.send_to(&self.0.application, &lanes.lanes, &mut request)
     }
 
-    /// Wait for receiver capacity without holding a body stream. Dropping
+    /// Wait for receiver or creator stream capacity without holding either
+    /// reservation while parked. Dropping
     /// this future cancels only the unsubmitted exchange. The caller owns
     /// any waiting budget; this method adds no timer or retry interval.
     pub async fn send_wait(
@@ -109,6 +110,41 @@ impl ApplicationTarget {
                 &mut request,
             ) {
                 Err(super::Error::CapacityFull) => {}
+                Err(super::Error::Stream(orbitive::stream::Error::Full {
+                    ..
+                })) => {
+                    // A local endpoint returning and a remote peer releasing
+                    // are different events. Arm both before retrying. A local
+                    // directory/close notification must also interrupt this wait.
+                    let returned = self.0.client.streams_returned().notified();
+                    let changed = self.0.client.membership_changed().notified();
+                    tokio::pin!(returned, changed);
+                    returned.as_mut().enable();
+                    changed.as_mut().enable();
+                    let released = self.0.client.stream_capacity_changed();
+                    let current = self
+                        .0
+                        .lanes
+                        .load(self.0.client.inbox(), &self.0.application);
+                    match self.0.client.send_to(
+                        &self.0.application,
+                        &current.lanes,
+                        &mut request,
+                    ) {
+                        Err(super::Error::Stream(
+                            orbitive::stream::Error::Full { .. },
+                        )) => {
+                            tokio::select! {
+                                _ = returned => {},
+                                _ = changed => {},
+                                result = released => result.map_err(super::Error::Stream)?,
+                            }
+                        }
+                        Err(super::Error::CapacityFull) => {}
+                        result => return result,
+                    }
+                    continue;
+                }
                 result => return result,
             }
             let changed = self.0.client.capacity_changed().notified();
@@ -125,6 +161,9 @@ impl ApplicationTarget {
                 &mut request,
             ) {
                 Err(super::Error::CapacityFull) => changed.await,
+                Err(super::Error::Stream(orbitive::stream::Error::Full {
+                    ..
+                })) => {}
                 result => return result,
             }
         }
