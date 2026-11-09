@@ -54,7 +54,7 @@ mod link {
 
         fn serve(
             runtime: &Runtime,
-            _args: &Args,
+            args: &Args,
             fleet: &str,
         ) -> Result<Serving> {
             let state =
@@ -62,7 +62,11 @@ mod link {
             let mut joined = state.events().subscribe::<LinkJoined>();
             let context = RunContext::new(Default::default());
             let stop = context.cancellation_token();
-            let door = OrbitDoor::new(APPLICATION, "rust", None);
+            let door = OrbitDoor::new(
+                APPLICATION,
+                "rust",
+                args.max_in_flight.map(std::num::NonZeroUsize::get),
+            );
             let serving = runtime.spawn(async move {
                 door.serve(Arc::new(Bench), None, state, context).await
             });
@@ -99,6 +103,7 @@ mod link {
             let policy = RequestPolicyOverride {
                 buffering: Some(Buffering::StreamDefault),
                 buffer_size: args.buffer_size.map(Limit::Value),
+                queue_timeout: args.queue_timeout,
                 ..Default::default()
             };
             let route = OrbitRouteConfig {
@@ -134,9 +139,8 @@ mod link {
                 return Err("the Link route did not take the request".into());
             };
             if response.status() != StatusCode::OK {
-                return Err(format!(
-                    "the application answered {}",
-                    response.status()
+                return Err(super::application::ResponseStatus(
+                    response.status(),
                 )
                 .into());
             }

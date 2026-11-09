@@ -184,9 +184,8 @@ mod h2 {
             let response =
                 self.service.handle(workload.request(body, length)).await;
             if response.status() != StatusCode::OK {
-                return Err(format!(
-                    "the upstream answered {}",
-                    response.status()
+                return Err(super::application::ResponseStatus(
+                    response.status(),
                 )
                 .into());
             }

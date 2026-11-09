@@ -256,3 +256,75 @@ An explicit `--compare RUN_ID` may compare concurrent runs that differ only in
 HTTP execution placement; automatic history comparisons keep the same mode.
 Other measurement controls must still match. CPU totals include every serving
 process thread, not just the HTTP executor.
+
+### Link receiver admission
+
+`link-concurrent` measures the production `LinkBackend` → `OrbitDoor` exchange
+between two processes. `--in-flight` is caller concurrency; `--max-in-flight`
+is the receiver's reservation/execution bound, retained through body completion.
+Omitting the latter keeps the unbounded control. The JSON records both values.
+
+Use one executable and identical workload, thread and timing settings when
+comparing them. A bound equal to caller concurrency measures admission overhead;
+a smaller bound also measures waiting and pacing. Keep plain, buffered echo and
+streamed echo separate. The report includes each process's user/system CPU per
+exchange and throughput; it does not record request latency percentiles.
+
+### Link backpressure reference
+
+Use the fixed caller population to press the same receiver, and declare its
+admission waiting budget explicitly:
+
+```sh
+cargo bench --features edge,orbit,runner-orbit --bench link-concurrent -- \
+  --workload plain --in-flight 1024 --edge-threads 2 --application-threads 2 \
+  --warmup-seconds 2 --measurement-seconds 10 --samples 5 \
+  --queue-timeout 100ms --keep-errors \
+  --output benches/results/link/reference-unbounded.json
+```
+
+Repeat with `--max-in-flight 128` and a different output file. Build once; use
+unbounded / 128 / 128 / unbounded order. Keep the workload, physical SHM shape,
+thread counts, waiting budget and measurement controls identical. `100ms` here
+is a declared reference budget, not a library default. The application remains
+the production `OrbitDoor`; the caller remains the production `LinkBackend`.
+There is no external TCP listener, HTTP decoding or TLS in this measurement.
+
+`--keep-errors` retains all callers and counts completed successes, 503, 502,
+other statuses, transport errors and invalid bodies in every window. Initial
+preflight still must pass. Without it, unexpected outcomes invalidate the run
+as before. Responses/s counts only success; attempts/s includes failure. Report
+both and the observed success fraction. Process CPU/success includes the work
+spent on failed attempts; CPU/attempt is also recorded. An all-error window has
+no CPU/success value. A faster stream of 503 responses is not higher capacity.
+
+`--queue-timeout` sets the production `requests.queue_timeout`: capacity ready
+means immediate dispatch, full capacity may wait up to this budget, and expiry
+returns 503 without ending accepted work. It is not an end-to-end response
+deadline. The caller count is not a socket count or measured receiver occupancy.
+This harness does not measure the admission wait distribution or an HTTP SLA
+latency percentile.
+
+The budget covers receiver-admission waiting. Other resource errors may still
+return immediately: creator stream-lane exhaustion currently does not wait for
+a reusable slot. Preserve that rejection reason separately from budget expiry.
+
+Run `--diagnostics` separately with the same controls. Diagnostic JSON records
+Edge request-future polls, pending polls, waker calls and completion time; a
+scoped subscriber counts the production Link rejection reasons. Waker wrapping,
+clocks, counters and rejection formatting perturb execution, so diagnostic CPU
+and throughput must not be compared with clean CPU runs. Rejection counts are
+completion-window observations and can straddle a boundary differently from
+response counts; the round-trip high-water mark includes warmup.
+
+Request-waker calls are not IPC doorbell sends, kernel wakeups, receiver polls,
+or admission waits. A wake can coalesce without another poll. macOS context
+switch counters are marked unavailable instead of treating zero as no wakes.
+Use user/system CPU from clean runs to assess kernel cost; exact IPC/syscall
+counts require a separate platform tracing run against both process IDs.
+
+A reference record must keep the raw windows, outcome counts, commands,
+physical capacities, both repository revisions and dirty source hashes, binary
+hash, OS/architecture and run order. Record resource refusal and queue-budget
+expiry separately in diagnostics. Preserve a failing control; never compute a
+speedup from a run that stopped early or whose outcome counts are missing.

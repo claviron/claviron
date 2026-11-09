@@ -30,6 +30,10 @@ use http_body_util::BodyExt;
 use serde::{Deserialize, Serialize};
 use tokio::runtime::Runtime;
 
+#[path = "application/diagnostics.rs"]
+mod diagnostics;
+use diagnostics::{Diagnostics, Observations};
+
 pub type Result<T> =
     std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -92,6 +96,20 @@ pub struct Args {
     /// HTTP/2: the upstream pool's `capacity.max_streams` per connection.
     #[arg(long)]
     pub max_streams: Option<NonZeroUsize>,
+    /// Link: receiver-owned admission, held through response-body completion.
+    /// Omitted keeps the unbounded control path.
+    #[arg(long)]
+    pub max_in_flight: Option<NonZeroUsize>,
+    /// Link admission waiting budget; absent means no queue deadline.
+    #[arg(long, value_parser = duration)]
+    pub queue_timeout: Option<Duration>,
+    /// Keep counting HTTP and transport errors instead of invalidating the run.
+    #[arg(long)]
+    pub keep_errors: bool,
+    /// Separate diagnostic mode: count Edge dispatch polls/wakes and failures.
+    /// Its CPU figures must not be compared with clean runs.
+    #[arg(long)]
+    pub diagnostics: bool,
     /// Exchanges the edge keeps in flight.
     #[arg(long)]
     pub in_flight: NonZeroUsize,
@@ -111,6 +129,27 @@ pub struct Args {
     #[arg(long, hide = true)]
     application: Option<String>,
 }
+
+fn duration(text: &str) -> std::result::Result<Duration, String> {
+    let value = humantime::parse_duration(text).map_err(|e| e.to_string())?;
+    if value.is_zero() {
+        return Err("duration must be positive".into());
+    }
+    Ok(value)
+}
+
+/// An HTTP refusal, distinguished from failures in the test transport itself.
+#[derive(Debug)]
+pub struct ResponseStatus(pub StatusCode);
+impl std::fmt::Display for ResponseStatus {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        write!(f, "application answered {}", self.0)
+    }
+}
+impl std::error::Error for ResponseStatus {}
 
 fn seconds(text: &str) -> std::result::Result<Duration, String> {
     let value: f64 = text.parse().map_err(|error| format!("{error}"))?;
@@ -428,11 +467,92 @@ impl Application {
 /// One exchange counter per caller, each on its own cache line.
 #[repr(align(128))]
 #[derive(Default)]
-struct Count(AtomicU64);
+struct Count {
+    success: AtomicU64,
+    unavailable: AtomicU64,
+    gateway: AtomicU64,
+    other_status: AtomicU64,
+    transport: AtomicU64,
+    invalid_body: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, Default, Serialize)]
+struct Outcomes {
+    success: u64,
+    unavailable_503: u64,
+    gateway_502: u64,
+    other_status: u64,
+    transport_errors: u64,
+    invalid_body: u64,
+}
+impl Outcomes {
+    fn attempts(self) -> u64 {
+        self.success
+            + self.unavailable_503
+            + self.gateway_502
+            + self.other_status
+            + self.transport_errors
+            + self.invalid_body
+    }
+    fn since(
+        self,
+        before: Self,
+    ) -> Self {
+        Self {
+            success: self.success - before.success,
+            unavailable_503: self.unavailable_503 - before.unavailable_503,
+            gateway_502: self.gateway_502 - before.gateway_502,
+            other_status: self.other_status - before.other_status,
+            transport_errors: self.transport_errors - before.transport_errors,
+            invalid_body: self.invalid_body - before.invalid_body,
+        }
+    }
+    fn add(
+        self,
+        other: Self,
+    ) -> Self {
+        Self {
+            success: self.success + other.success,
+            unavailable_503: self.unavailable_503 + other.unavailable_503,
+            gateway_502: self.gateway_502 + other.gateway_502,
+            other_status: self.other_status + other.other_status,
+            transport_errors: self.transport_errors + other.transport_errors,
+            invalid_body: self.invalid_body + other.invalid_body,
+        }
+    }
+}
+impl Count {
+    fn snapshot(&self) -> Outcomes {
+        let get = |counter: &AtomicU64| counter.load(Ordering::Relaxed);
+        Outcomes {
+            success: get(&self.success),
+            unavailable_503: get(&self.unavailable),
+            gateway_502: get(&self.gateway),
+            other_status: get(&self.other_status),
+            transport_errors: get(&self.transport),
+            invalid_body: get(&self.invalid_body),
+        }
+    }
+    fn failed(
+        &self,
+        error: &(dyn std::error::Error + Send + Sync + 'static),
+    ) {
+        let counter =
+            match error.downcast_ref::<ResponseStatus>().map(|status| status.0)
+            {
+                Some(StatusCode::SERVICE_UNAVAILABLE) => &self.unavailable,
+                Some(StatusCode::BAD_GATEWAY) => &self.gateway,
+                Some(_) => &self.other_status,
+                None => &self.transport,
+            };
+        counter.fetch_add(1, Ordering::Relaxed);
+    }
+}
 
 #[derive(Serialize)]
 struct Sample {
     exchanges: u64,
+    outcomes: Outcomes,
     wall_ns: u64,
     edge: Usage,
     application: Usage,
@@ -451,26 +571,41 @@ impl PerExchange {
     fn of(
         usage: &Usage,
         exchanges: u64,
-    ) -> Self {
+    ) -> Option<Self> {
+        if exchanges == 0 {
+            return None;
+        }
         let per = |value: u64| value as f64 / exchanges as f64;
-        Self {
+        Some(Self {
             cpu_ns: per(usage.user_ns + usage.system_ns),
             user_ns: per(usage.user_ns),
             system_ns: per(usage.system_ns),
             voluntary_switches: per(usage.voluntary_switches),
             involuntary_switches: per(usage.involuntary_switches),
-        }
+        })
     }
 }
 
 #[derive(Serialize)]
 struct Report {
+    schema_version: u32,
+    warmup_ns: u128,
+    measurement_ns: u128,
+    context_switches_available: bool,
     transport: &'static str,
     workload: Workload,
     body_bytes: usize,
     buffer_size: Option<usize>,
     max_live: Option<usize>,
     max_streams: Option<usize>,
+    max_in_flight: Option<usize>,
+    queue_timeout_ns: Option<u128>,
+    keep_errors: bool,
+    measurement_mode: &'static str,
+    outcomes: Outcomes,
+    attempts_per_second: f64,
+    success_fraction: f64,
+    diagnostic: Option<Diagnostics>,
     in_flight: usize,
     edge_threads: usize,
     application_threads: usize,
@@ -479,12 +614,21 @@ struct Report {
     exchanges: u64,
     wall_ns: u64,
     exchanges_per_second: f64,
-    edge: PerExchange,
-    application: PerExchange,
+    edge: Option<PerExchange>,
+    application: Option<PerExchange>,
+    edge_per_attempt: Option<PerExchange>,
+    application_per_attempt: Option<PerExchange>,
     samples: Vec<Sample>,
 }
 
 fn edge<T: Transport>(args: &Args) -> Result<()> {
+    if (args.max_in_flight.is_some() || args.queue_timeout.is_some())
+        && T::NAME != "link"
+    {
+        return Err(
+            "--max-in-flight is specific to Link receiver admission".into()
+        );
+    }
     if matches!(args.workload, Workload::Plain) && args.body_bytes != 0 {
         return Err("plain carries no request body".into());
     }
@@ -494,21 +638,27 @@ fn edge<T: Transport>(args: &Args) -> Result<()> {
     let report = outcome?;
     cleaned?;
     println!(
-        "{} {:?}: exchanges/s={:.0} edge {:.3} us (user {:.3} + system {:.3}, \
-         {:.2} voluntary switches) application {:.3} us (user {:.3} + \
-         system {:.3}, {:.2} voluntary switches) per exchange",
+        "{} {:?}: successful/s={:.0} attempts/s={:.0}, success={:.6}%, outcomes={:?}, mode={}",
         report.transport,
         report.workload,
         report.exchanges_per_second,
-        report.edge.cpu_ns / 1000.0,
-        report.edge.user_ns / 1000.0,
-        report.edge.system_ns / 1000.0,
-        report.edge.voluntary_switches,
-        report.application.cpu_ns / 1000.0,
-        report.application.user_ns / 1000.0,
-        report.application.system_ns / 1000.0,
-        report.application.voluntary_switches,
+        report.attempts_per_second,
+        report.success_fraction * 100.0,
+        report.outcomes,
+        report.measurement_mode
     );
+    if let (Some(edge), Some(application)) = (&report.edge, &report.application)
+    {
+        println!(
+            "CPU/success: edge {:.3} us (user {:.3}, system {:.3}); application {:.3} us (user {:.3}, system {:.3})",
+            edge.cpu_ns / 1000.0,
+            edge.user_ns / 1000.0,
+            edge.system_ns / 1000.0,
+            application.cpu_ns / 1000.0,
+            application.user_ns / 1000.0,
+            application.system_ns / 1000.0
+        );
+    }
     if let Some(directory) = args.output.parent() {
         std::fs::create_dir_all(directory)?;
     }
@@ -520,6 +670,10 @@ fn measure<T: Transport>(
     args: &Args,
     fleet: &str,
 ) -> Result<Report> {
+    let observations = args.diagnostics.then(Observations::new);
+    if let Some(observations) = &observations {
+        observations.install()?;
+    }
     let samples = u32::try_from(args.samples.get())?;
     let window = args.measurement_seconds / samples;
     let mut application = Application::spawn(fleet)?;
@@ -558,29 +712,53 @@ fn measure<T: Transport>(
             let workload = args.workload;
             let body = body.clone();
             let length = expected.len();
+            let keep_errors = args.keep_errors;
+            let observations = observations.clone();
             runtime.spawn(async move {
                 while running.load(Ordering::Relaxed) {
-                    let reply =
-                        transport.exchange(caller, workload, &body).await?;
-                    if reply.len() != length {
-                        return Err::<
-                            (),
-                            Box<dyn std::error::Error + Send + Sync>,
-                        >(
-                            "a reply has the wrong length".into()
-                        );
+                    let exchange = transport.exchange(caller, workload, &body);
+                    let result = match &observations {
+                        Some(observations) => {
+                            observations.track(exchange).await
+                        }
+                        None => exchange.await,
+                    };
+                    match result {
+                        Ok(reply) if reply.len() == length => {
+                            counts[caller]
+                                .success
+                                .fetch_add(1, Ordering::Relaxed);
+                        }
+                        Ok(_) => {
+                            counts[caller]
+                                .invalid_body
+                                .fetch_add(1, Ordering::Relaxed);
+                            if !keep_errors {
+                                return Err("reply has the wrong length".into());
+                            }
+                        }
+                        Err(error) => {
+                            counts[caller].failed(error.as_ref());
+                            if !keep_errors {
+                                return Err(error);
+                            }
+                        }
                     }
-                    counts[caller].0.fetch_add(1, Ordering::Relaxed);
                 }
                 Ok(())
             })
         })
         .collect();
     let total = || {
-        counts.iter().map(|count| count.0.load(Ordering::Relaxed)).sum::<u64>()
+        counts
+            .iter()
+            .map(Count::snapshot)
+            .fold(Outcomes::default(), Outcomes::add)
     };
 
     std::thread::sleep(args.warmup_seconds);
+    let diagnostic_before =
+        observations.as_ref().map(|observations| observations.snapshot());
     let mut measured = Vec::with_capacity(args.samples.get());
     for _ in 0..samples {
         application.begin()?;
@@ -588,13 +766,22 @@ fn measure<T: Transport>(
         let before = total();
         let started = Instant::now();
         std::thread::sleep(window);
-        let exchanges = total() - before;
+        let outcomes = total().since(before);
+        let exchanges = outcomes.success;
         let wall_ns = started.elapsed().as_nanos() as u64;
         let edge = Usage::process()?.since(edge_before);
         let application = application.end()?;
-        measured.push(Sample { exchanges, wall_ns, edge, application });
+        measured.push(Sample {
+            exchanges,
+            outcomes,
+            wall_ns,
+            edge,
+            application,
+        });
     }
 
+    let diagnostic_after =
+        observations.as_ref().map(|observations| observations.snapshot());
     running.store(false, Ordering::Relaxed);
     for caller in callers {
         runtime.block_on(caller)??;
@@ -605,19 +792,44 @@ fn measure<T: Transport>(
 
     let exchanges = measured.iter().map(|sample| sample.exchanges).sum::<u64>();
     let wall_ns = measured.iter().map(|sample| sample.wall_ns).sum::<u64>();
-    if exchanges == 0 {
-        return Err("no exchange completed in the measured windows".into());
+    let outcomes = measured
+        .iter()
+        .map(|sample| sample.outcomes)
+        .fold(Outcomes::default(), Outcomes::add);
+    let attempts = outcomes.attempts();
+    if attempts == 0 {
+        return Err("no attempt completed in the measured windows".into());
     }
     let sum = |side: fn(&Sample) -> &Usage| {
         measured.iter().map(side).fold(Usage::default(), Usage::add)
     };
     Ok(Report {
+        schema_version: 2,
+        warmup_ns: args.warmup_seconds.as_nanos(),
+        measurement_ns: args.measurement_seconds.as_nanos(),
+        context_switches_available: !cfg!(target_os = "macos"),
         transport: T::NAME,
         workload: args.workload,
         body_bytes: args.body_bytes,
         buffer_size: args.buffer_size,
         max_live: args.max_live.map(NonZeroUsize::get),
         max_streams: args.max_streams.map(NonZeroUsize::get),
+        max_in_flight: args.max_in_flight.map(NonZeroUsize::get),
+        queue_timeout_ns: args
+            .queue_timeout
+            .map(|duration| duration.as_nanos()),
+        keep_errors: args.keep_errors,
+        measurement_mode: if args.diagnostics {
+            "diagnostic"
+        } else {
+            "clean-cpu"
+        },
+        outcomes,
+        attempts_per_second: attempts as f64 * 1e9 / wall_ns as f64,
+        success_fraction: exchanges as f64 / attempts as f64,
+        diagnostic: diagnostic_after
+            .zip(diagnostic_before)
+            .map(|(after, before)| after.since(before)),
         in_flight: args.in_flight.get(),
         edge_threads: args.edge_threads.get(),
         application_threads: args.application_threads.get(),
@@ -630,6 +842,14 @@ fn measure<T: Transport>(
         application: PerExchange::of(
             &sum(|sample| &sample.application),
             exchanges,
+        ),
+        edge_per_attempt: PerExchange::of(
+            &sum(|sample| &sample.edge),
+            attempts,
+        ),
+        application_per_attempt: PerExchange::of(
+            &sum(|sample| &sample.application),
+            attempts,
         ),
         samples: measured,
     })

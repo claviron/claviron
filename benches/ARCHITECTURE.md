@@ -60,7 +60,7 @@ All three use the native Edge accepted-stream handler, including host selection.
 
 | File | Cargo target | Edge → application |
 | --- | --- | --- |
-| [link/concurrent.rs](transport/link/concurrent.rs) | `link-concurrent` | `LinkBackend` dispatch to `OrbitDoor`; `--buffer-size` sets the request policy. |
+| [link/concurrent.rs](transport/link/concurrent.rs) | `link-concurrent` | `LinkBackend` dispatch to `OrbitDoor`; `--buffer-size` sets the request policy; `--max-in-flight` bounds receiver admission through body/session completion. |
 | [h2/concurrent.rs](transport/h2/concurrent.rs) | `h2-concurrent` | `UpstreamProvider` booted from a written `upstream.yaml`, `--max-live` × `--max-streams`, to the runner's cleartext TCP door. |
 
 Neither has an Edge listener or host routing. Each run writes one JSON report;
@@ -97,6 +97,7 @@ concurrent::run
 | [setup.rs](support/setup.rs) | Parse embedded HTTP/vhost fixtures and prepare dispatch connection facts without provider boot. |
 | [http1.rs](support/http1.rs) | Serial loopback servers, Hyper client, host preflight and Criterion RTT timing; concurrent clients reuse preflight and reply checks. |
 | [application.rs](support/application.rs) | Two-process harness for `link-concurrent` and `h2-concurrent`: the application child and its control pipe, the `/bench/plain` and `/bench/echo` owner, per-window CPU and context switches of both processes, the JSON report and removal of the run's own fleet. |
+| [application/diagnostics.rs](support/application/diagnostics.rs) | Benchmark-only Edge future poll/waker/completion observations and production rejection logging. Diagnostic mode is separate from clean CPU measurement. |
 
 ### `support/http1/`
 
@@ -126,3 +127,10 @@ configuration types.
 | [vhosts.yaml](support/fixtures/vhosts.yaml) | Minimal dispatch host, without optional policy/backend layers. |
 | [http1.yaml](support/fixtures/http1.yaml) | Loopback ephemeral listener and H1 settings matched to native controls. |
 | [http1-vhosts.yaml](support/fixtures/http1-vhosts.yaml) | H1 host and alias used by known/unknown-host preflight. |
+
+The two-process harness accepts `--keep-errors` for overload reference runs and
+records outcomes per window instead of dropping the failed control. Link's
+`--queue-timeout` is passed to production request policy. CPU is reported per
+successful response and per completed attempt, with zero-success costs absent.
+See [Link backpressure reference](README.md#link-backpressure-reference) for the
+run matrix and the boundaries of the diagnostic counters.
