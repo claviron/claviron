@@ -551,7 +551,7 @@ impl ApplicationClient {
             })
             .map(|completed| completed.rows.clone());
         if state.is_none() {
-            request_application_state(&self.segment, peer);
+            request_application_state(&self.segment, peer, self.lane);
         }
         state
     }
@@ -1069,6 +1069,7 @@ impl ApplicationClient {
         let found = observe_applications(
             &mut applications,
             &segment,
+            lane,
             &edge,
             events.as_ref(),
             &last_seen,
@@ -1127,6 +1128,7 @@ impl ApplicationClient {
                         for peer in observe_applications(
                             &mut applications,
                             &segment,
+                            lane,
                             &edge,
                             events.as_ref(),
                             &last_seen,
@@ -1185,6 +1187,7 @@ async fn watch_application(
 fn observe_applications(
     applications: &mut Peers,
     segment: &ApplicationSegment,
+    lane: usize,
     edge: &str,
     events: Option<&ProcessEventBus>,
     last_seen: &Mutex<HashMap<String, String>>,
@@ -1215,7 +1218,7 @@ fn observe_applications(
     }
     for application in &came {
         let application = application.clone();
-        request_application_state(segment, &application);
+        request_application_state(segment, &application, lane);
         last_seen
             .lock()
             .expect("last seen Link peers")
@@ -1238,15 +1241,20 @@ fn observe_applications(
     came
 }
 
+/// Ask one application for its state, answered to this edge's lane alone:
+/// a broadcast answer to every status request made each of N edges hear from
+/// each of N applications N times over at once.
 fn request_application_state(
     segment: &ApplicationSegment,
     peer: &super::Peer,
+    lane: usize,
 ) {
     let request = ControlCommand {
         application: peer.name.clone(),
         name: "status".to_owned(),
         payload: Vec::new(),
         target: None,
+        origin: u16::try_from(lane).ok(),
     };
     match request.encode() {
         Ok(frame) => {

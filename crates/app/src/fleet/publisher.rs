@@ -167,7 +167,11 @@ impl Runnable<AppState, (Arc<ApplicationManager>, Arc<FleetProvider>)>
                     match snapshot::encode_local_rows(&local, member) {
                         Ok(rows) => {
                             if let Err(error) = segment
-                                .publish_application_state(state.name(), &rows)
+                                .publish_application_state(
+                                    state.name(),
+                                    &rows,
+                                    None,
+                                )
                             {
                                 warn!(%error, "linked application snapshot publication failed");
                             }

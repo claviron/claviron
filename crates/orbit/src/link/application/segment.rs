@@ -410,11 +410,13 @@ impl ApplicationSegment {
     }
 
     /// Publish one complete application snapshot batch from this runner lane
-    /// to connected edge lanes. The lane stays claimed when an app is stopped.
+    /// to connected edge lanes, or to the one edge lane in `to` that asked for
+    /// it. The lane stays claimed when an app is stopped.
     pub fn publish_application_state(
         &self,
         application: &str,
         rows: &[Vec<u8>],
+        to: Option<usize>,
     ) -> Result<usize> {
         check_application_name(application)?;
         if rows.is_empty() {
@@ -455,7 +457,8 @@ impl ApplicationSegment {
             .collect::<Result<Vec<_>>>()?;
         let mut delivered = 0;
         for lane in 0..inbox.lanes() {
-            if inbox.consumers(lane).map_err(map_link_error)? == 0
+            if to.is_some_and(|asked| asked != lane)
+                || inbox.consumers(lane).map_err(map_link_error)? == 0
                 || !matches!(inbox.role(lane).map_err(map_link_error)?, Some(role) if role == super::EDGE_RUNTIME)
             {
                 continue;

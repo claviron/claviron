@@ -172,7 +172,14 @@ pub struct ControlCommand {
     pub payload: Vec<u8>,
     /// A hosted application identity, independent of the Link lane name.
     pub target: Option<ControlTarget>,
+    /// The edge lane that asked, when the command expects an answer for that
+    /// edge alone (`status`). Absent, an answer goes to every edge.
+    pub origin: Option<u16>,
 }
+
+/// Control frame layout: 2 had no origin; 3 carries one.
+const CONTROL_WITHOUT_ORIGIN: u8 = 2;
+const CONTROL_WITH_ORIGIN: u8 = 3;
 
 impl ControlCommand {
     pub fn encode(&self) -> Result<Vec<u8>> {
@@ -198,7 +205,7 @@ impl ControlCommand {
         let payload_len = u16::try_from(self.payload.len())
             .map_err(|_| Error::FrameTooLarge)?;
         let mut frame = Vec::with_capacity(
-            8 + application.len()
+            11 + application.len()
                 + name.len()
                 + runtime.len()
                 + target.len()
@@ -206,13 +213,15 @@ impl ControlCommand {
         );
         frame.extend_from_slice(&[
             FrameKind::Control as u8,
-            2,
+            CONTROL_WITH_ORIGIN,
             application.len() as u8,
             name.len() as u8,
             runtime.len() as u8,
             target.len() as u8,
         ]);
         frame.extend_from_slice(&payload_len.to_le_bytes());
+        frame.push(u8::from(self.origin.is_some()));
+        frame.extend_from_slice(&self.origin.unwrap_or(0).to_le_bytes());
         frame.extend_from_slice(application);
         frame.extend_from_slice(name);
         frame.extend_from_slice(runtime);
@@ -222,19 +231,75 @@ impl ControlCommand {
     }
 
     pub fn decode(frame: &[u8]) -> Result<Self> {
-        let [
-            3,
-            2,
+        let (
+            origin,
             application_len,
             name_len,
             runtime_len,
             target_len,
             len_lo,
             len_hi,
-            rest @ ..,
-        ] = frame
-        else {
-            return Err(Error::Malformed("invalid application control header"));
+            rest,
+        ) = match frame {
+            [
+                3,
+                CONTROL_WITH_ORIGIN,
+                application_len,
+                name_len,
+                runtime_len,
+                target_len,
+                len_lo,
+                len_hi,
+                has_origin,
+                origin_lo,
+                origin_hi,
+                rest @ ..,
+            ] => {
+                let origin = match has_origin {
+                    0 => None,
+                    1 => Some(u16::from_le_bytes([*origin_lo, *origin_hi])),
+                    _ => {
+                        return Err(Error::Malformed(
+                            "invalid application control origin",
+                        ));
+                    }
+                };
+                (
+                    origin,
+                    application_len,
+                    name_len,
+                    runtime_len,
+                    target_len,
+                    len_lo,
+                    len_hi,
+                    rest,
+                )
+            }
+            [
+                3,
+                CONTROL_WITHOUT_ORIGIN,
+                application_len,
+                name_len,
+                runtime_len,
+                target_len,
+                len_lo,
+                len_hi,
+                rest @ ..,
+            ] => (
+                None,
+                application_len,
+                name_len,
+                runtime_len,
+                target_len,
+                len_lo,
+                len_hi,
+                rest,
+            ),
+            _ => {
+                return Err(Error::Malformed(
+                    "invalid application control header",
+                ));
+            }
         };
         let payload_len = u16::from_le_bytes([*len_lo, *len_hi]) as usize;
         let application_len = *application_len as usize;
@@ -282,7 +347,7 @@ impl ControlCommand {
             })
         };
         let payload = rest[payload_offset..].to_vec();
-        Ok(Self { application, name, payload, target })
+        Ok(Self { application, name, payload, target, origin })
     }
 }
 

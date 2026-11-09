@@ -244,3 +244,49 @@ fn the_next_join_takes_back_a_gone_process_lane_and_ends_its_streams() {
     drop(live);
     let _ = live_bodies.unlink();
 }
+
+/// A status answer goes to the edge that asked, not to every edge. Answering
+/// each of N edges' requests to every edge made start-up traffic grow as N³
+/// and filled the edges' inboxes just as their first exchanges needed them.
+#[test]
+fn a_status_answer_reaches_only_the_edge_that_asked() {
+    let fleet = scratch_fleet();
+    let held = Scratch::open(&fleet, 4);
+    // Each `Joined` holds its lane; dropping one would release that edge.
+    let joined: Vec<_> = (0..3)
+        .map(|incarnation| {
+            held.0
+                .join("edge", super::super::EDGE_RUNTIME, 10 + incarnation)
+                .unwrap()
+        })
+        .collect();
+    let edges: Vec<usize> = joined.iter().map(|edge| edge.lane).collect();
+    let _application = held.0.join("catalog", "rust", 20).unwrap();
+    let rows = vec![b"row".to_vec()];
+    let depths = || -> Vec<u64> {
+        edges.iter().map(|&lane| held.0.inbox().depth(lane).unwrap()).collect()
+    };
+
+    let asked = edges[1];
+    assert_eq!(
+        held.0
+            .publish_application_state("catalog", &rows, Some(asked))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        depths(),
+        vec![0, 1, 0],
+        "only the asking edge hears the answer"
+    );
+
+    assert_eq!(
+        held.0.publish_application_state("catalog", &rows, None).unwrap(),
+        3
+    );
+    assert_eq!(
+        depths(),
+        vec![1, 2, 1],
+        "an unaddressed snapshot reaches every edge"
+    );
+}

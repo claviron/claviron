@@ -253,11 +253,13 @@ impl EdgeShutdownInitiated {
     }
 }
 
-/// Report the real local application snapshot through this process's Link lane.
+/// Report the real local application snapshot through this process's Link
+/// lane: to every edge, or to the one edge lane in `to` that asked.
 pub fn publish_application_snapshot(
     state: &AppState,
     segment: &ApplicationSegment,
     link_name: &str,
+    to: Option<usize>,
 ) -> registry::Result<()> {
     let Some(rows) = claviron_app::fleet::link_snapshot_rows(state)
         .map_err(registry::Error::msg)?
@@ -265,7 +267,7 @@ pub fn publish_application_snapshot(
         return Ok(());
     };
     segment
-        .publish_application_state(link_name, &rows)
+        .publish_application_state(link_name, &rows, to)
         .map_err(|error| registry::Error::msg(error.to_string()))?;
     Ok(())
 }
@@ -367,9 +369,12 @@ impl OrbitDoor {
             ApplicationBodies::for_segment(&segment, lane, incarnation)
                 .map_err(|error| registry::Error::msg(error.to_string()))?,
         );
-        if let Err(error) =
-            publish_application_snapshot(&state, &segment, &self.application)
-        {
+        if let Err(error) = publish_application_snapshot(
+            &state,
+            &segment,
+            &self.application,
+            None,
+        ) {
             tracing::warn!(%error, "initial Link application snapshot was not published");
         }
         for gone in &joined.reclaimed {
@@ -446,8 +451,12 @@ impl OrbitDoor {
                                     continue;
                                 }
                                 if command.name == "status" && command.target.is_none() {
+                                    // Answered to the edge that asked; an older
+                                    // edge that names no origin still hears it
+                                    // with every other edge.
                                     if let Err(error) = publish_application_snapshot(
                                         &state, &segment, &self.application,
+                                        command.origin.map(usize::from),
                                     ) {
                                         tracing::warn!(%error, "Link application status request failed");
                                     }

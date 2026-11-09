@@ -88,5 +88,6 @@ fn publish_if_linked(state: &AppState) -> registry::Result<()> {
         state,
         &segment,
         state.name(),
+        None,
     )
 }

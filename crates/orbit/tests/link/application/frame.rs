@@ -196,6 +196,7 @@ fn control_command_has_a_distinct_strict_frame() {
             runtime: "php".to_owned(),
             name: "shop".to_owned(),
         }),
+        origin: None,
     };
     let frame = command.encode().unwrap();
     assert_eq!(frame_kind(&frame).unwrap(), FrameKind::Control);
@@ -205,10 +206,20 @@ fn control_command_has_a_distinct_strict_frame() {
         name: "status".to_owned(),
         payload: Vec::new(),
         target: None,
+        origin: Some(7),
     };
     assert_eq!(
         ControlCommand::decode(&status.encode().unwrap()).unwrap(),
         status
+    );
+    // A frame from a peer that predates the origin field still decodes, with
+    // no origin: its status answer goes to every edge, as before.
+    let mut older = vec![3, 2, 11, 6, 0, 0, 0, 0];
+    older.extend_from_slice(b"example-app");
+    older.extend_from_slice(b"status");
+    assert_eq!(
+        ControlCommand::decode(&older).unwrap(),
+        ControlCommand { origin: None, ..status.clone() }
     );
     assert!(ControlCommand::decode(&[3]).is_err());
     assert!(ControlCommand::decode(&[3, 1, 0]).is_err());
