@@ -351,6 +351,13 @@ test = false
 required-features = ["edge", "orbit", "runner-orbit"]
 
 [[bench]]
+name = "link-selection"
+path = "benches/transport/link/selection.rs"
+harness = false
+test = false
+required-features = ["orbit"]
+
+[[bench]]
 name = "h2-concurrent"
 path = "benches/transport/h2/concurrent.rs"
 harness = false
