@@ -13,30 +13,220 @@ Claviron supplies the infrastructure around it: register the services you need,
 select how requests reach them, and manage their execution through a common
 lifecycle.
 
-## What Claviron provides
+## Write your own edge
 
-- **Managed services:** typed dependency registration, configuration, boot,
-  validation, reload, background execution, drain, and finalization.
-- **An HTTP edge:** HTTP/1.1, HTTP/2, and optional HTTP/3 over QUIC; TLS/mTLS;
-  virtual hosts; host admission; native routes; static files; and upstream
-  application dispatch.
-- **Application hosting:** shared identity and control contracts for execution
-  engines, plus a runner shell for hosting one application without a multi-host
-  edge.
-- **Process supervision:** standalone or master/worker execution, worker
-  recovery, rotation, rolling restart, and lifecycle observation.
-- **Shared runtime state:** Orbit integration for same-host events, keyed state,
-  counters, locks, invocation transport, and application links.
-- **Optional infrastructure:** tasks, database pools, cache stores, authentication
-  contracts, WebSockets, logging, and metrics.
+Select the `edge` feature. Your binary starts the server; `http.yaml` declares
+listeners and `vhost.yaml` declares the hosts and their routes.
 
-Cargo features select capabilities; typed registration and configuration
-determine how they run.
+```rust
+use claviron::{Result, Server};
 
-The [design notes](docs/design/README.md) explain the choices behind application
-routing, host identity, same-OS cooperation and lifetime ownership.
-[Graceful ownership](docs/design/GRACEFUL_OWNERSHIP.md) defines who owns accepted
-work and what authorizes shutdown escalation.
+#[tokio::main]
+async fn main() -> Result<()> {
+    Server::new().config_dir("config").workers(4).serve().await
+}
+```
+
+Each listener is a managed runnable. Edge prepares a pipeline for each selected
+listener/host combination; unused layers contribute no request-time action.
+Serve files, register Rust handlers or route to embedded and Orbit-linked apps.
+See the [Edge guide](crates/edge/README.md) for configuration and host registration.
+
+## Write your own application server
+
+Select `rust`, `axum` and `runner-socket`. Bring your router; Runner supplies
+application lifecycle and the shared listener/pipeline implementation.
+
+```rust
+use claviron::{axum::{routing::get, Router}, runner::Runner};
+
+#[tokio::main]
+async fn main() -> claviron::Result<()> {
+    Runner::new()
+        .with_router(|_| Router::new().route("/", get(|| async { "Hello from Rust" })))
+        .run().await
+}
+```
+
+```yaml
+# runner.yaml
+name: hello
+listeners:
+  http:
+    transport: tcp
+    listen: 127.0.0.1:8000
+    protocols: [h1]
+```
+
+For an Orbit-only application, select `runner-orbit` instead of `runner-socket`
+and replace `listeners` with `fleet_name: apps` and `orbit: { link: {} }`.
+An Edge on the same host can then reach this application by fleet and name.
+Warp and other Rust HTTP services use the same [Runner API](crates/runner/README.md).
+The Rust entry points above use Tokio's `macros` and `rt-multi-thread` features.
+
+## Write reusable extensions
+
+A **backend** owns request execution. A **layer** contributes request or response
+work around that owner. Both use the shared [pipeline](crates/pipeline/README.md)
+contracts, so an integration can serve one application or selected Edge hosts.
+
+### A backend
+
+This registration function supplies a Rust response owner to a `SiteRegistry`.
+It uses `edge` or `rust`, plus `axum`.
+
+```rust
+use claviron::{axum::{routing::get, Router}, http::RustRouter, pipeline::SiteRegistry};
+use claviron::pipeline::factory::{backend, BackendPlacement::BeforeFiles, BackendScope};
+use std::sync::Arc;
+
+pub fn register(sites: &SiteRegistry) -> claviron::registry::Result<()> {
+    sites.register_backend(backend("hello", BackendScope::site(), BeforeFiles, |_| {
+        let router = Router::new().route("/", get(|| async { "Hello from a backend" }));
+        Ok(vec![Arc::new(RustRouter::Axum(router))])
+    }))
+}
+```
+
+Call it during service registration. Edge exposes its shared site registry through
+`HostAppRegistry::site()`; Runner registers `SiteRegistry` in the process registry.
+Use `BackendScope::host` or `.at(prefix)` to restrict the scopes it serves.
+A custom engine implements `DispatchStep` and `BackendHandler`; its
+`BackendContract` declares identity export and response lifetime.
+
+### A layer
+
+A reusable response hook, with the same `axum` selection as above:
+
+```rust
+use claviron::axum::http::HeaderValue;
+use claviron::pipeline::extension::{HostLayerBuilder, RouteLayer};
+
+pub struct ServiceHeader;
+impl RouteLayer for ServiceHeader {
+    fn prepare(&self, layer: &mut HostLayerBuilder) -> claviron::pipeline::Result<()> {
+        layer.after(|reply, _| {
+            reply.headers.insert("x-service", HeaderValue::from_static("hello"));
+        });
+        Ok(())
+    }
+}
+```
+
+Expose it through `Routable::layers` for selected Edge hosts, or return
+`RouteEffect::Layer` from a typed `RouteExtension` directive. Preparation happens
+at boot/reload; request-time code runs only the actions that were installed.
+See [HostPipeline](docs/design/HOST_PIPELINE.md) and the
+[backend contract](docs/design/EDGE_BACKENDS.md) for ordering and ownership.
+
+## Use a framework runner
+
+The framework keeps its routes, middleware and application conventions.
+The runner embeds its engine in an application-owned Rust process and serves it
+through TCP, Unix sockets or Orbit Link.
+
+### Laravel with Lumenize
+
+Enable Lumenize's `runner` feature and supply `lumenize.yaml`:
+
+```rust
+use lumenize::Runner;
+
+#[tokio::main]
+async fn main() -> lumenize::Result<()> {
+    Runner::new().with_config_path("lumenize.yaml")?.run().await
+}
+```
+
+[Lumenize](https://github.com/claviron/lumenize) owns the Laravel integration,
+including its Composer package and persistent application mode.
+See its [Runner guide](https://github.com/claviron/lumenize/blob/main/docs/runner/README.md)
+for the launch configuration.
+
+### Python / ASGI with Gufi
+
+Point Gufi at your ASGI application, such as `app = FastAPI()` in `main.py`:
+
+```rust
+use gufi::Runner;
+
+#[tokio::main]
+async fn main() -> gufi::Result<()> {
+    Runner::new("main:app").name("hello").run().await
+}
+```
+
+[Gufi](https://github.com/claviron/gufi) manages ASGI lifespan, streaming requests
+and shutdown. `gufi.yaml` selects its listeners and Orbit membership.
+Both runners accept additional Rust service registration and native routes.
+
+## Use native bindings
+
+Keep your language's own executable and runtime. The binding joins an Orbit
+fleet; Edge owns public connections and routes requests to the named application.
+
+### JavaScript: Deno, Node or Bun
+
+Install `@claviron/orbit`. From Deno:
+
+```javascript
+import { serve } from "npm:@claviron/orbit";
+
+await serve({ fleet: "apps", name: "hello" }, (request) => {
+  return Response.json({ path: new URL(request.url).pathname });
+});
+```
+
+Node and Bun use the same API with the import `"@claviron/orbit"`.
+The [JavaScript package](https://github.com/claviron/js) includes native library
+installation and [complete examples](https://github.com/claviron/js/tree/main/examples).
+
+### Go: a standard HTTP handler
+
+Inside your Go application, with `ctx` as its shutdown context and the
+`context`, `fmt`, `net/http` and `github.com/claviron/go/orbit` imports:
+
+```go
+app, err := orbit.Open(orbit.Options{
+    Fleet: "apps", Name: "hello", Incarnation: 1,
+    NativeThreads: 1, MaxExchanges: 128, IOBufferBytes: 8192,
+}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    fmt.Fprintln(w, "Hello from Go")
+}))
+if err != nil { return err }
+defer app.Close()
+select {
+case <-ctx.Done(): return app.Shutdown(context.Background())
+case <-app.Done(): return app.Err()
+}
+```
+
+The [Go binding](https://github.com/claviron/go) documents native library setup;
+its [complete example](https://github.com/claviron/go/tree/main/examples/plain)
+owns signals and process shutdown.
+
+For either application above, an Edge host can select it with:
+
+```yaml
+# config/vhost.yaml
+example.test:
+  root: public
+  transport: { non_ssl: serve, protocols: [h1] }
+  orbit:
+    - { fleet: apps, application: hello }
+```
+
+Embedded JavaScript is a separate choice: [claviron-deno](https://github.com/claviron/deno)
+runs Deno Core/V8 **inside** the Claviron process. Its application exports a Fetch
+handler rather than joining through a native binding:
+
+```javascript
+export default {
+  fetch(request) {
+    return Response.json({ path: new URL(request.url).pathname });
+  },
+};
+```
 
 ## Crate guide and feature relationships
 
@@ -62,10 +252,8 @@ path.
 | --- | --- | --- |
 | [edge](crates/edge/README.md) | Virtual-host publication, admission, response-owner selection, and consumer-defined route extensions. Also documents the `edge_config` alias. | `edge` |
 | [http](crates/http/README.md) | Transport-neutral bodies, HTTP policies, listener declarations, and shared routing contracts. | `http`; Axum integration: `axum` |
-| [pipeline](crates/pipeline/README.md) | The request contract an application or embedded runtime implements, independent of hosts and listeners. | Through `edge` |
-| [transport](crates/transport/README.md) | Socket acceptance and HTTP/1.1, HTTP/2 and HTTP/3 connection driving without host selection. | Through `edge` |
-| [edge::listeners::tcp](crates/edge/src/listeners/tcp/mod.rs) | The HTTP/1.1 and HTTP/2 listeners that serve Edge's hosts. | Selected by `edge` |
-| [edge::listeners::quic](crates/edge/src/listeners/quic/mod.rs) | HTTP/3 over QUIC for Edge's hosts, with native request/connection integration. | `http3` (includes `tls`) |
+| [pipeline](crates/pipeline/README.md) | Prepared request plans, backend contracts and route extensions shared by Edge and Runner. | Through `edge` or `runner` |
+| [transport](crates/transport/README.md) | Named listener runnables and socket/HTTP connection driving shared by Edge and Runner. | `transport` through `edge`; Runner sockets through `runner-socket` |
 | [tls](crates/tls/README.md) | TLS handshakes, shared certificate resolution, and mTLS client-auth policy. | `tls` (includes `ssl`) |
 | [files](crates/files/README.md) | Static-file serving, caching, and response construction. | `files`; included by `edge`, usable without it |
 | [upstream](crates/upstream/README.md) | HTTP origin selection, pools, forwarding, and reload. | `upstream` (includes Edge integration and resolver contracts) |
@@ -89,12 +277,21 @@ are available through the [managed extensions](#managed-extensions-and-clients).
 
 ### Language engines and framework adapters
 
-PHP, Lua and broadcasting are moving to repositories of their own and are not
-part of this workspace. They implement `claviron-pipeline`'s backend contract.
+Language engines and realtime backends live in independent repositories:
+
+| Integration | Project |
+| --- | --- |
+| Embedded PHP and FastCGI | `claviron-php` |
+| Embedded Python / ASGI | `claviron-asgi` |
+| Embedded Lua | `claviron-lua` |
+| Broadcast and Pusher compatibility | `claviron-broadcast` |
+
+Applications register their selected adapters; each prepares its backend through
+the shared pipeline contract.
 
 Laravel's native and Composer adapters live in the independent
 [Lumenize library](https://github.com/claviron/lumenize). The
-[Symfony Composer adapter](https://github.com/claviron/skene/tree/main/php)
+[Symfony integration](https://github.com/claviron/skene)
 lives in Skene.
 
 ### Companion JavaScript integrations
@@ -154,15 +351,14 @@ already selected. See the [manifest](Cargo.toml) for the complete feature graph.
 
 ## Managed extensions and clients
 
-The [Claviron Extra](https://github.com/claviron/claviron-extra) repository groups
-optional infrastructure crates, registered separately from the core facade.
+These independent backend services register through Claviron's public APIs:
 
 | Crate | Capabilities |
 | --- | --- |
-| [claviron-acme](https://crates.io/crates/claviron-acme) | ACME account and certificate operations, HTTP-01 challenge integration, database-backed certificate issuance, and automatic renewal through a configured managed task. |
-| [claviron-dns](https://crates.io/crates/claviron-dns) | Managed authoritative DNS zones and records, UDP/TCP nameserver listeners, optional DNS-over-HTTPS, and database-driven snapshot updates. |
-| [claviron-domains](https://crates.io/crates/claviron-domains) | GoDaddy and Namecheap registrar clients, domain registration and renewal, delegation and DNS record management, and managed synchronization tasks. |
-| [claviron-grpc](https://crates.io/crates/claviron-grpc) | mTLS-secured administration over a dedicated HTTP/2 listener or an Edge vhost: workers, services, applications, tasks, hosting, certificates, DNS, domains, and ACME through selected capabilities. |
+| [claviron-acme](https://github.com/claviron/acme) | ACME account and certificate operations, HTTP-01 challenge integration, database-backed certificate issuance, and automatic renewal through a configured managed task. |
+| [claviron-dns](https://github.com/claviron/dns) | Managed authoritative DNS zones and records, UDP/TCP nameserver listeners, optional DNS-over-HTTPS, and database-driven snapshot updates. |
+| [claviron-domains](https://github.com/claviron/domains) | GoDaddy and Namecheap registrar clients, domain registration and renewal, delegation and DNS record management, and managed synchronization tasks. |
+| [claviron-grpc](https://github.com/claviron/grpc) | mTLS-secured administration through selected Edge vhosts: workers, services, applications, tasks, hosting, certificates, DNS, domains, and ACME through selected capabilities. |
 
 TLS serves prepared certificate snapshots from the hosting store without a
 database query per handshake. The management extension adds local CA creation,
@@ -174,10 +370,9 @@ fleet-aware, multi-worker chat: rooms, private messages, presence, persisted
 history, delivery/read receipts, and an embeddable JavaScript client. It supports
 WebSocket, HTTP/2 CONNECT, optional WebTransport, and a raw QUIC prototype.
 
-Claviron GUI is a native Apple management client connected directly through
-mTLS-secured gRPC. It displays fleet state and controls workers, services,
+[Claviron Apple](https://github.com/claviron/apple) is a native management client
+connected through mTLS-secured gRPC. It displays fleet state and controls workers, services,
 applications, and tasks, alongside certificate, DNS, and domain management.
-User management is planned.
 
 **Fleet overview** — worker, service, application, and task counts with server
 and connection details.
@@ -195,17 +390,6 @@ running instance counts.
 
 <p><a href="assets/gui-tasks.png"><img src="assets/gui-tasks.png" width="480" alt="Claviron GUI task groups and daemon instances"></a></p>
 
-## Edge or Runner?
-
-[Edge](crates/edge/README.md) combines virtual hosts, native services, scripts,
-embedded applications, static files, and upstreams under host-aware routing and
-admission policy.
-
-Use [Runner](crates/runner/README.md) for one framework or application that does
-not need a virtual-host table. Serve HTTP directly, run behind a proxy, or receive
-same-host requests over [Orbit Link](https://crates.io/crates/orbitive). Edge can
-host applications directly or route to dedicated runners.
-
 ## Dependency injection and service lifecycle
 
 Register a service once and resolve the same typed `Arc` within that process.
@@ -222,33 +406,18 @@ background work.
 These service instances are process-local. Orbit supplies shared state and
 coordination between workers.
 
-## Extend with Rust, migrate at your own pace
+## Add Rust routes to an existing application
 
-Intercept selected requests in Rust and leave the rest with your existing
-application, embedded or upstream. Keep this mixed-language setup or migrate
-one endpoint at a time without changing client URLs.
+A managed service implementing `claviron::edge::Routable` selects hosts during
+preparation and contributes handlers, layers or typed configuration directives.
+Register it through `claviron::edge::register_routable`. Requests it leaves
+unhandled continue to the configured backend; a response, including a 404,
+is final. Host policy still applies.
 
-### Routable and selective interception
-
-Implement [`claviron::edge::Routable`](crates/edge/README.md#application-shapes)
-on a managed service and register its shared instance with
-`claviron::edge::register_routable`. The service selects its vhosts and contributes
-Rust routes to their existing pipelines. Host selection and route construction
-happen during boot or reload.
-
-Requests not claimed by native routes continue to the configured owner: an
-registered backend, an HTTP upstream, or an Orbit-linked application.
-
-Host admission still applies. Authentication, CSRF, and authorization for the
-intercepted routes must be composed explicitly; native handlers do not inherit
-an external framework's middleware automatically. The separate
-`claviron::pipeline::routing::Routable` contract constructs host-independent routes
-for single-application composition rather than selecting Edge vhosts.
-
-Independent runner projects include [Gufi](https://crates.io/crates/gufi) for
-Python/ASGI and [Lumenize](https://crates.io/crates/lumenize) for PHP/Laravel. They
-own their engine/framework integration and use Claviron's runner contracts.
-An ordinary HTTP upstream can also be used without adopting Runner.
+The host-independent `claviron::pipeline::routing::Routable` contributes Axum
+routes to a single application. Native routes can sit in front of a framework's
+owner while the remaining requests keep reaching that framework. Compose their
+authentication and authorization explicitly.
 
 ## One configuration and environment foundation
 
@@ -317,18 +486,8 @@ as needed.
 
 Applications register their own components through `Server::register` or
 `Server::with_services`, then provide the configuration and adapters their
-composition requires. The crate READMEs provide focused integration examples.
-
-## Examples
-
-[examples](https://github.com/claviron/claviron/tree/main/examples) is an open
-playground where applications built on Claviron come to life. Its FastAPI,
-JavaScript and Laravel examples connect to one edge over Orbit Link. Each keeps
-its own application process and dependencies; the edge owns HTTP ingress. Launchers live in
-`examples`. These sources are available in Git, not the Cargo package.
-
-[Benchmark results](examples/BENCHMARKS.md) cover native and language application
-paths on macOS ARM64 and Linux x86-64, with configurations, latency and errors.
+composition requires. The examples above and the crate READMEs show each
+composition.
 
 ## Architectural Design Contracts
 
@@ -353,8 +512,8 @@ standards. Their identifiers are stable search keys across code and documentatio
 
 Claviron is in alpha and available on [crates.io](https://crates.io/crates/claviron).
 
-APIs and configuration may change between alpha releases. Backward compatibility
-is not guaranteed.
+Examples follow the API on this branch. Use matching integration versions.
+APIs and configuration may change between alpha releases.
 
 ## Contributing
 
