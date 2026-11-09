@@ -12,6 +12,7 @@ pub use super::interest;
 pub use super::{Access, GroupAccess};
 pub mod message;
 pub mod peer;
+mod receiver;
 pub mod segment;
 pub mod service;
 mod target;
@@ -32,7 +33,7 @@ pub use interest::{InterestGuard, LinkInterest};
 pub use message::{Message, MessageReader, read_message, write_message};
 pub use orbitive::link::{
     Admission, DirectoryWatcher, Inbox, Joined, LANE_NAME_MAX, Received,
-    Reclaimed, Routing,
+    Reclaimed, Routing, WorkExecution, WorkReservation, WorkTicket,
 };
 // Stream slot ownership types.
 pub use orbitive::stream::{Endpoint, StreamId, Ticket};
@@ -40,6 +41,7 @@ pub use peer::{
     ApplicationConnected, ApplicationDisconnected, EdgeConnected,
     EdgeDisconnected, LinkJoined, Peer, Peers,
 };
+pub use receiver::ApplicationReceiver;
 pub use segment::{ApplicationSegment, INBOX_GEOMETRY};
 pub use service::{ApplicationService, LinkedApplication};
 pub use target::ApplicationTarget;

@@ -168,6 +168,11 @@ impl<L: EventLayout> Driver<L> {
                 received = self.connection.next(&mut bytes), if !reader_failed && deferred.is_none() => {
                     match received {
                         Err(error) => { reader_failed = true; Err(error.into()) }
+                        Ok(Received::Capacity(_)) => Ok(None),
+                        Ok(Received::Work(ticket)) => {
+                            drop(self.connection.segment().accept_work(self.connection.lane(), ticket));
+                            Err(Error::Transport("unexpected application admission on an invocation connection".to_owned()))
+                        }
                         Ok(Received::Directory(generation)) => {
                             self.changed_peers();
                             Ok(Some(Incoming::Directory(generation)))

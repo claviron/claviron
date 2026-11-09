@@ -40,7 +40,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::future::{Future, poll_fn};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
@@ -423,6 +423,8 @@ impl Directory {
 /// it. Nothing iterates it on the request path.
 #[derive(Default)]
 struct Waiting {
+    capacity_changed: tokio::sync::Notify,
+    closed: AtomicBool,
     senders: Mutex<HashMap<u64, (LaneOwner, oneshot::Sender<ExchangeReply>)>>,
 }
 
@@ -675,43 +677,75 @@ impl ApplicationClient {
     pub fn send(
         &self,
         application: &str,
-        request: Exchange,
+        mut request: Exchange,
     ) -> Result<Pending> {
         let lanes =
             Directory::resolve(&self.directory, self.inbox(), application);
-        self.send_to(application, &lanes, request)
+        self.send_to(application, &lanes, &mut request)
     }
 
     pub(super) fn send_to(
         &self,
         application: &str,
         lanes: &[usize],
-        mut request: Exchange,
+        request: &mut Exchange,
     ) -> Result<Pending> {
-        let targets = self.inbox().ready(lanes);
+        if self.waiting.closed.load(Ordering::Acquire) {
+            return Err(Error::NoConsumer(application.to_owned()));
+        }
+        // A bounded target may have every slot reserved and every published
+        // frame still unread. Keep it in the candidate set: inbox fullness
+        // must not turn execution saturation into "no consumer".
+        let mut targets: Vec<_> = lanes
+            .iter()
+            .copied()
+            .filter_map(|lane| {
+                let admission = self.inbox().admits(lane).ok()?;
+                let bounded = self.inbox().work_capacity(lane).ok()?.is_some();
+                if admission == super::Admission::Accepted
+                    || (bounded && admission == super::Admission::Full)
+                {
+                    self.inbox().depth(lane).ok().map(|depth| (lane, depth))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        targets.sort_by_key(|(_, depth)| *depth);
         let Some((_, idlest)) = targets.first().copied() else {
             return Err(Error::NoConsumer(application.to_owned()));
         };
-
-        // Depth decides, and when depth cannot decide, rotation does.
-        //
-        // A lane's depth is what has arrived and not yet been picked up, so on
-        // a fleet that is keeping up it is zero everywhere: a worker takes the
-        // frame immediately and spends its time in the application, not in the
-        // mailbox. Depth is therefore the overload signal rather than the
-        // everyday one, and every ordinary dispatch is a tie.
-        //
-        // Reading gives nothing in a tie, so this is a choice rather than a
-        // reading, and it is made where choices belong — in the caller. Taking
-        // the first target would be a choice too, and the wrong one: it is
-        // always the same process, so a second one serving the same
-        // application would sit idle until the first fell behind.
-        //
-        // `targets` is sorted by depth, so the tied ones are a prefix of it.
         let tied =
             targets.iter().take_while(|(_, depth)| *depth == idlest).count();
         let turn = self.rotation.fetch_add(1, Ordering::Relaxed) as usize;
-        let target = targets[turn % tied].0;
+        let mut selected = None;
+        let mut full = false;
+        for offset in 0..targets.len() {
+            let index = if offset < tied {
+                (turn.wrapping_add(offset)) % tied
+            } else {
+                offset
+            };
+            let target = targets[index].0;
+            match self.segment.reserve_work(target, self.lane) {
+                Ok(admission) => {
+                    selected = Some((target, admission));
+                    break;
+                }
+                Err(Error::CapacityFull) => {
+                    full = true;
+                }
+                Err(Error::ReceiverGone) => {}
+                Err(error) => return Err(error),
+            }
+        }
+        let Some((target, admission)) = selected else {
+            return Err(if full {
+                Error::CapacityFull
+            } else {
+                Error::NoConsumer(application.to_owned())
+            });
+        };
 
         // A kept stream, or a new one when none is ready. Re-arming happens
         // here rather than after the write, because the frame below is what
@@ -763,9 +797,14 @@ impl ApplicationClient {
         };
         self.waiting.insert(correlation, owner, sender);
 
-        if let Err(error) =
-            self.segment.inbox().write_vectored(target, &[&head, body.inline()])
-        {
+        let published = match admission {
+            Some(admission) => admission.publish(&[&head, body.inline()]),
+            None => self
+                .segment
+                .inbox()
+                .write_vectored(target, &[&head, body.inline()]),
+        };
+        if let Err(error) = published {
             self.waiting.take(correlation);
             self.segment.reclaim_if_gone(target);
             tracing::debug!(
@@ -804,6 +843,22 @@ impl ApplicationClient {
         })
     }
 
+    pub(super) fn capacity_changed(&self) -> &tokio::sync::Notify {
+        &self.waiting.capacity_changed
+    }
+
+    pub(super) fn watch_capacity(
+        &self,
+        lanes: &[usize],
+    ) -> Result<()> {
+        for &lane in lanes {
+            self.inbox()
+                .watch_capacity(lane, self.lane)
+                .map_err(super::map_link_error)?;
+        }
+        Ok(())
+    }
+
     /// A kept stream re-armed for this exchange, or a new one.
     fn take_hot(&self) -> Result<(Endpoint, Ticket)> {
         let kept = self
@@ -823,6 +878,8 @@ impl ApplicationClient {
     /// worker is about to stop emptying. Then the reader is *woken* rather
     /// than waited out.
     pub fn leave(&self) {
+        self.waiting.closed.store(true, Ordering::Release);
+        self.waiting.capacity_changed.notify_waiters();
         let _ = self.segment.inbox().release_lane(self.lane);
         drop(self.hold.lock().expect("lane hold").take());
         if let Some(reader) = self.reader.lock().expect("reader handle").take()
@@ -890,6 +947,13 @@ impl ApplicationClient {
                         // it rather than a copy.
                         _ => deliver(&waiting, Bytes::from(std::mem::take(&mut frame))),
                     },
+                    Ok(Received::Capacity(_)) => waiting.capacity_changed.notify_waiters(),
+                    Ok(Received::Work(ticket)) => {
+                        // This lane advertises no work capacity. Reject an
+                        // invalid application frame without retaining a permit.
+                        drop(segment.accept_work(lane, ticket));
+                        tracing::warn!(lane, "work admission was addressed to a reply lane");
+                    }
                     Ok(Received::Event) => match &link {
                         Some(link) => link.accept(&frame),
                         None => tracing::debug!(
@@ -897,6 +961,7 @@ impl ApplicationClient {
                         ),
                     },
                     Ok(Received::Directory(_)) => {
+                        waiting.capacity_changed.notify_waiters();
                         while watches.try_join_next().is_some() {}
                         for peer in observe_applications(
                             &mut applications,
@@ -917,6 +982,8 @@ impl ApplicationClient {
                         tracing::debug!(
                             "reply lane {lane} could not be read: {error}"
                         );
+                        waiting.closed.store(true, Ordering::Release);
+                        waiting.capacity_changed.notify_waiters();
                         return;
                     }
                 }
@@ -934,66 +1001,17 @@ async fn watch_application(
     waiting: Arc<Waiting>,
     peer: super::Peer,
 ) {
-    let Some(pid) = peer.pid else { return };
-    let handle = match claviron_sys::process::identity(pid)
-        .map(claviron_sys::process::ProcessHandle::open)
-    {
-        Some(Ok(handle)) => Some(handle),
-        None => None,
-        Some(Err(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-            None
-        }
-        Some(Err(error)) => {
-            tracing::warn!(
-                lane = peer.lane,
-                pid,
-                "🛰 cannot watch application '{}' for its exit: {error}",
-                peer.name
-            );
+    match segment.recover_on_exit(&peer).await {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+            tracing::error!(lane = peer.lane, %error, "could not recover departed Link owner");
             return;
         }
-    };
-    // Looked at after the handle exists, so an exit from here on still wakes
-    // it. A number reused by another process since this lane was stamped would
-    // otherwise be waited on in place of the one that held it.
-    if let Some(handle) = handle
-        && !segment.reclaim_if_gone(peer.lane)
-        && let Err(error) = handle.wait().await
-    {
-        tracing::warn!(lane = peer.lane, pid, "🛰 exit watch failed: {error}");
-        return;
-    }
-    // The kernel can say a process exited just before it releases the lock
-    // that proves it. Its own thread: the wait cannot be cancelled, and a new
-    // owner taking the lane in between would prolong it past this task.
-    let (released, wait) = tokio::sync::oneshot::channel();
-    let lane = peer.lane;
-    let incarnation = peer.incarnation;
-    let owned = Arc::clone(&segment);
-    if let Err(error) = std::thread::Builder::new()
-        .name("orbit-lane-release".to_owned())
-        .spawn(move || {
-            let _ =
-                released.send(owned.wait_lane_released(lane, pid, incarnation));
-        })
-    {
-        tracing::error!(lane, pid, %error, "could not wait for a Link lane");
-        return;
-    }
-    match wait.await {
-        Ok(Ok(())) => {}
-        Ok(Err(error)) => {
-            tracing::error!(lane, pid, %error, "could not wait for a Link lane");
-            return;
-        }
-        Err(_) => return,
-    }
-    if let Err(error) = segment.process_exited(pid, peer.incarnation) {
-        tracing::error!(lane = peer.lane, pid, %error, "could not recover Link lane");
     }
     waiting.abandon(LaneOwner {
         lane: peer.lane,
-        pid: Some(pid),
+        pid: peer.pid,
         incarnation: peer.incarnation,
     });
 }

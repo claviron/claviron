@@ -103,14 +103,17 @@ impl Handler {
         exchange: Exchange,
         cancellation: impl std::future::Future<Output = ()>,
     ) -> Result<Channel, StatusCode> {
-        let pending = target
-            .send(exchange)
-            .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+        tokio::pin!(cancellation);
+        let pending = tokio::select! {
+            biased;
+            () = &mut cancellation => return Err(StatusCode::SERVICE_UNAVAILABLE),
+            result = target.send_wait(exchange) => result.map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?,
+        };
         let (outgoing, incoming, reply, _) = pending.split();
         let channel = Channel { outgoing, incoming, finished: false };
         let head = tokio::select! {
             biased;
-            () = cancellation => return Err(StatusCode::SERVICE_UNAVAILABLE),
+            () = &mut cancellation => return Err(StatusCode::SERVICE_UNAVAILABLE),
             result = reply.head() => result.map_err(|_| StatusCode::BAD_GATEWAY)?,
         };
         if head.status != StatusCode::SWITCHING_PROTOCOLS.as_u16() {

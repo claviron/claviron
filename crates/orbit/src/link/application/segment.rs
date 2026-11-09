@@ -20,7 +20,7 @@ pub const INBOX_GEOMETRY: orbitive::link::InboxGeometry = LINK_SPEC.inbox;
 /// A mapped application inbox, backed by `orbitive::link::LinkSegment`.
 pub struct ApplicationSegment {
     link: Arc<LinkSegment>,
-    fleet_name: String,
+    pub(super) fleet_name: String,
     spec: LinkSpec,
     access: Access,
 }
@@ -99,6 +99,87 @@ impl ApplicationSegment {
         self.link
             .join(application, runtime, incarnation)
             .map_err(map_link_error)
+    }
+
+    pub fn join_with_capacity(
+        &self,
+        application: &str,
+        runtime: &str,
+        incarnation: u64,
+        capacity: Option<usize>,
+    ) -> Result<Joined> {
+        check_application_name(application)?;
+        self.link
+            .join_with_capacity(application, runtime, incarnation, capacity)
+            .map_err(map_link_error)
+    }
+
+    pub fn reserve_work(
+        &self,
+        target: usize,
+        origin: usize,
+    ) -> Result<Option<super::WorkReservation>> {
+        self.link.reserve_work(target, origin).map_err(map_link_error)
+    }
+
+    pub fn accept_work(
+        &self,
+        lane: usize,
+        ticket: super::WorkTicket,
+    ) -> Result<super::WorkExecution> {
+        self.link.accept_work(lane, ticket).map_err(map_link_error)
+    }
+
+    /// Validate inbox admission before a frame reaches application code.
+    /// Raw requests cannot bypass a bound; work tickets cannot carry control.
+    pub fn accept_frame(
+        &self,
+        lane: usize,
+        received: super::Received,
+        frame: &[u8],
+    ) -> Result<Option<(usize, super::WorkExecution)>> {
+        match received {
+            super::Received::Work(ticket) => {
+                let execution = self.accept_work(lane, ticket)?;
+                if !matches!(
+                    super::frame_kind(frame),
+                    Ok(super::FrameKind::Request)
+                ) {
+                    return Err(Error::Malformed(
+                        "work admission carried a non-request frame",
+                    ));
+                }
+                Ok(Some((ticket.origin(), execution)))
+            }
+            super::Received::Frame => {
+                if self
+                    .inbox()
+                    .work_capacity(lane)
+                    .map_err(map_link_error)?
+                    .is_some()
+                    && matches!(
+                        super::frame_kind(frame),
+                        Ok(super::FrameKind::Request)
+                    )
+                {
+                    return Err(Error::Malformed(
+                        "bounded receiver requires a work admission",
+                    ));
+                }
+                Ok(None)
+            }
+            _ => Err(Error::Malformed(
+                "notification does not carry an application frame",
+            )),
+        }
+    }
+
+    /// Application intake, including exact origin-death recovery when bounded.
+    pub fn application_receiver(
+        self: &Arc<Self>,
+        lane: usize,
+    ) -> Result<super::ApplicationReceiver> {
+        super::ApplicationReceiver::new(Arc::clone(self), lane)
     }
 
     pub fn inbox(&self) -> &Inbox {
@@ -213,6 +294,59 @@ impl ApplicationSegment {
         self.link
             .wait_lane_released(lane, pid, incarnation)
             .map_err(map_link_error)
+    }
+
+    /// Observe native process exit, then recover under its exact kernel hold.
+    /// Both callers and bounded receivers use this; no timer infers death.
+    pub async fn recover_on_exit(
+        self: Arc<Self>,
+        peer: &super::Peer,
+    ) -> Result<bool> {
+        let Some(pid) = peer.pid else { return Ok(false) };
+        let handle = match claviron_sys::process::identity(pid)
+            .map(claviron_sys::process::ProcessHandle::open)
+        {
+            Some(Ok(handle)) => Some(handle),
+            None => None,
+            Some(Err(error))
+                if error.kind() == std::io::ErrorKind::NotFound =>
+            {
+                None
+            }
+            Some(Err(error)) => {
+                return Err(map_link_error(orbitive::link::Error::Io(error)));
+            }
+        };
+        if let Some(handle) = handle
+            && !self.reclaim_if_gone(peer.lane)
+        {
+            handle.wait().await.map_err(|error| {
+                map_link_error(orbitive::link::Error::Io(error))
+            })?;
+        }
+        // Exit notification may precede lock release. An owned cold-path
+        // thread waits on that exact hold; the runtime never blocks on it.
+        let (released, wait) = tokio::sync::oneshot::channel();
+        let lane = peer.lane;
+        let incarnation = peer.incarnation;
+        let owned = Arc::clone(&self);
+        std::thread::Builder::new()
+            .name("orbit-lane-release".to_owned())
+            .spawn(move || {
+                let _ = released.send(owned.wait_lane_released(
+                    lane,
+                    pid,
+                    incarnation,
+                ));
+            })
+            .map_err(|error| {
+                map_link_error(orbitive::link::Error::Io(error))
+            })?;
+        wait.await.map_err(|_| {
+            Error::Malformed("Link lane release observer ended")
+        })??;
+        self.process_exited(pid, incarnation)?;
+        Ok(true)
     }
 
     fn end_streams(

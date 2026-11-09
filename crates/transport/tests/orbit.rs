@@ -226,3 +226,114 @@ async fn completed_upload_does_not_cancel_a_streaming_response() {
         .unwrap();
     assert_eq!(received, bytes);
 }
+
+#[tokio::test]
+async fn admission_stays_owned_after_the_head_until_the_streamed_body_ends() {
+    use claviron_orbit::link::application::{Error, Exchange, ExchangeBody};
+    use std::sync::Mutex;
+    struct StreamingOwner {
+        ready: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        finish: Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    }
+    struct Body {
+        ready: Option<tokio::sync::oneshot::Sender<()>>,
+        finish: tokio::sync::oneshot::Receiver<()>,
+    }
+    impl http_body::Body for Body {
+        type Data = Bytes;
+        type Error = std::io::Error;
+        fn poll_frame(
+            mut self: Pin<&mut Self>,
+            cx: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Result<http_body::Frame<Bytes>, Self::Error>>>
+        {
+            if let Some(ready) = self.ready.take() {
+                ready.send(()).unwrap();
+            }
+            match Pin::new(&mut self.finish).poll(cx) {
+                std::task::Poll::Pending => std::task::Poll::Pending,
+                std::task::Poll::Ready(_) => std::task::Poll::Ready(None),
+            }
+        }
+    }
+    impl Owner for StreamingOwner {
+        fn call(
+            &self,
+            _: http::Request<claviron_http::RouteBody>,
+            _: Option<&Arc<claviron_http::ext::ConnCtx>>,
+            _: RequestArrival,
+        ) -> impl Future<Output = claviron_http::RouteResponse> + Send + use<>
+        {
+            let body = Body {
+                ready: self.ready.lock().unwrap().take(),
+                finish: self.finish.lock().unwrap().take().unwrap(),
+            };
+            async move {
+                http::Response::new(body.map_err(Into::into).boxed_unsync())
+            }
+        }
+    }
+    let name = format!("sb{:x}", std::process::id());
+    let segment = Arc::new(ApplicationSegment::open(&name, 4).unwrap());
+    let caller = segment.join("caller", "edge", 1).unwrap();
+    let worker =
+        segment.join_with_capacity("worker", "rust", 2, Some(1)).unwrap();
+    let origin =
+        ApplicationBodies::for_segment(&segment, caller.lane, 1).unwrap();
+    let bodies = Arc::new(
+        ApplicationBodies::for_segment(&segment, worker.lane, 2).unwrap(),
+    );
+    let (mut endpoint, stream) = origin.create().unwrap();
+    endpoint.finish().unwrap();
+    let exchange = Exchange {
+        method: "GET".into(),
+        path: "/".into(),
+        raw_path: b"/".to_vec(),
+        scheme: "http".into(),
+        origin: caller.lane as u16,
+        stream: Some(stream),
+        body: ExchangeBody::Empty,
+        ..Exchange::default()
+    };
+    let work = segment.reserve_work(worker.lane, caller.lane).unwrap().unwrap();
+    let ticket = work.ticket();
+    work.publish(&[&exchange.encode().unwrap()]).unwrap();
+    let mut frame = Vec::new();
+    assert_eq!(
+        segment.inbox().read_frame(worker.lane, &mut frame).unwrap(),
+        Some(Some(ticket))
+    );
+    let admission = segment
+        .accept_frame(worker.lane, Received::Work(ticket), &frame)
+        .unwrap();
+    let (ready, head_sent) = tokio::sync::oneshot::channel();
+    let (finish, body_end) = tokio::sync::oneshot::channel();
+    let owner = Arc::new(StreamingOwner {
+        ready: Mutex::new(Some(ready)),
+        finish: Mutex::new(Some(body_end)),
+    });
+    let serving = tokio::spawn(serve(
+        frame,
+        worker.lane,
+        owner,
+        Arc::clone(&segment),
+        Arc::clone(&bodies),
+        SessionShutdown { token: CancellationToken::new() },
+        admission,
+    ));
+    head_sent.await.unwrap();
+    assert!(segment.inbox().read(caller.lane, &mut Vec::new()).unwrap());
+    assert!(matches!(
+        segment.reserve_work(worker.lane, caller.lane),
+        Err(Error::CapacityFull)
+    ));
+    finish.send(()).unwrap();
+    serving.await.unwrap();
+    drop(segment.reserve_work(worker.lane, caller.lane).unwrap().unwrap());
+    drop(endpoint);
+    segment.inbox().release_lane(worker.lane).unwrap();
+    segment.inbox().release_lane(caller.lane).unwrap();
+    drop((worker.hold, caller.hold));
+    let _ = origin.unlink();
+    segment.unlink().unwrap();
+}

@@ -86,11 +86,48 @@ impl ApplicationTarget {
     /// Empty membership is retained only until the directory changes.
     pub fn send(
         &self,
-        request: Exchange,
+        mut request: Exchange,
     ) -> Result<Pending> {
         let lanes =
             self.0.lanes.load(self.0.client.inbox(), &self.0.application);
-        self.0.client.send_to(&self.0.application, &lanes.lanes, request)
+        self.0.client.send_to(&self.0.application, &lanes.lanes, &mut request)
+    }
+
+    /// Wait for receiver capacity without holding a body stream. Dropping
+    /// this future cancels only the unsubmitted exchange. The caller owns
+    /// any waiting budget; this method adds no timer or retry interval.
+    pub async fn send_wait(
+        &self,
+        mut request: Exchange,
+    ) -> Result<Pending> {
+        loop {
+            let lanes =
+                self.0.lanes.load(self.0.client.inbox(), &self.0.application);
+            match self.0.client.send_to(
+                &self.0.application,
+                &lanes.lanes,
+                &mut request,
+            ) {
+                Err(super::Error::CapacityFull) => {}
+                result => return result,
+            }
+            let changed = self.0.client.capacity_changed().notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            self.0.client.watch_capacity(&lanes.lanes)?;
+            // Register, then re-read membership and retry admission. Either
+            // the retry sees room or a concurrent return wakes this wait.
+            let current =
+                self.0.lanes.load(self.0.client.inbox(), &self.0.application);
+            match self.0.client.send_to(
+                &self.0.application,
+                &current.lanes,
+                &mut request,
+            ) {
+                Err(super::Error::CapacityFull) => changed.await,
+                result => return result,
+            }
+        }
     }
 }
 

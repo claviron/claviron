@@ -59,7 +59,11 @@ exit; the next bind removes one only after a refused connection proves it stale.
 
 `orbit.rs` drives an application's Orbit Link lane. `websocket.rs` adapts an
 owner's whole-message sessions to socket WebSockets. These use the same owner
-contract; they introduce no virtual-host configuration.
+contract; they introduce no virtual-host configuration. Orbit joins with its
+optional `max_in_flight` admission bound and uses the shared `ApplicationReceiver`
+and `accept_frame` contract. All callers reserve the same receiver capacity;
+accepted work retains it through body/session completion. Intake continues for
+events/control even at capacity, and withdrawal stops routing before drain.
 
 ## Tests
 

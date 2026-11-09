@@ -251,7 +251,19 @@ async fn dispatch(
         upgrade: websocket,
     };
 
-    let pending = match target.send(exchange) {
+    let sending = target.send_wait(exchange);
+    let admitted = match policy.queue_timeout {
+        Some(timeout) => match tokio::time::timeout(timeout, sending).await {
+            Ok(result) => result,
+            Err(_) => {
+                return unavailable(
+                    "Link admission exceeded requests.queue_timeout",
+                );
+            }
+        },
+        None => sending.await,
+    };
+    let pending = match admitted {
         Ok(pending) => pending,
         // Capacity or absence, never time: nothing has run, so this is a 503
         // and the client may try again.

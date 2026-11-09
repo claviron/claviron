@@ -5,6 +5,12 @@ use super::LINK_INBOX_PAYLOAD_CAPACITY;
 /// Application link errors.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error("the receiver work capacity is full")]
+    CapacityFull,
+    #[error("the selected receiver left")]
+    ReceiverGone,
+    #[error("the work reservation is no longer valid")]
+    StaleWork,
     #[error("the target's inbox lane is full")]
     InboxFull,
     #[error("this node holds no free stream slot")]
@@ -44,6 +50,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 pub(crate) fn map_link_error(error: orbitive::link::Error) -> Error {
     match error {
+        orbitive::link::Error::CapacityFull => Error::CapacityFull,
+        orbitive::link::Error::NoConsumer => Error::ReceiverGone,
+        orbitive::link::Error::StaleWork => Error::StaleWork,
         orbitive::link::Error::InboxFull => Error::InboxFull,
         orbitive::link::Error::NoLane => Error::NoLane,
         orbitive::link::Error::NoWatcher => Error::NoWatcher,

@@ -115,8 +115,8 @@ pub struct RunnerOptions {
     #[cfg_attr(feature = "cli", arg(long, requires = "tls_cert"))]
     pub tls_client_ca: Option<PathBuf>,
 
-    /// Exchanges taken from the Orbit lane and not yet answered. Unwritten,
-    /// no bound: work waits in the lane, where the edge sees it.
+    /// Receiver-owned Orbit capacity, shared by all callers and retained through
+    /// body/session completion. Unwritten means no bound; waiting stays at the caller.
     #[cfg_attr(feature = "cli", arg(long))]
     pub max_in_flight: Option<usize>,
 
@@ -312,6 +312,16 @@ impl RunnerOptions {
         if self.max_in_flight == Some(0) {
             return Err(
                 "max_in_flight is positive, or unwritten for no bound".into()
+            );
+        }
+        #[cfg(feature = "orbit")]
+        if self.orbit
+            && self.max_in_flight.is_some_and(|limit| {
+                limit > claviron_orbit::link::application::LINK_INBOX_CAPACITY
+            })
+        {
+            return Err(
+                "max_in_flight exceeds compiled Link admission capacity".into(),
             );
         }
         self.policy()?;

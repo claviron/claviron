@@ -228,7 +228,7 @@ listeners:
 tls_cert: ...                  # with tls
 tls_key: ...
 trusted: [10.0.0.0/8]          # peers whose forwarding headers count
-max_in_flight: 128             # Orbit exchanges taken and not answered
+max_in_flight: 128             # Orbit reserved/accepted exchanges through body/session completion
 requests:  { max_body_size: 64 MiB, body_read_timeout: 30s }
 responses: { idle_timeout: 60s }
 try_files: false                # with files; general public-file probe
@@ -288,8 +288,8 @@ before server construction, not a panic from converting an unchecked string.
 - **Orbit** — the lane in the configured `fleet_name` under the owner's runtime
   name, read by one Tokio task through `InboxReceiver`; SHM holds the frame
   and a named descriptor bell wakes the reactor directly, with no poll and no
-  thread/channel handoff. `max_in_flight` bounds what is taken and not
-  answered. A WebSocket there is spoken by the edge: the owner's Orbit session
+  thread/channel handoff. `max_in_flight` bounds shared reservations and accepted work through
+  response body/session completion; the receiver keeps reading control/events. A WebSocket there is spoken by the edge: the owner's Orbit session
   handler gets the request, the slot and the handshake answer, and exchanges
   whole messages. Shutdown releases the lane first, cancels the receiver,
   serves what it already took and completes what was accepted. The common

@@ -168,7 +168,7 @@ The main option groups are:
 
 - Identity and transport: `name`, `fleet_name`, `listeners`, `defaults.listener` and `trusted`; TLS fields are available with TLS support.
 - Request/reply policy: `requests` and `responses`.
-- Orbit ingress capacity: `max_in_flight`.
+- Orbit receiver capacity: `max_in_flight` (reserved and accepted exchanges through body/session completion; omitted means no bound).
 - Static routing: `files`, `try_files`, and `assets` when file support is selected.
 - Lifecycle: `workers`, supervisor settings, Orbit settings, and
   `edge_shutdown_policy`.

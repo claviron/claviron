@@ -139,6 +139,18 @@ impl<L: EventLayout> EventConnection<L> {
                 result = self.connection.next(&mut frame) => result?,
             };
             let incoming = match received {
+                Received::Capacity(_) => continue,
+                Received::Work(ticket) => {
+                    drop(
+                        self.connection
+                            .segment()
+                            .accept_work(self.connection.lane(), ticket),
+                    );
+                    return Err(super::Error::Malformed(
+                        "unexpected work admission on an event connection",
+                    )
+                    .into());
+                }
                 Received::Event => {
                     let (topic, payload) = self.bridge.accept(&frame)?;
                     Incoming::Event {

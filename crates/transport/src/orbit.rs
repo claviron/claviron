@@ -41,7 +41,8 @@ use claviron_orbit::link::application::{
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
     EdgeDisconnected, Exchange, ExchangeBody, ExchangeReply, FrameKind,
     HttpVersion, Inbox, LINK_BUFFER_BYTES, LINK_INBOX_PAYLOAD_CAPACITY,
-    LinkJoined, Peers, Received, ShutdownNotice, fit_inline, frame_kind,
+    LinkJoined, Peers, Received, ShutdownNotice, WorkExecution, fit_inline,
+    frame_kind,
 };
 pub use claviron_orbit::stream::{ReadHalf, WriteHalf};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
@@ -301,7 +302,8 @@ impl OrbitDoor {
     /// `runtime` is what the lane says answers the name (`php`, `asgi`); a
     /// process of another runtime given the same name is refused at its join
     /// rather than splitting this one's requests. `max_in_flight` bounds the
-    /// exchanges taken and not yet answered; `None` is no bound.
+    /// reservations and accepted exchanges through body/session completion;
+    /// `None` is no bound.
     pub fn new(
         application: impl Into<String>,
         runtime: &'static str,
@@ -336,7 +338,12 @@ impl OrbitDoor {
                 .map_err(|error| registry::Error::msg(error.to_string()))?,
         );
         let joined = segment
-            .join(&self.application, self.runtime, incarnation)
+            .join_with_capacity(
+                &self.application,
+                self.runtime,
+                incarnation,
+                self.max_in_flight,
+            )
             .map_err(|error| registry::Error::msg(error.to_string()))?;
         let lane = joined.lane;
         let bodies = Arc::new(
@@ -364,7 +371,7 @@ impl OrbitDoor {
         );
 
         let mut receiver = segment
-            .receiver(lane)
+            .application_receiver(lane)
             .map_err(|error| registry::Error::msg(error.to_string()))?;
         // Read after the receiver is bound: a change from here on wakes it,
         // and the edges already present are reported as they are found.
@@ -379,10 +386,6 @@ impl OrbitDoor {
             lane,
             role: self.runtime.to_owned(),
         });
-        let room = |exchanges: &JoinSet<()>| {
-            self.max_in_flight.is_none_or(|limit| exchanges.len() < limit)
-        };
-
         let mut exchanges = JoinSet::new();
         let shutdown = SessionShutdown { token: context.cancellation_token() };
         let mut frame = Vec::new();
@@ -391,18 +394,23 @@ impl OrbitDoor {
                 biased;
                 () = context.cancelled() => break,
                 Some(finished) = exchanges.join_next(), if !exchanges.is_empty() => report(finished),
-                arrived = receiver.next(&mut frame), if room(&exchanges) => match arrived {
-                    Ok(Received::Directory(_)) => observe_edges(
-                        &state,
-                        &mut edges,
-                        segment.inbox(),
-                        &self.application
-                    ),
+                arrived = receiver.next(&mut frame) => match arrived {
+                    Ok(Received::Directory(_)) => { observe_edges(&state, &mut edges, segment.inbox(), &self.application); },
+                    Ok(Received::Capacity(_)) => {},
                     Ok(Received::Event) => match &link {
                         Some(link) => link.accept(&frame),
                         None => tracing::debug!("lane {lane} received an application event it bridges nowhere"),
                     },
-                    Ok(Received::Frame) => match frame_kind(&frame) {
+                    Ok(received @ (Received::Frame | Received::Work(_))) => {
+                        let admission = match segment.accept_frame(lane, received, &frame) {
+                            Ok(admission) => admission,
+                            Err(error) => {
+                                tracing::debug!(lane, %error, "Link exchange refused before execution");
+                                refuse_exchange(&frame, &segment, &bodies);
+                                continue;
+                            }
+                        };
+                        match frame_kind(&frame) {
                         Ok(FrameKind::Request) => {
                             exchanges.spawn(serve(
                                 std::mem::take(&mut frame),
@@ -410,7 +418,8 @@ impl OrbitDoor {
                                 Arc::clone(&owner),
                                 Arc::clone(&segment),
                                 Arc::clone(&bodies),
-                                shutdown.clone()
+                                shutdown.clone(),
+                                admission
                             ));
                         }
                         Ok(FrameKind::Control) => match ControlCommand::decode(&frame) {
@@ -448,7 +457,7 @@ impl OrbitDoor {
                         },
                         Ok(FrameKind::ApplicationState) => tracing::debug!("lane {lane} received an application state notice meant for an edge"),
                         Err(error) => tracing::debug!("lane {lane} received an unreadable frame: {error}"),
-                    },
+                    }},
                     Err(error) => {
                         tracing::debug!("lane {lane} could not be read: {error}");
                         break;
@@ -502,12 +511,7 @@ impl OrbitDoor {
                 biased;
                 () = context.cancelled() => break,
                 moved = watcher.next() => match moved {
-                    Ok(_) => observe_edges(
-                        state,
-                        &mut edges,
-                        segment.inbox(),
-                        &self.application
-                    ),
+                    Ok(_) => { observe_edges(state, &mut edges, segment.inbox(), &self.application); },
                     Err(error) => {
                         tracing::debug!("the lane directory could not be watched: {error}");
                         break;
@@ -548,7 +552,7 @@ fn observe_edges(
             last,
         });
     }
-    for edge in came {
+    for edge in &came {
         tracing::info!(
             fleet_name = %edge.fleet,
             "🛰 edge '{}' reached '{application}' (lane {}, pid {})",
@@ -556,9 +560,40 @@ fn observe_edges(
             edge.lane,
             pid(edge.pid)
         );
-        state
-            .events()
-            .emit(EdgeConnected { edge, application: application.to_owned() });
+        state.events().emit(EdgeConnected {
+            edge: edge.clone(),
+            application: application.to_owned(),
+        });
+    }
+}
+
+fn refuse_exchange(
+    frame: &[u8],
+    segment: &ApplicationSegment,
+    bodies: &ApplicationBodies,
+) {
+    let Ok(exchange) = Exchange::decode(Bytes::copy_from_slice(frame)) else {
+        return;
+    };
+    let mut endpoint =
+        exchange.stream.and_then(|ticket| bodies.accept(ticket).ok());
+    let reply = ExchangeReply {
+        correlation: exchange.correlation,
+        status: 503,
+        headers: Vec::new(),
+        body: ExchangeBody::Empty,
+    };
+    if let Some(endpoint) = endpoint.as_mut() {
+        let _ = endpoint.finish();
+    }
+    if let Ok(frame) = reply.encode() {
+        if segment.inbox().write(exchange.origin as usize, &frame).is_err()
+            && let Some(endpoint) = endpoint.as_mut()
+        {
+            endpoint.reset();
+        }
+    } else if let Some(endpoint) = endpoint.as_mut() {
+        endpoint.reset();
     }
 }
 
@@ -580,7 +615,10 @@ async fn serve<O: Owner>(
     segment: Arc<ApplicationSegment>,
     bodies: Arc<ApplicationBodies>,
     shutdown: SessionShutdown,
+    admission: Option<(usize, WorkExecution)>,
 ) {
+    // Scope owns the admission until the response/session future has ended.
+    let _admission = admission;
     match frame_kind(&frame) {
         Ok(FrameKind::Request) => {}
         Ok(FrameKind::Reply) => {
@@ -627,6 +665,17 @@ async fn serve<O: Owner>(
         }
     };
     let origin = exchange.origin as usize;
+    if _admission
+        .as_ref()
+        .is_some_and(|(reserved_origin, _)| *reserved_origin != origin)
+    {
+        tracing::warn!(
+            lane,
+            origin,
+            "exchange origin differs from its work admission"
+        );
+        return;
+    }
     let correlation = exchange.correlation;
     // Measured, not budgeted: read so an operator can see what a request cost.
     let arrived = Instant::now();

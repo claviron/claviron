@@ -230,3 +230,148 @@ fn an_application_with_no_worker_is_refused_rather_than_queued() {
     ));
     assert!(edge.inbox.inbox().write(WORKER, b"nobody home").is_err());
 }
+
+#[tokio::test]
+async fn receiver_capacity_is_shared_and_waiting_does_not_take_a_stream() {
+    use std::future::{Future, poll_fn};
+    use std::task::{Context, Waker};
+
+    let name = format!("ad{:x}", std::process::id());
+    let segment = Arc::new(ApplicationSegment::for_fleet(&name).unwrap());
+    struct Cleanup(Arc<ApplicationSegment>);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let _ = self.0.unlink();
+        }
+    }
+    let _cleanup = Cleanup(Arc::clone(&segment));
+    let worker =
+        segment.join_with_capacity("bounded", "rust", 1, Some(1)).unwrap();
+    let mut receiver = segment.application_receiver(worker.lane).unwrap();
+    let first = ApplicationClient::join(&name, "caller-a", 2).unwrap();
+    let second = ApplicationClient::join(&name, "caller-b", 3).unwrap();
+    let target = second.target("bounded");
+    let pending = first.target("bounded").send(Exchange::default()).unwrap();
+    let mut frame = Vec::new();
+    let received = loop {
+        let received = receiver.next(&mut frame).await.unwrap();
+        if matches!(received, Received::Work(_)) {
+            break received;
+        }
+    };
+    let (_, execution) =
+        segment.accept_frame(worker.lane, received, &frame).unwrap().unwrap();
+    // Taking the inbox frame is not completion of the response/session.
+    assert!(matches!(
+        target.send(Exchange::default()),
+        Err(Error::CapacityFull)
+    ));
+
+    let mut cancelled = Box::pin(target.send_wait(Exchange::default()));
+    assert!(
+        cancelled
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
+    drop(cancelled);
+    // No exchange correlation or body slot was acquired by either failed try.
+    // The first successful send from this client must still be correlation 1.
+    let (parked, entered) = tokio::sync::oneshot::channel();
+    let waiting = tokio::spawn(async move {
+        let sending = target.send_wait(Exchange::default());
+        tokio::pin!(sending);
+        let mut parked = Some(parked);
+        poll_fn(|cx| {
+            let result = sending.as_mut().poll(cx);
+            if result.is_pending()
+                && let Some(parked) = parked.take()
+            {
+                parked.send(()).unwrap();
+            }
+            result
+        })
+        .await
+    });
+    entered.await.unwrap();
+    let command = ControlCommand {
+        application: "bounded".into(),
+        name: "status".into(),
+        payload: vec![],
+        target: None,
+    };
+    segment.inbox().write(worker.lane, &command.encode().unwrap()).unwrap();
+    loop {
+        let received = receiver.next(&mut frame).await.unwrap();
+        if received == Received::Frame {
+            assert!(
+                segment
+                    .accept_frame(worker.lane, received, &frame)
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(frame_kind(&frame).unwrap(), FrameKind::Control);
+            break;
+        }
+    }
+    assert!(!waiting.is_finished());
+    drop(execution);
+    let resumed = waiting.await.unwrap().unwrap();
+    assert_eq!(resumed.correlation, 1);
+    let received = receiver.next(&mut frame).await.unwrap();
+    let admitted = segment.accept_frame(worker.lane, received, &frame).unwrap();
+    assert!(admitted.is_some());
+    drop((admitted, pending, resumed));
+    first.leave();
+    second.leave();
+    let _ =
+        ApplicationBodies::for_fleet(&name, first.lane(), 2).unwrap().unlink();
+    let _ =
+        ApplicationBodies::for_fleet(&name, second.lane(), 3).unwrap().unlink();
+    segment.inbox().release_lane(worker.lane).unwrap();
+    drop(worker.hold);
+}
+
+#[tokio::test]
+async fn bounded_intake_rejects_raw_requests_and_withdrawal_wakes_capacity_waiters()
+ {
+    use std::future::{Future, poll_fn};
+    let name = format!("aw{:x}", std::process::id());
+    let segment = Arc::new(ApplicationSegment::for_fleet(&name).unwrap());
+    let worker =
+        segment.join_with_capacity("bounded", "rust", 1, Some(1)).unwrap();
+    let client = ApplicationClient::join(&name, "caller", 2).unwrap();
+    let frame = Exchange::default().encode().unwrap();
+    assert!(matches!(
+        segment.accept_frame(worker.lane, Received::Frame, &frame),
+        Err(Error::Malformed(_))
+    ));
+    let reservation =
+        segment.reserve_work(worker.lane, client.lane()).unwrap().unwrap();
+    let target = client.target("bounded");
+    let (parked, entered) = tokio::sync::oneshot::channel();
+    let waiting = tokio::spawn(async move {
+        let sending = target.send_wait(Exchange::default());
+        tokio::pin!(sending);
+        let mut parked = Some(parked);
+        poll_fn(|cx| {
+            let result = sending.as_mut().poll(cx);
+            if result.is_pending()
+                && let Some(parked) = parked.take()
+            {
+                parked.send(()).unwrap();
+            }
+            result
+        })
+        .await
+    });
+    entered.await.unwrap();
+    segment.inbox().release_lane(worker.lane).unwrap();
+    assert!(matches!(waiting.await.unwrap(), Err(Error::NoConsumer(_))));
+    drop(reservation);
+    client.leave();
+    let _ =
+        ApplicationBodies::for_fleet(&name, client.lane(), 2).unwrap().unlink();
+    drop(worker.hold);
+    segment.unlink().unwrap();
+}

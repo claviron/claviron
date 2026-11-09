@@ -59,3 +59,8 @@ host-selected providers, Link dispatch and H1 upgrade endpoints.
 
 The host-keyed `HostAppRegistry`, `Routable` bindings, the WebTransport registry, and Link's WebTransport sessions, which bind through that registry.
 Edge does not re-export this crate: its consumers depend on it directly.
+
+Orbit dispatch waits for receiver-owned admission before opening a body stream.
+The existing request `queue_timeout` bounds this wait when configured; no separate
+Link wait timeout is introduced. Creator stream exhaustion and inbox publication
+failure remain distinct failures after admission.

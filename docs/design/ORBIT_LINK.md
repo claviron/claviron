@@ -32,6 +32,31 @@ The geometry and frame formats are shared declarations. Peers that map the
 same namespace must agree on them. A change in physical shape is a compatibility
 change, not something one side can deploy by silently resizing a live segment.
 
+## Receiver-owned admission
+
+`max_in_flight` limits one application receiver's reserved and accepted exchanges
+across every caller. `None` remains unbounded; a declared positive limit must fit
+`LINK_INBOX_CAPACITY`. This is distinct from inbox depth, stream byte windows and
+the number of body slots a caller can originate.
+
+A caller reserves target capacity before obtaining a body slot. When all targets
+are busy, pipeline dispatch waits on a capacity notification, subject to the
+existing `requests.queue_timeout` if set. Direct `send` stays fail-fast;
+`ApplicationTarget::send_wait` provides notified waiting without a timer or local
+overflow queue. Dropping a wait has not submitted work.
+
+The receiver validates admission before execution and holds it through the
+response body or accepted message session. Its reader keeps processing events
+and control at full capacity. Unpublished reservations roll back on cancellation;
+accepted work is released by its receiver. Recovery uses confirmed process exit
+and exact lane ownership, not age or a heartbeat. Native bindings use the same
+frame admission contract; their declared retained-exchange budgets also retain
+credit until the foreign handle is released.
+
+Admission changes the inbox layout and its body-table membership domain. Edge,
+runners and native bindings must be rebuilt with matching `LINK_SPEC` geometry.
+Retained mappings from the preceding domain are not resized or cleared.
+
 ## A connection signal is not application health
 
 The directory describes reachability. A connected lane alone does not prove

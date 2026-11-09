@@ -98,7 +98,7 @@ application providers can run in the same fleet and therefore share one
 physical namespace.
 
 For owner-only resources, the ID is the `u8` in `/orbit-{fleet}-{kind}-{uid}`.
-Explicit group Links retain kinds `195`/`211` but use Orbitive's separate
+Explicit group Links retain kinds `184`/`183` but use Orbitive's separate
 access-derived namespace; this never widens the host fleet's other resources.
 Claviron's `{fleet}` is the
 explicit sharing domain reported by `AppState::fleet_name()` and defaults to
@@ -116,6 +116,8 @@ not duplicated as new Claviron constants.
 
 | Kind ID | Physical resource | Shape | Owning definition / Claviron binding |
 |---|---|---|---|
+| `183` | Application-link bodies: per-node lanes of stream slots, two bounded byte rings per slot. One duplex slot per exchange — request body one way, response body the other. Separate from kind `246` because worker coordination wants many narrow lanes and this wants fewer and wider. In the selected destination fleet beside kind `184`, addressed by the same lane index | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-link` / `orbit-stream` with Claviron `LINK_SPEC`; `ORBIT_LINK_LANE_CAPACITY` / `ORBIT_LINK_BUFFER_BYTES`; [application link](../../docs/design/ORBIT_LINK.md) |
+| `184` | Application-link inbox: one lane per link participant, fixed-size frames carrying an exchange header and its stream ticket. Many writers, the lane's owner reads; a full lane refuses rather than overwrites, and the next process to join takes back lanes whose kernel hold it can take (see Cleanup). Blocking consumers wait on the lane word; Tokio consumers arm the lane's named descriptor bell and await the reactor while frames remain in SHM. One directory-watcher slot per lane follows the lanes: a process that holds no lane (a master) is woken by the same claims and releases through its slot, held like a lane by a kernel lock (`orbitive::shm::try_hold_watcher`), and never appears in the directory. An interest entry per lane and per watcher follows: the routing keys (application-event domain topics) that slot's process subscribes to, read by `orbitive::link::LinkEvents` so an application event crosses the link only to a side that wants it. Lives in the selected destination fleet (`/orbit-<fleet_name>-184-<uid>`), with application names advertised inside it | Ring, watcher slots after the lanes (orbit-link layout 8; receiver-owned work claims and member capacity interests) | Orbitive `orbit-link` layout with Claviron `LINK_SPEC`; `ORBIT_LINK_INBOX_CAPACITY` / `ORBIT_LINK_INBOX_PAYLOAD_CAPACITY` / `ORBIT_LINK_FLEET_CAPACITY`; [application link](../../docs/design/ORBIT_LINK.md) |
 | `185` | Fleet TLS server sessions v2: a claim on each set instead of a table lock, owner registrations held by kernel locks | Header + owner generations + set claims + slots | Orbitive `orbit-rustls` `SERVER_SESSION_STATE_KIND` since 0.5.6; `tls` [TLS_SESSION_STATE_KIND](../tls/src/orbit.rs) follows that constant |
 | `186` | Recoverable text cells v5 with two committed/staging banks, full-width revision and exact owner incarnations | Table + owner identities + per-owner slot pin rows | Orbitive `CELL_TEXT_KIND`; replaces `188`; owner-exit recovery completes pending wakes under exact kernel holds, without touching the last committed text |
 | `187` | Handle-pinned scalar cells v4 with a separate parking generation | Table + per-owner slot pin rows | Orbitive `CELL_STATE_KIND`; replaces `189`; logical release precedes physical reuse, cancellation changes the native park word without changing the value version |
@@ -126,7 +128,7 @@ not duplicated as new Claviron constants.
 | `192` | Application snapshots with execution descriptions, row version 2 | Ring, 512-byte payloads | `claviron-app` [APPLICATION_SNAPSHOT_RING_KIND](../app/src/fleet/snapshot.rs); replaces `235`; `Reuse` / `Preserve` |
 | `193` | Shared byte arena v2 with per-process reader pins, reclaimed only after taking the dead owner's kernel hold | Index + owner rows + byte ring | Orbitive `ARENA_KIND`; [ArenaProvider binding](src/arena.rs); replaces `242` |
 | `194` | Arena-addressed cache mutation transport (protocol v3); values stay in kind `193` | Ring | Orbitive `CACHE_MUTATION_RING_KIND`; [cache binding](src/cache/runtime.rs); replaces `200`/`201` |
-| `195` | Application-link inbox: one lane per link participant, fixed-size frames carrying an exchange header and its stream ticket. Many writers, the lane's owner reads; a full lane refuses rather than overwrites, and the next process to join takes back lanes whose kernel hold it can take (see Cleanup). Blocking consumers wait on the lane word; Tokio consumers arm the lane's named descriptor bell and await the reactor while frames remain in SHM. One directory-watcher slot per lane follows the lanes: a process that holds no lane (a master) is woken by the same claims and releases through its slot, held like a lane by a kernel lock (`orbitive::shm::try_hold_watcher`), and never appears in the directory. An interest entry per lane and per watcher follows: the routing keys (application-event domain topics) that slot's process subscribes to, read by `orbitive::link::LinkEvents` so an application event crosses the link only to a side that wants it. Lives in the selected destination fleet (`/orbit-<fleet_name>-195-<uid>`), with application names advertised inside it | Ring, watcher slots after the lanes (orbit-link layout 6) | Orbitive `orbit-link` layout with Claviron `LINK_SPEC`; `ORBIT_LINK_INBOX_CAPACITY` / `ORBIT_LINK_INBOX_PAYLOAD_CAPACITY` / `ORBIT_LINK_FLEET_CAPACITY`; [application link](../../docs/design/ORBIT_LINK.md) |
+| `195` | Retired application inbox before receiver-owned work admission | Ring (layout 6/7) | Replaced by `184`; retained mappings are never resized or reset automatically |
 | `196` | Retired application-link inbox without interest entries (orbit-link layout 5) | Ring | Replaced by `195` when the interest table grew the segment; retained segments are not resized, reset or unlinked automatically |
 | `197` | Current worker lifecycle/operation snapshots with master runtime start, monotonic uptime and reload revision | Ring, 171-byte rows on 192-byte payloads | `supervisor` [WORKER_SNAPSHOT_RING_KIND](../supervisor/src/observation/snapshot.rs); replaces kind `240`; `Reuse` / `Preserve` |
 | `198` | Auth live sessions and consumed replay IDs; typed BLAKE3, encrypted or explicitly unprotected records; Principals stay process-local | Table, 320-byte slots, two 17-word banks; OAUTH004 with policy ID | Orbitive `orbit-auth` `AUTH_STATE_KIND`; supplied-Fleet backing, preserve across restart, no automatic migration; no Claviron provider binding yet |
@@ -142,7 +144,7 @@ not duplicated as new Claviron constants.
 | `208` | Retired FastCGI fleet exchange control | Stream table | The fleet FCGI exchange was removed; retained deployed segments are not reset or unlinked automatically |
 | `209` | Retired FastCGI fleet exchange request payload | Payload arena | The fleet FCGI exchange was removed; retained deployed segments are not reset or unlinked automatically |
 | `210` | Retired FastCGI fleet exchange response payload | Payload arena | The fleet FCGI exchange was removed; retained deployed segments are not reset or unlinked automatically |
-| `211` | Application-link bodies: per-node lanes of stream slots, two bounded byte rings per slot. One duplex slot per exchange — request body one way, response body the other. Separate from kind `246` because worker coordination wants many narrow lanes and this wants fewer and wider. In the selected destination fleet beside kind `195`, addressed by the same lane index | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-link` / `orbit-stream` with Claviron `LINK_SPEC`; `ORBIT_LINK_LANE_CAPACITY` / `ORBIT_LINK_BUFFER_BYTES`; [application link](../../docs/design/ORBIT_LINK.md) |
+| `211` | Retired body namespace addressed by inbox `195` member lanes | Duplex streams | Replaced by `183` so old and new inbox domains cannot alias the same body-table node |
 | `212` | Retired upstream worker metrics v1 (58-byte payload) | Ring | Replaced by `213`; retained deployed segments are not reset or unlinked automatically |
 | `213` | Upstream worker metrics v2 (74-byte payload) | Ring | `upstream` [UpstreamOrbitMetrics::KIND](../upstream/src/metrics/orbit.rs); `Reuse` / `Preserve` |
 | `214` | Embedded PHP worker metrics | Ring | `php-embed` PhpEmbedOrbitMetrics::KIND |
@@ -296,12 +298,12 @@ its index row.
   lives, so it never takes over; a quiescent boot covers it.
 - **Kernel-held lock**: an owner holds a lock the kernel releases when the
   process dies, however it dies; whoever can take it knows the owner is gone.
-  Link lanes (`195`) use one per lane (`orbitive::shm::try_hold_lane`),
+  Link lanes (`184`) use one per lane (`orbitive::shm::try_hold_lane`),
   directory watchers one per watcher slot (`orbitive::shm::try_hold_watcher`),
-  and the joiner that takes a lane back ends its streams (`211`) with
+  and the joiner that takes a lane back ends its streams (`183`) with
   `node_died`, naming the dead incarnation.
 - **Death report** (`node_dead`) from a supervisor: defined for the fleet's
-  streams (`246`); application-link body streams (`211`) now receive this
+  streams (`246`); application-link body streams (`183`) now receive this
   through the supervisor's exact kernel exit observation. Configured target
   fleets are recorded at vhost publication in the master too; recording does
   not join a lane. Recovery maps only existing tables without installing a
@@ -317,8 +319,8 @@ its index row.
 | kind | boot | finalize | successor | what stays, and why it is harmless |
 |---|---|---|---|---|
 | `194` cache mutation transport | Reuse | Preserve | — | old frames; cursors start at the head |
-| `195` application-link inbox (selected link fleet, not managed) | `orbitive::link::LinkSegment` creates once and otherwise attaches; a lane is won under its hold by CAS, then cleared and stamped | Claviron releases the lane, then its hold | **the next joiner takes back every lane whose hold it can take**: the kernel let go of it, so its owner is gone | a dead owner's lane and frames until the next process joins the fleet; the lock files beside the segment (removed with it) |
-| `211` application-link bodies (selected link fleet, not managed) | `orbitive::link::LinkBodies` attaches without reset | nothing | join recovery, refused-write recovery, and exact supervisor exit reset only the dead lane/incarnation's sides | unsupervised peers still need reclaim on a refused write or a join |
+| `184` application-link inbox (selected link fleet, not managed) | `orbitive::link::LinkSegment` creates once and otherwise attaches; a lane is won under its hold by CAS, then cleared and stamped | Claviron releases the lane, then its hold | **the next joiner takes back every lane whose hold it can take**: the kernel let go of it, so its owner is gone | a dead owner's lane and frames until the next process joins the fleet; the lock files beside the segment (removed with it) |
+| `183` application-link bodies (selected link fleet, not managed) | `orbitive::link::LinkBodies` attaches without reset | nothing | join recovery, refused-write recovery, and exact supervisor exit reset only the dead lane/incarnation's sides | unsupervised peers still need reclaim on a refused write or a join |
 | `213`–`219`, `223`–`225` metrics | Reuse | Preserve | overwrite | old samples; readers filter by `max_age` |
 | `220`/`234` events | Reuse | Preserve | — | old events; the inbound cursor starts at the head |
 | `221` heartbeat | Reuse | Preserve | overwrite | a stale head; activity reads lane *motion* |
@@ -348,7 +350,7 @@ its index row.
 
 ### Files outside shared memory
 
-On macOS and FreeBSD a node whose stream table (`246`, `211`) answers its
+On macOS and FreeBSD a node whose stream table (`246`, `183`) answers its
 doorbell on Tokio binds a socket file
 `/tmp/orbit-bell-<uid>/<segment>.<node>`. It is removed when the process's last
 table handle drops; a killed process leaves it. A successor on the node removes
@@ -627,3 +629,20 @@ Orbitive's own successful transition.
 These are explicit-handle resources, opened by their owner during preparation, not providers. They never reset or unlink. Matching
 opens keep committed debt, and incompatible state is an error. No core SHM kind is allocated: operators own dedicated namespaces and
 must not reuse another subsystem's. Configuration checks are structural and open nothing.
+
+## Link Admission
+
+An application joins with `max_in_flight` or no bound. A bounded receiver
+advertises shared admission slots, at most `LINK_INBOX_CAPACITY`; this is
+separate from unread inbox frames and creator-side body slots. All callers
+reserve the same target capacity before taking a body slot. `send` is fail-fast;
+`ApplicationTarget::send_wait` registers interest, rechecks and parks through the
+existing inbox bell. Pipeline waiting uses `requests.queue_timeout` when declared.
+
+`ApplicationReceiver` keeps reading control/events while work runs and observes
+exact originating-process exit for abandoned reservations. `accept_frame`
+validates request tickets before application execution; raw requests cannot bypass
+a bound. The accepted owner retains admission through response body/session
+completion. Before publication, dropping the reservation rolls back only that
+claim. Confirmed owner death and receiver replacement fence old claims; neither
+withdrawal nor a request timeout authorizes cancelling accepted remote work.

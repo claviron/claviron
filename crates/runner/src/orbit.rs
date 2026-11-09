@@ -27,7 +27,8 @@ impl OrbitIngress {
     /// `runtime` is what the lane says answers the name (`php`, `asgi`); a
     /// process of another runtime given the same name is refused at its join
     /// rather than splitting this one's requests. `max_in_flight` bounds the
-    /// exchanges taken and not yet answered; `None` is no bound.
+    /// reservations and accepted exchanges through body/session completion;
+    /// `None` is no bound.
     pub fn new(
         application: impl Into<String>,
         runtime: &'static str,
