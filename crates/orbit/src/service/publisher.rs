@@ -82,7 +82,10 @@ impl Configurable for ServiceSnapshotPublisher {
     }
 
     fn absent_source(&self) -> Option<OrbitConfig> {
-        Some(OrbitConfig { service_snapshots: self.absent_policy })
+        Some(OrbitConfig {
+            service_snapshots: self.absent_policy,
+            ..OrbitConfig::default()
+        })
     }
 
     fn validate_config(

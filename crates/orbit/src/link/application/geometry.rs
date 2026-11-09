@@ -11,7 +11,7 @@ pub const LINK_FLEET_CAPACITY: usize = orbitive::core::compile::usize_from_env(
 );
 
 /// SHM kind for the inbox layout, including directory watchers and interests.
-pub const LINK_INBOX_KIND: u8 = 184;
+pub const LINK_INBOX_KIND: u8 = 182;
 
 /// Frames per inbox lane, fixed at build time. Full lanes reject new frames.
 pub const LINK_INBOX_CAPACITY: usize = orbitive::core::compile::usize_from_env(
@@ -28,7 +28,7 @@ pub const LINK_INBOX_PAYLOAD_CAPACITY: usize =
     );
 
 /// SHM kind for duplex request/response body streams.
-pub const LINK_STREAM_KIND: u8 = 183;
+pub const LINK_STREAM_KIND: u8 = 181;
 
 /// Concurrent exchanges a node may originate, fixed at build time.
 /// Each exchange occupies one slot in its creator's lane, and an edge process

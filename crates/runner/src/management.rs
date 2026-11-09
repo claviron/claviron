@@ -79,7 +79,7 @@ pub fn register_link_application_management(
 
 fn publish_if_linked(state: &AppState) -> registry::Result<()> {
     let Some(segment) =
-        ApplicationSegment::existing_for_fleet(state.fleet_name())
+        ApplicationSegment::existing_configured(state, state.fleet_name())
             .map_err(|error| registry::Error::msg(error.to_string()))?
     else {
         return Ok(());

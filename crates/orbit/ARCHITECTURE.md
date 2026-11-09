@@ -116,8 +116,10 @@ not duplicated as new Claviron constants.
 
 | Kind ID | Physical resource | Shape | Owning definition / Claviron binding |
 |---|---|---|---|
-| `183` | Application-link bodies: per-node lanes of stream slots, two bounded byte rings per slot. One duplex slot per exchange — request body one way, response body the other. Separate from kind `246` because worker coordination wants many narrow lanes and this wants fewer and wider. In the selected destination fleet beside kind `184`, addressed by the same lane index | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-link` / `orbit-stream` with Claviron `LINK_SPEC`; `ORBIT_LINK_LANE_CAPACITY` / `ORBIT_LINK_BUFFER_BYTES`; [application link](../../docs/design/ORBIT_LINK.md) |
-| `184` | Application-link inbox: one lane per link participant, fixed-size frames carrying an exchange header and its stream ticket. Many writers, the lane's owner reads; a full lane refuses rather than overwrites, and the next process to join takes back lanes whose kernel hold it can take (see Cleanup). Blocking consumers wait on the lane word; Tokio consumers arm the lane's named descriptor bell and await the reactor while frames remain in SHM. One directory-watcher slot per lane follows the lanes: a process that holds no lane (a master) is woken by the same claims and releases through its slot, held like a lane by a kernel lock (`orbitive::shm::try_hold_watcher`), and never appears in the directory. An interest entry per lane and per watcher follows: the routing keys (application-event domain topics) that slot's process subscribes to, read by `orbitive::link::LinkEvents` so an application event crosses the link only to a side that wants it. Lives in the selected destination fleet (`/orbit-<fleet_name>-184-<uid>`), with application names advertised inside it | Ring, watcher slots after the lanes (orbit-link layout 8; receiver-owned work claims and member capacity interests) | Orbitive `orbit-link` layout with Claviron `LINK_SPEC`; `ORBIT_LINK_INBOX_CAPACITY` / `ORBIT_LINK_INBOX_PAYLOAD_CAPACITY` / `ORBIT_LINK_FLEET_CAPACITY`; [application link](../../docs/design/ORBIT_LINK.md) |
+| `181` | Application-link bodies: per-node lanes of stream slots, two bounded byte rings per slot. One duplex slot per exchange — request body one way, response body the other. Separate from kind `246` because worker coordination wants many narrow lanes and this wants fewer and wider. In the selected destination fleet beside kind `182`, addressed by the same lane index | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-link` / `orbit-stream` with Claviron `LINK_SPEC`; `ORBIT_LINK_LANE_CAPACITY` / `ORBIT_LINK_BUFFER_BYTES`; [application link](../../docs/design/ORBIT_LINK.md) |
+| `182` | Application-link inbox: one lane per link participant, fixed-size frames carrying an exchange header and its stream ticket. Many writers, the lane's owner reads; a full lane refuses rather than overwrites, and the next process to join takes back lanes whose kernel hold it can take (see Cleanup). Blocking consumers wait on the lane word; Tokio consumers arm the lane's named descriptor bell and await the reactor while frames remain in SHM. One directory-watcher slot per lane follows the lanes: a process that holds no lane (a master) is woken by the same claims and releases through its slot, held like a lane by a kernel lock (`orbitive::shm::try_hold_watcher`), and never appears in the directory. An interest entry per lane and per watcher follows: the routing keys (application-event domain topics) that slot's process subscribes to, read by `orbitive::link::LinkEvents` so an application event crosses the link only to a side that wants it. Lives in the selected destination fleet (`/orbit-<fleet_name>-182-<uid>`), with application names advertised inside it | Ring, watcher slots after the lanes (orbit-link layout 9; receiver-owned work claims and member capacity interests) | Orbitive `orbit-link` layout with Claviron `LINK_SPEC`; `ORBIT_LINK_INBOX_CAPACITY` / `ORBIT_LINK_INBOX_PAYLOAD_CAPACITY` / `ORBIT_LINK_FLEET_CAPACITY`; [application link](../../docs/design/ORBIT_LINK.md) |
+| `183` | Retired body namespace addressed by layout-8 inbox `184` | Duplex streams | Replaced by `181`; retained mappings are never reset or unlinked automatically |
+| `184` | Retired application inbox with startup-only admission policy | Ring (layout 8) | Replaced by `182`; layout 9 packs the live bound and retiring slot window atomically |
 | `185` | Fleet TLS server sessions v2: a claim on each set instead of a table lock, owner registrations held by kernel locks | Header + owner generations + set claims + slots | Orbitive `orbit-rustls` `SERVER_SESSION_STATE_KIND` since 0.5.6; `tls` [TLS_SESSION_STATE_KIND](../tls/src/orbit.rs) follows that constant |
 | `186` | Recoverable text cells v5 with two committed/staging banks, full-width revision and exact owner incarnations | Table + owner identities + per-owner slot pin rows | Orbitive `CELL_TEXT_KIND`; replaces `188`; owner-exit recovery completes pending wakes under exact kernel holds, without touching the last committed text |
 | `187` | Handle-pinned scalar cells v4 with a separate parking generation | Table + per-owner slot pin rows | Orbitive `CELL_STATE_KIND`; replaces `189`; logical release precedes physical reuse, cancellation changes the native park word without changing the value version |
@@ -646,3 +648,26 @@ a bound. The accepted owner retains admission through response body/session
 completion. Before publication, dropping the reservation rolls back only that
 claim. Confirmed owner death and receiver replacement fence old claims; neither
 withdrawal nor a request timeout authorizes cancelling accepted remote work.
+
+## Link configuration and live admission
+
+`OrbitConfiguration` owns Edge's `orbit.yaml`, or the `orbit` object in a runner's
+launch file. `link.geometry` selects physical capacities no greater than the
+compiled `ORBIT_LINK_*` ceilings. All participants must select the same shape.
+Absent Link configuration creates no Link segment. Runner `orbit.link: {}` uses
+the engine's declared admission default or the selected inbox capacity.
+
+`orbit.link.max_in_flight` is receiver-owned and may change live. Reservations
+and accepted exchanges retain their tickets through body/session completion.
+Growth wakes registered callers; shrink retires claims above the new boundary
+before refilling lower slots. Event and control reading remains independent.
+The direct API's unbounded-to-bounded transition requires rejoin because old
+untracked exchanges cannot be counted safely.
+
+Physical geometry and Link enablement stay frozen after configuration. Watch
+reports a distinct pending shape once, saying it will apply on the next restart;
+no automatic restart or resource replacement occurs. In supervised mode only the
+master warns; workers apply the live policy without repeating it. Manual reload logs at debug
+and applies only the live bound; reading a snapshot neither applies nor logs.
+Changing retained physical SHM geometry still requires a stopped-fleet cleanup;
+opening a mismatched object refuses it rather than resizing or unlinking peers.

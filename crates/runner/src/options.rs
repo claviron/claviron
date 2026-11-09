@@ -76,8 +76,9 @@ pub struct RunnerOptions {
     pub fleet_name: Option<String>,
 
     /// Answer through `fleet_name`, advertising `name` inside that namespace.
-    #[cfg_attr(feature = "cli", arg(long))]
-    pub orbit: bool,
+    #[cfg_attr(feature = "cli", arg(long, num_args = 0..=1, default_missing_value = "{link: {}}", value_parser = parse_orbit))]
+    #[serde(deserialize_with = "deserialize_orbit")]
+    pub orbit: Option<serde_yaml::Value>,
 
     /// React to the edge master's ShutdownInitiated notice. A disconnected
     /// Link alone never triggers this policy. Written in the runner file.
@@ -114,11 +115,6 @@ pub struct RunnerOptions {
     #[cfg(feature = "tls")]
     #[cfg_attr(feature = "cli", arg(long, requires = "tls_cert"))]
     pub tls_client_ca: Option<PathBuf>,
-
-    /// Receiver-owned Orbit capacity, shared by all callers and retained through
-    /// body/session completion. Unwritten means no bound; waiting stays at the caller.
-    #[cfg_attr(feature = "cli", arg(long))]
-    pub max_in_flight: Option<usize>,
 
     /// The request side of the policy (`max_body_size`, `body_read_timeout`,
     /// `queue_timeout`, …). Unwritten, nothing is bounded.
@@ -180,6 +176,24 @@ pub struct RunnerOptions {
 }
 
 impl RunnerOptions {
+    pub fn link_enabled(&self) -> bool {
+        self.orbit
+            .as_ref()
+            .and_then(|orbit| orbit.get("link"))
+            .is_some_and(|link| !link.is_null())
+    }
+
+    #[cfg(feature = "orbit")]
+    pub fn orbit_config(
+        &self
+    ) -> Result<Option<claviron_orbit::config::OrbitConfig>, String> {
+        self.orbit
+            .clone()
+            .map(serde_yaml::from_value)
+            .transpose()
+            .map_err(|error| error.to_string())
+    }
+
     /// The keys these options take in a runner's file; [`split`] hands them
     /// here and the rest to the runner.
     pub const KEYS: &'static [&'static str] = &[
@@ -199,7 +213,6 @@ impl RunnerOptions {
         "tls_key",
         #[cfg(feature = "tls")]
         "tls_client_ca",
-        "max_in_flight",
         "requests",
         "responses",
         "site",
@@ -235,7 +248,7 @@ impl RunnerOptions {
             environment: self.environment,
             production: self.production,
             fleet_name: self.fleet_name.or(written.fleet_name),
-            orbit: self.orbit || written.orbit,
+            orbit: self.orbit.or(written.orbit),
             edge_shutdown_policy: if self.edge_shutdown_policy
                 == EdgeShutdownPolicy::default()
             {
@@ -258,7 +271,6 @@ impl RunnerOptions {
             tls_key: self.tls_key.or(written.tls_key),
             #[cfg(feature = "tls")]
             tls_client_ca: self.tls_client_ca.or(written.tls_client_ca),
-            max_in_flight: self.max_in_flight.or(written.max_in_flight),
             requests: self.requests.or(written.requests),
             responses: self.responses.or(written.responses),
             site: self.site.or(written.site),
@@ -309,21 +321,14 @@ impl RunnerOptions {
                 );
             }
         }
-        if self.max_in_flight == Some(0) {
-            return Err(
-                "max_in_flight is positive, or unwritten for no bound".into()
-            );
+        if self.orbit.as_ref().is_some_and(|orbit| !orbit.is_mapping()) {
+            return Err("orbit must be a configuration mapping".into());
         }
         #[cfg(feature = "orbit")]
-        if self.orbit
-            && self.max_in_flight.is_some_and(|limit| {
-                limit > claviron_orbit::link::application::LINK_INBOX_CAPACITY
-            })
-        {
-            return Err(
-                "max_in_flight exceeds compiled Link admission capacity".into(),
-            );
+        if let Some(config) = self.orbit_config()? {
+            config.validate().map_err(|e| e.to_string())?;
         }
+
         self.policy()?;
         #[cfg(feature = "files")]
         self.file_site()?;
@@ -548,3 +553,25 @@ mod networks {
 #[cfg(test)]
 #[path = "../tests/options.rs"]
 mod tests;
+
+#[cfg(feature = "cli")]
+fn parse_orbit(value: &str) -> Result<serde_yaml::Value, String> {
+    let value: serde_yaml::Value =
+        serde_yaml::from_str(value).map_err(|error| error.to_string())?;
+    if !value.is_mapping() {
+        return Err("orbit must be a configuration mapping".into());
+    }
+    Ok(value)
+}
+
+fn deserialize_orbit<'de, D: serde::Deserializer<'de>>(
+    deserializer: D
+) -> Result<Option<serde_yaml::Value>, D::Error> {
+    let value = Option::<serde_yaml::Value>::deserialize(deserializer)?;
+    if value.as_ref().is_some_and(|value| !value.is_mapping()) {
+        return Err(serde::de::Error::custom(
+            "orbit must be a configuration mapping",
+        ));
+    }
+    Ok(value)
+}

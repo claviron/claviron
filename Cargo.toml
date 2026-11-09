@@ -53,7 +53,7 @@ runner = ["server", "http", "dep:serde", "dep:claviron-pipeline", "dep:claviron-
 # The application's TCP and Unix sockets on the runner.
 runner-socket = ["runner", "claviron-runner/socket"]
 # The door with no socket: an edge reaches the runner over Orbit shared memory.
-runner-orbit = ["runner", "claviron-runner/orbit"]
+runner-orbit = ["runner", "config-watch", "claviron-runner/orbit"]
 # A native Rust application on the runner; select `axum` separately.
 rust = ["runner", "claviron-runner/rust", "dep:serde", "dep:bytes", "dep:http", "dep:http-body", "dep:tower"]
 
@@ -252,6 +252,9 @@ clap = { workspace = true, features = ["derive"] }
 # TLS for the benchmark client and the native controls.
 rustls = { workspace = true, features = ["aws_lc_rs", "std"] }
 tokio-rustls.workspace = true
+
+# ── Time / identifiers ──────────────────────────────────────────────────
+humantime.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
@@ -539,7 +542,7 @@ h3-quinn = { package = "h3-quinn-forked", version = "0.0.4" }
 h3-webtransport = { package = "h3-webtransport-forked", version = "0.0.4" }
 # ── Published sibling libraries shared through workspace dependencies ──
 # Bounded state and shared-memory coordination across fleet processes.
-orbitive = { version = "0.6.5", default-features = false }
+orbitive = { version = "0.6.6", path = "../foundation/orbitive", default-features = false }
 # Typed service registry, lifecycle ordering and process-local events.
 continuo = { version = "0.11.2", default-features = false }
 # Typed configuration loading, composition and reload notifications.

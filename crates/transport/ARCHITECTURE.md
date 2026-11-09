@@ -76,3 +76,9 @@ Unix bind or changing its socket settings requires a process-family restart;
 policy reload on an existing bind reuses its descriptor. Retiring a listener
 releases retained copies without closing active generation copies or unlinking
 another process's path.
+
+The Orbit door shares `claviron_orbit::config::LinkCapacity` with its configuration
+owner. The controller retains weak lane references, so it cannot prolong a
+receiver's lifetime. Joining and changing the bound are serialized only on this
+cold control path; request dispatch takes no controller mutex. Inbox, body table,
+master observation and management publication use the same frozen Link geometry.

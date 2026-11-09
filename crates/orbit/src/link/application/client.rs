@@ -55,8 +55,7 @@ use super::{
     Access, ApplicationBodies, ApplicationConnected, ApplicationDisconnected,
     ApplicationLinkSetup, ApplicationSegment, ApplicationStateNotice,
     ControlCommand, Error, Exchange, ExchangeBody, ExchangeReply, FrameKind,
-    LINK_INBOX_PAYLOAD_CAPACITY, LinkJoined, Peers, Result, fit_inline,
-    frame_kind,
+    LinkJoined, Peers, Result, fit_inline, frame_kind,
 };
 
 /// The runtime tag an edge worker's lane carries. It serves no name — its lane
@@ -598,6 +597,17 @@ impl ApplicationClient {
         let segment = Arc::new(ApplicationSegment::for_fleet_with_access(
             fleet_name, access,
         )?);
+        Self::join_segment(segment, name, incarnation, events, link)
+    }
+
+    pub fn join_segment(
+        segment: Arc<ApplicationSegment>,
+        name: &str,
+        incarnation: u64,
+        events: Option<ProcessEventBus>,
+        link: Option<ApplicationLinkSetup>,
+    ) -> Result<Arc<Self>> {
+        let fleet_name = segment.fleet_name.clone();
         let joined = segment.join(name, EDGE_RUNTIME, incarnation)?;
         let lane = joined.lane;
         let bodies = Arc::new(ApplicationBodies::for_segment(
@@ -608,7 +618,7 @@ impl ApplicationClient {
         bodies.reclaimed(&joined.reclaimed);
 
         let client = Arc::new(Self {
-            fleet: FleetName::new(fleet_name),
+            fleet: FleetName::new(&fleet_name),
             segment,
             bodies,
             lane,
@@ -762,7 +772,7 @@ impl ApplicationClient {
         let (body, spill) = fit_inline(
             &mut head,
             std::mem::take(&mut request.body),
-            LINK_INBOX_PAYLOAD_CAPACITY,
+            self.segment.inbox().geometry().payload_capacity,
         );
         let mut unsent = None;
         match (&body, spill) {

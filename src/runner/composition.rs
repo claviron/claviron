@@ -33,6 +33,7 @@ pub struct Composition<O> {
     runtime: &'static str,
     default_in_flight: Option<usize>,
     config_dir: PathBuf,
+    config_file: Option<PathBuf>,
     system_log: Option<Option<crate::logging::SystemLogConfig>>,
     definitions: Option<Definitions<O>>,
     owner: OwnerStep<O>,
@@ -65,6 +66,7 @@ where
             runtime,
             default_in_flight: None,
             config_dir: PathBuf::from("."),
+            config_file: None,
             system_log: None,
             definitions: None,
             owner: Box::new(owner),
@@ -89,6 +91,7 @@ where
         mut self,
         path: &Path,
     ) -> Self {
+        self.config_file = Some(path.to_owned());
         self.config_dir = path
             .parent()
             .filter(|path| !path.as_os_str().is_empty())
@@ -174,6 +177,7 @@ where
             runtime,
             default_in_flight,
             config_dir,
+            config_file,
             system_log,
             definitions,
             owner,
@@ -182,7 +186,7 @@ where
             settled,
         } = self;
         // What a lane is addressed by; a process with no lane has no such name.
-        if launch.runner.orbit {
+        if launch.runner.link_enabled() {
             claviron_orbit::link::application::segment::check_application_name(
                 &name,
             )
@@ -215,6 +219,21 @@ where
             .config_dir(config_dir)
             .with_definitions(move |state| {
                 let launch = inherited.inherited(state)?;
+                #[cfg(feature = "runner-orbit")]
+                claviron_orbit::config::OrbitConfiguration::runner_source(
+                    state,
+                    config_file
+                        .clone()
+                        .unwrap_or_else(|| PathBuf::from("runner.yaml")),
+                    launch
+                        .runner
+                        .orbit_config()
+                        .map_err(registry::Error::msg)?
+                        .unwrap_or_default(),
+                    default_in_flight,
+                )?;
+                #[cfg(not(feature = "runner-orbit"))]
+                let _ = &config_file;
                 #[cfg(feature = "supervisor")]
                 claviron_runner::supervisor::register_policy(
                     state,

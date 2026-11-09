@@ -216,7 +216,8 @@ unknown keys, which is why the file is divided by hand.
 ```yaml
 name: shop                     # application / instance address
 fleet_name: shop               # independent process-family namespace
-orbit: true
+orbit:
+  link: {max_in_flight: 128}
 defaults:
   listener:
     execution: shared
@@ -228,7 +229,6 @@ listeners:
 tls_cert: ...                  # with tls
 tls_key: ...
 trusted: [10.0.0.0/8]          # peers whose forwarding headers count
-max_in_flight: 128             # Orbit reserved/accepted exchanges through body/session completion
 requests:  { max_body_size: 64 MiB, body_read_timeout: 30s }
 responses: { idle_timeout: 60s }
 try_files: false                # with files; general public-file probe
@@ -416,3 +416,10 @@ Development only; a production build carries no watcher.
 
 Each step leaves the runner's configuration file readable as before, or says
 in its own changelog what moved.
+
+Orbit options live under `orbit.link`; the old boolean `orbit` and root
+`max_in_flight` are not accepted. The launch source is registered before
+configuration preparation. The same admission controller is then attached to
+`OrbitIngress`, including in workers: changing `max_in_flight` does not restart
+an interpreter, replace a lane, or end accepted work. Physical Link geometry is
+frozen until the next restart, with one watch warning per pending shape.

@@ -212,10 +212,10 @@ pub fn register_doors(
             state.registry_ref().register(Arc::new(ingress))?;
         }
     }
-    if runner.orbit {
+    if runner.link_enabled() {
         #[cfg(not(feature = "orbit"))]
         return Err(registry::Error::msg(
-            "orbit: true needs claviron-runner's `orbit` feature \
+            "orbit.link needs claviron-runner's `orbit` feature \
              (`runner-orbit` on the facade)",
         ));
         #[cfg(feature = "orbit")]
@@ -254,13 +254,19 @@ pub fn register_doors(
                         registry::Error::msg(error.to_string())
                     },
                 )?);
+            let configuration = state
+                .registry_ref()
+                .resolve::<claviron_orbit::config::OrbitConfiguration>()
+                .ok_or_else(|| {
+                    registry::Error::msg(
+                        "Orbit configuration must be registered before doors",
+                    )
+                })?;
+            let _ = default_in_flight; // applied by the configuration owner before boot
             state.registry_ref().register(Arc::new(
-                crate::OrbitIngress::new(
-                    name,
-                    runtime,
-                    runner.max_in_flight.or(default_in_flight),
-                )
-                .execution(execution),
+                crate::OrbitIngress::new(name, runtime, None)
+                    .capacity(configuration.capacity())
+                    .execution(execution),
             ))?;
         }
     }

@@ -128,7 +128,7 @@ impl Runner {
             &name,
         )
         .map_err(registry_error)?;
-        if !options.names_a_socket() && !options.orbit {
+        if !options.names_a_socket() && !options.link_enabled() {
             return Err("select orbit or named listeners".into());
         }
         let production = options.production;
@@ -159,6 +159,17 @@ impl Runner {
             )
             .with_definitions(move |state| {
                 let definitions = definitions.inherited(state)?;
+                #[cfg(feature = "runner-orbit")]
+                claviron_orbit::config::OrbitConfiguration::runner_source(
+                    state,
+                    config_path.clone(),
+                    definitions
+                        .runner
+                        .orbit_config()
+                        .map_err(registry::Error::msg)?
+                        .unwrap_or_default(),
+                    None,
+                )?;
                 #[cfg(feature = "supervisor")]
                 claviron_runner::supervisor::register_policy(
                     state,

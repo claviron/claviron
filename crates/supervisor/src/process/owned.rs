@@ -92,6 +92,10 @@ impl OwnedProcess {
         incarnation: u64,
     ) -> Self {
         let fleet = state.fleet_name().to_owned();
+        let geometry = state
+            .registry_ref()
+            .resolve::<claviron_orbit::config::OrbitConfiguration>()
+            .map(|config| config.capacity().geometry());
         let pid = self.pid();
         let applications = state
             .registry_ref()
@@ -103,7 +107,9 @@ impl OwnedProcess {
             if let Some(applications) = &applications {
                 applications.process_exited(&fleet, pid, incarnation);
             } else {
-                let result = claviron_orbit::link::application::ApplicationSegment::existing_for_fleet(&fleet)
+                let result = geometry.as_ref().map_or(Ok(claviron_orbit::link::application::LINK_SPEC), |geometry| {
+                    geometry.as_ref().map(|geometry| geometry.spec()).map_err(|_| claviron_orbit::link::application::Error::Malformed("Link geometry lock"))
+                }).and_then(|spec| claviron_orbit::link::application::ApplicationSegment::existing_for_fleet_with_spec(&fleet, spec, &claviron_orbit::link::application::Access::OwnerOnly))
                     .and_then(|segment| match segment {
                         Some(segment) => segment.process_exited(pid, incarnation),
                         None => Ok(()),

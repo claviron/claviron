@@ -6,8 +6,8 @@ use super::*;
 /// place to notice a number being changed by accident.
 #[test]
 fn the_application_link_owns_its_own_kinds() {
-    assert_eq!(LINK_INBOX_KIND, 184);
-    assert_eq!(LINK_STREAM_KIND, 183);
+    assert_eq!(LINK_INBOX_KIND, 182);
+    assert_eq!(LINK_STREAM_KIND, 181);
     assert_eq!(LINK_STREAM_SPEC.kind, LINK_STREAM_KIND);
 
     // Not orbit-stream's default table. Worker coordination and body transfer

@@ -34,6 +34,7 @@ tokio-util = { workspace = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde = { workspace = true, features = ["derive"] }
+serde_yaml.workspace = true
 
 # ── HTTP core ───────────────────────────────────────────────────────────
 http.workspace = true
@@ -57,7 +58,6 @@ orbitive = { workspace = true, features = ["arena", "cache", "cell", "events", "
 tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
-serde_yaml.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true

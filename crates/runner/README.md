@@ -47,7 +47,8 @@ async fn main() -> claviron::Result<()> {
 ```yaml
 name: example-app
 fleet_name: example
-orbit: true
+orbit:
+  link: {}
 ```
 
 `with_options` overrides file values; `with_config_path` selects another file.
@@ -168,7 +169,7 @@ The main option groups are:
 
 - Identity and transport: `name`, `fleet_name`, `listeners`, `defaults.listener` and `trusted`; TLS fields are available with TLS support.
 - Request/reply policy: `requests` and `responses`.
-- Orbit receiver capacity: `max_in_flight` (reserved and accepted exchanges through body/session completion; omitted means no bound).
+- Orbit receiver capacity: `orbit.link.max_in_flight` (reserved and accepted exchanges through body/session completion; omitted uses the engine default or selected inbox capacity).
 - Static routing: `files`, `try_files`, and `assets` when file support is selected.
 - Lifecycle: `workers`, supervisor settings, Orbit settings, and
   `edge_shutdown_policy`.
@@ -242,3 +243,8 @@ Part of Claviron's alpha development series; APIs and configuration may change.
 
 Licensed under either [MIT](https://github.com/claviron/claviron/blob/main/LICENSE-MIT)
 or [Apache-2.0](https://github.com/claviron/claviron/blob/main/LICENSE-APACHE), at your option.
+
+`orbit.link.max_in_flight` can be changed while serving. Accepted bodies and
+sessions finish normally; callers waiting for capacity are notified. Physical
+settings under `orbit.link.geometry` take effect on the next restart. A watched
+change logs one warning and keeps the current shape; it never restarts the app.

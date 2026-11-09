@@ -80,6 +80,7 @@ pub fn register_lock(state: &AppState) -> claviron_runtime::Result<()> {
 }
 
 pub fn register(state: &AppState) -> claviron_runtime::Result<()> {
+    crate::config::OrbitConfiguration::register(state)?;
     register_fleet(state)?;
     if !state.is_standalone() {
         crate::event::register_shm::<DefaultEventLayout>(state)?;

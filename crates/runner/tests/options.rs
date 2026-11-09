@@ -86,13 +86,13 @@ fn framework_alias_is_split_and_serializes_with_the_canonical_name() {
 #[test]
 fn split_divides_a_flat_file() {
     let file: serde_yaml::Value = serde_yaml::from_str(
-        "name: shop\norbit: true\nroot: app\nrequests:\n  queue_timeout: 60s\n",
+        "name: shop\norbit: {link: {}}\nroot: app\nrequests:\n  queue_timeout: 60s\n",
     )
     .unwrap();
     let (shared, own) = split(file).unwrap();
     let options: RunnerOptions = serde_yaml::from_value(shared).unwrap();
     assert_eq!(options.name.as_deref(), Some("shop"));
-    assert!(options.orbit);
+    assert!(options.link_enabled());
     assert_eq!(
         options.policy().unwrap().requests.queue_timeout,
         Some(std::time::Duration::from_secs(60))
@@ -201,12 +201,12 @@ fn runner_listener_defaults_are_checked_when_read() {
         listener.execution,
         Override::Value(ListenerExecution::Dedicated)
     );
-    assert!(written("{requests: {max_body_size: off}}")
-        .socket_listeners()
-        .is_err());
-    assert!(written("{responses: {idle_timeout: 1s}}")
-        .listener_defaults()
-        .is_err());
+    assert!(
+        written("{requests: {max_body_size: off}}").socket_listeners().is_err()
+    );
+    assert!(
+        written("{responses: {idle_timeout: 1s}}").listener_defaults().is_err()
+    );
     assert!(written("{mistyped: true}").validate().is_err());
     let unknown_default = RunnerOptions {
         defaults: Some(serde_yaml::from_str("{headers: {}}").unwrap()),
@@ -239,4 +239,18 @@ fn a_site_is_read_as_a_host_and_excludes_the_file_shorthands() {
         ..RunnerOptions::default()
     };
     assert!(wrong.validate().is_err());
+}
+
+#[cfg(feature = "cli")]
+#[test]
+fn orbit_flag_selects_the_link_object_without_a_boolean_schema() {
+    use clap::Parser;
+    #[derive(Parser)]
+    struct Args {
+        #[command(flatten)]
+        runner: RunnerOptions,
+    }
+    let args = Args::try_parse_from(["example", "--orbit"]).unwrap();
+    assert!(args.runner.link_enabled());
+    assert!(serde_yaml::from_str::<RunnerOptions>("orbit: true").is_err());
 }

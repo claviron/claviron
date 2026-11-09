@@ -40,6 +40,22 @@ impl OrbitIngress {
         }
     }
 
+    pub fn capacity(
+        mut self,
+        capacity: Arc<claviron_orbit::config::LinkCapacity>,
+    ) -> Self {
+        self.door = self.door.capacity(capacity);
+        self
+    }
+
+    /// Change the advertised bound without restarting this receiver.
+    pub fn set_max_in_flight(
+        &self,
+        limit: usize,
+    ) -> registry::Result<()> {
+        self.door.set_max_in_flight(limit)
+    }
+
     /// Where the door, and so each exchange it hands the application, runs in
     /// each process: the same choice a socket's listener makes.
     pub fn execution(

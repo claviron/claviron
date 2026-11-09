@@ -1,22 +1,31 @@
 //! Orbit-owned runtime policy from `orbit.yaml`.
 //!
-//! Physical SHM geometry remains a build-time contract shared by every peer.
+//! Physical geometry is selected at startup under compiled ceilings.
 
 use std::time::Duration;
 
 use claviron_runtime::registry;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+mod link;
+mod runtime;
+pub use link::{LinkCapacity, LinkConfig, LinkGeometry};
+pub use runtime::OrbitConfiguration;
 
 /// Runtime policy prepared by Congif before the Orbit providers boot.
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct OrbitConfig {
+    pub link: Option<LinkConfig>,
     pub service_snapshots: ServiceSnapshotPolicy,
 }
 
 impl OrbitConfig {
     pub fn validate(&self) -> registry::Result<()> {
         self.service_snapshots.validate()?;
+        if let Some(link) = &self.link {
+            link.validate()?;
+        }
         Ok(())
     }
 }
@@ -30,7 +39,7 @@ fn default_max_age() -> Duration {
 }
 
 /// Observation cadence and freshness contract for fleet service snapshots.
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ServiceSnapshotPolicy {
     #[serde(default = "default_publish_interval", with = "humantime_serde")]

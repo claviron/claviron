@@ -61,13 +61,20 @@ impl ApplicationSegment {
         fleet_name: &str,
         access: &Access,
     ) -> Result<Self> {
-        let link = Arc::new(
-            access.open(fleet_name, LINK_SPEC).map_err(map_link_error)?,
-        );
+        Self::for_fleet_with_spec(fleet_name, LINK_SPEC, access)
+    }
+
+    pub fn for_fleet_with_spec(
+        fleet_name: &str,
+        spec: LinkSpec,
+        access: &Access,
+    ) -> Result<Self> {
+        let link =
+            Arc::new(access.open(fleet_name, spec).map_err(map_link_error)?);
         Ok(Self {
             link,
             fleet_name: fleet_name.to_owned(),
-            spec: LINK_SPEC,
+            spec,
             access: access.clone(),
         })
     }
@@ -87,6 +94,41 @@ impl ApplicationSegment {
         } else {
             Ok(None)
         }
+    }
+
+    /// Management and recovery use the same frozen profile as serving peers.
+    pub fn existing_configured(
+        state: &claviron_runtime::AppState,
+        fleet: &str,
+    ) -> Result<Option<Self>> {
+        let spec = match state
+            .registry_ref()
+            .resolve::<crate::config::OrbitConfiguration>()
+        {
+            Some(config) => config
+                .capacity()
+                .geometry()
+                .map_err(|_| Error::Malformed("Link geometry lock"))?
+                .spec(),
+            None => LINK_SPEC,
+        };
+        Self::existing_for_fleet_with_spec(fleet, spec, &Access::OwnerOnly)
+    }
+
+    pub fn existing_for_fleet_with_spec(
+        fleet_name: &str,
+        spec: LinkSpec,
+        access: &Access,
+    ) -> Result<Option<Self>> {
+        if access.exists(fleet_name, spec).map_err(map_link_error)? {
+            Self::for_fleet_with_spec(fleet_name, spec, access).map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn spec(&self) -> LinkSpec {
+        self.spec
     }
 
     pub fn join(
@@ -112,6 +154,15 @@ impl ApplicationSegment {
         self.link
             .join_with_capacity(application, runtime, incarnation, capacity)
             .map_err(map_link_error)
+    }
+
+    /// Change the bound for this process's joined receiver without replacing it.
+    pub fn update_work_capacity(
+        &self,
+        joined: &Joined,
+        limit: usize,
+    ) -> Result<()> {
+        self.link.update_work_capacity(joined, limit).map_err(map_link_error)
     }
 
     pub fn reserve_work(

@@ -159,7 +159,10 @@ impl Runnable<AppState, (Arc<ApplicationManager>, Arc<FleetProvider>)>
             if let Err(error) = snapshot::publish(&fleet, &local, member) {
                 warn!(%error, "application snapshot publication failed");
             }
-            match ApplicationSegment::existing_for_fleet(state.fleet_name()) {
+            match ApplicationSegment::existing_configured(
+                &state,
+                state.fleet_name(),
+            ) {
                 Ok(Some(segment)) => {
                     match snapshot::encode_local_rows(&local, member) {
                         Ok(rows) => {

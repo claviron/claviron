@@ -40,9 +40,8 @@ use claviron_orbit::link::application::{
     ApplicationBodies, ApplicationLinkSetup, ApplicationSegment,
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
     EdgeDisconnected, Exchange, ExchangeBody, ExchangeReply, FrameKind,
-    HttpVersion, Inbox, LINK_BUFFER_BYTES, LINK_INBOX_PAYLOAD_CAPACITY,
-    LinkJoined, Peers, Received, ShutdownNotice, WorkExecution, fit_inline,
-    frame_kind,
+    HttpVersion, Inbox, LinkJoined, Peers, Received, ShutdownNotice,
+    WorkExecution, fit_inline, frame_kind,
 };
 pub use claviron_orbit::stream::{ReadHalf, WriteHalf};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
@@ -202,7 +201,7 @@ fn header_pairs(
 pub struct OrbitDoor {
     application: String,
     runtime: &'static str,
-    max_in_flight: Option<usize>,
+    capacity: Arc<claviron_orbit::config::LinkCapacity>,
 }
 
 /// A Link command delivered to the application. This door does not execute
@@ -309,7 +308,31 @@ impl OrbitDoor {
         runtime: &'static str,
         max_in_flight: Option<usize>,
     ) -> Self {
-        Self { application: application.into(), runtime, max_in_flight }
+        Self {
+            application: application.into(),
+            runtime,
+            capacity: Arc::new(claviron_orbit::config::LinkCapacity::new(
+                max_in_flight,
+            )),
+        }
+    }
+
+    /// Share the configuration owner's live admission control.
+    pub fn capacity(
+        mut self,
+        capacity: Arc<claviron_orbit::config::LinkCapacity>,
+    ) -> Self {
+        self.capacity = capacity;
+        self
+    }
+
+    /// Update a positive receiver bound. Existing body/session work is retained.
+    /// A previously unbounded live receiver must rejoin before becoming bounded.
+    pub fn set_max_in_flight(
+        &self,
+        limit: usize,
+    ) -> registry::Result<()> {
+        self.capacity.set_max_in_flight(limit)
     }
 }
 
@@ -333,21 +356,15 @@ impl OrbitDoor {
         let incarnation =
             incarnation.map_or(FleetIncarnation::FIRST, |held| *held).raw();
 
-        let segment = Arc::new(
-            ApplicationSegment::for_fleet(state.fleet_name())
-                .map_err(|error| registry::Error::msg(error.to_string()))?,
-        );
-        let joined = segment
-            .join_with_capacity(
-                &self.application,
-                self.runtime,
-                incarnation,
-                self.max_in_flight,
-            )
-            .map_err(|error| registry::Error::msg(error.to_string()))?;
+        let (segment, joined) = self.capacity.join(
+            state.fleet_name(),
+            &self.application,
+            self.runtime,
+            incarnation,
+        )?;
         let lane = joined.lane;
         let bodies = Arc::new(
-            ApplicationBodies::for_fleet(state.fleet_name(), lane, incarnation)
+            ApplicationBodies::for_segment(&segment, lane, incarnation)
                 .map_err(|error| registry::Error::msg(error.to_string()))?,
         );
         if let Err(error) =
@@ -477,7 +494,7 @@ impl OrbitDoor {
         }
         // Withdrawal stops routing, not ownership. Nobody may reuse the lane
         // identity while accepted streams are still running on it.
-        drop(joined.hold);
+        drop(joined);
         Ok(())
     }
 }
@@ -494,8 +511,12 @@ impl OrbitDoor {
         state: &AppState,
         context: RunContext,
     ) -> registry::Result<()> {
-        let segment = ApplicationSegment::for_fleet(state.fleet_name())
-            .map_err(|error| registry::Error::msg(error.to_string()))?;
+        let segment = ApplicationSegment::for_fleet_with_spec(
+            state.fleet_name(),
+            self.capacity.geometry()?.spec(),
+            &claviron_orbit::link::application::Access::OwnerOnly,
+        )
+        .map_err(|error| registry::Error::msg(error.to_string()))?;
         let mut watcher = segment
             .watch(self.runtime)
             .map_err(|error| registry::Error::msg(error.to_string()))?;
@@ -737,8 +758,8 @@ async fn serve<O: Owner>(
     let request_body = match (std::mem::take(&mut exchange.body), incoming) {
         (ExchangeBody::Stream, Some(incoming)) => {
             let piece = declared_length(&exchange.headers)
-                .map_or(LINK_BUFFER_BYTES, |length| {
-                    length.clamp(1, LINK_BUFFER_BYTES)
+                .map_or(segment.spec().streams.buffer_bytes, |length| {
+                    length.clamp(1, segment.spec().streams.buffer_bytes)
                 });
             RequestBody::new(SlotBody::new(incoming, piece))
         }
@@ -781,7 +802,7 @@ async fn serve<O: Owner>(
     // before the head goes; anything else streams after the head.
     let whole = http_body::Body::size_hint(&response_body)
         .exact()
-        .is_some_and(|size| size <= LINK_BUFFER_BYTES as u64);
+        .is_some_and(|size| size <= segment.spec().streams.buffer_bytes as u64);
     let mut streaming = None;
     let bytes = if whole {
         let Some(collected) =
@@ -833,7 +854,7 @@ async fn serve<O: Owner>(
     let (body, spill) = fit_inline(
         &mut head,
         std::mem::take(&mut reply.body),
-        LINK_INBOX_PAYLOAD_CAPACITY,
+        segment.inbox().geometry().payload_capacity,
     );
     match (&body, spill, reply_body.as_mut()) {
         // Whole and in the frame: the stream's reply direction carries
