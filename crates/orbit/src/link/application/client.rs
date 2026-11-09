@@ -51,6 +51,8 @@ use orbitive::stream::{Endpoint, ReadHalf, ResetSignal, Ticket, WriteHalf};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::oneshot;
 
+use super::creator::{CreatorAdmission, CreatorTurn};
+
 use super::{
     Access, ApplicationBodies, ApplicationConnected, ApplicationDisconnected,
     ApplicationLinkSetup, ApplicationSegment, ApplicationStateNotice,
@@ -168,6 +170,28 @@ struct Hot {
 }
 
 impl Hot {
+    /// Inspect without re-arming. Only the creator turn owner calls this.
+    fn available(
+        &self,
+        bodies: &ApplicationBodies,
+    ) -> bool {
+        let mut slots =
+            self.slots.lock().expect("the hot-slot mutex is never poisoned");
+        let mut at = 0;
+        while at < slots.len() {
+            match bodies.streams().can_rearm(slots[at].1.id) {
+                Ok(true) => return true,
+                Ok(false) => at += 1,
+                Err(_) => {
+                    // A never-opened or stale endpoint cannot be reused. Drop
+                    // it as take() does, making its physical slot available.
+                    slots.remove(at);
+                }
+            }
+        }
+        false
+    }
+
     /// A kept slot re-armed for the next exchange, if one is ready.
     ///
     /// Coming home is not the same as being free. This side stops reading a
@@ -353,6 +377,7 @@ pub struct ApplicationClient {
     /// Which of the idlest targets to take next. See [`ApplicationClient::send`].
     rotation: AtomicU64,
     directory: Mutex<Directory>,
+    creator: CreatorAdmission,
     hot: Arc<Hot>,
     waiting: Arc<Waiting>,
     reader: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -642,6 +667,7 @@ impl ApplicationClient {
             // it costs nothing to start from it.
             rotation: AtomicU64::new(lane as u64),
             directory: Mutex::default(),
+            creator: CreatorAdmission::default(),
             hot: Arc::default(),
             waiting: Arc::new(Waiting::default()),
             reader: Mutex::new(None),
@@ -705,9 +731,49 @@ impl ApplicationClient {
         lanes: &[usize],
         request: &mut Exchange,
     ) -> Result<Pending> {
+        self.check_open(application)?;
+        if self.creator.contended() {
+            return Err(Error::Stream(orbitive::stream::Error::WouldBlock));
+        }
+        self.send_acquiring(application, lanes, request, ())
+    }
+
+    pub(super) fn send_with_creator_turn(
+        &self,
+        application: &str,
+        lanes: &[usize],
+        request: &mut Exchange,
+        turn: CreatorTurn<'_>,
+    ) -> Result<Pending> {
+        self.check_open(application)?;
+        self.send_acquiring(application, lanes, request, turn)
+    }
+
+    pub(super) fn check_open(
+        &self,
+        application: &str,
+    ) -> Result<()> {
         if self.waiting.closed.load(Ordering::Acquire) {
             return Err(Error::NoConsumer(application.to_owned()));
         }
+        Ok(())
+    }
+
+    pub(super) async fn creator_turn(&self) -> CreatorTurn<'_> {
+        self.creator.acquire().await
+    }
+
+    pub(super) fn creator_available(&self) -> bool {
+        self.hot.available(&self.bodies) || self.bodies.streams().can_create()
+    }
+
+    fn send_acquiring<G>(
+        &self,
+        application: &str,
+        lanes: &[usize],
+        request: &mut Exchange,
+        acquisition: G,
+    ) -> Result<Pending> {
         // A bounded target may have every slot reserved and every published
         // frame still unread. Keep it in the candidate set: inbox fullness
         // must not turn execution saturation into "no consumer".
@@ -767,6 +833,9 @@ impl ApplicationClient {
         // tells the far side a new exchange has begun and it must not carry a
         // slot that still holds the last one's state.
         let (mut endpoint, ticket) = self.take_hot()?;
+        // Only acquisition is serialized. Encoding, publication and the whole
+        // exchange lifetime run after the next queued creator can proceed.
+        drop(acquisition);
 
         let correlation = self.correlation.fetch_add(1, Ordering::Relaxed);
         request.correlation = correlation;

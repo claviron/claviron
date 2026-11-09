@@ -101,70 +101,141 @@ impl ApplicationTarget {
         &self,
         mut request: Exchange,
     ) -> Result<Pending> {
+        let mut creator_pressure = false;
         loop {
-            let lanes =
-                self.0.lanes.load(self.0.client.inbox(), &self.0.application);
-            match self.0.client.send_to(
-                &self.0.application,
-                &lanes.lanes,
-                &mut request,
-            ) {
+            let result = if creator_pressure {
+                let turn = self.wait_creator_turn().await?;
+                let lanes = self
+                    .0
+                    .lanes
+                    .load(self.0.client.inbox(), &self.0.application);
+                self.0.client.send_with_creator_turn(
+                    &self.0.application,
+                    &lanes.lanes,
+                    &mut request,
+                    turn,
+                )
+            } else {
+                let lanes = self
+                    .0
+                    .lanes
+                    .load(self.0.client.inbox(), &self.0.application);
+                self.0.client.send_to(
+                    &self.0.application,
+                    &lanes.lanes,
+                    &mut request,
+                )
+            };
+            match result {
                 Err(super::Error::CapacityFull) => {}
-                Err(super::Error::Stream(orbitive::stream::Error::Full {
-                    ..
-                })) => {
-                    // A local endpoint returning and a remote peer releasing
-                    // are different events. Arm both before retrying. A local
-                    // directory/close notification must also interrupt this wait.
-                    let returned = self.0.client.streams_returned().notified();
-                    let changed = self.0.client.membership_changed().notified();
-                    tokio::pin!(returned, changed);
-                    returned.as_mut().enable();
-                    changed.as_mut().enable();
-                    let released = self.0.client.stream_capacity_changed();
-                    let current = self
-                        .0
-                        .lanes
-                        .load(self.0.client.inbox(), &self.0.application);
-                    match self.0.client.send_to(
-                        &self.0.application,
-                        &current.lanes,
-                        &mut request,
-                    ) {
-                        Err(super::Error::Stream(
-                            orbitive::stream::Error::Full { .. },
-                        )) => {
-                            tokio::select! {
-                                _ = returned => {},
-                                _ = changed => {},
-                                result = released => result.map_err(super::Error::Stream)?,
-                            }
-                        }
-                        Err(super::Error::CapacityFull) => {}
-                        result => return result,
-                    }
+                Err(super::Error::Stream(
+                    orbitive::stream::Error::Full { .. }
+                    | orbitive::stream::Error::WouldBlock,
+                )) => {
+                    creator_pressure = true;
                     continue;
                 }
                 result => return result,
             }
+            // Receiver pressure never retains the creator turn. Arm before
+            // retrying so a return between the attempt and park is observed.
             let changed = self.0.client.capacity_changed().notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
-            self.0.client.watch_capacity(&lanes.lanes)?;
-            // Register, then re-read membership and retry admission. Either
-            // the retry sees room or a concurrent return wakes this wait.
             let current =
                 self.0.lanes.load(self.0.client.inbox(), &self.0.application);
-            match self.0.client.send_to(
+            self.0.client.watch_capacity(&current.lanes)?;
+            let retry = match self.0.client.send_to(
                 &self.0.application,
                 &current.lanes,
                 &mut request,
             ) {
-                Err(super::Error::CapacityFull) => changed.await,
-                Err(super::Error::Stream(orbitive::stream::Error::Full {
-                    ..
-                })) => {}
+                Err(super::Error::Stream(
+                    orbitive::stream::Error::Full { .. }
+                    | orbitive::stream::Error::WouldBlock,
+                )) => {
+                    // Keep receiver interest armed through creator acquisition.
+                    // A busy turn alone cannot recheck receiver availability;
+                    // do not bounce between FIFO owners when both are full.
+                    let turn = self.wait_creator_turn().await?;
+                    let current = self
+                        .0
+                        .lanes
+                        .load(self.0.client.inbox(), &self.0.application);
+                    self.0.client.watch_capacity(&current.lanes)?;
+                    self.0.client.send_with_creator_turn(
+                        &self.0.application,
+                        &current.lanes,
+                        &mut request,
+                        turn,
+                    )
+                }
+                result => result,
+            };
+            match retry {
+                Err(super::Error::CapacityFull) => {
+                    changed.await;
+                    creator_pressure = false;
+                }
+                Err(super::Error::Stream(
+                    orbitive::stream::Error::Full { .. }
+                    | orbitive::stream::Error::WouldBlock,
+                )) => creator_pressure = true,
                 result => return result,
+            }
+        }
+    }
+
+    fn check_destination(&self) -> Result<()> {
+        self.0.client.check_open(&self.0.application)?;
+        let current =
+            self.0.lanes.load(self.0.client.inbox(), &self.0.application);
+        if current.lanes.is_empty() {
+            return Err(super::Error::NoConsumer(
+                self.0.application.to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    async fn wait_creator_turn(
+        &self
+    ) -> Result<super::creator::CreatorTurn<'_>> {
+        // Keep the same mutex future across membership wakes to retain FIFO
+        // position. Queued destinations can still withdraw or close promptly.
+        let acquiring = self.0.client.creator_turn();
+        tokio::pin!(acquiring);
+        let turn = loop {
+            let changed = self.0.client.membership_changed().notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            self.check_destination()?;
+            tokio::select! {
+                turn = &mut acquiring => break turn,
+                _ = changed => {},
+            }
+        };
+        loop {
+            self.check_destination()?;
+            if self.0.client.creator_available() {
+                return Ok(turn);
+            }
+            // Local return alone cannot prove remote release. Observe both,
+            // then recheck the real slot state before parking without resources.
+            let returned = self.0.client.streams_returned().notified();
+            let changed = self.0.client.membership_changed().notified();
+            tokio::pin!(returned, changed);
+            returned.as_mut().enable();
+            changed.as_mut().enable();
+            let released = self.0.client.stream_capacity_changed();
+            self.check_destination()?;
+            if self.0.client.creator_available() {
+                return Ok(turn);
+            }
+            tokio::select! {
+                _ = returned => {},
+                _ = changed => {},
+                result = released => result.map_err(super::Error::Stream)?,
             }
         }
     }

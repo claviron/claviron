@@ -231,6 +231,13 @@ struct CreatorPressure {
 
 impl CreatorPressure {
     fn new(tag: &str) -> Self {
+        Self::with_capacity(tag, 1)
+    }
+
+    fn with_capacity(
+        tag: &str,
+        capacity: usize,
+    ) -> Self {
         let name = format!("cs{tag}{:x}", std::process::id());
         let spec = orbitive::link::LinkSpec::new(
             4,
@@ -238,7 +245,7 @@ impl CreatorPressure {
             orbitive::link::InboxGeometry::new(4, 1024),
             orbitive::stream::StreamSpec::new(
                 super::super::LINK_SPEC.streams.kind,
-                1,
+                capacity,
                 1024,
             ),
         );
@@ -458,4 +465,267 @@ async fn creator_wait_expires_with_the_callers_queue_budget_without_publishing()
     case.assert_receiver_is_free();
     assert_eq!(case.client.waiting.senders.lock().unwrap().len(), 1);
     assert_eq!(case.client.correlation.load(Ordering::Relaxed), 2);
+}
+
+#[derive(Default)]
+struct CreatorWakeCount(std::sync::atomic::AtomicUsize);
+
+impl std::task::Wake for CreatorWakeCount {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+#[tokio::test]
+async fn creator_pressure_has_one_observer_and_head_cancellation_hands_off_readiness()
+ {
+    let mut case = CreatorPressure::new("e");
+    let (pending, remote) = case.occupy().await;
+    let target = case.client.target("example");
+    let head_count = Arc::new(CreatorWakeCount::default());
+    let next_count = Arc::new(CreatorWakeCount::default());
+    let head_waker = std::task::Waker::from(Arc::clone(&head_count));
+    let next_waker = std::task::Waker::from(Arc::clone(&next_count));
+    let mut head = Box::pin(target.send_wait(Exchange::default()));
+    let mut next = Box::pin(target.send_wait(Exchange::default()));
+    assert!(
+        head.as_mut().poll(&mut Context::from_waker(&head_waker)).is_pending()
+    );
+    assert!(
+        next.as_mut().poll(&mut Context::from_waker(&next_waker)).is_pending()
+    );
+    assert!(matches!(
+        target.send(Exchange::default()),
+        Err(Error::Stream(orbitive::stream::Error::WouldBlock))
+    ));
+    assert!(matches!(
+        case.client.send("example", Exchange::default()),
+        Err(Error::Stream(orbitive::stream::Error::WouldBlock))
+    ));
+    drop(pending);
+    assert!(head_count.0.load(Ordering::SeqCst) > 0);
+    assert_eq!(
+        next_count.0.load(Ordering::SeqCst),
+        0,
+        "local capacity wakes only the inspector, not FIFO followers"
+    );
+    assert!(
+        head.as_mut().poll(&mut Context::from_waker(&head_waker)).is_pending()
+    );
+    drop(remote);
+    // Capacity becomes ready before handoff. The next inspector must discover
+    // it even if the cancelled head consumed the release notification.
+    drop(head);
+    assert!(next_count.0.load(Ordering::SeqCst) > 0);
+    let sent = next.await.unwrap();
+    assert_eq!(sent.correlation, 2);
+    assert!(!case.client.creator.contended());
+}
+
+#[tokio::test]
+async fn creator_rechecks_do_not_repeat_receiver_reservations() {
+    let mut case = CreatorPressure::new("f");
+    let (_pending, _remote) = case.occupy().await;
+    let target = case.client.target("example");
+    let inbox = case.segment.inbox();
+    let mut head = Box::pin(target.send_wait(Exchange::default()));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(head.as_mut().poll(&mut cx).is_pending());
+    // The first direct attempt may roll back. Subsequent creator probes must
+    // not touch shared receiver admission. Its real generation records returns.
+    inbox.watch_capacity(case.worker.lane, case.client.lane).unwrap();
+    let before = inbox.capacity_generation(case.client.lane).unwrap();
+    let mut queued = Box::pin(target.send_wait(Exchange::default()));
+    for _ in 0..8 {
+        case.client.hot.returned.notify_waiters();
+        assert!(head.as_mut().poll(&mut cx).is_pending());
+        assert!(queued.as_mut().poll(&mut cx).is_pending());
+        assert_eq!(
+            inbox.capacity_generation(case.client.lane).unwrap(),
+            before
+        );
+    }
+    drop(head);
+    assert!(queued.as_mut().poll(&mut cx).is_pending());
+    assert_eq!(inbox.capacity_generation(case.client.lane).unwrap(), before);
+    drop(queued);
+    assert!(!case.client.creator.contended());
+    assert_eq!(case.client.correlation.load(Ordering::Relaxed), 2);
+    case.assert_receiver_is_free();
+}
+
+#[tokio::test]
+async fn receiver_wait_releases_creator_turn_for_another_application() {
+    let case = CreatorPressure::new("g");
+    let other =
+        case.segment.join_with_capacity("other", "rust", 3, Some(1)).unwrap();
+    let held =
+        case.segment.reserve_work(case.worker.lane, case.client.lane).unwrap();
+    let turn = case.client.creator_turn().await;
+    let target = case.client.target("example");
+    let mut blocked = Box::pin(target.send_wait(Exchange::default()));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(blocked.as_mut().poll(&mut cx).is_pending());
+    drop(turn);
+    assert!(blocked.as_mut().poll(&mut cx).is_pending());
+    assert!(
+        !case.client.creator.contended(),
+        "receiver wait holds no creator turn"
+    );
+    let sent = case.client.target("other").send(Exchange::default()).unwrap();
+    assert_eq!(sent.correlation, 1);
+    drop(blocked);
+    drop(held);
+    case.segment.inbox().release_lane(other.lane).unwrap();
+}
+
+#[tokio::test]
+async fn queued_destination_withdrawal_and_close_interrupt_without_creator_release()
+ {
+    let mut case = CreatorPressure::new("h");
+    let (_pending, _remote) = case.occupy().await;
+    let other =
+        case.segment.join_with_capacity("other", "rust", 3, Some(1)).unwrap();
+    let target = case.client.target("example");
+    let other_target = case.client.target("other");
+    let mut head = Box::pin(target.send_wait(Exchange::default()));
+    let mut queued = Box::pin(other_target.send_wait(Exchange::default()));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(head.as_mut().poll(&mut cx).is_pending());
+    assert!(queued.as_mut().poll(&mut cx).is_pending());
+    case.segment.inbox().release_lane(other.lane).unwrap();
+    // Deliver the same notification the directory reader emits, without
+    // scheduling that unrelated reader in this acquisition unit test.
+    case.client.membership_changed().notify_waiters();
+    assert!(matches!(queued.await, Err(Error::NoConsumer(_))));
+    let mut next = Box::pin(target.send_wait(Exchange::default()));
+    assert!(next.as_mut().poll(&mut cx).is_pending());
+    case.client.leave();
+    assert!(matches!(next.await, Err(Error::NoConsumer(_))));
+    assert!(matches!(head.await, Err(Error::NoConsumer(_))));
+    assert!(!case.client.creator.contended());
+}
+
+#[tokio::test]
+async fn queued_timeout_leaves_the_inspector_and_successor_intact() {
+    let mut case = CreatorPressure::new("i");
+    let (pending, remote) = case.occupy().await;
+    let target = case.client.target("example");
+    let mut head = Box::pin(target.send_wait(Exchange::default()));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(head.as_mut().poll(&mut cx).is_pending());
+    assert!(
+        tokio::time::timeout_at(
+            tokio::time::Instant::now(),
+            target.send_wait(Exchange::default())
+        )
+        .await
+        .is_err()
+    );
+    assert!(case.client.creator.contended());
+    let mut next = Box::pin(target.send_wait(Exchange::default()));
+    assert!(next.as_mut().poll(&mut cx).is_pending());
+    drop(head);
+    drop((pending, remote));
+    assert_eq!(next.await.unwrap().correlation, 2);
+    assert!(!case.client.creator.contended());
+}
+
+#[tokio::test]
+async fn creator_turn_does_not_limit_active_exchanges_to_one() {
+    let mut case = CreatorPressure::with_capacity("j", 2);
+    let (first, far_first) = case.occupy().await;
+    let (second, far_second) = case.occupy().await;
+    let target = case.client.target("example");
+    let mut a = Box::pin(target.send_wait(Exchange::default()));
+    let mut b = Box::pin(target.send_wait(Exchange::default()));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(a.as_mut().poll(&mut cx).is_pending());
+    assert!(b.as_mut().poll(&mut cx).is_pending());
+    drop((first, far_first, second, far_second));
+    let a = a.await.unwrap();
+    // Admit the first publication without completing its creator endpoint.
+    let mut frame = Vec::new();
+    loop {
+        let received = case.receiver.next(&mut frame).await.unwrap();
+        if !matches!(received, Received::Work(_)) {
+            continue;
+        }
+        if let Some((_, execution)) = case
+            .segment
+            .accept_frame(case.worker.lane, received, &frame)
+            .unwrap()
+        {
+            drop(execution);
+            break;
+        }
+    }
+    let b = b.await.unwrap();
+    assert_eq!((a.correlation, b.correlation), (3, 4));
+    assert!(!case.client.creator.contended());
+}
+
+#[tokio::test]
+async fn concurrent_receiver_waiters_do_not_cycle_through_creator_turns() {
+    let mut case = CreatorPressure::new("k");
+    let (pending, remote) = case.occupy().await;
+    let held =
+        case.segment.reserve_work(case.worker.lane, case.client.lane).unwrap();
+    let target = case.client.target("example");
+    let mut a = Box::pin(target.send_wait(Exchange::default()));
+    let mut b = Box::pin(target.send_wait(Exchange::default()));
+    // Establish creator contention before either caller can inspect receiver
+    // capacity, as if another application currently owns the creator turn.
+    let turn = case.client.creator_turn().await;
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(a.as_mut().poll(&mut cx).is_pending());
+    assert!(b.as_mut().poll(&mut cx).is_pending());
+    drop((pending, remote, turn));
+    assert!(a.as_mut().poll(&mut cx).is_pending());
+    assert!(b.as_mut().poll(&mut cx).is_pending());
+    assert!(a.as_mut().poll(&mut cx).is_pending());
+    assert!(b.as_mut().poll(&mut cx).is_pending());
+    assert!(
+        !case.client.creator.contended(),
+        "both callers park on receiver capacity"
+    );
+    drop((a, b, held));
+    case.assert_receiver_is_free();
+    assert_eq!(case.client.correlation.load(Ordering::Relaxed), 2);
+}
+
+#[tokio::test]
+async fn creator_probe_discards_a_never_opened_loan_without_reusing_its_ticket()
+{
+    let mut case = CreatorPressure::new("l");
+    let target = case.client.target("example");
+    let pending = target.send(Exchange::default()).unwrap();
+    let mut frame = Vec::new();
+    let ticket = loop {
+        let received = case.receiver.next(&mut frame).await.unwrap();
+        if !matches!(received, Received::Work(_)) {
+            continue;
+        }
+        if let Some((_, execution)) = case
+            .segment
+            .accept_frame(case.worker.lane, received, &frame)
+            .unwrap()
+        {
+            let exchange =
+                Exchange::decode(Bytes::copy_from_slice(&frame)).unwrap();
+            drop(execution);
+            break exchange.stream.unwrap();
+        }
+    };
+    let mut next = Box::pin(target.send_wait(Exchange::default()));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(next.as_mut().poll(&mut cx).is_pending());
+    drop(pending);
+    let sent = next.await.unwrap();
+    assert_eq!(sent.correlation, 2);
+    assert!(matches!(
+        case.bodies.accept(ticket),
+        Err(Error::Stream(orbitive::stream::Error::Stale(_)))
+    ));
+    assert!(!case.client.creator.contended());
 }

@@ -5,6 +5,7 @@
 pub mod app;
 pub mod body;
 pub mod client;
+mod creator;
 mod error;
 pub mod frame;
 mod geometry;
