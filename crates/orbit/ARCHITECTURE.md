@@ -655,14 +655,17 @@ withdrawal nor a request timeout authorizes cancelling accepted remote work.
 launch file. `link.geometry` selects physical capacities no greater than the
 compiled `ORBIT_LINK_*` ceilings. All participants must select the same shape.
 Absent Link configuration creates no Link segment. Runner `orbit.link: {}` uses
-the engine's declared admission default or the selected inbox capacity.
+the engine's declared admission default. Without an engine default, an omitted or
+null `max_in_flight` leaves receiver admission unbounded; physical inbox and body
+stream capacities remain finite. Inbox geometry never supplies an admission default.
 
-`orbit.link.max_in_flight` is receiver-owned and may change live. Reservations
-and accepted exchanges retain their tickets through body/session completion.
+Positive `orbit.link.max_in_flight` bounds are receiver-owned and may change live.
+Reservations and accepted exchanges retain their tickets through body/session completion.
 Growth wakes registered callers; shrink retires claims above the new boundary
 before refilling lower slots. Event and control reading remains independent.
-The direct API's unbounded-to-bounded transition requires rejoin because old
-untracked exchanges cannot be counted safely.
+Switching between bounded and unbounded admission requires rejoin because old
+untracked exchanges cannot be counted safely. Configuration retains the active
+mode and reports the change for the next restart.
 
 Physical geometry and Link enablement stay frozen after configuration. Watch
 reports a distinct pending shape once, saying it will apply on the next restart;

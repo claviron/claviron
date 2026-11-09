@@ -1,6 +1,33 @@
 use super::*;
 
 #[test]
+fn omitted_and_null_bounds_do_not_inherit_the_physical_inbox_capacity() {
+    for yaml in ["{}", "max_in_flight: null"] {
+        let config: LinkConfig = serde_yaml::from_str(yaml).unwrap();
+        let control = LinkCapacity::new(None);
+        control.prepare(&config, None).unwrap();
+        assert_eq!(control.limit().unwrap(), None);
+        assert_eq!(control.geometry().unwrap(), config.geometry);
+    }
+}
+
+#[test]
+fn explicit_bound_overrides_the_engine_fallback() {
+    let mut config = LinkConfig::default();
+    config.geometry.inbox_capacity = 4;
+    let control = LinkCapacity::new(None);
+    control.prepare(&config, Some(2)).unwrap();
+    assert_eq!(control.limit().unwrap(), Some(2));
+    config.max_in_flight = Some(4);
+    control.prepare(&config, Some(2)).unwrap();
+    assert_eq!(control.limit().unwrap(), Some(4));
+    config.max_in_flight = None;
+    assert!(control.prepare(&config, Some(5)).is_err());
+    assert_eq!(control.limit().unwrap(), Some(4));
+    assert!(control.prepare(&config, Some(0)).is_err());
+}
+
+#[test]
 fn physical_shape_and_bound_are_validated_before_join() {
     let mut config = LinkConfig::default();
     config.geometry.inbox_capacity = 4;

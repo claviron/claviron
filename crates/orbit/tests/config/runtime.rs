@@ -129,6 +129,55 @@ async fn runner_section_is_read_with_the_owners_environment_and_without_boot() {
     assert_eq!(snapshot.link.as_ref().unwrap().max_in_flight, Some(2));
     this.configure(&snapshot).await.unwrap();
     assert_eq!(this.capacity.geometry().unwrap(), LinkGeometry::default());
+    assert_eq!(this.capacity.limit().unwrap(), Some(2));
+}
+
+#[tokio::test]
+async fn runner_unbounded_admission_survives_watch_and_manual_reload() {
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(file.path(), "orbit: {link: {}}\n").unwrap();
+    let this = owner(file.path().to_owned(), true);
+    let reader = ConfigReader::new().with_builtin_parsers().unwrap();
+    reader.initialize_owners(&[&this]).await.unwrap();
+    let snapshot = reader.snapshot::<OrbitConfiguration>().unwrap();
+    this.configure(&snapshot).await.unwrap();
+    assert_eq!(this.capacity.limit().unwrap(), None);
+    this.apply_change(&snapshot, true).unwrap();
+    this.apply_change(&snapshot, false).unwrap();
+    assert_eq!(this.capacity.limit().unwrap(), None);
+}
+
+#[tokio::test]
+async fn admission_mode_changes_wait_for_restart_but_positive_bounds_update() {
+    for initial_limit in [None, Some(1)] {
+        let this = owner("unused.yaml".into(), false);
+        let initial = OrbitConfig {
+            link: Some(super::super::LinkConfig {
+                max_in_flight: initial_limit,
+                ..Default::default()
+            }),
+            ..OrbitConfig::default()
+        };
+        this.configure(&initial).await.unwrap();
+        let mut changed = initial.clone();
+        changed.link.as_mut().unwrap().max_in_flight =
+            if initial_limit.is_some() { None } else { Some(1) };
+        let warnings = Warnings(Arc::new(AtomicUsize::new(0)));
+        tracing::subscriber::with_default(warnings.clone(), || {
+            this.apply_change(&changed, true).unwrap();
+            this.apply_change(&changed, true).unwrap();
+            this.apply_change(&changed, false).unwrap();
+        });
+        assert_eq!(warnings.0.load(Ordering::SeqCst), 1);
+        assert_eq!(this.capacity.limit().unwrap(), initial_limit);
+        this.apply_change(&initial, true).unwrap();
+        assert_eq!(this.capacity.limit().unwrap(), initial_limit);
+        if initial_limit.is_some() {
+            changed.link.as_mut().unwrap().max_in_flight = Some(2);
+            this.apply_change(&changed, true).unwrap();
+            assert_eq!(this.capacity.limit().unwrap(), Some(2));
+        }
+    }
 }
 
 #[tokio::test]

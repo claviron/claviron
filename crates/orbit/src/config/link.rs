@@ -14,6 +14,8 @@ use crate::link::application::{
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
 pub struct LinkConfig {
+    /// Receiver admission bound; absent uses the engine's declared default,
+    /// or leaves admission unbounded when the engine declares none.
     pub max_in_flight: Option<usize>,
     pub geometry: LinkGeometry,
 }
@@ -170,18 +172,24 @@ impl LinkCapacity {
                 "Link geometry is already in use",
             ));
         }
-        let limit = config
-            .max_in_flight
-            .or(fallback)
-            .unwrap_or(config.geometry.inbox_capacity);
-        if limit == 0 || limit > config.geometry.inbox_capacity {
+        let limit = config.max_in_flight.or(fallback);
+        if limit.is_some_and(|limit| {
+            limit == 0 || limit > config.geometry.inbox_capacity
+        }) {
             return Err(registry::Error::msg(
                 "default max_in_flight exceeds selected Link capacity",
             ));
         }
-        state.limit = Some(limit);
+        state.limit = limit;
         state.geometry = config.geometry;
         Ok(())
+    }
+
+    pub(super) fn limit(&self) -> registry::Result<Option<usize>> {
+        self.0
+            .lock()
+            .map(|state| state.limit)
+            .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))
     }
 
     pub fn geometry(&self) -> registry::Result<LinkGeometry> {

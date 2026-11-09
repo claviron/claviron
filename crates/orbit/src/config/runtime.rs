@@ -24,7 +24,7 @@ struct Source {
 #[derive(Default)]
 struct Applied {
     startup: Option<OrbitConfig>,
-    warned: Option<Option<LinkGeometry>>,
+    warned: Option<(Option<LinkGeometry>, bool)>,
 }
 
 /// Geometry is frozen for the process lifetime. Only a positive receiver
@@ -113,37 +113,41 @@ impl OrbitConfiguration {
         })?;
         let frozen = startup.link.as_ref().map(|link| link.geometry);
         let candidate = config.link.as_ref().map(|link| link.geometry);
-        if frozen != candidate {
-            if watched && applied.warned != Some(candidate) {
+        let fallback = self
+            .source
+            .lock()
+            .map_err(|_| registry::Error::msg("Orbit source lock poisoned"))?
+            .fallback;
+        let limit = config
+            .link
+            .as_ref()
+            .and_then(|link| link.max_in_flight.or(fallback));
+        let active_limit = self.capacity.limit()?;
+        let mode_changed = active_limit.is_some() != limit.is_some();
+        let pending = (candidate, limit.is_some());
+        if frozen != candidate || mode_changed {
+            if watched && applied.warned != Some(pending) {
                 if self.report_changes {
                     tracing::warn!(
-                        "Orbit Link geometry or enablement changed; current resources are retained; new settings will apply on the next restart"
+                        "Orbit Link geometry, enablement or bounded/unbounded admission mode changed; current resources are retained; new settings will apply on the next restart"
                     );
                 }
-                applied.warned = Some(candidate);
+                applied.warned = Some(pending);
             } else if !watched {
                 tracing::debug!(
-                    "Orbit Link geometry is unchanged at runtime; new settings will apply on the next restart"
+                    "Orbit Link resources and admission mode are retained; new settings will apply on the next restart"
                 );
             }
         } else {
             applied.warned = None;
         }
-        if let Some(link) = &config.link {
-            let fallback = self
-                .source
-                .lock()
-                .map_err(|_| {
-                    registry::Error::msg("Orbit source lock poisoned")
-                })?
-                .fallback;
-            let limit = link
-                .max_in_flight
-                .or(fallback)
-                .unwrap_or(link.geometry.inbox_capacity);
+        if !mode_changed && let Some(limit) = limit {
             // A candidate's physical expansion is pending restart, so a limit
             // that does not fit the active shape must remain pending too.
-            if frozen.is_some_and(|geometry| limit <= geometry.inbox_capacity) {
+            if active_limit != Some(limit)
+                && frozen
+                    .is_some_and(|geometry| limit <= geometry.inbox_capacity)
+            {
                 self.capacity.set_max_in_flight(limit)?;
             }
         }
