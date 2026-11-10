@@ -299,7 +299,7 @@ async fn receiver_capacity_is_shared_and_waiting_does_not_take_a_stream() {
         name: "status".into(),
         payload: vec![],
         target: None,
-            origin: None,
+        origin: None,
     };
     segment.inbox().write(worker.lane, &command.encode().unwrap()).unwrap();
     loop {
