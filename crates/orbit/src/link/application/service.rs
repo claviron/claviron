@@ -48,7 +48,6 @@ pub struct ApplicationService {
     /// How application events cross each fleet this worker reaches, when
     /// this process has an application ring.
     link: Mutex<Option<ApplicationLinkSetup>>,
-    geometry: Mutex<Option<orbitive::link::LinkSpec>>,
     clients: Mutex<HashMap<FleetName, Arc<ApplicationClient>>>,
     targets: Mutex<BTreeSet<(FleetName, String)>>,
     /// Explicit access only for selected destination Links, never the host fleet.
@@ -56,13 +55,6 @@ pub struct ApplicationService {
 }
 
 impl ApplicationService {
-    fn selected_spec(&self) -> Result<orbitive::link::LinkSpec> {
-        self.geometry
-            .lock()
-            .map(|spec| spec.unwrap_or(super::LINK_SPEC))
-            .map_err(|_| Error::Malformed("Link geometry lock"))
-    }
-
     /// Register immutable access before this destination's first client opens.
     /// This maps no SHM and changes no credentials or resource permissions.
     pub fn register_access(
@@ -131,13 +123,7 @@ impl ApplicationService {
         for fleet in fleets {
             let result = self
                 .access_for(FleetName::new(&fleet))
-                .and_then(|access| {
-                    ApplicationSegment::existing_for_fleet_with_spec(
-                        &fleet,
-                        self.selected_spec()?,
-                        &access,
-                    )
-                })
+                .and_then(|access| ApplicationSegment::adopt(&fleet, &access))
                 .and_then(|segment| match segment {
                     Some(segment) => segment.process_exited(pid, incarnation),
                     None => Ok(()),
@@ -178,9 +164,8 @@ impl ApplicationService {
                 .map_err(|_| Error::Malformed("application client lock"))?
                 .contains_key(&fleet);
             if !joined
-                && ApplicationSegment::existing_for_fleet_with_spec(
+                && ApplicationSegment::adopt(
                     fleet.as_str(),
-                    self.selected_spec()?,
                     &self.access_for(fleet)?,
                 )?
                 .is_some()
@@ -303,11 +288,15 @@ impl ApplicationService {
             .lock()
             .map_err(|_| Error::Malformed("application link"))?
             .clone();
-        let segment = Arc::new(ApplicationSegment::for_fleet_with_spec(
-            fleet_name.as_str(),
-            self.selected_spec()?,
-            &self.access_for(fleet_name)?,
-        )?);
+        // The destination's owner created it and declared its shape; a
+        // caller adopts both and never creates a destination of its own.
+        let segment = Arc::new(
+            ApplicationSegment::adopt(
+                fleet_name.as_str(),
+                &self.access_for(fleet_name)?,
+            )?
+            .ok_or_else(|| Error::DestinationAbsent(fleet_name.to_string()))?,
+        );
         let client = ApplicationClient::join_segment(
             segment,
             &identity,
@@ -354,15 +343,6 @@ impl Bootable<AppState> for ApplicationService {
         _deps: (),
         state: &AppState,
     ) -> registry::Result<()> {
-        if let Some(config) =
-            state.registry_ref().resolve::<crate::config::OrbitConfiguration>()
-        {
-            *self
-                .geometry
-                .lock()
-                .map_err(|_| registry::Error::msg("Link geometry lock"))? =
-                Some(config.capacity().geometry()?.spec());
-        }
         *self
             .identity
             .lock()

@@ -36,8 +36,8 @@ use claviron_http::ext::{ConnCtx, PathPrefix};
 use claviron_http::policy::{BodyNeed, RequestPolicy, RequestPolicyOverride};
 use claviron_http::socket::Offer;
 use claviron_orbit::link::application::{
-    ApplicationService, ApplicationTarget, Exchange, ExchangeBody, HttpVersion,
-    LINK_BUFFER_BYTES,
+    ApplicationService, ApplicationTarget, Error, Exchange, ExchangeBody,
+    HttpVersion,
 };
 use claviron_runtime::{AppState, FleetName};
 use http::StatusCode;
@@ -48,7 +48,7 @@ mod websocket;
 #[derive(Clone)]
 struct LinkRoute {
     path: Option<PathPrefix>,
-    target: Option<ApplicationTarget>,
+    destination: Arc<LinkDestination>,
     requests: RequestPolicyOverride,
 }
 
@@ -79,11 +79,11 @@ impl LinkBackend {
             .iter()
             .map(|route| LinkRoute {
                 path: prefix.cloned(),
-                target: prepare_target(
+                destination: Arc::new(LinkDestination::new(
                     state,
                     route.fleet_name,
                     route.application.clone().into(),
-                ),
+                )),
                 requests,
             })
             .collect();
@@ -149,9 +149,9 @@ impl DispatchStep for LinkBackend {
                 StatusCode::FORBIDDEN,
             )));
         }
-        let Some(target) = route.target.clone() else {
+        let Some(target) = route.destination.target() else {
             return DispatchCall::ready(ServiceResult::Handled(unavailable(
-                "the Link route has no prepared destination",
+                "the Link route's destination has no owner yet",
             )));
         };
         // Taken while the context is lent: the exchange outlives this call.
@@ -177,6 +177,8 @@ async fn dispatch(
     connection: Option<Arc<ConnCtx>>,
     request: Request<RouteBody>,
 ) -> RouteResponse {
+    // The destination's declared stream window, not this build's ceiling.
+    let window = target.stream_buffer_bytes();
     // Taken before the application hears of it: once this owner has the attempt
     // it alone can answer it, and an attempt someone else holds is not its own.
     let offer = request.extensions().get::<Offer>().cloned();
@@ -365,7 +367,7 @@ async fn dispatch(
     // gives no length, an event stream, reads a window at a time and takes
     // whatever has arrived.
     let piece = reply_length(&head.headers)
-        .map_or(LINK_BUFFER_BYTES, |length| length.clamp(1, LINK_BUFFER_BYTES));
+        .map_or(window, |length| length.clamp(1, window));
     let body = boxed_body(http_body_util::StreamBody::new(
         tokio_util::io::ReaderStream::with_capacity(response_body, piece)
             .map(|chunk| chunk.map(http_body::Frame::data)),
@@ -462,41 +464,104 @@ fn gateway_failure() -> RouteResponse {
 #[path = "../tests/link.rs"]
 mod tests;
 
-/// The destination of one route, when this process has an application service.
-pub fn prepare_target(
-    state: &AppState,
+/// The destination of one route. Its owner creates the destination fleet and
+/// declares its shape; this caller adopts both when the owner exists and
+/// keeps the prepared target from then on. While the owner is absent each
+/// request tries again and answers 503: the request is the event, so no timer
+/// or poll waits for the owner.
+pub struct LinkDestination {
+    service: Option<Arc<ApplicationService>>,
     fleet_name: FleetName,
     application: Arc<str>,
-) -> Option<ApplicationTarget> {
-    let service = state.registry_ref().resolve::<ApplicationService>();
-    match service.as_ref() {
-        None => {
-            tracing::error!(
+    target: std::sync::OnceLock<ApplicationTarget>,
+}
+
+impl LinkDestination {
+    /// Prepared once per worker when its router is built. A destination that
+    /// already exists is joined here, so its lane is there before the first
+    /// request; one that does not is reported and adopted later.
+    pub fn new(
+        state: &AppState,
+        fleet_name: FleetName,
+        application: Arc<str>,
+    ) -> Self {
+        let service = state.registry_ref().resolve::<ApplicationService>();
+        match &service {
+            None => tracing::error!(
                 fleet_name = %fleet_name,
                 application = %application,
                 "a Link route is configured but the application link is not registered in this build"
-            );
-            None
+            ),
+            Some(service) => service.track_target(fleet_name, &application),
         }
-        // Join here rather than at the first request. Clients join an
-        // destination fleet lazily so that a server routing to no
-        // application never creates segments — but this *is* a route to one,
-        // and this runs once per worker when its router is built. So the lane
-        // is there before the first request, and a fleet this process cannot
-        // reach is an error in the log at boot rather than a 503 at an unlucky
-        // moment.
-        Some(service) => {
-            service.track_target(fleet_name, &application);
-            match service.client(fleet_name) {
-                Ok(client) => Some(client.target(application)),
-                Err(error) => {
-                    tracing::error!(
-                        fleet_name = %fleet_name,
-                        application = %application,
-                        "a Link route is configured but its fleet cannot be joined: {error}"
+        let destination = Self {
+            service,
+            fleet_name,
+            application,
+            target: std::sync::OnceLock::new(),
+        };
+        destination.adopt(true);
+        destination
+    }
+
+    /// A destination with no application service behind it, which answers
+    /// 503 for every request.
+    #[cfg(test)]
+    fn unavailable() -> Self {
+        Self {
+            service: None,
+            fleet_name: FleetName::new("example"),
+            application: Arc::from("example"),
+            target: std::sync::OnceLock::new(),
+        }
+    }
+
+    /// The prepared target, adopting the destination first if its owner has
+    /// appeared since the last attempt.
+    pub fn target(&self) -> Option<ApplicationTarget> {
+        if let Some(target) = self.target.get() {
+            return Some(target.clone());
+        }
+        self.adopt(false)
+    }
+
+    fn adopt(
+        &self,
+        boot: bool,
+    ) -> Option<ApplicationTarget> {
+        let service = self.service.as_ref()?;
+        match service.client(self.fleet_name) {
+            Ok(client) => {
+                let target = self.target.get_or_init(|| {
+                    client.target(Arc::clone(&self.application))
+                });
+                Some(target.clone())
+            }
+            Err(Error::DestinationAbsent(_)) => {
+                if boot {
+                    tracing::info!(
+                        fleet_name = %self.fleet_name,
+                        application = %self.application,
+                        "the Link route's destination has no owner yet; it is adopted once the owner creates it"
                     );
-                    None
                 }
+                None
+            }
+            Err(error) if boot => {
+                tracing::error!(
+                    fleet_name = %self.fleet_name,
+                    application = %self.application,
+                    "a Link route is configured but its fleet cannot be joined: {error}"
+                );
+                None
+            }
+            Err(error) => {
+                tracing::debug!(
+                    fleet_name = %self.fleet_name,
+                    application = %self.application,
+                    "the Link route's destination cannot be joined: {error}"
+                );
+                None
             }
         }
     }

@@ -95,7 +95,7 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
                 .flat_map(|(_, record)| record.config.link_routes().map(|(_, route)| route.fleet_name))
                 .collect();
             for fleet in fleets {
-                match ApplicationSegment::existing_configured(&state, fleet.as_str()) {
+                match ApplicationSegment::existing_for_fleet(fleet.as_str()) {
                     Ok(Some(segment)) => {
                         if let Err(error) = segment.announce_edge_shutdown(state.name()) {
                             tracing::warn!(%fleet, "could not announce edge shutdown over Link: {error}");

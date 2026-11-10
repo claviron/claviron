@@ -23,6 +23,24 @@ impl Access {
         }
     }
 
+    /// Attach an existing Link and adopt the shape its owner declared; never
+    /// creates. Group-scoped adoption is not provided by Orbitive.
+    pub(crate) fn adopt(
+        &self,
+        fleet: &str,
+        inbox_kind: u8,
+        stream_kind: u8,
+    ) -> Result<Option<LinkSegment>> {
+        match self {
+            Self::OwnerOnly => {
+                LinkSegment::adopt(fleet, inbox_kind, stream_kind)
+            }
+            Self::Group(_) => Err(orbitive::link::Error::Malformed(
+                "adopting a group-scoped Link is not provided",
+            )),
+        }
+    }
+
     /// Inspect an exact resource without creating directories, locks or SHM.
     pub(crate) fn exists(
         &self,

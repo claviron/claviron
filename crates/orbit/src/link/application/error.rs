@@ -32,6 +32,12 @@ pub enum Error {
          {inbox_capacity}: the inbox also carries control frames"
     )]
     AdmissionExceedsInbox { max_in_flight: usize, inbox_capacity: usize },
+    #[error("the Link fleet '{0}' has no owner yet")]
+    DestinationAbsent(String),
+    #[error(
+        "the Link fleet '{fleet}' was declared as {declared}, beyond this build's ceilings {ceilings}"
+    )]
+    ShapeExceedsBuild { fleet: String, declared: String, ceilings: String },
     #[error("invalid Orbit name '{application}': {reason}")]
     InvalidName { application: String, reason: String },
     #[error(

@@ -82,6 +82,12 @@ impl ApplicationTarget {
         &self.0.application
     }
 
+    /// Bytes one direction of a body stream holds in this destination, as its
+    /// owner declared them: one window of a reply.
+    pub fn stream_buffer_bytes(&self) -> usize {
+        self.0.client.stream_buffer_bytes()
+    }
+
     /// Commit one exchange using the current lane membership and load.
     /// Empty membership is retained only until the directory changes.
     pub fn send(

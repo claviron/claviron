@@ -79,52 +79,60 @@ impl ApplicationSegment {
         })
     }
 
+    /// Attach a destination its owner created and adopt the shape the owner
+    /// declared. A caller never creates a destination: `Ok(None)` while the
+    /// owner's inbox or stream table does not exist yet. A shape beyond this
+    /// build's compiled ceilings is refused with both shapes named.
+    pub fn adopt(
+        fleet_name: &str,
+        access: &Access,
+    ) -> Result<Option<Self>> {
+        if let Access::Group(_) = access {
+            // Orbitive adopts owner-only Links only. A group Link keeps this
+            // build's compiled shape and is opened only when it exists.
+            return if access
+                .exists(fleet_name, LINK_SPEC)
+                .map_err(map_link_error)?
+            {
+                Self::for_fleet_with_access(fleet_name, access).map(Some)
+            } else {
+                Ok(None)
+            };
+        }
+        let Some(link) = access
+            .adopt(fleet_name, super::LINK_INBOX_KIND, super::LINK_STREAM_KIND)
+            .map_err(map_link_error)?
+        else {
+            return Ok(None);
+        };
+        let spec = link.spec();
+        if !super::geometry::fits_build(spec) {
+            return Err(Error::ShapeExceedsBuild {
+                fleet: fleet_name.to_owned(),
+                declared: super::geometry::shape_summary(spec),
+                ceilings: super::geometry::shape_summary(LINK_SPEC),
+            });
+        }
+        Ok(Some(Self {
+            link: Arc::new(link),
+            fleet_name: fleet_name.to_owned(),
+            spec,
+            access: access.clone(),
+        }))
+    }
+
     /// Attach only when the fleet's inbox already exists. Management must not
     /// create an empty Link fleet while reporting an edge shutdown.
     pub fn existing_for_fleet(fleet_name: &str) -> Result<Option<Self>> {
         Self::existing_for_fleet_with_access(fleet_name, &Access::OwnerOnly)
     }
 
+    /// Management and recovery read the shape the fleet's owner declared.
     pub fn existing_for_fleet_with_access(
         fleet_name: &str,
         access: &Access,
     ) -> Result<Option<Self>> {
-        if access.exists(fleet_name, LINK_SPEC).map_err(map_link_error)? {
-            Self::for_fleet_with_access(fleet_name, access).map(Some)
-        } else {
-            Ok(None)
-        }
-    }
-
-    /// Management and recovery use the same frozen profile as serving peers.
-    pub fn existing_configured(
-        state: &claviron_runtime::AppState,
-        fleet: &str,
-    ) -> Result<Option<Self>> {
-        let spec = match state
-            .registry_ref()
-            .resolve::<crate::config::OrbitConfiguration>()
-        {
-            Some(config) => config
-                .capacity()
-                .geometry()
-                .map_err(|_| Error::Malformed("Link geometry lock"))?
-                .spec(),
-            None => LINK_SPEC,
-        };
-        Self::existing_for_fleet_with_spec(fleet, spec, &Access::OwnerOnly)
-    }
-
-    pub fn existing_for_fleet_with_spec(
-        fleet_name: &str,
-        spec: LinkSpec,
-        access: &Access,
-    ) -> Result<Option<Self>> {
-        if access.exists(fleet_name, spec).map_err(map_link_error)? {
-            Self::for_fleet_with_spec(fleet_name, spec, access).map(Some)
-        } else {
-            Ok(None)
-        }
+        Self::adopt(fleet_name, access)
     }
 
     pub fn spec(&self) -> LinkSpec {

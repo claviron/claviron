@@ -47,7 +47,7 @@ pub(super) fn bind(
         .link_routes()
         .map(|(_, route)| PreparedRoute {
             route: route.clone(),
-            target: claviron_pipeline::link::prepare_target(
+            destination: claviron_pipeline::link::LinkDestination::new(
                 state,
                 route.fleet_name,
                 route.application.clone().into(),
@@ -72,7 +72,7 @@ struct Handler {
 
 struct PreparedRoute {
     route: OrbitRouteConfig,
-    target: Option<ApplicationTarget>,
+    destination: claviron_pipeline::link::LinkDestination,
 }
 
 /// Dropping a pending or interrupted session resets only this exchange's
@@ -155,7 +155,7 @@ impl WebTransportHandler for Handler {
                 prepared.route.fleet_name == route.fleet_name
                     && prepared.route.application == route.application
             })
-            .and_then(|prepared| prepared.target.clone())
+            .and_then(|prepared| prepared.destination.target())
             .ok_or_else(|| {
                 WebTransportReject::new(StatusCode::SERVICE_UNAVAILABLE)
             })?;

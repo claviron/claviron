@@ -44,7 +44,7 @@ fn a_websocket_upgrade_without_h1_upgrade_is_refused_before_the_application() {
     let backend = LinkBackend {
         routes: vec![LinkRoute {
             path: None,
-            target: None,
+            destination: Arc::new(super::LinkDestination::unavailable()),
             requests: RequestPolicyOverride::default(),
         }]
         .into(),
@@ -74,7 +74,7 @@ fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
     let backend = LinkBackend {
         routes: vec![LinkRoute {
             path: Some(serde_yaml::from_str("/api").unwrap()),
-            target: None,
+            destination: Arc::new(super::LinkDestination::unavailable()),
             requests: RequestPolicyOverride::default(),
         }]
         .into(),

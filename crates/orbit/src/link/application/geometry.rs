@@ -90,6 +90,28 @@ pub(super) const fn link_spec(fleet_capacity: u16) -> LinkSpec {
     )
 }
 
+/// Whether an adopted shape fits what this build was compiled to hold.
+/// The owner declares its fleet's shape; a caller only bounds it.
+pub fn fits_build(spec: LinkSpec) -> bool {
+    usize::from(spec.fleet_capacity) <= LINK_FLEET_CAPACITY
+        && spec.inbox.capacity <= LINK_INBOX_CAPACITY
+        && spec.inbox.payload_capacity <= LINK_INBOX_PAYLOAD_CAPACITY
+        && spec.streams.lane_capacity <= LINK_LANE_CAPACITY
+        && spec.streams.buffer_bytes <= LINK_BUFFER_BYTES
+}
+
+/// The shape fields named in a refusal: fleet, inbox, payload, lane, buffer.
+pub fn shape_summary(spec: LinkSpec) -> String {
+    format!(
+        "fleet {} inbox {} payload {} lane {} buffer {}",
+        spec.fleet_capacity,
+        spec.inbox.capacity,
+        spec.inbox.payload_capacity,
+        spec.streams.lane_capacity,
+        spec.streams.buffer_bytes
+    )
+}
+
 /// Whether this host supports notified shared-memory reader waits.
 pub fn parking_supported() -> bool {
     orbitive::link::parking_supported()

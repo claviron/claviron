@@ -513,6 +513,10 @@ impl ApplicationClient {
         super::ApplicationTarget::new(Arc::clone(self), application.into())
     }
 
+    pub(super) fn stream_buffer_bytes(&self) -> usize {
+        self.segment.spec().streams.buffer_bytes
+    }
+
     pub(super) fn inbox(&self) -> &super::Inbox {
         self.segment.inbox()
     }
