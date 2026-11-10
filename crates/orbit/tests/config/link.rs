@@ -4,7 +4,7 @@ use super::*;
 fn omitted_and_null_bounds_do_not_inherit_the_physical_inbox_capacity() {
     for yaml in ["{}", "max_in_flight: null"] {
         let config: LinkConfig = serde_yaml::from_str(yaml).unwrap();
-        let control = LinkCapacity::new(None, 0);
+        let control = LinkCapacity::new(None, None);
         control.prepare(&config, None).unwrap();
         assert_eq!(control.limit().unwrap(), None);
         assert_eq!(control.geometry().unwrap(), config.geometry);
@@ -16,10 +16,10 @@ fn explicit_bound_overrides_the_engine_fallback() {
     let mut config = LinkConfig::default();
     config.geometry.inbox_capacity = 4;
     config.geometry.lane_capacity = 2;
-    let control = LinkCapacity::new(None, 0);
-    // A bound from the engine needs a declared queue like any other.
+    let control = LinkCapacity::new(None, None);
+    // A bound from the engine needs a declared max_waiting like any other.
     assert!(control.prepare(&config, Some(2)).is_err());
-    config.queue = Some(0);
+    config.max_waiting = Some(3);
     control.prepare(&config, Some(2)).unwrap();
     assert_eq!(control.limit().unwrap(), Some(2));
     config.max_in_flight = Some(3);
@@ -38,22 +38,24 @@ fn physical_shape_and_bound_are_validated_before_join() {
     config.geometry.lane_capacity = 2;
     config.geometry.buffer_bytes = 1024;
     config.max_in_flight = Some(3);
-    assert!(config.validate().is_err(), "a bound without a queue");
-    config.queue = Some(0);
+    assert!(config.validate().is_err(), "a bound without max_waiting");
+    config.max_waiting = Some(3);
     config.validate().unwrap();
     assert_eq!(config.geometry.spec().inbox.capacity, 4);
     assert_eq!(config.geometry.spec().streams.lane_capacity, 2);
     // The inbox also carries control frames: a bound equal to it is refused.
     config.max_in_flight = Some(4);
+    config.max_waiting = Some(4);
     assert!(config.validate().is_err());
-    // The window, not the bound alone, must stay below the inbox.
+    // What is admitted in all stays below the inbox and covers what runs.
     config.max_in_flight = Some(2);
-    config.queue = Some(2);
     assert!(config.validate().is_err());
-    config.queue = Some(1);
+    config.max_waiting = Some(1);
+    assert!(config.validate().is_err());
+    config.max_waiting = Some(3);
     config.validate().unwrap();
-    config.queue = Some(0);
     config.max_in_flight = Some(1);
+    config.max_waiting = Some(1);
     config.geometry.lane_capacity = 3;
     assert!(config.validate().is_err());
     // A sender's inbox must take the replies to all its open exchanges.
@@ -63,10 +65,10 @@ fn physical_shape_and_bound_are_validated_before_join() {
 
 #[test]
 fn live_control_preserves_existing_work_and_owns_no_join() {
-    let control = LinkCapacity::new(None, 0);
+    let control = LinkCapacity::new(None, None);
     let config = LinkConfig {
         max_in_flight: Some(1),
-        queue: Some(0),
+        max_waiting: Some(3),
         geometry: LinkGeometry {
             fleet_capacity: 4,
             inbox_capacity: 4,
@@ -84,15 +86,17 @@ fn live_control_preserves_existing_work_and_owns_no_join() {
         segment.reserve_work(joined.lane, origin.lane).unwrap().unwrap();
     let execution =
         segment.accept_work(joined.lane, reservation.ticket()).unwrap();
+    // A live bound moves how many run at once; the admitted window stays.
     control.set_max_in_flight(2).unwrap();
+    assert_eq!(segment.inbox().work_execution(joined.lane).unwrap(), Some(2));
+    assert_eq!(segment.inbox().work_capacity(joined.lane).unwrap(), Some(3));
+    assert!(control.set_max_in_flight(4).is_err(), "beyond max_waiting");
     let next = segment.reserve_work(joined.lane, origin.lane).unwrap().unwrap();
-    control.set_max_in_flight(1).unwrap();
-    assert!(control.set_max_in_flight(4).is_err());
+    let last = segment.reserve_work(joined.lane, origin.lane).unwrap().unwrap();
     assert!(segment.reserve_work(joined.lane, origin.lane).is_err());
-    drop(next);
-    assert!(segment.reserve_work(joined.lane, origin.lane).is_err());
-    drop(execution);
+    drop((next, last));
     assert!(segment.reserve_work(joined.lane, origin.lane).is_ok());
+    drop(execution);
     let weak = Arc::downgrade(&joined);
     segment.inbox().release_lane(joined.lane).unwrap();
     drop(joined);

@@ -635,7 +635,7 @@ must not reuse another subsystem's. Configuration checks are structural and open
 ## Link Admission
 
 An application joins with `max_in_flight` or no bound. A bounded receiver also
-declares `queue` and advertises a *window* of `max_in_flight + queue` shared
+declares `max_waiting` and advertises it as a *window* of shared
 admission slots, below the inbox capacity; it publishes `max_in_flight` as the
 part it runs at once (`set_work_execution`). This is separate from unread inbox
 frames and creator-side body slots. All callers reserve a window slot before
@@ -687,7 +687,8 @@ null `max_in_flight` leaves receiver admission unbounded; physical inbox and bod
 stream capacities remain finite. Inbox geometry never supplies an admission default.
 
 Positive `orbit.link.max_in_flight` bounds are receiver-owned and may change live;
-`orbit.link.queue` is required with any bound (configured or the engine's) and
+`orbit.link.max_waiting` (admitted in all, running included; at least
+`max_in_flight`) is required with any bound (configured or the engine's) and
 is frozen with the geometry. A live bound change moves the window and the
 published execution together.
 Reservations and accepted exchanges retain their tickets through body/session completion.

@@ -52,7 +52,7 @@ impl OrbitConfiguration {
                 programmatic: false,
             }),
             applied: Mutex::new(Applied::default()),
-            capacity: Arc::new(LinkCapacity::new(None, 0)),
+            capacity: Arc::new(LinkCapacity::new(None, None)),
             report_changes: !state.is_worker(),
         }))?;
         Ok(())
@@ -144,9 +144,10 @@ impl OrbitConfiguration {
         if !mode_changed && let Some(limit) = limit {
             // A candidate's physical expansion is pending restart, so a limit
             // that does not fit the active shape must remain pending too.
-            let queue = self.capacity.queue()?;
+            let admitted = self.capacity.max_waiting()?.unwrap_or(limit);
             if active_limit != Some(limit)
-                && frozen.is_some_and(|geometry| geometry.admits(limit, queue))
+                && frozen
+                    .is_some_and(|geometry| geometry.admits(limit, admitted))
             {
                 self.capacity.set_max_in_flight(limit)?;
             }

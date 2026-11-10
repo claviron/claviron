@@ -36,10 +36,12 @@ change, not something one side can deploy by silently resizing a live segment.
 
 `max_in_flight` limits how many exchanges one application receiver runs at
 once, across every caller. `None` remains unbounded. A bounded receiver also
-declares `queue`: how many more it holds itself, in arrival order, and starts as
-running ones end. Its admission *window* is `max_in_flight + queue`, and the
-window must stay below the inbox capacity, which also carries control frames.
-`queue: 0` refuses past `max_in_flight`. This is distinct from inbox depth,
+declares `max_waiting`: how many it admits in all, running ones included (PHP's
+`max_waiting` counts the same way); those beyond `max_in_flight` wait in the
+receiver, in arrival order, and start as running ones end. `max_waiting` is
+the admission *window*: `max_in_flight <= max_waiting`, and it stays below the
+inbox capacity, which also carries control frames. `max_waiting` equal to
+`max_in_flight` refuses as soon as every running place is taken. This is distinct from inbox depth,
 stream byte windows and the number of body slots a caller can originate.
 
 A caller reserves a window slot before obtaining a body slot. It prefers its

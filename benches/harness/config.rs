@@ -49,10 +49,10 @@ pub struct Args {
     pub max_streams: Option<NonZeroUsize>,
     #[arg(long)]
     pub max_in_flight: Option<NonZeroUsize>,
-    /// Exchanges each receiver holds beyond `--max-in-flight`; required with
-    /// it (0 refuses at once).
+    /// Exchanges each receiver admits in all, running ones included;
+    /// required with `--max-in-flight` (equal to it refuses at once).
     #[arg(long)]
-    pub queue: Option<usize>,
+    pub max_waiting: Option<usize>,
     #[arg(long, value_parser = duration)]
     pub queue_timeout: Option<Duration>,
     /// Retain a rejected phase instead of returning an unsuccessful benchmark exit.

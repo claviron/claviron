@@ -169,7 +169,7 @@ The main option groups are:
 
 - Identity and transport: `name`, `fleet_name`, `listeners`, `defaults.listener` and `trusted`; TLS fields are available with TLS support.
 - Request/reply policy: `requests` and `responses`.
-- Orbit receiver capacity: `orbit.link.max_in_flight` (exchanges run at once, each held through body/session completion; omitted uses the engine's declared default, or leaves receiver admission unbounded when no default is declared) and `orbit.link.queue` (exchanges the receiver holds beyond it and starts as running ones end; required with any bound, `0` refuses at once). Callers never wait for capacity: when every receiver's `max_in_flight + queue` is taken they answer 503.
+- Orbit receiver capacity: `orbit.link.max_in_flight` (exchanges run at once, each held through body/session completion; omitted uses the engine's declared default, or leaves receiver admission unbounded when no default is declared) and `orbit.link.max_waiting` (exchanges admitted in all, running ones included, as PHP's `max_waiting` counts them; those beyond `max_in_flight` wait in the receiver and start as running ones end; required with any bound, equal to `max_in_flight` refuses at once). Callers never wait for capacity: when every receiver's `max_waiting` is taken they answer 503.
 - Static routing: `files`, `try_files`, and `assets` when file support is selected.
 - Lifecycle: `workers`, supervisor settings, Orbit settings, and
   `edge_shutdown_policy`.
