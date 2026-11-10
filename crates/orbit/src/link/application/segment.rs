@@ -565,7 +565,6 @@ impl ApplicationSegment {
         self.link.watch(role).map_err(map_link_error)
     }
 
-    /// The generic link segment underneath, for what binds to it directly.
     /// Publish one reply frame into the lane of the Edge that asked.
     ///
     /// [`Error::ProducerBusy`] means this process's replies that Edges have
@@ -590,6 +589,7 @@ impl ApplicationSegment {
         self.link.record_released().await.map_err(map_link_error)
     }
 
+    /// The generic link segment underneath, for what binds to it directly.
     pub fn link(&self) -> &Arc<LinkSegment> {
         &self.link
     }

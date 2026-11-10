@@ -115,6 +115,37 @@ impl LinkWorkers {
         Ok(())
     }
 
+    /// The policy an owner publishes for its fleet, checked against what it
+    /// can grow to and what it runs now. `worker_capacity` is how many workers
+    /// the owner can run at all (a supervisor's capacity, a task service's
+    /// slots); `fleet_capacity` is the fleet's lanes, which must keep one for
+    /// a caller; `count` is how many it runs now. `None` while static.
+    pub fn for_owner(
+        &self,
+        worker_capacity: u16,
+        fleet_capacity: usize,
+        count: u16,
+    ) -> registry::Result<Option<orbitive::link::GrowthPolicy>> {
+        let max = self.max.resolve(worker_capacity);
+        if max > worker_capacity {
+            return Err(registry::Error::msg(format!(
+                "Link workers.max {max} exceeds the owner's worker capacity {worker_capacity}"
+            )));
+        }
+        if usize::from(max) >= fleet_capacity {
+            return Err(registry::Error::msg(format!(
+                "Link workers.max {max} must leave a lane for a caller in fleet_capacity {fleet_capacity}"
+            )));
+        }
+        if self.min > max || count < self.min || count > max {
+            return Err(registry::Error::msg(format!(
+                "the owner's {count} workers lie outside Link workers {}..={max}",
+                self.min
+            )));
+        }
+        Ok(self.growth(worker_capacity))
+    }
+
     /// What the fleet publishes, with the maximum resolved: `None` while the
     /// policy is static.
     pub fn growth(

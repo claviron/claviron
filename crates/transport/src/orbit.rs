@@ -40,9 +40,9 @@ use claviron_orbit::link::application::{
     ApplicationBodies, ApplicationLinkSetup, ApplicationSegment,
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
     EdgeDisconnected, Error as LinkError, Exchange, ExchangeBody,
-    ExchangeReply, FrameKind, HttpVersion, Inbox, LinkJoined, LinkPressure,
-    Offered, Peers, Received, ShutdownNotice, Watched, WorkExecution,
-    WorkQueue, fit_inline, frame_kind,
+    ExchangeReply, FleetGrowth, FrameKind, HttpVersion, Inbox, LinkJoined,
+    LinkPressure, Offered, Peers, Received, ShutdownNotice, Watched,
+    WorkExecution, WorkQueue, fit_inline, frame_kind,
 };
 pub use claviron_orbit::stream::{ReadHalf, WriteHalf};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
@@ -578,39 +578,16 @@ impl OrbitDoor {
             .map_err(|error| registry::Error::msg(error.to_string()))?;
         // The owner publishes its growth policy in the fleet it owns; static
         // (no `workers` block) publishes nothing and senders report nothing.
-        let growth = match self.capacity.workers()? {
-            Some(workers) => {
-                let capacity = u16::from(state.worker_capacity());
-                let max = workers.max.resolve(capacity);
-                if max > capacity {
-                    return Err(registry::Error::msg(format!(
-                        "Link workers.max {max} exceeds the supervisor's worker capacity {capacity}"
-                    )));
-                }
-                let lanes = self.capacity.geometry()?.fleet_capacity;
-                if usize::from(max) >= lanes {
-                    return Err(registry::Error::msg(format!(
-                        "Link workers.max {max} must leave a lane for a caller in fleet_capacity {lanes}"
-                    )));
-                }
-                let count = u16::from(state.worker_count());
-                if workers.min > max || count < workers.min || count > max {
-                    return Err(registry::Error::msg(format!(
-                        "the launch's {count} workers lie outside Link workers {}..={max}",
-                        workers.min
-                    )));
-                }
-                workers.growth(capacity)
-            }
+        let policy = match self.capacity.workers()? {
+            Some(workers) => workers.for_owner(
+                u16::from(state.worker_capacity()),
+                self.capacity.geometry()?.fleet_capacity,
+                u16::from(state.worker_count()),
+            )?,
             None => None,
         };
-        segment.inbox().set_growth_policy(growth);
-        // A pressure episode stays open while the master grows the fleet and
-        // ends when the receivers serving this application change: the new
-        // worker's lane, or one leaving. Other lanes moving (callers joining)
-        // do not end it; ending it earlier would wake again on every refusal
-        // while the worker starts and ask for a second one.
-        let mut growing: Option<usize> = None;
+        let mut growth =
+            FleetGrowth::publish(&segment, &*self.application, policy);
         // The master's own subscribers declare interest, and what it
         // publishes crosses too; it receives through its workers' lanes.
         let _link = ApplicationLinkSetup::resolve(state).and_then(|setup| {
@@ -625,26 +602,16 @@ impl OrbitDoor {
                 moved = watcher.next_change() => match moved {
                     Ok(Watched::Directory(_)) => {
                         observe_edges(state, &mut edges, segment.inbox(), &self.application);
-                        if let Some(before) = growing
-                            && segment.inbox().serving(&self.application).len() != before
-                        {
-                            watcher.take_pressure();
-                            growing = None;
-                        }
+                        growth.directory_changed(&segment, &mut watcher);
                     }
                     Ok(Watched::Pressure) => {
-                        if let Some(policy) = growth {
-                            let serving = segment.inbox().serving(&self.application).len();
-                            growing = Some(serving);
+                        if let Some(grow) = growth.pressure(&segment, &mut watcher) {
                             state.events().emit(LinkPressure {
                                 fleet: state.fleet_name().to_owned(),
                                 application: self.application.clone(),
-                                policy,
-                                serving,
+                                policy: grow.policy,
+                                serving: grow.serving,
                             });
-                        } else {
-                            // Reported under an earlier policy: end it.
-                            watcher.take_pressure();
                         }
                     }
                     Err(error) => {
