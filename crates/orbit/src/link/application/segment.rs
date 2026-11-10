@@ -151,6 +151,9 @@ impl ApplicationSegment {
         capacity: Option<usize>,
     ) -> Result<Joined> {
         check_application_name(application)?;
+        if let Some(limit) = capacity {
+            self.check_admission(limit)?;
+        }
         self.link
             .join_with_capacity(application, runtime, incarnation, capacity)
             .map_err(map_link_error)
@@ -162,7 +165,24 @@ impl ApplicationSegment {
         joined: &Joined,
         limit: usize,
     ) -> Result<()> {
+        self.check_admission(limit)?;
         self.link.update_work_capacity(joined, limit).map_err(map_link_error)
+    }
+
+    /// The segment-level form of `LinkGeometry::admits`, for every receiver
+    /// that joins here, configured or not (bindings join directly).
+    fn check_admission(
+        &self,
+        max_in_flight: usize,
+    ) -> Result<()> {
+        let inbox_capacity = self.spec.inbox.capacity;
+        if max_in_flight == 0 || max_in_flight >= inbox_capacity {
+            return Err(Error::AdmissionExceedsInbox {
+                max_in_flight,
+                inbox_capacity,
+            });
+        }
+        Ok(())
     }
 
     pub fn reserve_work(

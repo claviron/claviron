@@ -27,6 +27,11 @@ pub enum Error {
     FrameTooLarge,
     #[error("exchange frame is malformed: {0}")]
     Malformed(&'static str),
+    #[error(
+        "Link max_in_flight {max_in_flight} must be positive and below inbox_capacity \
+         {inbox_capacity}: the inbox also carries control frames"
+    )]
+    AdmissionExceedsInbox { max_in_flight: usize, inbox_capacity: usize },
     #[error("invalid Orbit name '{application}': {reason}")]
     InvalidName { application: String, reason: String },
     #[error(

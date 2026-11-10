@@ -221,11 +221,6 @@ impl LinkCapacity {
             .0
             .lock()
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))?;
-        // A bound given programmatically (`LinkCapacity::new`) was never
-        // checked against a shape; every receiver passes here before it joins.
-        if let Some(limit) = state.limit {
-            state.geometry.check_admission(limit)?;
-        }
         let segment = Arc::new(
             ApplicationSegment::for_fleet_with_spec(
                 fleet,
