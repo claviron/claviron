@@ -47,11 +47,13 @@ pub(super) fn bind(
         .link_routes()
         .map(|(_, route)| PreparedRoute {
             route: route.clone(),
-            destination: claviron_pipeline::link::LinkDestination::new(
-                state,
-                route.fleet_name,
-                route.application.clone().into(),
-            ),
+            destination:
+                claviron_pipeline::link::LinkDestination::new_with_policy(
+                    state,
+                    route.fleet_name,
+                    route.application.clone().into(),
+                    route.policy,
+                ),
         })
         .collect();
     registry.bind_fallback(host.clone(), Arc::new(Handler { routes }));

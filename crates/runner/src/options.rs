@@ -176,6 +176,25 @@ pub struct RunnerOptions {
 }
 
 impl RunnerOptions {
+    #[cfg(feature = "supervisor")]
+    pub fn initial_workers(&self) -> Result<u8, String> {
+        #[cfg(feature = "orbit")]
+        if let Some(workers) = self
+            .orbit_config()?
+            .and_then(|config| config.link)
+            .and_then(|link| link.workers)
+        {
+            workers.validate().map_err(|error| error.to_string())?;
+            if self.workers.is_some() {
+                return Err("declare workers once: orbit.link.workers already defines the initial count; remove --workers/top-level workers".into());
+            }
+            return u8::try_from(workers.initial_count()).map_err(|_| {
+                "initial workers exceed the supported process count".into()
+            });
+        }
+        Ok(self.workers.unwrap_or(0))
+    }
+
     pub fn link_enabled(&self) -> bool {
         self.orbit
             .as_ref()
@@ -327,6 +346,12 @@ impl RunnerOptions {
         #[cfg(feature = "orbit")]
         if let Some(config) = self.orbit_config()? {
             config.validate().map_err(|e| e.to_string())?;
+            #[cfg(not(feature = "supervisor"))]
+            if config.link.as_ref().is_some_and(|link| link.workers.is_some()) {
+                return Err(
+                    "orbit.link.workers requires supervisor support".into()
+                );
+            }
         }
 
         self.policy()?;

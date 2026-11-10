@@ -10,8 +10,8 @@ use serde::{Deserialize, Serialize};
 mod link;
 mod runtime;
 pub use link::{
-    LinkCapacity, LinkConfig, LinkGeometry, LinkWorkers, RetireIdle,
-    WorkerPolicy,
+    GrowthPolicy, LinkCapacity, LinkConfig, LinkGeometry, RetireIdle,
+    WorkerMax, Workers,
 };
 pub use runtime::OrbitConfiguration;
 

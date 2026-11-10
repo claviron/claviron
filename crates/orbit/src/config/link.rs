@@ -25,35 +25,67 @@ pub struct LinkConfig {
     /// `max_in_flight` refuses as soon as every running place is taken.
     pub max_waiting: Option<usize>,
     pub geometry: LinkGeometry,
-    /// How the owner grows under unmet demand. Absent is static: nothing is
-    /// published and no sender reports pressure.
-    pub workers: Option<LinkWorkers>,
+    /// The owner's exact count or growth bounds. Absent leaves process counts
+    /// to the external owner and publishes no growth policy.
+    pub workers: Option<Workers>,
 }
 
-/// The owner's growth policy, declared beside its shape and bound and
-/// published in its fleet. Every field is written when the block is.
+/// The worker owner declares either an exact count or a growth policy.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(try_from = "WorkerConfig", into = "WorkerConfig")]
+pub enum Workers {
+    Static { count: u16 },
+    OnPressure(GrowthPolicy),
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct LinkWorkers {
-    pub policy: WorkerPolicy,
-    /// Never fewer workers.
+pub struct GrowthPolicy {
     pub min: u16,
-    /// Never more workers: a count, or `available` for the supervisor's
-    /// worker capacity. Within that capacity and the fleet's lanes either way.
     pub max: WorkerMax,
-    /// Workers added per pressure episode.
     pub step: u16,
-    /// Automatic retirement of workers added under pressure.
     pub retire_idle: RetireIdle,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(tag = "policy", rename_all = "snake_case", deny_unknown_fields)]
+enum WorkerConfig {
+    Static {
+        count: u16,
+        #[serde(default)]
+        retire_idle: StaticRetirement,
+    },
+    OnPressure(GrowthPolicy),
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum WorkerPolicy {
-    /// Today's behaviour: the worker count is the launch's.
-    Static,
-    /// Add `step` workers when a sender finds every receiver full, up to `max`.
-    OnPressure,
+enum StaticRetirement {
+    #[default]
+    Off,
+}
+
+impl TryFrom<WorkerConfig> for Workers {
+    type Error = String;
+    fn try_from(value: WorkerConfig) -> Result<Self, Self::Error> {
+        let workers = match value {
+            WorkerConfig::Static { count, .. } => Self::Static { count },
+            WorkerConfig::OnPressure(policy) => Self::OnPressure(policy),
+        };
+        workers.validate().map_err(|error| error.to_string())?;
+        Ok(workers)
+    }
+}
+
+impl From<Workers> for WorkerConfig {
+    fn from(value: Workers) -> Self {
+        match value {
+            Workers::Static { count } => {
+                Self::Static { count, retire_idle: StaticRetirement::Off }
+            }
+            Workers::OnPressure(policy) => Self::OnPressure(policy),
+        }
+    }
 }
 
 /// The upper bound of a growth policy, written as a number or by name.
@@ -85,80 +117,147 @@ impl WorkerMax {
     }
 }
 
-/// Only `off` is defined: what "idle" means without an invented duration is
-/// still open, so nothing is retired automatically.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+/// Idle retirement is off unless the operator declares a positive duration.
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq,
+)]
+#[serde(from = "RetireConfig", into = "RetireConfig")]
 pub enum RetireIdle {
+    #[default]
     Off,
+    After {
+        #[serde(with = "humantime_serde")]
+        idle_timeout: std::time::Duration,
+    },
 }
 
-impl LinkWorkers {
-    pub fn validate(&self) -> registry::Result<()> {
-        // A named maximum is checked once it is resolved, at the master.
-        if self.min == 0
-            || matches!(self.max, WorkerMax::Count(max) if self.min > max)
-        {
-            return Err(registry::Error::msg(format!(
-                "Link workers need 0 < min <= max (min {}, max {:?})",
-                self.min, self.max
-            )));
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+enum RetireConfig {
+    Off(StaticRetirement),
+    After(IdleTimeout),
+}
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct IdleTimeout {
+    #[serde(with = "humantime_serde")]
+    idle_timeout: std::time::Duration,
+}
+impl From<RetireConfig> for RetireIdle {
+    fn from(value: RetireConfig) -> Self {
+        match value {
+            RetireConfig::Off(_) => Self::Off,
+            RetireConfig::After(value) => {
+                Self::After { idle_timeout: value.idle_timeout }
+            }
         }
-        // The supervisor resizes one worker at a time and only while the
-        // fleet is stable; a larger step has nothing to run it yet.
-        if self.step != 1 {
-            return Err(registry::Error::msg(format!(
-                "Link workers.step must be 1 (got {}): workers are added one per pressure episode",
-                self.step
-            )));
+    }
+}
+impl From<RetireIdle> for RetireConfig {
+    fn from(value: RetireIdle) -> Self {
+        match value {
+            RetireIdle::Off => Self::Off(StaticRetirement::Off),
+            RetireIdle::After { idle_timeout } => {
+                Self::After(IdleTimeout { idle_timeout })
+            }
+        }
+    }
+}
+
+impl RetireIdle {
+    pub fn timeout(self) -> Option<std::time::Duration> {
+        match self {
+            Self::Off => None,
+            Self::After { idle_timeout } => Some(idle_timeout),
+        }
+    }
+}
+
+impl Workers {
+    pub fn initial_count(self) -> u16 {
+        match self {
+            Self::Static { count } => count,
+            Self::OnPressure(policy) => policy.min,
+        }
+    }
+    pub fn maximum(
+        self,
+        capacity: u16,
+    ) -> u16 {
+        match self {
+            Self::Static { count } => count,
+            Self::OnPressure(policy) => policy.max.resolve(capacity),
+        }
+    }
+    pub fn retire_idle(self) -> RetireIdle {
+        match self {
+            Self::Static { .. } => RetireIdle::Off,
+            Self::OnPressure(policy) => policy.retire_idle,
+        }
+    }
+    pub fn validate(&self) -> registry::Result<()> {
+        if self.initial_count() == 0 {
+            return Err(registry::Error::msg(
+                "workers count/min must be positive",
+            ));
+        }
+        if let Self::OnPressure(policy) = self {
+            if matches!(policy.max, WorkerMax::Count(max) if max < policy.min) {
+                return Err(registry::Error::msg("workers need min <= max"));
+            }
+            if policy.step != 1 {
+                return Err(registry::Error::msg(
+                    "workers.step must be 1: one worker per pressure episode",
+                ));
+            }
+            if policy
+                .retire_idle
+                .timeout()
+                .is_some_and(|timeout| timeout.is_zero())
+            {
+                return Err(registry::Error::msg(
+                    "retire_idle.idle_timeout must be positive",
+                ));
+            }
         }
         Ok(())
     }
-
-    /// The policy an owner publishes for its fleet, checked against what it
-    /// can grow to and what it runs now. `worker_capacity` is how many workers
-    /// the owner can run at all (a supervisor's capacity, a task service's
-    /// slots); `fleet_capacity` is the fleet's lanes, which must keep one for
-    /// a caller; `count` is how many it runs now. `None` while static.
     pub fn for_owner(
         &self,
         worker_capacity: u16,
         fleet_capacity: usize,
         count: u16,
     ) -> registry::Result<Option<orbitive::link::GrowthPolicy>> {
-        let max = self.max.resolve(worker_capacity);
-        if max > worker_capacity {
-            return Err(registry::Error::msg(format!(
-                "Link workers.max {max} exceeds the owner's worker capacity {worker_capacity}"
-            )));
+        self.validate()?;
+        let max = self.maximum(worker_capacity);
+        let control_lanes =
+            1 + usize::from(self.retire_idle().timeout().is_some());
+        if max > worker_capacity
+            || usize::from(max) + control_lanes > fleet_capacity
+        {
+            return Err(registry::Error::msg(
+                "workers exceed owner/fleet capacity, including caller and retirement lanes",
+            ));
         }
-        if usize::from(max) >= fleet_capacity {
-            return Err(registry::Error::msg(format!(
-                "Link workers.max {max} must leave a lane for a caller in fleet_capacity {fleet_capacity}"
-            )));
-        }
-        if self.min > max || count < self.min || count > max {
-            return Err(registry::Error::msg(format!(
-                "the owner's {count} workers lie outside Link workers {}..={max}",
-                self.min
-            )));
+        if count < self.initial_count() || count > max {
+            return Err(registry::Error::msg(
+                "owner worker count is outside the declared worker range",
+            ));
         }
         Ok(self.growth(worker_capacity))
     }
-
-    /// What the fleet publishes, with the maximum resolved: `None` while the
-    /// policy is static.
     pub fn growth(
         &self,
         worker_capacity: u16,
     ) -> Option<orbitive::link::GrowthPolicy> {
-        (self.policy == WorkerPolicy::OnPressure).then_some(
-            orbitive::link::GrowthPolicy {
-                min: self.min,
-                max: self.max.resolve(worker_capacity),
-                step: self.step,
-            },
-        )
+        match self {
+            Self::Static { .. } => None,
+            Self::OnPressure(policy) => Some(orbitive::link::GrowthPolicy {
+                min: policy.min,
+                max: policy.max.resolve(worker_capacity),
+                step: policy.step,
+            }),
+        }
     }
 }
 
@@ -284,11 +383,12 @@ impl LinkConfig {
         if let Some(workers) = &self.workers {
             workers.validate()?;
             // The fleet's lanes hold every worker and at least one caller.
-            if let WorkerMax::Count(max) = workers.max
-                && usize::from(max) >= self.geometry.fleet_capacity
+            if workers.maximum(u16::MAX) != u16::MAX
+                && usize::from(workers.maximum(u16::MAX))
+                    >= self.geometry.fleet_capacity
             {
                 return Err(registry::Error::msg(format!(
-                    "Link workers.max {max} must leave a lane for a caller in fleet_capacity {}",
+                    "Link workers maximum must leave a lane for a caller in fleet_capacity {}",
                     self.geometry.fleet_capacity
                 )));
             }
@@ -308,7 +408,7 @@ struct State {
     /// a programmatic bound: it admits what it runs.
     max_waiting: Option<usize>,
     geometry: LinkGeometry,
-    workers: Option<LinkWorkers>,
+    workers: Option<Workers>,
     active: Option<Active>,
 }
 
@@ -398,6 +498,15 @@ impl LinkCapacity {
             }
             (None, None) => None,
         };
+        if limit.is_none()
+            && config.workers.is_some_and(|workers| {
+                workers.retire_idle().timeout().is_some()
+            })
+        {
+            return Err(registry::Error::msg(
+                "idle retirement requires tracked receiver admission (max_in_flight/max_waiting)",
+            ));
+        }
         state.limit = limit;
         state.max_waiting = max_waiting;
         state.geometry = config.geometry;
@@ -405,8 +514,8 @@ impl LinkCapacity {
         Ok(())
     }
 
-    /// The owner's declared growth policy, for its fleet and its master.
-    pub fn workers(&self) -> registry::Result<Option<LinkWorkers>> {
+    /// The owner's declared count policy, for its fleet and its master.
+    pub fn workers(&self) -> registry::Result<Option<Workers>> {
         self.0
             .lock()
             .map(|state| state.workers)

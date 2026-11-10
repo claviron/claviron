@@ -52,12 +52,13 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::oneshot;
 
 use super::creator::{CreatorAdmission, CreatorTurn};
+use super::selection::Selection;
 
 use super::{
     Access, ApplicationBodies, ApplicationConnected, ApplicationDisconnected,
     ApplicationLinkSetup, ApplicationSegment, ApplicationStateNotice,
     ControlCommand, Error, Exchange, ExchangeBody, ExchangeReply, FrameKind,
-    LinkJoined, Peers, Result, fit_inline, frame_kind,
+    LinkJoined, LinkPolicy, Peers, Result, fit_inline, frame_kind,
 };
 
 /// The runtime tag an edge worker's lane carries. It serves no name — its lane
@@ -556,7 +557,21 @@ impl ApplicationClient {
         self: &Arc<Self>,
         application: impl Into<Arc<str>>,
     ) -> super::ApplicationTarget {
-        super::ApplicationTarget::new(Arc::clone(self), application.into())
+        self.target_with_policy(application, LinkPolicy::default())
+    }
+
+    /// Prepare an application destination with its own selection policy.
+    /// Clones share the round-robin turn; other targets remain independent.
+    pub fn target_with_policy(
+        self: &Arc<Self>,
+        application: impl Into<Arc<str>>,
+        policy: LinkPolicy,
+    ) -> super::ApplicationTarget {
+        super::ApplicationTarget::new(
+            Arc::clone(self),
+            application.into(),
+            policy,
+        )
     }
 
     pub(super) fn stream_buffer_bytes(&self) -> usize {
@@ -772,7 +787,7 @@ impl ApplicationClient {
             application,
             self.lane,
         );
-        self.send_to(application, &lanes, &mut request)
+        self.send_to(application, &lanes, &mut request, None)
     }
 
     pub(super) fn send_to(
@@ -780,12 +795,13 @@ impl ApplicationClient {
         application: &str,
         lanes: &[usize],
         request: &mut Exchange,
+        selection: Option<&Selection>,
     ) -> Result<Pending> {
         self.check_open(application)?;
         if self.creator.contended() {
             return Err(Error::Stream(orbitive::stream::Error::WouldBlock));
         }
-        self.send_acquiring(application, lanes, request, ())
+        self.send_acquiring(application, lanes, request, (), selection)
     }
 
     pub(super) fn send_with_creator_turn(
@@ -794,9 +810,10 @@ impl ApplicationClient {
         lanes: &[usize],
         request: &mut Exchange,
         turn: CreatorTurn<'_>,
+        selection: &Selection,
     ) -> Result<Pending> {
         self.check_open(application)?;
-        self.send_acquiring(application, lanes, request, turn)
+        self.send_acquiring(application, lanes, request, turn, Some(selection))
     }
 
     pub(super) fn check_open(
@@ -884,7 +901,7 @@ impl ApplicationClient {
     /// Either way, when neither yields a reservation, every lane is tried once
     /// in the same order, so a full fleet still reads as full and an empty one
     /// as having no consumer.
-    fn choose(
+    fn choose_first(
         &self,
         lanes: &[usize],
     ) -> Result<(Option<Chosen>, bool)> {
@@ -984,8 +1001,33 @@ impl ApplicationClient {
         lanes: &[usize],
         request: &mut Exchange,
         acquisition: G,
+        selection: Option<&Selection>,
     ) -> Result<Pending> {
-        let (selected, full) = self.choose(lanes)?;
+        let (selected, full) = match selection {
+            Some(selection) if selection.policy == LinkPolicy::RoundRobin => {
+                let mut full = false;
+                let selected = selection.round_robin(
+                    lanes,
+                    |lane| {
+                        self.candidate(lane).is_some()
+                            && self.inbox().work_capacity(lane).is_ok_and(
+                                |bound| bound.is_none() || self.runs_now(lane),
+                            )
+                    },
+                    |lane| {
+                        if self.candidate(lane).is_none() {
+                            return Ok(None);
+                        }
+                        self.try_reserve(lane, &mut full)
+                    },
+                    || {
+                        self.inbox().report_pressure();
+                    },
+                )?;
+                (selected, full)
+            }
+            _ => self.choose_first(lanes)?,
+        };
         let Some((target, admission)) = selected else {
             return Err(if full {
                 // Every receiver refused: unmet demand. One load unless the

@@ -100,7 +100,7 @@ pub mod websocket;
 #[cfg(feature = "js")]
 pub use javascript::JavaScriptRouteConfig;
 #[cfg(feature = "orbit")]
-pub use orbit::OrbitRouteConfig;
+pub use orbit::{LinkPolicy, OrbitRouteConfig};
 pub use rules::RouteRule;
 #[cfg(any(feature = "js", feature = "lua"))]
 pub use websocket::JavaScriptWebSocketConfig;

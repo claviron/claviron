@@ -52,3 +52,13 @@ fn one_task_runs_each_fleet_and_never_its_own() {
     );
     assert!(validate_fleets([("a", &a)].into_iter(), "example").is_err());
 }
+
+#[test]
+fn static_command_counts_are_owned_by_the_controller_not_dispatch() {
+    let config = entry("orbit: {fleet: example, kind: task, workers: {policy: static, count: 3, retire_idle: off}, command: {program: ./app}}").unwrap();
+    let workers = config.orbit.unwrap().workers.unwrap();
+    assert_eq!(workers, Workers::Static { count: 3 });
+    assert_eq!(workers.growth(40), None);
+    assert_eq!(config.scope, Some(TaskScope::Master));
+    assert_eq!(config.dispatch, Some(TaskDispatch::One));
+}

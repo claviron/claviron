@@ -254,3 +254,24 @@ fn orbit_flag_selects_the_link_object_without_a_boolean_schema() {
     assert!(args.runner.link_enabled());
     assert!(serde_yaml::from_str::<RunnerOptions>("orbit: true").is_err());
 }
+
+#[cfg(all(feature = "orbit", feature = "supervisor"))]
+#[test]
+fn worker_start_count_comes_from_the_declared_owner() {
+    for (declaration, expected) in [
+        ("{policy: static, count: 4}", 4),
+        ("{policy: on_pressure, min: 2, max: 8, step: 1, retire_idle: off}", 2),
+    ] {
+        let mut options: RunnerOptions = serde_yaml::from_str(&format!(
+            "orbit: {{link: {{workers: {declaration}}}}}"
+        ))
+        .unwrap();
+        assert_eq!(options.initial_workers().unwrap(), expected);
+        options.workers = Some(6);
+        assert!(
+            options.initial_workers().is_err(),
+            "two conflicting count authorities"
+        );
+    }
+    assert_eq!(RunnerOptions::default().initial_workers().unwrap(), 0);
+}

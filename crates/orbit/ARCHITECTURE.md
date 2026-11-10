@@ -639,9 +639,19 @@ declares `max_waiting` and advertises it as a *window* of shared
 admission slots, below the inbox capacity; it publishes `max_in_flight` as the
 part it runs at once (`set_work_execution`). This is separate from unread inbox
 frames and creator-side body slots. All callers reserve a window slot before
-taking a body slot. Target choice takes the home receiver while it will start
-the exchange now (`work_load < work_execution`); otherwise it reports pressure
-and tries the less loaded of two, then every lane once. Neither `send` nor
+taking a body slot. Target selection defaults to `LinkPolicy::First`:
+take the home receiver while it will start the exchange now
+(`work_load < work_execution`); otherwise report pressure and try the less
+loaded of two, then every lane once. `LinkPolicy::RoundRobin` advances a
+per-prepared-target atomic cursor, shared by its clones. It tries runnable
+receivers cyclically, then reports pressure and tries receiver queue capacity
+in that same cyclic order when none can start immediately. Full or departed
+receivers are skipped and a published exchange is never replayed. A directory
+change refreshes membership for both policies without retaining departed lanes.
+`target_with_policy` selects explicitly; `target` and direct `send` preserve
+the existing default. HTTP routes select this with their `orbit[].policy`;
+this is independent of `workers.policy`, which controls process growth.
+Neither `send` nor
 `ApplicationTarget::send_wait` ever waits for receiver capacity: a full window
 everywhere is `CapacityFull` at once. `send_wait` waits only for this client's
 own creator capacity.
@@ -705,3 +715,24 @@ master warns; workers apply the live policy without repeating it. Manual reload 
 and applies only the live bound; reading a snapshot neither applies nor logs.
 Changing retained physical SHM geometry still requires a stopped-fleet cleanup;
 opening a mismatched object refuses it rather than resizing or unlinking peers.
+
+### Worker count ownership
+
+`config::Workers` is an owner declaration, not a destination selection enum:
+`Static { count }` starts exactly that count and publishes no growth;
+`OnPressure(GrowthPolicy)` starts at `min` and grows up to `max`, one process
+per unmet-demand episode. A runner uses its supervisor; an Orbit Task controller
+uses its owned command slots. `orbit[].policy: first | round_robin` belongs to
+the caller's prepared backend and never travels through a binding ABI.
+
+`retire_idle: off` adds no lane or timer. An explicit
+`retire_idle: { idle_timeout: 30s }` enables a controller-owned management lane
+and uses the existing capacity interest/generation wake. Only the highest
+owned slot above `min` is eligible; all its serving lanes must have zero
+reserved, queued and running claims for the declared duration. Activity resets
+the duration, including work that arrived and completed between observations.
+Tracked receiver admission is required: unbounded receivers do not publish
+complete live claim counts and cannot prove idleness. This limitation is
+reported as an error, never interpreted as an empty worker. The existing owner
+performs graceful removal and retains its accepted-work drain contract. No SHM
+layout, native ABI, polling interval or new grace deadline is introduced.

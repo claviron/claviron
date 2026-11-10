@@ -384,6 +384,20 @@ same name. Without it — or with `workers` unset — one standalone process
 serves. The supervisor's restart, backoff and liveness policy is its own
 section, passed through unchanged; the shell adds none.
 
+For a managed Orbit launch, `orbit.link.workers` is the single count source:
+`{ policy: static, count: 4 }` starts four workers; a complete `on_pressure`
+policy starts `min` workers and bounds growth at `max`. A simultaneous numeric
+`workers`/`--workers` declaration is rejected. Without a Link worker declaration,
+the existing numeric option still selects standalone or a fixed supervisor.
+The runner owns these bounds; the Edge's route selection policy is independent.
+
+Idle retirement is disabled by `retire_idle: off`. An explicit
+`retire_idle: { idle_timeout: 30s }` opts into zero-claim observation through
+Orbit's existing wake primitives. The master reads exact owned process handles,
+not metrics, and asks the supervisor to gracefully remove its highest eligible
+slot. Supervisor changes also wake the observer, including completion of a
+resize after its Link lane has already gone. It never goes below `min`.
+
 An owner states whether it can run in several processes. One that cannot
 refuses `workers` at launch, rather than the shell deciding for it.
 

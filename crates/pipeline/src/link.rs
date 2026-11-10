@@ -8,9 +8,9 @@
 //! The destination fleet and application name. Not a port, not a socket path, not an
 //! interpreter, not a virtual environment, and not how many processes answer
 //! to it. It reads the lanes serving that name in shared memory, reserves a
-//! receiver — its own home receiver first when receivers declare a bound —
-//! and writes. See `ApplicationClient::choose` for why work is concentrated
-//! rather than spread.
+//! receiver according to the route's selection policy, and writes. The
+//! default `on_pressure` preserves home-first concentration; `round_robin`
+//! rotates the first candidate for each exchange.
 //!
 //! ## Whole or streamed, both ways
 //!
@@ -37,7 +37,7 @@ use claviron_http::policy::{BodyNeed, RequestPolicy, RequestPolicyOverride};
 use claviron_http::socket::Offer;
 use claviron_orbit::link::application::{
     ApplicationService, ApplicationTarget, Error, Exchange, ExchangeBody,
-    HttpVersion,
+    HttpVersion, LinkPolicy,
 };
 use claviron_runtime::{AppState, FleetName};
 use http::StatusCode;
@@ -79,10 +79,11 @@ impl LinkBackend {
             .iter()
             .map(|route| LinkRoute {
                 path: prefix.cloned(),
-                destination: Arc::new(LinkDestination::new(
+                destination: Arc::new(LinkDestination::new_with_policy(
                     state,
                     route.fleet_name,
                     route.application.clone().into(),
+                    route.policy,
                 )),
                 requests,
             })
@@ -515,6 +516,7 @@ pub struct LinkDestination {
     service: Option<Arc<ApplicationService>>,
     fleet_name: FleetName,
     application: Arc<str>,
+    policy: LinkPolicy,
     target: std::sync::OnceLock<ApplicationTarget>,
 }
 
@@ -526,6 +528,21 @@ impl LinkDestination {
         state: &AppState,
         fleet_name: FleetName,
         application: Arc<str>,
+    ) -> Self {
+        Self::new_with_policy(
+            state,
+            fleet_name,
+            application,
+            LinkPolicy::default(),
+        )
+    }
+
+    /// Prepare a route with an explicit per-exchange worker selection policy.
+    pub fn new_with_policy(
+        state: &AppState,
+        fleet_name: FleetName,
+        application: Arc<str>,
+        policy: LinkPolicy,
     ) -> Self {
         let service = state.registry_ref().resolve::<ApplicationService>();
         match &service {
@@ -540,6 +557,7 @@ impl LinkDestination {
             service,
             fleet_name,
             application,
+            policy,
             target: std::sync::OnceLock::new(),
         };
         destination.adopt(true);
@@ -554,6 +572,7 @@ impl LinkDestination {
             service: None,
             fleet_name: FleetName::new("example"),
             application: Arc::from("example"),
+            policy: LinkPolicy::default(),
             target: std::sync::OnceLock::new(),
         }
     }
@@ -575,7 +594,10 @@ impl LinkDestination {
         match service.client(self.fleet_name) {
             Ok(client) => {
                 let target = self.target.get_or_init(|| {
-                    client.target(Arc::clone(&self.application))
+                    client.target_with_policy(
+                        Arc::clone(&self.application),
+                        self.policy,
+                    )
                 });
                 Some(target.clone())
             }

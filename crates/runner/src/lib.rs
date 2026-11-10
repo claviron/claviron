@@ -40,3 +40,6 @@ pub use routing::{
 pub use socket::SocketIngress;
 #[cfg(feature = "tls")]
 pub use tls::Tls;
+
+#[cfg(all(feature = "supervisor", feature = "orbit"))]
+mod scaling;

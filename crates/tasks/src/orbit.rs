@@ -7,14 +7,15 @@
 //! application names: a process may claim several lanes and serve several
 //! names, or none at all. One pressure episode starts one process; the
 //! episode ends when that process claims a lane, or when its slot ends.
-//! There is no timer, poll or request-path hook.
+//! Idle retirement uses only an explicitly declared duration and capacity
+//! wakes. There is no polling or request-path hook.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use claviron_orbit::config::LinkWorkers;
+use claviron_orbit::config::Workers;
 use claviron_orbit::link::application::{
-    ApplicationSegment, FleetGrowth, Watched,
+    ApplicationSegment, FleetGrowth, IdleRetirement, Watched,
 };
 use claviron_runtime::{AppState, registry};
 use tokio::task::JoinSet;
@@ -71,6 +72,7 @@ impl Execution {
     fn spawn(
         &self,
         slots: &mut JoinSet<u8>,
+        tokens: &mut BTreeMap<u8, CancellationToken>,
         slot: u8,
         instance: &Arc<TaskConfig>,
     ) {
@@ -79,6 +81,7 @@ impl Execution {
         let config = Arc::clone(instance);
         let scope = self.scope;
         let token = self.token.child_token();
+        tokens.insert(slot, token.clone());
         // The task's own `one` slot elects this controller; its processes
         // keep stable pool slot identities, so a retained one is reattached.
         slots.spawn(async move {
@@ -100,7 +103,7 @@ impl Execution {
         let task = self.runner.name();
         let orbit: &OrbitTask =
             self.config.orbit.as_ref().expect("an Orbit task has its block");
-        let workers: LinkWorkers =
+        let workers: Workers =
             orbit.workers.expect("a task-kind Orbit task declares workers");
         // TaskService instances on one host may run the same task table;
         // one of them runs a fleet's processes.
@@ -115,11 +118,12 @@ impl Execution {
                 orbit.fleet
             ))
         })?;
-        let max = workers.max.resolve(SLOT_CAPACITY);
-        if max > SLOT_CAPACITY || workers.min > max {
+        workers.validate()?;
+        let max = workers.maximum(SLOT_CAPACITY);
+        if max > SLOT_CAPACITY || workers.initial_count() > max {
             return Err(registry::Error::msg(format!(
                 "Orbit workers {}..={max} exceed the task's {SLOT_CAPACITY} slots",
-                workers.min
+                workers.initial_count()
             )));
         }
         let retained = u16::from(
@@ -135,13 +139,22 @@ impl Execution {
         let instance =
             Arc::new(TaskConfig { orbit: None, ..(*self.config).clone() });
         let mut slots = JoinSet::new();
-        let mut started = workers.min.max(retained);
+        let mut tokens = BTreeMap::new();
+        let mut started = workers.initial_count().max(retained);
         for slot in 1..=started {
-            self.spawn(&mut slots, slot as u8, &instance);
+            self.spawn(&mut slots, &mut tokens, slot as u8, &instance);
         }
 
         let outcome = self
-            .grow(orbit, workers, max, &mut started, &mut slots, &instance)
+            .grow(
+                orbit,
+                workers,
+                max,
+                &mut started,
+                &mut slots,
+                &mut tokens,
+                &instance,
+            )
             .await;
         self.token.cancel();
         while let Some(result) = slots.join_next().await {
@@ -155,10 +168,11 @@ impl Execution {
     async fn grow(
         &self,
         orbit: &OrbitTask,
-        workers: LinkWorkers,
+        workers: Workers,
         max: u16,
         started: &mut u16,
         slots: &mut JoinSet<u8>,
+        tokens: &mut BTreeMap<u8, CancellationToken>,
         instance: &Arc<TaskConfig>,
     ) -> registry::Result<()> {
         let task = self.runner.name();
@@ -169,6 +183,7 @@ impl Execution {
                 adopted.map_err(|error| registry::Error::msg(error.to_string()))?
             }
         };
+        let segment = Arc::new(segment);
         let policy = workers.for_owner(
             SLOT_CAPACITY,
             usize::from(segment.spec().fleet_capacity),
@@ -178,6 +193,13 @@ impl Execution {
             .watch("task")
             .map_err(|error| registry::Error::msg(error.to_string()))?;
         let mut growth = FleetGrowth::publish(&segment, policy);
+        let retirement = workers.retire_idle().timeout();
+        let mut idle = retirement
+            .map(|_| IdleRetirement::new(Arc::clone(&segment), 1))
+            .transpose()
+            .map_err(|error| registry::Error::msg(error.to_string()))?;
+        let mut retiring = None;
+        let mut failed = false;
         // However this ends, the fleet is left with no owner to report to.
         struct Unpublish<'a>(&'a ApplicationSegment);
         impl Drop for Unpublish<'_> {
@@ -191,18 +213,57 @@ impl Execution {
         let mut asked: Option<u8> = None;
 
         loop {
+            let candidate = if retiring.is_none()
+                && asked.is_none()
+                && !failed
+                && *started > workers.initial_count()
+            {
+                processes.borrow().get(&(*started as u8)).copied()
+            } else {
+                None
+            };
+            let idle_wait = async {
+                match (&mut idle, retirement, candidate) {
+                    (Some(idle), Some(timeout), Some(pid)) => {
+                        idle.wait(pid, timeout).await
+                    }
+                    _ => std::future::pending().await,
+                }
+            };
             tokio::select! {
                 biased;
                 () = self.token.cancelled() => return Ok(()),
+                expired = idle_wait => {
+                    if let Some(pid) = expired.map_err(|error| registry::Error::msg(error.to_string()))? {
+                        let slot = *started as u8;
+                        if processes.borrow().get(&slot).copied() == Some(pid) {
+                            if let Some(token) = tokens.get(&slot) {
+                                retiring = Some(slot);
+                                token.cancel();
+                                tracing::info!(task, slot, pid, "retiring idle Orbit command slot");
+                            }
+                        }
+                    }
+                }
                 finished = slots.join_next(), if !slots.is_empty() => {
                     match finished {
-                        Some(Ok(slot)) => tracing::warn!(task, slot,
-                            "Orbit task process slot ended; its attempts are spent, so the fleet grows no further"),
+                        Some(Ok(slot)) if retiring == Some(slot) => {
+                            tokens.remove(&slot);
+                            *started -= 1;
+                            retiring = None;
+                            growth.set_policy(&segment, policy);
+                            growth.arrived(&mut watcher);
+                            watcher.take_pressure();
+                            continue;
+                        }
+                        Some(Ok(slot)) => { tokens.remove(&slot); tracing::warn!(task, slot,
+                            "Orbit task process slot ended; its attempts are spent, so the fleet grows no further"); },
                         Some(Err(error)) => tracing::error!(task, %error,
                             "Orbit task process slot failed; the fleet grows no further"),
                         None => {}
                     }
                     // A slot that gave up is not refilled by the next episode.
+                    failed = true;
                     growth.set_policy(&segment, None);
                     growth.arrived(&mut watcher);
                     asked = None;
@@ -221,6 +282,7 @@ impl Execution {
                         }
                     }
                     Ok(Watched::Pressure) => {
+                        if retiring.is_some() { watcher.take_pressure(); continue; }
                         if growth.pressure(&mut watcher).is_none() {
                             continue;
                         }
@@ -233,7 +295,7 @@ impl Execution {
                         let slot = *started as u8;
                         tracing::info!(task, fleet = %orbit.fleet, slot,
                             "Orbit pressure starts another process");
-                        self.spawn(slots, slot, instance);
+                        self.spawn(slots, tokens, slot, instance);
                         asked = Some(slot);
                         if *started == max {
                             // Senders stop reporting; this episode still ends

@@ -32,6 +32,44 @@ The geometry and frame formats are shared declarations. Peers that map the
 same namespace must agree on them. A change in physical shape is a compatibility
 change, not something one side can deploy by silently resizing a live segment.
 
+## Selecting application workers
+
+Each Orbit destination declares its target-selection `policy` independently
+of the application's worker-growth policy:
+
+```yaml
+orbit:
+  - application: example-app
+    fleet: apps
+    policy: round_robin
+```
+
+- `first` is the default and preserves existing selection: prefer this
+  caller's home receiver while it can start work immediately. When all bounded
+  receivers are busy, report growth pressure and try the less loaded of two
+  receivers before falling back to the remaining admission windows. Unbounded
+  receivers use two-choice load selection.
+- `round_robin` rotates through receivers for each selection, skipping gone or
+  saturated receivers. It first looks for a receiver that can start immediately;
+  when none can, it reports growth pressure and tries queue capacity in cyclic
+  order. A full fleet is still refused immediately. The cursor belongs to the
+  prepared target in each caller process, is shared by its clones, and is not
+  a fleet-wide request counter or a guarantee of equal CPU use.
+
+New and departed receivers are reflected by directory notifications. A policy
+change takes effect when the host/site is prepared again; already-published
+exchanges stay with their original receiver. No queue budget, retry, admission
+limit, stream ownership or cancellation rule changes with the selection policy.
+
+In Rust, use `ApplicationClient::target_with_policy(application, LinkPolicy::RoundRobin)`.
+`target(application)` and direct `send` retain `first`. The enum is shared
+pure data, re-exported from `claviron::orbit::link::application` and the HTTP route
+configuration; schema-only builds do not acquire a Link runtime dependency.
+
+`workers.policy: on_pressure` has a different job: the process owner starts more
+workers after unmet demand is reported. Either target-selection policy can use
+that same growth policy, or run against a static worker set.
+
 ## Receiver-owned admission
 
 `max_in_flight` limits how many exchanges one application receiver runs at
@@ -123,3 +161,18 @@ with the consumer.
 - [Duplex body streams](../../crates/orbit/src/link/application/body.rs).
 - [Explicit application-event bridge](../../crates/orbit/src/link/application/app.rs).
 - [Orbit integration guide](../../crates/orbit/README.md).
+
+## Process counts and receiver selection
+
+A caller route selects `first` or `round_robin`; the application process owner
+selects its count. A runner or command controller can declare
+`workers: { policy: static, count: 4 }`, or
+`workers: { policy: on_pressure, min: 4, max: 16, step: 1, retire_idle: off }`.
+Static and growing applications use the same independent routing policies.
+Without an Orbit controller, a plain command may be launched by any ordinary
+process owner and serve as many instances as that owner starts.
+
+Idle retirement is opt-in with a declared `idle_timeout`, requires tracked
+admission and uses existing capacity wakes. It is the owner's graceful removal
+request, not a new application or language ABI operation. See the Orbit, runner
+and Task architecture contracts for ownership and lane accounting.

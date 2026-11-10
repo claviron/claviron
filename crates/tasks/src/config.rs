@@ -450,7 +450,7 @@ pub struct OrbitTask {
     pub kind: OrbitTaskKind,
     /// How many processes run: required for `task`, refused for `runner`.
     #[serde(default)]
-    pub workers: Option<claviron_orbit::config::LinkWorkers>,
+    pub workers: Option<claviron_orbit::config::Workers>,
     /// Moved to the task's `command` when the configuration is prepared.
     command: Option<CommandSpec>,
 }
@@ -459,7 +459,7 @@ impl OrbitTask {
     pub fn new(
         fleet: impl Into<String>,
         kind: OrbitTaskKind,
-        workers: Option<claviron_orbit::config::LinkWorkers>,
+        workers: Option<claviron_orbit::config::Workers>,
         command: CommandSpec,
     ) -> Self {
         Self { fleet: fleet.into(), kind, workers, command: Some(command) }
@@ -516,6 +516,9 @@ impl TaskConfig {
                 return Err("a runner grows its own workers; its Orbit task declares none".into());
             }
             _ => {}
+        }
+        if let Some(workers) = orbit.workers {
+            workers.validate().map_err(|error| error.to_string())?;
         }
         self.command = Some(command);
         self.scope = Some(TaskScope::Master);

@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use arc_swap::{ArcSwap, Guard};
 
-use super::{ApplicationClient, Exchange, Inbox, Pending, Result};
+use super::selection::Selection;
+use super::{ApplicationClient, Exchange, Inbox, LinkPolicy, Pending, Result};
 
 /// One application in an already joined destination fleet.
 ///
@@ -18,6 +19,7 @@ struct Prepared {
     client: Arc<ApplicationClient>,
     application: Arc<str>,
     lanes: Lanes,
+    selection: Selection,
 }
 
 struct Lanes(ArcSwap<Snapshot>);
@@ -78,9 +80,11 @@ impl ApplicationTarget {
     pub(super) fn new(
         client: Arc<ApplicationClient>,
         application: Arc<str>,
+        policy: LinkPolicy,
     ) -> Self {
         let lanes = Lanes::new(client.inbox(), &application, client.lane());
-        Self(Arc::new(Prepared { client, application, lanes }))
+        let selection = Selection::new(policy, client.lane());
+        Self(Arc::new(Prepared { client, application, lanes, selection }))
     }
 
     pub fn application(&self) -> &str {
@@ -104,7 +108,12 @@ impl ApplicationTarget {
             &self.0.application,
             self.0.client.lane(),
         );
-        self.0.client.send_to(&self.0.application, &lanes.lanes, &mut request)
+        self.0.client.send_to(
+            &self.0.application,
+            &lanes.lanes,
+            &mut request,
+            Some(&self.0.selection),
+        )
     }
 
     /// Send, waiting only for this worker's own creator stream capacity. A
@@ -131,6 +140,7 @@ impl ApplicationTarget {
                     &lanes.lanes,
                     &mut request,
                     turn,
+                    &self.0.selection,
                 )
             } else {
                 let lanes = self.0.lanes.load(
@@ -142,6 +152,7 @@ impl ApplicationTarget {
                     &self.0.application,
                     &lanes.lanes,
                     &mut request,
+                    Some(&self.0.selection),
                 )
             };
             match result {

@@ -2,6 +2,7 @@ mod aliases;
 mod certificate;
 mod host;
 mod key;
+pub mod link;
 mod peer;
 pub mod permission;
 pub mod role;

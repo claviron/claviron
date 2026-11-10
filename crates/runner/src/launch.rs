@@ -87,7 +87,7 @@ impl<O: Serialize + DeserializeOwned> Launch<O> {
         })?;
         self.runner.fleet_name = Some(fleet_name.to_string());
         #[cfg(feature = "supervisor")]
-        let workers = self.runner.workers.unwrap_or(0);
+        let workers = self.runner.initial_workers()?;
         #[cfg(not(feature = "supervisor"))]
         let workers = 0;
         #[cfg_attr(
@@ -221,6 +221,8 @@ pub fn register_doors(
         #[cfg(feature = "orbit")]
         {
             crate::management::register_link_application_management(state)?;
+            #[cfg(feature = "supervisor")]
+            super::scaling::register(state, runner)?;
             if runner.edge_shutdown_policy
                 == crate::options::EdgeShutdownPolicy::Shutdown
             {

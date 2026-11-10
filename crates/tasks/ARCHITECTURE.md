@@ -453,7 +453,7 @@ service never does.
 - `kind: runner` starts the one process. Its workers belong to the runner's
   master, so the entry declares no `workers`.
 - `kind: task` requires `workers` and takes a host-wide lock on the fleet. It
-  starts `max(workers.min, retained)` processes in stable pool slots, where
+  starts `max(initial_count, retained)` processes in stable pool slots, where
   retained is the highest slot whose command still holds its instance lock
   (more than `workers.max` refuses to start). It then waits for the Link the
   first process creates (`ApplicationSegment::adopt_when_created`, woken by
@@ -634,3 +634,26 @@ listed in §9.
 | `error.rs` | `Error`, `Reason`, `TaskResult` |
 
 Tests live under `tests/` and are included by each module through `#[path]`.
+
+### Orbit command count and routing are independent
+
+`orbit.workers` selects `static` with an explicit `count`, or `on_pressure`
+with `min`, `max`, `step: 1` and `retire_idle`. Static starts that count and
+has no growth policy. Growing command pools start at `min`. This master-only
+controller owns command slots; it does not dispatch application requests.
+`orbit[].policy: first | round_robin` is the caller backend's independent
+receiver selection. Neither this count configuration nor receiver selection
+adds a native binding ABI contract.
+
+Idle retirement is off unless an `idle_timeout` is declared under
+`retire_idle`. The controller observes existing capacity wakes for the highest
+owned command process above `min`, counting every serving lane's reserved,
+queued and running claims. It requires tracked admission. On expiry it cancels
+only that owned command slot, awaits its existing graceful stop, and then makes
+that slot available for a later pressure episode. Natural command failure still
+exhausts the slot's attempts and disables further growth. No polling or new
+termination budget is added.
+
+An ordinary command with `scope: workers`, `dispatch: each`, and
+`concurrency: 1` starts once per hosting worker. It has no Orbit controller,
+regardless of whether the executable itself serves requests over Orbit.

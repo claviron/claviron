@@ -1,10 +1,12 @@
 use serde::Deserialize;
 
+pub use claviron_types::link::LinkPolicy;
+
 /// One route reaching an application process over Orbit shared memory.
 ///
 /// `fleet_name` selects the shared-memory namespace; `application` selects
 /// the service advertised inside it. No socket or raw SHM path is required.
-/// The edge reads the lanes serving that name and writes to the idlest.
+/// `policy` selects a worker among the lanes serving that name.
 ///
 /// Deliberately named for the transport rather than for a language: what is on
 /// the other side may be Python today and something else tomorrow, and the
@@ -19,6 +21,13 @@ pub struct OrbitRouteConfig {
     /// The name the application process advertises in its lane.
     #[serde(deserialize_with = "deserialize_orbit_application_name")]
     pub application: String,
+    /// Per-exchange target selection; independent of process growth.
+    #[serde(default = "default_link_policy")]
+    pub policy: LinkPolicy,
+}
+
+fn default_link_policy() -> LinkPolicy {
+    LinkPolicy::default()
 }
 
 #[cfg(test)]

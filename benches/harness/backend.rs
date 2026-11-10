@@ -31,6 +31,7 @@ impl Backend {
                 let route = OrbitRouteConfig {
                     fleet_name: FleetName::try_new(&launch.application_fleet)?,
                     application: launch.application_name.clone(),
+                    policy: Default::default(),
                 };
                 let policy = RequestPolicyOverride {
                     buffering: Some(Buffering::StreamDefault),

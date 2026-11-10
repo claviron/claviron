@@ -1182,3 +1182,9 @@ restores CLOEXEC and installs them before service registration. Check-config
 registers declarations but neither duplicates descriptors nor binds listeners.
 Resource owners, rather than the supervisor, decide how to prepare each FD.
 A new master has no descriptor recovery channel to surviving adopted workers.
+
+Worker-owner integrations may use `WorkerManager::owned_worker_pid` to inspect
+the live master slot table and `wait_for_candidate_change` to park until the
+highest removable process changes. These read control state, not published
+metrics. Resize completion wakes those observers after committing the new count,
+so lane withdrawal and process-count change remain distinct observations.

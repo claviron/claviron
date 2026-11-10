@@ -159,6 +159,7 @@ async fn confirm_added_worker(
     state
         .set_worker_count(WorkerCount::new(target_worker_count))
         .map_err(Error::service)?;
+    control.changed.notify_waiters();
 
     info!(
         previous_worker_count,
@@ -208,6 +209,7 @@ pub(crate) async fn shrink_fleet(
     state
         .set_worker_count(WorkerCount::new(target_worker_count))
         .map_err(Error::service)?;
+    control.changed.notify_waiters();
     info!(target_worker_count, "worker fleet shrink completed");
     Ok(())
 }

@@ -191,3 +191,12 @@ pub struct LinkPressure {
 }
 
 impl Event for LinkPressure {}
+
+/// A controller's exact owned process stayed idle for its declared duration.
+/// This is a local request to the owner, never a language ABI message.
+#[derive(Clone, Debug)]
+pub struct LinkWorkerIdle {
+    pub pid: u32,
+    pub minimum: u16,
+}
+impl Event for LinkWorkerIdle {}

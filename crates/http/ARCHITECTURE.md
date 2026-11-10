@@ -238,6 +238,12 @@ crate's dependency-free `js` and `orbit` features. The shared WebSocket
 endpoint shape is available with either `js` or `lua`; generic `rules` remain
 unconditional. These gates expose data only, never execution engines.
 
+Each `OrbitRouteConfig` carries `policy: first | round_robin`, defaulting
+to `first`. The value comes from `claviron-types::link::LinkPolicy`, so
+the `orbit` schema feature remains independent of the Orbit runtime. Policy
+selects the receiver of each exchange; `workers.policy` on an application or
+managed task separately controls process growth.
+
 The Lua route declaration is not here: `LuaRouteConfig` and its Origin policy
 belong to the Lua crate's `edge` module, which decodes a route's `lua:`
 directive itself. HTTP owns no socket admission execution.

@@ -16,12 +16,15 @@ pub mod message;
 pub mod peer;
 mod queue;
 mod receiver;
+mod retirement;
 pub mod segment;
+mod selection;
 pub mod service;
 mod target;
 
 pub use app::{ApplicationLink, ApplicationLinkSetup, LinkEventRouting};
 pub use body::ApplicationBodies;
+pub use claviron_types::link::LinkPolicy;
 pub use client::{ApplicationClient, EDGE_RUNTIME, Pending, ReplyWait};
 pub(crate) use error::map_link_error;
 pub use error::{Error, Result};
@@ -44,10 +47,11 @@ pub use orbitive::link::{GrowthPolicy, Watched};
 pub use orbitive::stream::{Endpoint, StreamId, Ticket};
 pub use peer::{
     ApplicationConnected, ApplicationDisconnected, EdgeConnected,
-    EdgeDisconnected, LinkJoined, LinkPressure, Peer, Peers,
+    EdgeDisconnected, LinkJoined, LinkPressure, LinkWorkerIdle, Peer, Peers,
 };
 pub use queue::{Offered, Start, WorkQueue};
 pub use receiver::ApplicationReceiver;
+pub use retirement::{IdleRetirement, RetirementSource, RetirementTarget};
 pub use segment::{ApplicationSegment, INBOX_GEOMETRY};
 pub use service::{ApplicationService, LinkedApplication};
 pub use target::ApplicationTarget;

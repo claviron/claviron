@@ -15,6 +15,35 @@ use tokio_util::sync::CancellationToken;
 
 struct UnreadBody(Arc<std::sync::atomic::AtomicUsize>);
 
+#[test]
+fn orbit_destinations_keep_independent_selection_policies_for_one_fleet() {
+    use claviron_http::config::routes::{LinkPolicy, OrbitRouteConfig};
+    let state = claviron_runtime::AppState::standalone("selection-policy", ".");
+    let routes: Vec<OrbitRouteConfig> = serde_yaml::from_str(
+        "[{fleet: apps, application: first, policy: round_robin}, {fleet: apps, application: second}]",
+    ).unwrap();
+    let backend = super::LinkBackend::new(
+        &state,
+        &routes,
+        None,
+        Default::default(),
+        false,
+    )
+    .unwrap();
+    let mut policies: Vec<_> = backend
+        .routes
+        .iter()
+        .map(|route| {
+            (route.destination.application.as_ref(), route.destination.policy)
+        })
+        .collect();
+    policies.sort_by_key(|(application, _)| *application);
+    assert_eq!(
+        policies,
+        [("first", LinkPolicy::RoundRobin), ("second", LinkPolicy::First),]
+    );
+}
+
 impl http_body::Body for UnreadBody {
     type Data = bytes::Bytes;
     type Error = std::convert::Infallible;

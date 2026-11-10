@@ -169,6 +169,61 @@ impl WorkerManager {
         self.resize(ResizeDirection::Shrink)
     }
 
+    /// Exact process owned by the master's live slot table. A metrics snapshot
+    /// is not a control input. Non-running or retiring slots are not candidates.
+    pub async fn owned_worker_pid(
+        &self,
+        worker_id: u8,
+    ) -> WorkerManagerResult<Option<u32>> {
+        if !self.state.is_master() {
+            return Err(WorkerManagerError::Unavailable);
+        }
+        let control = self
+            .state
+            .registry_ref()
+            .resolve::<WorkerControl>()
+            .ok_or(WorkerManagerError::Unavailable)?;
+        let workers = control.workers.read().await;
+        Ok(workers
+            .iter()
+            .find(|worker| {
+                worker.id == WorkerId::new(worker_id) && worker.is_running()
+            })
+            .and_then(|worker| worker.pid()))
+    }
+
+    /// Park on the owner's change notification until its highest removable
+    /// process changes. Register before checking to close the check/wait race.
+    pub async fn wait_for_candidate_change(
+        &self,
+        minimum: u16,
+        previous: Option<u32>,
+    ) -> WorkerManagerResult<()> {
+        if !self.state.is_master() {
+            return Err(WorkerManagerError::Unavailable);
+        }
+        let control = self
+            .state
+            .registry_ref()
+            .resolve::<WorkerControl>()
+            .ok_or(WorkerManagerError::Unavailable)?;
+        loop {
+            let changed = control.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            let count = self.state.worker_count();
+            let next = if u16::from(count) <= minimum {
+                None
+            } else {
+                self.owned_worker_pid(count).await?
+            };
+            if next != previous {
+                return Ok(());
+            }
+            changed.await;
+        }
+    }
+
     pub fn list(&self) -> WorkerManagerResult<WorkerListSnapshot> {
         let fleet =
             self.state.fleet().ok_or(WorkerManagerError::Unavailable)?;

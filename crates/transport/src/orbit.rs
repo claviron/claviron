@@ -40,9 +40,10 @@ use claviron_orbit::link::application::{
     ApplicationBodies, ApplicationLinkSetup, ApplicationSegment,
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
     EdgeDisconnected, Error as LinkError, Exchange, ExchangeBody,
-    ExchangeReply, FleetGrowth, FrameKind, HttpVersion, Inbox, LinkJoined,
-    LinkPressure, Offered, Peers, Received, ShutdownNotice, Watched,
-    WorkExecution, WorkQueue, fit_inline, frame_kind,
+    ExchangeReply, FleetGrowth, FrameKind, HttpVersion, IdleRetirement, Inbox,
+    LinkJoined, LinkPressure, LinkWorkerIdle, Offered, Peers, Received,
+    RetirementSource, ShutdownNotice, Watched, WorkExecution, WorkQueue,
+    fit_inline, frame_kind,
 };
 pub use claviron_orbit::stream::{ReadHalf, WriteHalf};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
@@ -344,9 +345,9 @@ impl OrbitDoor {
 }
 
 impl OrbitDoor {
-    /// A master serves no traffic and takes no lane: its workers each take
-    /// their own, so an edge sees as many targets as there are workers. It
-    /// still watches the directory, so it hears edges come and go.
+    /// A master serves no traffic: its workers own the serving lanes. It
+    /// watches the directory without a lane unless explicit idle retirement
+    /// needs a management lane for capacity wakes.
     pub async fn serve<O: Owner>(
         &self,
         owner: Arc<O>,
@@ -573,6 +574,7 @@ impl OrbitDoor {
             &claviron_orbit::link::application::Access::OwnerOnly,
         )
         .map_err(|error| registry::Error::msg(error.to_string()))?;
+        let segment = Arc::new(segment);
         let mut watcher = segment
             .watch(self.runtime)
             .map_err(|error| registry::Error::msg(error.to_string()))?;
@@ -586,6 +588,28 @@ impl OrbitDoor {
             )?,
             None => None,
         };
+        let retirement = self.capacity.workers()?.and_then(|workers| {
+            workers
+                .retire_idle()
+                .timeout()
+                .map(|timeout| (workers.initial_count(), timeout))
+        });
+        let source = state.registry_ref().resolve::<RetirementSource>();
+        if retirement.is_some() && source.is_none() {
+            return Err(registry::Error::msg(
+                "idle retirement requires the worker owner's candidate source",
+            ));
+        }
+        let mut idle = retirement
+            .map(|_| {
+                IdleRetirement::new(
+                    Arc::clone(&segment),
+                    FleetIncarnation::FIRST.raw(),
+                )
+            })
+            .transpose()
+            .map_err(|error| registry::Error::msg(error.to_string()))?;
+        let mut retiring = None;
         let mut growth = FleetGrowth::publish(&segment, policy);
         // A worker this master added has arrived once the receivers serving
         // the application differ from when it was asked for.
@@ -598,12 +622,53 @@ impl OrbitDoor {
         let mut edges = edge_peers(state);
         observe_edges(state, &mut edges, segment.inbox(), &self.application);
         loop {
+            let owned = if let Some(source) = &source {
+                source.0.candidate_pid().await
+            } else {
+                None
+            };
+            if retiring.is_some() && retiring != owned {
+                retiring = None;
+            }
+            let candidate = if growth.growing() || retiring.is_some() {
+                None
+            } else {
+                owned
+            };
+            let owner_changed = async {
+                match &source {
+                    Some(source) => source.0.changed(owned).await,
+                    None => std::future::pending().await,
+                }
+            };
+            let idle_wait = async {
+                match (&mut idle, retirement, candidate) {
+                    (Some(idle), Some((_, timeout)), Some(pid)) => {
+                        idle.wait(pid, timeout).await
+                    }
+                    _ => std::future::pending().await,
+                }
+            };
             tokio::select! {
                 biased;
                 () = context.cancelled() => break,
+                () = owner_changed => {},
+                expired = idle_wait => {
+                    match expired.map_err(|error| registry::Error::msg(error.to_string()))? {
+                        Some(pid) => {
+                            retiring = Some(pid);
+                            state.events().emit(LinkWorkerIdle { pid, minimum: retirement.expect("enabled retirement").0 });
+                        }
+                        None => { /* directory change will select the next owned candidate */ }
+                    }
+                }
                 moved = watcher.next_change() => match moved {
                     Ok(Watched::Directory(_)) => {
                         observe_edges(state, &mut edges, segment.inbox(), &self.application);
+                        if retiring.is_some_and(|pid| !(0..segment.inbox().lanes()).any(|lane| segment.inbox().owner(lane).ok().flatten() == Some(pid))) {
+                            retiring = None;
+                            growth.arrived(&mut watcher);
+                        }
                         if asked_at.is_some_and(|serving| {
                             segment.inbox().serving(&self.application).len() != serving
                         }) {
@@ -612,6 +677,7 @@ impl OrbitDoor {
                         }
                     }
                     Ok(Watched::Pressure) => {
+                        if retiring.is_some() { watcher.take_pressure(); continue; }
                         if let Some(policy) = growth.pressure(&mut watcher) {
                             let serving = segment.inbox().serving(&self.application).len();
                             asked_at = Some(serving);

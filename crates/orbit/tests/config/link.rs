@@ -121,13 +121,47 @@ fn a_growth_policy_is_declared_whole_and_fits_its_fleet() {
     assert_eq!(named.workers.unwrap().growth(40).unwrap().max, 40);
 
     let mut stepped = config.clone();
-    stepped.workers.as_mut().unwrap().step = 2;
+    let Workers::OnPressure(policy) = stepped.workers.as_mut().unwrap() else {
+        panic!("growth")
+    };
+    policy.step = 2;
     assert!(stepped.validate().is_err(), "one worker per episode");
 
     let mut crowded = config.clone();
-    crowded.workers.as_mut().unwrap().max = WorkerMax::Count(8);
+    let Workers::OnPressure(policy) = crowded.workers.as_mut().unwrap() else {
+        panic!("growth")
+    };
+    policy.max = WorkerMax::Count(8);
     assert!(crowded.validate().is_err(), "a caller needs a lane too");
 
     let partial = "workers: { policy: on_pressure, min: 2, max: 6 }";
     assert!(serde_yaml::from_str::<LinkConfig>(partial).is_err());
+}
+
+#[test]
+fn worker_count_has_one_owner_and_retirement_reserves_its_control_lane() {
+    let fixed: Workers =
+        serde_yaml::from_str("{policy: static, count: 4, retire_idle: off}")
+            .unwrap();
+    assert_eq!(fixed, Workers::Static { count: 4 });
+    assert_eq!(fixed.initial_count(), 4);
+    assert_eq!(fixed.for_owner(40, 128, 4).unwrap(), None);
+    assert!(fixed.for_owner(40, 128, 3).is_err());
+    assert!(
+        serde_yaml::from_str::<Workers>("{policy: static, count: 0}").is_err()
+    );
+    assert!(
+        serde_yaml::from_str::<Workers>("{policy: static, min: 4, max: 8}")
+            .is_err()
+    );
+    let growing: Workers = serde_yaml::from_str("{policy: on_pressure, min: 2, max: 6, step: 1, retire_idle: {idle_timeout: 7s}}").unwrap();
+    assert_eq!(growing.initial_count(), 2);
+    assert!(
+        growing.for_owner(40, 7, 2).is_err(),
+        "caller and idle observer need lanes"
+    );
+    assert!(growing.for_owner(40, 8, 2).is_ok());
+    let encoded = serde_yaml::to_string(&growing).unwrap();
+    assert_eq!(serde_yaml::from_str::<Workers>(&encoded).unwrap(), growing);
+    assert!(serde_yaml::from_str::<Workers>("{policy: on_pressure, min: 2, max: 6, step: 1, retire_idle: {idle_timeout: 0s}}").is_err());
 }

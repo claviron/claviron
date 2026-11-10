@@ -85,3 +85,10 @@ owner. The controller retains weak lane references, so it cannot prolong a
 receiver's lifetime. Joining and changing the bound are serialized only on this
 cold control path; request dispatch takes no controller mutex. Inbox, body table,
 master observation and management publication use the same frozen Link geometry.
+
+Orbit ingress keeps count management separate from dispatch. A master's normal
+directory watcher consumes no application lane. Explicit idle retirement adds
+one management lane for existing capacity-interest wakes; disabled retirement
+keeps the watcher-only topology. The process owner supplies exact removable
+PID candidates and receives a process-local idle event. Transport never spawns,
+selects or kills a process; the runner or command controller owns that action.
