@@ -242,10 +242,9 @@ pub struct DurationHistogramSnapshot {
 /// gauge. Set once at task registration and rarely changes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskInfo {
-    /// `"builtin"` (registered via `#[task]`) or `"command"` (external
-    /// process body via `tasks.yaml::command:`).
+    /// `TaskExecutorKind::as_str`: `builtin`, `command`, `php`, `js`, `lua`.
     pub kind: String,
-    /// `"cron"` / `"interval"` / `"daemon"`.
+    /// `TaskTiming::label`: `cron`, `interval`, `daemon`, `manual`.
     pub schedule: String,
 }
 
@@ -1102,6 +1101,7 @@ fn write_task_info(
         "command" => 2,
         "php" => 3,
         "js" => 4,
+        "lua" => 5,
         value => return Err(format!("unknown task info kind {value}")),
     };
     let schedule = match info.schedule.as_str() {
@@ -1134,6 +1134,7 @@ fn read_task_info(
         2 => "command",
         3 => "php",
         4 => "js",
+        5 => "lua",
         value => return Err(format!("unknown task info kind {value}")),
     };
     let schedule = match bytes[*offset + 1] {
@@ -1364,3 +1365,7 @@ mod pair_metric_map {
             .collect())
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/metrics/store.rs"]
+mod tests;
