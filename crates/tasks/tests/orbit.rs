@@ -30,6 +30,8 @@ fn an_orbit_task_settles_into_one_master_daemon_and_chooses_nothing_else() {
     let bare =
         "orbit: { fleet: example, kind: task, command: { program: ./app } }";
     assert!(entry(bare).is_err(), "a task declares its workers");
+    let idle = "orbit: { fleet: example, kind: runner }";
+    assert!(entry(idle).is_err(), "it declares the process it runs");
     let placed = format!("scope: workers\n{runner}");
     assert!(entry(&placed).is_err(), "the master runs it");
 }

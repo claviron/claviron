@@ -483,8 +483,11 @@ impl TaskConfig {
     pub(crate) fn materialize_orbit(&mut self) -> Result<(), String> {
         let Some(orbit) = self.orbit.as_mut() else { return Ok(()) };
         let Some(command) = orbit.command.take() else {
-            // Prepared already: a builtin entry is settled once.
-            return Ok(());
+            // A registered entry is settled once, and keeps what it ran.
+            if self.command.is_some() {
+                return Ok(());
+            }
+            return Err("an Orbit task declares orbit.command".into());
         };
         if self.command.is_some()
             || self.php.is_some()
