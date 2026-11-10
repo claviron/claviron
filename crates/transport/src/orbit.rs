@@ -41,8 +41,8 @@ use claviron_orbit::link::application::{
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
     EdgeDisconnected, Error as LinkError, Exchange, ExchangeBody,
     ExchangeReply, FrameKind, HttpVersion, Inbox, LinkJoined, LinkPressure,
-    Peers, Received, ShutdownNotice, Watched, WorkExecution, fit_inline,
-    frame_kind,
+    Offered, Peers, Received, ShutdownNotice, Watched, WorkExecution,
+    WorkQueue, fit_inline, frame_kind,
 };
 pub use claviron_orbit::stream::{ReadHalf, WriteHalf};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
@@ -416,11 +416,27 @@ impl OrbitDoor {
         let mut exchanges = JoinSet::new();
         let shutdown = SessionShutdown { token: context.cancellation_token() };
         let mut frame = Vec::new();
+        // Up to the published execution runs; the rest of the window waits
+        // here, and the end of one exchange starts the next without a wake.
+        let mut work = WorkQueue::new();
         loop {
             tokio::select! {
                 biased;
                 () = context.cancelled() => break,
-                Some(finished) = exchanges.join_next(), if !exchanges.is_empty() => report(finished),
+                Some(finished) = exchanges.join_next(), if !exchanges.is_empty() => {
+                    report(finished);
+                    if let Some((request, admission)) = work.finished(&segment, lane) {
+                        exchanges.spawn(serve(
+                            request,
+                            lane,
+                            Arc::clone(&owner),
+                            Arc::clone(&segment),
+                            Arc::clone(&bodies),
+                            shutdown.clone(),
+                            admission,
+                        ));
+                    }
+                }
                 arrived = receiver.next(&mut frame) => match arrived {
                     Ok(Received::Directory(_)) => { observe_edges(&state, &mut edges, segment.inbox(), &self.application); },
                     Ok(Received::Capacity(_)) => {},
@@ -428,6 +444,28 @@ impl OrbitDoor {
                         Some(link) => link.accept(&frame),
                         None => tracing::debug!("lane {lane} received an application event it bridges nowhere"),
                     },
+                    Ok(received @ (Received::Frame | Received::Work(_)))
+                        if matches!(frame_kind(&frame), Ok(FrameKind::Request)) =>
+                    {
+                        match work.offer(&segment, lane, received, &mut frame) {
+                            Ok(Offered::Start((request, admission))) => {
+                                exchanges.spawn(serve(
+                                    request,
+                                    lane,
+                                    Arc::clone(&owner),
+                                    Arc::clone(&segment),
+                                    Arc::clone(&bodies),
+                                    shutdown.clone(),
+                                    admission,
+                                ));
+                            }
+                            Ok(Offered::Held) => {}
+                            Err(error) => {
+                                tracing::debug!(lane, %error, "Link exchange refused before execution");
+                                refuse_exchange(&frame, &segment, &bodies);
+                            }
+                        }
+                    }
                     Ok(received @ (Received::Frame | Received::Work(_))) => {
                         let admission = match segment.accept_frame(lane, received, &frame) {
                             Ok(admission) => admission,
@@ -437,18 +475,11 @@ impl OrbitDoor {
                                 continue;
                             }
                         };
+                        // Requests went to the queue above; what reaches here
+                        // carries no work, so its admission (none) is dropped.
+                        drop(admission);
                         match frame_kind(&frame) {
-                        Ok(FrameKind::Request) => {
-                            exchanges.spawn(serve(
-                                std::mem::take(&mut frame),
-                                lane,
-                                Arc::clone(&owner),
-                                Arc::clone(&segment),
-                                Arc::clone(&bodies),
-                                shutdown.clone(),
-                                admission
-                            ));
-                        }
+                        Ok(FrameKind::Request) => {}
                         Ok(FrameKind::Control) => match ControlCommand::decode(&frame) {
                             Ok(command) => {
                                 if command.application != self.application {
@@ -501,10 +532,21 @@ impl OrbitDoor {
         // this process is about to stop reading, and the edge's next choice
         // lands on one that is still here.
         let _ = segment.inbox().release_lane(lane);
-        // Exchanges already taken are finished: their callers are still
-        // waiting for an answer they can have.
+        // Exchanges already taken are finished, queued ones included: their
+        // callers are still waiting for an answer they can have.
         while let Some(finished) = exchanges.join_next().await {
             report(finished);
+            if let Some((request, admission)) = work.finished(&segment, lane) {
+                exchanges.spawn(serve(
+                    request,
+                    lane,
+                    Arc::clone(&owner),
+                    Arc::clone(&segment),
+                    Arc::clone(&bodies),
+                    shutdown.clone(),
+                    admission,
+                ));
+            }
         }
         // Withdrawal stops routing, not ownership. Nobody may reuse the lane
         // identity while accepted streams are still running on it.

@@ -48,7 +48,7 @@ fn a_receiver_runs_its_execution_queues_the_rest_and_passes_withdrawn_entries()
     let mut running = Vec::new();
     for ticket in &tickets {
         match queue
-            .offer(&segment, lane, Received::Work(*ticket), request())
+            .offer(&segment, lane, Received::Work(*ticket), &mut request())
             .unwrap()
         {
             Offered::Start(start) => running.push(start),

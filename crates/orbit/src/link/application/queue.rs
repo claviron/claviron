@@ -46,13 +46,14 @@ impl WorkQueue {
 
     /// A request frame arrived on `lane`. Accepted at once while a running
     /// place is free; otherwise held with its ticket still reserved, so its
-    /// sender can still withdraw it.
+    /// sender can still withdraw it. The frame is taken only when it starts
+    /// or is held; on an error it stays with the caller, to refuse.
     pub fn offer(
         &mut self,
         segment: &ApplicationSegment,
         lane: usize,
         received: Received,
-        frame: Vec<u8>,
+        frame: &mut Vec<u8>,
     ) -> Result<Offered> {
         let execution = segment
             .inbox()
@@ -63,7 +64,7 @@ impl WorkQueue {
                 if self.running >= execution =>
             {
                 if !matches!(
-                    super::frame_kind(&frame),
+                    super::frame_kind(frame),
                     Ok(super::FrameKind::Request)
                 ) {
                     segment.inbox().withdraw_work(ticket);
@@ -72,13 +73,13 @@ impl WorkQueue {
                     ));
                 }
                 self.purge_if_full(segment, lane, execution)?;
-                self.waiting.push_back((frame, ticket));
+                self.waiting.push_back((std::mem::take(frame), ticket));
                 Ok(Offered::Held)
             }
             (received, _) => {
-                let admission = segment.accept_frame(lane, received, &frame)?;
+                let admission = segment.accept_frame(lane, received, frame)?;
                 self.running += 1;
-                Ok(Offered::Start((frame, admission)))
+                Ok(Offered::Start((std::mem::take(frame), admission)))
             }
         }
     }
