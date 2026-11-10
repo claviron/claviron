@@ -39,9 +39,10 @@ pub use claviron_orbit::link::application::Endpoint;
 use claviron_orbit::link::application::{
     ApplicationBodies, ApplicationLinkSetup, ApplicationSegment,
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
-    EdgeDisconnected, Exchange, ExchangeBody, ExchangeReply, FrameKind,
-    HttpVersion, Inbox, LinkJoined, LinkPressure, Peers, Received,
-    ShutdownNotice, Watched, WorkExecution, fit_inline, frame_kind,
+    EdgeDisconnected, Error as LinkError, Exchange, ExchangeBody,
+    ExchangeReply, FrameKind, HttpVersion, Inbox, LinkJoined, LinkPressure,
+    Peers, Received, ShutdownNotice, Watched, WorkExecution, fit_inline,
+    frame_kind,
 };
 pub use claviron_orbit::stream::{ReadHalf, WriteHalf};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
@@ -958,11 +959,13 @@ async fn serve<O: Owner>(
     }
     let status = reply.status;
     if let Err(error) = publish_reply_head(
-        segment.inbox(),
+        &segment,
         origin,
         &[&head, body.inline()],
         reply_body.as_mut(),
-    ) {
+    )
+    .await
+    {
         tracing::debug!(correlation, "🛰 ✗ reply was not delivered: {error}");
         return;
     }
@@ -1109,20 +1112,42 @@ async fn session<O: Owner>(
     }
 }
 
-fn publish_reply_head(
-    inbox: &Inbox,
+async fn publish_reply_head(
+    segment: &ApplicationSegment,
     origin: usize,
     frame: &[&[u8]],
-    outgoing: Option<&mut claviron_orbit::stream::WriteHalf>,
+    mut outgoing: Option<&mut claviron_orbit::stream::WriteHalf>,
 ) -> Result<(), String> {
-    inbox.write_vectored(origin, frame).map(|_| ()).map_err(|error| {
-        // The response direction is already owned by this exchange. RESET
-        // wakes its caller even after a buffered response published FIN.
-        if let Some(outgoing) = outgoing {
-            outgoing.reset();
+    let error = loop {
+        match segment.publish_reply(origin, frame) {
+            Ok(()) => return Ok(()),
+            // The reply exists; Edges have not yet read this worker's earlier
+            // ones. Wait for one to, holding this exchange and its admission,
+            // so a backlog turns into fewer admitted requests rather than a
+            // lost reply. Only the asking Edge leaving ends the wait.
+            Err(LinkError::ProducerBusy) => {
+                match before_head(
+                    outgoing.as_deref_mut(),
+                    segment.record_released(),
+                )
+                .await
+                {
+                    Some(Ok(())) => {}
+                    Some(Err(error)) => break error.to_string(),
+                    None => {
+                        break "the edge left while the reply waited".into();
+                    }
+                }
+            }
+            Err(error) => break error.to_string(),
         }
-        error.to_string()
-    })
+    };
+    // The response direction is already owned by this exchange. RESET wakes
+    // its caller even after a buffered response published FIN.
+    if let Some(outgoing) = outgoing {
+        outgoing.reset();
+    }
+    Err(error)
 }
 
 /// Rebuild the request the edge took apart.

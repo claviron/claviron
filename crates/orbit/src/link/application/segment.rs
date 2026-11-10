@@ -556,6 +556,30 @@ impl ApplicationSegment {
     }
 
     /// The generic link segment underneath, for what binds to it directly.
+    /// Publish one reply frame into the lane of the Edge that asked.
+    ///
+    /// [`Error::ProducerBusy`] means this process's replies that Edges have
+    /// not read yet hold every record it may publish with; the Edge's lane may
+    /// have room. Wait with [`Self::record_released`] and publish again.
+    pub fn publish_reply(
+        &self,
+        origin: usize,
+        frame: &[&[u8]],
+    ) -> Result<()> {
+        self.link
+            .inbox()
+            .write_vectored(origin, frame)
+            .map(|_| ())
+            .map_err(map_link_error)
+    }
+
+    /// Wait until an Edge reads one of this process's frames, after
+    /// [`Self::publish_reply`] returned [`Error::ProducerBusy`]. The reader
+    /// rings it; there is no deadline and no poll.
+    pub async fn record_released(&self) -> Result<()> {
+        self.link.record_released().await.map_err(map_link_error)
+    }
+
     pub fn link(&self) -> &Arc<LinkSegment> {
         &self.link
     }

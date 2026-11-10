@@ -13,6 +13,8 @@ pub enum Error {
     StaleWork,
     #[error("the target's inbox lane is full")]
     InboxFull,
+    #[error("every frame this process may leave unread is still unread")]
+    ProducerBusy,
     #[error("this node holds no free stream slot")]
     LaneFull,
     #[error("no live consumer serves application '{0}'")]
@@ -70,6 +72,7 @@ pub(crate) fn map_link_error(error: orbitive::link::Error) -> Error {
         orbitive::link::Error::NoConsumer => Error::ReceiverGone,
         orbitive::link::Error::StaleWork => Error::StaleWork,
         orbitive::link::Error::InboxFull => Error::InboxFull,
+        orbitive::link::Error::ProducerBusy => Error::ProducerBusy,
         orbitive::link::Error::NoLane => Error::NoLane,
         orbitive::link::Error::NoWatcher => Error::NoWatcher,
         orbitive::link::Error::FrameTooLarge => Error::FrameTooLarge,

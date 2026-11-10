@@ -24,7 +24,7 @@ use state::State;
 impl From<super::Error> for Error {
     fn from(error: super::Error) -> Self {
         match error {
-            super::Error::InboxFull => Self::Busy,
+            super::Error::InboxFull | super::Error::ProducerBusy => Self::Busy,
             super::Error::FrameTooLarge => Self::PayloadTooLarge,
             super::Error::Stream(orbitive::stream::Error::Full { .. }) => {
                 Self::Busy

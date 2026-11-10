@@ -109,8 +109,8 @@ async fn pre_head_cancellation_wins_before_work_starts_but_fin_does_not() {
     assert_eq!(before_head(None, async { 204 }).await, Some(204));
 }
 
-#[test]
-fn refused_reply_publication_resets_even_a_finished_response_direction() {
+#[tokio::test(flavor = "current_thread")]
+async fn refused_reply_publication_resets_even_a_finished_response_direction() {
     use claviron_orbit::Fleet;
     use claviron_orbit::stream::{Incarnation, Streams};
 
@@ -135,7 +135,8 @@ fn refused_reply_publication_resets_even_a_finished_response_direction() {
     // A lane with no consumer deterministically refuses publication. This
     // exercises the same terminal path as full-capacity/contended admission.
     assert!(
-        publish_reply_head(held.0.inbox(), 0, &[b"head"], Some(&mut outgoing))
+        publish_reply_head(&held.0, 0, &[b"head"], Some(&mut outgoing))
+            .await
             .is_err()
     );
     assert!(read.try_read(&mut [0; 1]).is_err());
