@@ -2,25 +2,21 @@
 //! runner's master with its supervisor, or a task service running the
 //! fleet's processes. The owner publishes its policy; a sender that finds no
 //! receiver to run its exchange now reports pressure once per episode; the
-//! owner adds one worker and the episode ends when the receivers serving the
-//! application change. Adding the worker is the owner's own action.
+//! owner adds one worker and ends the episode once that worker arrived, or
+//! once it knows it will not.
+//!
+//! What arriving means is the owner's: a runner's master counts the
+//! receivers serving its application, a task service matches the lanes to
+//! the processes it started. Adding the worker is the owner's own action.
 
 use super::{ApplicationSegment, DirectoryWatcher, GrowthPolicy};
 
-/// One unmet-demand episode to act on: add a worker within `policy`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct Grow {
-    pub policy: GrowthPolicy,
-    /// Receiver lanes serving the application when the episode was heard.
-    pub serving: usize,
-}
-
-/// An owner's growth state for one application in one fleet.
+/// An owner's growth state for one fleet.
 pub struct FleetGrowth {
-    application: String,
     policy: Option<GrowthPolicy>,
-    /// While an episode is open: how many receivers served when it opened.
-    growing: Option<usize>,
+    /// Whether an episode is open: a worker was asked for and has not
+    /// arrived yet.
+    growing: bool,
 }
 
 impl FleetGrowth {
@@ -28,48 +24,60 @@ impl FleetGrowth {
     /// report nothing).
     pub fn publish(
         segment: &ApplicationSegment,
-        application: impl Into<String>,
         policy: Option<GrowthPolicy>,
     ) -> Self {
         segment.inbox().set_growth_policy(policy);
-        Self { application: application.into(), policy, growing: None }
+        Self { policy, growing: false }
     }
 
     pub fn policy(&self) -> Option<GrowthPolicy> {
         self.policy
     }
 
-    /// The watcher reported pressure. `Some` is an episode to act on; the
-    /// episode stays open until the serving receivers change, so a worker
-    /// that is still starting is not asked for twice. Pressure reported
-    /// under an earlier policy is ended at once.
-    pub fn pressure(
+    /// Publish another policy, such as `None` once the owner can add no
+    /// more workers. An open episode stays open until [`Self::arrived`].
+    pub fn set_policy(
         &mut self,
         segment: &ApplicationSegment,
+        policy: Option<GrowthPolicy>,
+    ) {
+        segment.inbox().set_growth_policy(policy);
+        self.policy = policy;
+    }
+
+    /// The watcher reported pressure. `Some` is an episode to act on: add
+    /// one worker within the policy. The episode stays open until
+    /// [`Self::arrived`], so a worker that is still starting is not asked
+    /// for twice. Pressure reported under no policy is ended at once.
+    pub fn pressure(
+        &mut self,
         watcher: &mut DirectoryWatcher,
-    ) -> Option<Grow> {
+    ) -> Option<GrowthPolicy> {
         let Some(policy) = self.policy else {
             watcher.take_pressure();
             return None;
         };
-        let serving = segment.inbox().serving(&self.application).len();
-        self.growing = Some(serving);
-        Some(Grow { policy, serving })
+        if self.growing {
+            return None;
+        }
+        self.growing = true;
+        Some(policy)
     }
 
-    /// The lane directory moved. An open episode ends once the receivers
-    /// serving the application differ from when it opened: the new worker's
-    /// lane arrived, or one left. Callers joining do not end it.
-    pub fn directory_changed(
+    /// Whether a worker was asked for and has not arrived yet.
+    pub fn growing(&self) -> bool {
+        self.growing
+    }
+
+    /// The worker asked for arrived, or will not: end the episode, so the
+    /// next report opens another.
+    pub fn arrived(
         &mut self,
-        segment: &ApplicationSegment,
         watcher: &mut DirectoryWatcher,
     ) {
-        if let Some(before) = self.growing
-            && segment.inbox().serving(&self.application).len() != before
-        {
+        if self.growing {
             watcher.take_pressure();
-            self.growing = None;
+            self.growing = false;
         }
     }
 }

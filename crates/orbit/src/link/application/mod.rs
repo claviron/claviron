@@ -39,7 +39,7 @@ pub use orbitive::link::{
     Reclaimed, Routing, WorkExecution, WorkReservation, WorkTicket,
 };
 // Stream slot ownership types.
-pub use growth::{FleetGrowth, Grow};
+pub use growth::FleetGrowth;
 pub use orbitive::link::{GrowthPolicy, Watched};
 pub use orbitive::stream::{Endpoint, StreamId, Ticket};
 pub use peer::{

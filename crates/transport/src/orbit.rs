@@ -586,8 +586,10 @@ impl OrbitDoor {
             )?,
             None => None,
         };
-        let mut growth =
-            FleetGrowth::publish(&segment, &*self.application, policy);
+        let mut growth = FleetGrowth::publish(&segment, policy);
+        // A worker this master added has arrived once the receivers serving
+        // the application differ from when it was asked for.
+        let mut asked_at = None;
         // The master's own subscribers declare interest, and what it
         // publishes crosses too; it receives through its workers' lanes.
         let _link = ApplicationLinkSetup::resolve(state).and_then(|setup| {
@@ -602,15 +604,22 @@ impl OrbitDoor {
                 moved = watcher.next_change() => match moved {
                     Ok(Watched::Directory(_)) => {
                         observe_edges(state, &mut edges, segment.inbox(), &self.application);
-                        growth.directory_changed(&segment, &mut watcher);
+                        if asked_at.is_some_and(|serving| {
+                            segment.inbox().serving(&self.application).len() != serving
+                        }) {
+                            growth.arrived(&mut watcher);
+                            asked_at = None;
+                        }
                     }
                     Ok(Watched::Pressure) => {
-                        if let Some(grow) = growth.pressure(&segment, &mut watcher) {
+                        if let Some(policy) = growth.pressure(&mut watcher) {
+                            let serving = segment.inbox().serving(&self.application).len();
+                            asked_at = Some(serving);
                             state.events().emit(LinkPressure {
                                 fleet: state.fleet_name().to_owned(),
                                 application: self.application.clone(),
-                                policy: grow.policy,
-                                serving: grow.serving,
+                                policy,
+                                serving,
                             });
                         }
                     }

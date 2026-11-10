@@ -1,12 +1,20 @@
 use super::*;
 use crate::link::application::{Access, Watched};
 
-/// An owner that never creates or joins the fleet: it adopts the existing
-/// one, watches without a lane, and grows once per episode.
+/// An owner that never creates or joins the fleet: it waits for the Link its
+/// first receiver creates, watches without a lane, and grows once per
+/// episode until it says the worker arrived.
 #[tokio::test(flavor = "current_thread")]
-async fn an_adopting_owner_grows_once_per_episode_until_the_serving_receivers_change()
- {
+async fn an_owner_waits_for_the_link_and_grows_once_per_episode() {
     let name = format!("fg{:x}", std::process::id());
+    let waiting = {
+        let name = name.clone();
+        tokio::spawn(
+            async move { ApplicationSegment::adopt_when_created(&name).await },
+        )
+    };
+    tokio::task::yield_now().await;
+
     let spec = orbitive::link::LinkSpec::new(
         8,
         crate::link::application::LINK_SPEC.inbox_kind,
@@ -37,34 +45,19 @@ async fn an_adopting_owner_grows_once_per_episode_until_the_serving_receivers_ch
     )
     .unwrap();
 
-    let owner = ApplicationSegment::adopt(&name, &Access::OwnerOnly)
-        .unwrap()
-        .expect("the fleet exists");
+    let owner = waiting.await.unwrap().unwrap();
+    assert_eq!(owner.spec(), spec, "the shape the receiver declared");
     let mut watcher = owner.watch("task").unwrap();
     let policy = GrowthPolicy { min: 1, max: 4, step: 1 };
-    let mut growth = FleetGrowth::publish(&owner, "example", Some(policy));
+    let mut growth = FleetGrowth::publish(&owner, Some(policy));
 
     // A sender found no receiver to run its exchange now.
     assert!(fleet.0.inbox().report_pressure());
     assert_eq!(watcher.next_change().await.unwrap(), Watched::Pressure);
-    let grow = growth.pressure(&owner, &mut watcher).expect("an episode");
-    assert_eq!(grow, Grow { policy, serving: 1 });
+    assert_eq!(growth.pressure(&mut watcher), Some(policy));
     assert!(!fleet.0.inbox().report_pressure(), "one wake per episode");
 
-    // A caller joining does not end it; the new worker's lane does.
-    fleet.0.inbox().claim_lane(2, "caller", "edge", 2).unwrap();
-    assert!(matches!(
-        watcher.next_change().await.unwrap(),
-        Watched::Directory(_)
-    ));
-    growth.directory_changed(&owner, &mut watcher);
-    assert!(!fleet.0.inbox().report_pressure(), "still the same episode");
-    fleet.0.inbox().claim_lane(3, "example", "rust", 3).unwrap();
-    assert!(matches!(
-        watcher.next_change().await.unwrap(),
-        Watched::Directory(_)
-    ));
-    growth.directory_changed(&owner, &mut watcher);
+    growth.arrived(&mut watcher);
     assert!(fleet.0.inbox().report_pressure(), "a new episode can open");
     let _ = bodies.unlink();
 }

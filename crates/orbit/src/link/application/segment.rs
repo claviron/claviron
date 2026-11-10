@@ -129,6 +129,35 @@ impl ApplicationSegment {
         }))
     }
 
+    /// Wait until the fleet's first receiver has created its Link, then
+    /// adopt the shape it declared. For an owner that runs a fleet's
+    /// processes without creating their Link: it starts them, then waits
+    /// here. No deadline: the creator's bell ends the wait. Owner-only, and
+    /// one such owner per fleet.
+    pub async fn adopt_when_created(fleet_name: &str) -> Result<Self> {
+        let link = LinkSegment::adopt_when_created(
+            fleet_name,
+            super::LINK_INBOX_KIND,
+            super::LINK_STREAM_KIND,
+        )
+        .await
+        .map_err(map_link_error)?;
+        let spec = link.spec();
+        if !super::geometry::fits_build(spec) {
+            return Err(Error::ShapeExceedsBuild {
+                fleet: fleet_name.to_owned(),
+                declared: super::geometry::shape_summary(spec),
+                ceilings: super::geometry::shape_summary(LINK_SPEC),
+            });
+        }
+        Ok(Self {
+            link: Arc::new(link),
+            fleet_name: fleet_name.to_owned(),
+            spec,
+            access: Access::OwnerOnly,
+        })
+    }
+
     /// Attach only when the fleet's inbox already exists. Management must not
     /// create an empty Link fleet while reporting an edge shutdown.
     pub fn existing_for_fleet(fleet_name: &str) -> Result<Option<Self>> {
