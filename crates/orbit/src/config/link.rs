@@ -73,6 +73,29 @@ impl LinkGeometry {
         Ok(())
     }
 
+    /// A receiver's admission bound must leave its inbox room for the
+    /// control frames that share it with admitted work (status, capacity,
+    /// shutdown), so it is positive and below the inbox capacity.
+    pub fn admits(
+        self,
+        max_in_flight: usize,
+    ) -> bool {
+        max_in_flight != 0 && max_in_flight < self.inbox_capacity
+    }
+
+    fn check_admission(
+        self,
+        max_in_flight: usize,
+    ) -> registry::Result<()> {
+        if self.admits(max_in_flight) {
+            return Ok(());
+        }
+        Err(registry::Error::msg(format!(
+            "Link max_in_flight {max_in_flight} must be positive and below inbox_capacity {}: the inbox also carries control frames",
+            self.inbox_capacity
+        )))
+    }
+
     pub fn spec(self) -> orbitive::link::LinkSpec {
         orbitive::link::LinkSpec::new(
             self.fleet_capacity as u16,
@@ -93,14 +116,10 @@ impl LinkGeometry {
 impl LinkConfig {
     pub fn validate(&self) -> registry::Result<()> {
         self.geometry.validate()?;
-        if self.max_in_flight.is_some_and(|limit| {
-            limit == 0 || limit > self.geometry.inbox_capacity
-        }) {
-            return Err(registry::Error::msg(
-                "max_in_flight must fit the selected Link admission capacity",
-            ));
+        match self.max_in_flight {
+            Some(limit) => self.geometry.check_admission(limit),
+            None => Ok(()),
         }
-        Ok(())
     }
 }
 
@@ -135,11 +154,7 @@ impl LinkCapacity {
             .0
             .lock()
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))?;
-        if limit == 0 || limit > state.geometry.inbox_capacity {
-            return Err(registry::Error::msg(
-                "max_in_flight must fit the selected Link admission capacity",
-            ));
-        }
+        state.geometry.check_admission(limit)?;
         if let Some(active) = state.active.as_ref()
             && let (Some(segment), Some(joined)) =
                 (active.segment.upgrade(), active.joined.upgrade())
@@ -173,12 +188,8 @@ impl LinkCapacity {
             ));
         }
         let limit = config.max_in_flight.or(fallback);
-        if limit.is_some_and(|limit| {
-            limit == 0 || limit > config.geometry.inbox_capacity
-        }) {
-            return Err(registry::Error::msg(
-                "default max_in_flight exceeds selected Link capacity",
-            ));
+        if let Some(limit) = limit {
+            config.geometry.check_admission(limit)?;
         }
         state.limit = limit;
         state.geometry = config.geometry;
@@ -210,6 +221,11 @@ impl LinkCapacity {
             .0
             .lock()
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))?;
+        // A bound given programmatically (`LinkCapacity::new`) was never
+        // checked against a shape; every receiver passes here before it joins.
+        if let Some(limit) = state.limit {
+            state.geometry.check_admission(limit)?;
+        }
         let segment = Arc::new(
             ApplicationSegment::for_fleet_with_spec(
                 fleet,

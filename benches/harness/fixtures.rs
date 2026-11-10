@@ -73,7 +73,7 @@ impl Fixtures {
                 .as_mut()
                 .ok_or("orbit fixture must declare link geometry")?;
             link.max_in_flight = args.max_in_flight.map(|value| value.get());
-            link.geometry.validate().map_err(|error| error.into_std())?;
+            link.validate().map_err(|error| error.into_std())?;
             if usize::from(args.client_workers)
                 + usize::from(args.application_workers)
                 + 2

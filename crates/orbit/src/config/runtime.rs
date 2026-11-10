@@ -145,8 +145,7 @@ impl OrbitConfiguration {
             // A candidate's physical expansion is pending restart, so a limit
             // that does not fit the active shape must remain pending too.
             if active_limit != Some(limit)
-                && frozen
-                    .is_some_and(|geometry| limit <= geometry.inbox_capacity)
+                && frozen.is_some_and(|geometry| geometry.admits(limit))
             {
                 self.capacity.set_max_in_flight(limit)?;
             }

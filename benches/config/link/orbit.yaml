@@ -1,7 +1,9 @@
 link:
   # Fleet capacity follows the compiled ceiling on both participants.
+  # The inbox carries control frames beside admitted work, so it is larger
+  # than the receiver bound the harness passes (--max-in-flight 128).
   geometry:
-    inbox_capacity: 128
+    inbox_capacity: 256
     inbox_payload_capacity: 17408
     lane_capacity: 128
     buffer_bytes: 65536
