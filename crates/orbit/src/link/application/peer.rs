@@ -175,3 +175,19 @@ impl Event for LinkJoined {}
 #[cfg(test)]
 #[path = "../../../tests/link/application/peer.rs"]
 mod tests;
+
+/// A sender found every receiver of this fleet full while its owner declared
+/// a growth policy: the owner's master heard one pressure episode. Carries
+/// the declared bounds and how many receivers serve the name now, so the
+/// handler decides without reading configuration. Process-local; never
+/// published.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkPressure {
+    pub fleet: String,
+    pub application: String,
+    pub policy: orbitive::link::GrowthPolicy,
+    /// Receiver lanes serving `application` when the episode was heard.
+    pub serving: usize,
+}
+
+impl Event for LinkPressure {}

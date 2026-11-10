@@ -40,8 +40,8 @@ use claviron_orbit::link::application::{
     ApplicationBodies, ApplicationLinkSetup, ApplicationSegment,
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
     EdgeDisconnected, Exchange, ExchangeBody, ExchangeReply, FrameKind,
-    HttpVersion, Inbox, LinkJoined, Peers, Received, ShutdownNotice,
-    WorkExecution, fit_inline, frame_kind,
+    HttpVersion, Inbox, LinkJoined, LinkPressure, Peers, Received,
+    ShutdownNotice, Watched, WorkExecution, fit_inline, frame_kind,
 };
 pub use claviron_orbit::stream::{ReadHalf, WriteHalf};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
@@ -529,6 +529,35 @@ impl OrbitDoor {
         let mut watcher = segment
             .watch(self.runtime)
             .map_err(|error| registry::Error::msg(error.to_string()))?;
+        // The owner publishes its growth policy in the fleet it owns; static
+        // (no `workers` block) publishes nothing and senders report nothing.
+        let growth = match self.capacity.workers()? {
+            Some(workers) => {
+                if workers.max > state.worker_capacity() as u16 {
+                    return Err(registry::Error::msg(format!(
+                        "Link workers.max {} exceeds the supervisor's worker capacity {}",
+                        workers.max,
+                        state.worker_capacity()
+                    )));
+                }
+                let count = u16::from(state.worker_count());
+                if count < workers.min || count > workers.max {
+                    return Err(registry::Error::msg(format!(
+                        "the launch's {count} workers lie outside Link workers {}..={}",
+                        workers.min, workers.max
+                    )));
+                }
+                workers.growth()
+            }
+            None => None,
+        };
+        segment.inbox().set_growth_policy(growth);
+        // A pressure episode stays open while the master grows the fleet and
+        // ends when the receivers serving this application change: the new
+        // worker's lane, or one leaving. Other lanes moving (callers joining)
+        // do not end it; ending it earlier would wake again on every refusal
+        // while the worker starts and ask for a second one.
+        let mut growing: Option<usize> = None;
         // The master's own subscribers declare interest, and what it
         // publishes crosses too; it receives through its workers' lanes.
         let _link = ApplicationLinkSetup::resolve(state).and_then(|setup| {
@@ -540,8 +569,31 @@ impl OrbitDoor {
             tokio::select! {
                 biased;
                 () = context.cancelled() => break,
-                moved = watcher.next() => match moved {
-                    Ok(_) => { observe_edges(state, &mut edges, segment.inbox(), &self.application); },
+                moved = watcher.next_change() => match moved {
+                    Ok(Watched::Directory(_)) => {
+                        observe_edges(state, &mut edges, segment.inbox(), &self.application);
+                        if let Some(before) = growing
+                            && segment.inbox().serving(&self.application).len() != before
+                        {
+                            watcher.take_pressure();
+                            growing = None;
+                        }
+                    }
+                    Ok(Watched::Pressure) => {
+                        if let Some(policy) = growth {
+                            let serving = segment.inbox().serving(&self.application).len();
+                            growing = Some(serving);
+                            state.events().emit(LinkPressure {
+                                fleet: state.fleet_name().to_owned(),
+                                application: self.application.clone(),
+                                policy,
+                                serving,
+                            });
+                        } else {
+                            // Reported under an earlier policy: end it.
+                            watcher.take_pressure();
+                        }
+                    }
                     Err(error) => {
                         tracing::debug!("the lane directory could not be watched: {error}");
                         break;

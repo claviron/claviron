@@ -37,10 +37,11 @@ pub use orbitive::link::{
     Reclaimed, Routing, WorkExecution, WorkReservation, WorkTicket,
 };
 // Stream slot ownership types.
+pub use orbitive::link::{GrowthPolicy, Watched};
 pub use orbitive::stream::{Endpoint, StreamId, Ticket};
 pub use peer::{
     ApplicationConnected, ApplicationDisconnected, EdgeConnected,
-    EdgeDisconnected, LinkJoined, Peer, Peers,
+    EdgeDisconnected, LinkJoined, LinkPressure, Peer, Peers,
 };
 pub use receiver::ApplicationReceiver;
 pub use segment::{ApplicationSegment, INBOX_GEOMETRY};

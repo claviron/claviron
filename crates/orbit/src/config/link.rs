@@ -18,6 +18,74 @@ pub struct LinkConfig {
     /// or leaves admission unbounded when the engine declares none.
     pub max_in_flight: Option<usize>,
     pub geometry: LinkGeometry,
+    /// How the owner grows under unmet demand. Absent is static: nothing is
+    /// published and no sender reports pressure.
+    pub workers: Option<LinkWorkers>,
+}
+
+/// The owner's growth policy, declared beside its shape and bound and
+/// published in its fleet. Every field is written when the block is.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct LinkWorkers {
+    pub policy: WorkerPolicy,
+    /// Never fewer workers.
+    pub min: u16,
+    /// Never more workers; within the supervisor's worker capacity and the
+    /// fleet's lanes.
+    pub max: u16,
+    /// Workers added per pressure episode.
+    pub step: u16,
+    /// Automatic retirement of workers added under pressure.
+    pub retire_idle: RetireIdle,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerPolicy {
+    /// Today's behaviour: the worker count is the launch's.
+    Static,
+    /// Add `step` workers when a sender finds every receiver full, up to `max`.
+    OnPressure,
+}
+
+/// Only `off` is defined: what "idle" means without an invented duration is
+/// still open, so nothing is retired automatically.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RetireIdle {
+    Off,
+}
+
+impl LinkWorkers {
+    pub fn validate(&self) -> registry::Result<()> {
+        if self.min == 0 || self.min > self.max {
+            return Err(registry::Error::msg(format!(
+                "Link workers need 0 < min <= max (min {}, max {})",
+                self.min, self.max
+            )));
+        }
+        // The supervisor resizes one worker at a time and only while the
+        // fleet is stable; a larger step has nothing to run it yet.
+        if self.step != 1 {
+            return Err(registry::Error::msg(format!(
+                "Link workers.step must be 1 (got {}): workers are added one per pressure episode",
+                self.step
+            )));
+        }
+        Ok(())
+    }
+
+    /// What the fleet publishes: `None` while the policy is static.
+    pub fn growth(&self) -> Option<orbitive::link::GrowthPolicy> {
+        (self.policy == WorkerPolicy::OnPressure).then_some(
+            orbitive::link::GrowthPolicy {
+                min: self.min,
+                max: self.max,
+                step: self.step,
+            },
+        )
+    }
 }
 
 /// Actual physical shape, bounded by the binary's compiled profile.
@@ -122,10 +190,20 @@ impl LinkGeometry {
 impl LinkConfig {
     pub fn validate(&self) -> registry::Result<()> {
         self.geometry.validate()?;
-        match self.max_in_flight {
-            Some(limit) => self.geometry.check_admission(limit),
-            None => Ok(()),
+        if let Some(limit) = self.max_in_flight {
+            self.geometry.check_admission(limit)?;
         }
+        if let Some(workers) = &self.workers {
+            workers.validate()?;
+            // The fleet's lanes hold every worker and at least one caller.
+            if usize::from(workers.max) >= self.geometry.fleet_capacity {
+                return Err(registry::Error::msg(format!(
+                    "Link workers.max {} must leave a lane for a caller in fleet_capacity {}",
+                    workers.max, self.geometry.fleet_capacity
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -137,6 +215,7 @@ struct Active {
 struct State {
     limit: Option<usize>,
     geometry: LinkGeometry,
+    workers: Option<LinkWorkers>,
     active: Option<Active>,
 }
 
@@ -148,6 +227,7 @@ impl LinkCapacity {
         Self(Mutex::new(State {
             limit,
             geometry: LinkGeometry::default(),
+            workers: None,
             active: None,
         }))
     }
@@ -199,7 +279,16 @@ impl LinkCapacity {
         }
         state.limit = limit;
         state.geometry = config.geometry;
+        state.workers = config.workers;
         Ok(())
+    }
+
+    /// The owner's declared growth policy, for its fleet and its master.
+    pub fn workers(&self) -> registry::Result<Option<LinkWorkers>> {
+        self.0
+            .lock()
+            .map(|state| state.workers)
+            .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))
     }
 
     pub(super) fn limit(&self) -> registry::Result<Option<usize>> {

@@ -9,7 +9,10 @@ use serde::{Deserialize, Serialize};
 
 mod link;
 mod runtime;
-pub use link::{LinkCapacity, LinkConfig, LinkGeometry};
+pub use link::{
+    LinkCapacity, LinkConfig, LinkGeometry, LinkWorkers, RetireIdle,
+    WorkerPolicy,
+};
 pub use runtime::OrbitConfiguration;
 
 /// Runtime policy prepared by Congif before the Orbit providers boot.

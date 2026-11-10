@@ -240,6 +240,45 @@ pub fn register_doors(
                         },
                     )?;
             }
+            // The owner's master heard unmet demand under its declared growth
+            // policy: add one worker, within the policy's bounds. The event
+            // exists only when a `workers` policy is declared.
+            #[cfg(feature = "supervisor")]
+            state.events().listen::<claviron_orbit::link::application::LinkPressure, _>(
+                |state, pressure| async move {
+                    if !state.is_master() {
+                        return Ok(());
+                    }
+                    let workers = u16::from(state.worker_count());
+                    if workers >= pressure.policy.max {
+                        tracing::debug!(
+                            fleet = %pressure.fleet,
+                            application = %pressure.application,
+                            workers,
+                            max = pressure.policy.max,
+                            "unmet Link demand at the declared maximum"
+                        );
+                        return Ok(());
+                    }
+                    match claviron_supervisor::WorkerManager::new(&state)
+                        .and_then(|manager| manager.add_worker())
+                    {
+                        Ok(plan) => tracing::info!(
+                            fleet = %pressure.fleet,
+                            application = %pressure.application,
+                            from = plan.previous_worker_count(),
+                            to = plan.target_worker_count(),
+                            "🛰 unmet Link demand: adding a worker"
+                        ),
+                        Err(error) => tracing::warn!(
+                            fleet = %pressure.fleet,
+                            application = %pressure.application,
+                            "unmet Link demand, but no worker was added: {error}"
+                        ),
+                    }
+                    Ok(())
+                },
+            )?;
             let name = runner.name.clone().ok_or_else(|| {
                 registry::Error::msg("the launch was prepared without a name")
             })?;

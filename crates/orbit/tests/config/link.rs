@@ -61,6 +61,7 @@ fn live_control_preserves_existing_work_and_owns_no_join() {
             lane_capacity: 2,
             buffer_bytes: 1024,
         },
+        workers: None,
     };
     control.prepare(&config, None).unwrap();
     let fleet = format!("lc{:x}", std::process::id());
@@ -86,4 +87,25 @@ fn live_control_preserves_existing_work_and_owns_no_join() {
     segment.inbox().release_lane(origin.lane).unwrap();
     drop(origin);
     segment.unlink().unwrap();
+}
+
+#[test]
+fn a_growth_policy_is_declared_whole_and_fits_its_fleet() {
+    let yaml = "geometry: { fleet_capacity: 8, inbox_capacity: 16, inbox_payload_capacity: 1024, lane_capacity: 8, buffer_bytes: 1024 }\n\
+                workers: { policy: on_pressure, min: 2, max: 6, step: 1, retire_idle: off }";
+    let config: LinkConfig = serde_yaml::from_str(yaml).unwrap();
+    config.validate().unwrap();
+    let growth = config.workers.unwrap().growth().unwrap();
+    assert_eq!((growth.min, growth.max, growth.step), (2, 6, 1));
+
+    let mut stepped = config.clone();
+    stepped.workers.as_mut().unwrap().step = 2;
+    assert!(stepped.validate().is_err(), "one worker per episode");
+
+    let mut crowded = config.clone();
+    crowded.workers.as_mut().unwrap().max = 8;
+    assert!(crowded.validate().is_err(), "a caller needs a lane too");
+
+    let partial = "workers: { policy: on_pressure, min: 2, max: 6 }";
+    assert!(serde_yaml::from_str::<LinkConfig>(partial).is_err());
 }
