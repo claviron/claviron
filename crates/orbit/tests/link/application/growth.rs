@@ -9,9 +9,9 @@ async fn an_owner_waits_for_the_link_and_grows_once_per_episode() {
     let name = format!("fg{:x}", std::process::id());
     let waiting = {
         let name = name.clone();
-        tokio::spawn(
-            async move { ApplicationSegment::adopt_when_created(&name).await },
-        )
+        tokio::spawn(async move {
+            ApplicationSegment::adopt_when_created(&name).await
+        })
     };
     tokio::task::yield_now().await;
 
