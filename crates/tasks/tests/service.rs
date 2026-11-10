@@ -1172,7 +1172,7 @@ tasks:
 }
 
 #[tokio::test]
-async fn reload_timeout_keeps_old_config_and_stopping_generation() {
+async fn reload_timeout_keeps_old_config_and_restarts_it_once_drained() {
     let unique =
         SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_nanos();
     let path = std::env::temp_dir().join(format!(
@@ -1194,14 +1194,18 @@ tasks:
     let service = TaskService::new(path.clone());
     let state = AppState::standalone("task-service-test", PathBuf::from("."));
     let starts = Arc::new(AtomicUsize::new(0));
+    // The body ignores cancellation and ends only when released.
+    let release = Arc::new(tokio::sync::Notify::new());
     let task_starts = Arc::clone(&starts);
+    let task_release = Arc::clone(&release);
     service.register_fn(
         "stuck",
         move |_: AppState, _: tokio_util::sync::CancellationToken| {
             let starts = Arc::clone(&task_starts);
+            let release = Arc::clone(&task_release);
             async move {
                 starts.fetch_add(1, Ordering::SeqCst);
-                std::future::pending::<()>().await;
+                release.notified().await;
                 Ok(())
             }
         },
@@ -1210,13 +1214,17 @@ tasks:
     prepare(&service, &state).await;
     service.load_tasks(&state).await.expect("load initial config");
     assert_eq!(service.start_tasks(&state), Some(1));
-    timeout(Duration::from_secs(1), async {
-        while starts.load(Ordering::SeqCst) != 1 {
-            tokio::task::yield_now().await;
+    let started = |count| {
+        let starts = Arc::clone(&starts);
+        async move {
+            while starts.load(Ordering::SeqCst) != count {
+                tokio::task::yield_now().await;
+            }
         }
-    })
-    .await
-    .expect("stuck generation started");
+    };
+    timeout(Duration::from_secs(1), started(1))
+        .await
+        .expect("stuck generation started");
 
     tokio::fs::write(&path, "graceful_timeout: 20ms\ntasks: {}\n")
         .await
@@ -1230,14 +1238,24 @@ tasks:
 
     assert!(error.to_string().contains("candidate config was not published"));
     assert!(service.task_snapshot().contains_key("stuck"));
+    assert_eq!(
+        service.inner.supervisors.lock().unwrap().get("stuck").unwrap().phase,
+        SupervisorPhase::Stopping
+    );
+
+    // Once the old generation ends, the published table runs it again.
+    release.notify_one();
+    timeout(Duration::from_secs(1), started(2))
+        .await
+        .expect("drained generation restarted");
     let active = service
         .inner
         .supervisors
         .lock()
         .unwrap()
         .remove("stuck")
-        .expect("old generation remains owned");
-    assert_eq!(active.phase, SupervisorPhase::Stopping);
+        .expect("the restarted generation is owned");
+    assert_eq!(active.phase, SupervisorPhase::Running);
     active.handle.abort();
 
     tokio::fs::remove_file(path).await.expect("remove task config");

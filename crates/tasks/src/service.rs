@@ -1935,6 +1935,36 @@ impl TaskService {
         true
     }
 
+    /// A reload that missed its drain deadline published nothing, but had
+    /// already asked the selected generations to stop. Once they have, start
+    /// them again from the table that stayed published, so a slow drain does
+    /// not leave them stopped. A later reload or command that started them
+    /// first wins: an active generation is never started twice.
+    fn restore_after_drain(
+        &self,
+        state: &AppState,
+        targets: ReloadTargets,
+    ) {
+        let service = self.clone();
+        let state = state.clone();
+        let drained =
+            completion::wait(self.completion_waiters(Some(&targets)), None);
+        tokio::spawn(async move {
+            drained.await;
+            let _guard = Arc::clone(&service.reload_lock).lock_owned().await;
+            if state.is_shutting_down() {
+                return;
+            }
+            service.inner.pool_reloader.finish_reload(&targets.pools);
+            let tasks = service.task_snapshot();
+            let count = service.start_task_set(&state, &tasks, Some(&targets));
+            info!(
+                count,
+                "TaskService: tasks drained after a timed-out reload restarted under the published configuration"
+            );
+        });
+    }
+
     fn running_tasks_count(&self) -> usize {
         let supervisors = self
             .inner
@@ -2262,6 +2292,7 @@ impl Reloadable<AppState> for TaskService {
         );
 
         if !self.wait_reload_targets(&targets, graceful_timeout).await {
+            self.restore_after_drain(state, targets);
             return Err(claviron_runtime::registry::Error::msg(
                 "TaskService reload timed out; candidate config was not published",
             ));

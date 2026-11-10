@@ -290,8 +290,9 @@ one deadline (the candidate's `graceful_timeout`), and only then publishes.
 - **Success** publishes the table, rebuilds the command and engine runners,
   starts the selected tasks, and then sends the in-place signals.
 - **A missed deadline** fails the reload with "candidate config was not
-  published". The selected generations are already cancelled; they stay
-  stopping and are not restarted until a later reload or management command.
+  published". The selected generations were already asked to stop; once they
+  have, they start again from the table that stayed published. A later reload
+  or command that started them first wins.
 
 Explicit runs of a task that a reload selects are cancelled with it.
 
