@@ -427,6 +427,7 @@ impl Directory {
         this: &Mutex<Self>,
         inbox: &super::Inbox,
         application: &str,
+        sender: usize,
     ) -> Arc<[usize]> {
         let generation = inbox.directory();
         let mut directory =
@@ -438,10 +439,32 @@ impl Directory {
         if let Some(lanes) = directory.lanes.get(application) {
             return lanes.clone();
         }
-        let lanes: Arc<[usize]> = inbox.serving(application).into();
+        let lanes: Arc<[usize]> =
+            rendezvous_order(sender, inbox.serving(application)).into();
         directory.lanes.insert(application.into(), lanes.clone());
         lanes
     }
+}
+
+/// A sender's receivers in its own fixed order, by rendezvous
+/// (highest-random-weight) hashing of the two lane indexes: the first is its
+/// home, the rest are where it overflows, in turn. A receiver that joins or
+/// leaves moves only the senders whose order it enters or leaves at the top,
+/// about one in N, not every sender's home. Computed when the directory
+/// moves, never per exchange.
+pub(super) fn rendezvous_order(
+    sender: usize,
+    mut lanes: Vec<usize>,
+) -> Vec<usize> {
+    let weight = |receiver: usize| {
+        let mut x = ((sender as u64) << 32 | receiver as u64)
+            .wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        x ^= x >> 31;
+        x = x.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        x ^ (x >> 29)
+    };
+    lanes.sort_by_key(|&receiver| std::cmp::Reverse(weight(receiver)));
+    lanes
 }
 
 /// The exchanges this worker is waiting on.
@@ -689,7 +712,12 @@ impl ApplicationClient {
     ) -> bool {
         let inbox = self.segment.inbox();
         !inbox
-            .ready(&Directory::resolve(&self.directory, inbox, application))
+            .ready(&Directory::resolve(
+                &self.directory,
+                inbox,
+                application,
+                self.lane,
+            ))
             .is_empty()
     }
 
@@ -715,8 +743,12 @@ impl ApplicationClient {
         application: &str,
         mut request: Exchange,
     ) -> Result<Pending> {
-        let lanes =
-            Directory::resolve(&self.directory, self.inbox(), application);
+        let lanes = Directory::resolve(
+            &self.directory,
+            self.inbox(),
+            application,
+            self.lane,
+        );
         self.send_to(application, &lanes, &mut request)
     }
 
@@ -828,15 +860,14 @@ impl ApplicationClient {
         if lanes.is_empty() {
             return Ok((None, false));
         }
-        let home = self.lane % lanes.len();
+        // `lanes` is in this sender's rendezvous order: its home first.
         let bounded =
-            self.inbox().work_capacity(lanes[home]).ok().flatten().is_some();
+            self.inbox().work_capacity(lanes[0]).ok().flatten().is_some();
         if !bounded && let (Some(chosen), full) = self.choose_two(lanes)? {
             return Ok((Some(chosen), full));
         }
         let mut full = false;
-        for offset in 0..lanes.len() {
-            let target = lanes[(home + offset) % lanes.len()];
+        for &target in lanes {
             if self.candidate(target).is_none() {
                 continue;
             }
@@ -891,6 +922,9 @@ impl ApplicationClient {
         let (selected, full) = self.choose(lanes)?;
         let Some((target, admission)) = selected else {
             return Err(if full {
+                // Every receiver refused: unmet demand. One load unless the
+                // owner declared a growth policy and no episode is open.
+                self.inbox().report_pressure();
                 Error::CapacityFull
             } else {
                 Error::NoConsumer(application.to_owned())

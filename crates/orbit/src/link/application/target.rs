@@ -31,11 +31,14 @@ impl Snapshot {
     fn read(
         inbox: &Inbox,
         application: &str,
+        sender: usize,
     ) -> Self {
         // Stamp before scanning. A concurrent directory change must make
         // this snapshot stale, never label an older scan with a newer epoch.
         let generation = inbox.directory();
-        Self { generation, lanes: inbox.serving(application) }
+        let lanes =
+            super::client::rendezvous_order(sender, inbox.serving(application));
+        Self { generation, lanes }
     }
 }
 
@@ -43,20 +46,22 @@ impl Lanes {
     fn new(
         inbox: &Inbox,
         application: &str,
+        sender: usize,
     ) -> Self {
-        Self(ArcSwap::from_pointee(Snapshot::read(inbox, application)))
+        Self(ArcSwap::from_pointee(Snapshot::read(inbox, application, sender)))
     }
 
     fn load(
         &self,
         inbox: &Inbox,
         application: &str,
+        sender: usize,
     ) -> Guard<Arc<Snapshot>> {
         let current = self.0.load();
         if current.generation == inbox.directory() {
             return current;
         }
-        let next = Arc::new(Snapshot::read(inbox, application));
+        let next = Arc::new(Snapshot::read(inbox, application, sender));
         // One publication attempt. A delayed refresher cannot overwrite a
         // snapshot another sender published after it started. No retry loop
         // or waiter is introduced when several requests observe a change.
@@ -74,7 +79,7 @@ impl ApplicationTarget {
         client: Arc<ApplicationClient>,
         application: Arc<str>,
     ) -> Self {
-        let lanes = Lanes::new(client.inbox(), &application);
+        let lanes = Lanes::new(client.inbox(), &application, client.lane());
         Self(Arc::new(Prepared { client, application, lanes }))
     }
 
@@ -94,8 +99,11 @@ impl ApplicationTarget {
         &self,
         mut request: Exchange,
     ) -> Result<Pending> {
-        let lanes =
-            self.0.lanes.load(self.0.client.inbox(), &self.0.application);
+        let lanes = self.0.lanes.load(
+            self.0.client.inbox(),
+            &self.0.application,
+            self.0.client.lane(),
+        );
         self.0.client.send_to(&self.0.application, &lanes.lanes, &mut request)
     }
 
@@ -111,10 +119,11 @@ impl ApplicationTarget {
         loop {
             let result = if creator_pressure {
                 let turn = self.wait_creator_turn().await?;
-                let lanes = self
-                    .0
-                    .lanes
-                    .load(self.0.client.inbox(), &self.0.application);
+                let lanes = self.0.lanes.load(
+                    self.0.client.inbox(),
+                    &self.0.application,
+                    self.0.client.lane(),
+                );
                 self.0.client.send_with_creator_turn(
                     &self.0.application,
                     &lanes.lanes,
@@ -122,10 +131,11 @@ impl ApplicationTarget {
                     turn,
                 )
             } else {
-                let lanes = self
-                    .0
-                    .lanes
-                    .load(self.0.client.inbox(), &self.0.application);
+                let lanes = self.0.lanes.load(
+                    self.0.client.inbox(),
+                    &self.0.application,
+                    self.0.client.lane(),
+                );
                 self.0.client.send_to(
                     &self.0.application,
                     &lanes.lanes,
@@ -148,8 +158,11 @@ impl ApplicationTarget {
             let changed = self.0.client.capacity_changed().notified();
             tokio::pin!(changed);
             changed.as_mut().enable();
-            let current =
-                self.0.lanes.load(self.0.client.inbox(), &self.0.application);
+            let current = self.0.lanes.load(
+                self.0.client.inbox(),
+                &self.0.application,
+                self.0.client.lane(),
+            );
             self.0.client.watch_capacity(&current.lanes)?;
             let retry = match self.0.client.send_to(
                 &self.0.application,
@@ -164,10 +177,11 @@ impl ApplicationTarget {
                     // A busy turn alone cannot recheck receiver availability;
                     // do not bounce between FIFO owners when both are full.
                     let turn = self.wait_creator_turn().await?;
-                    let current = self
-                        .0
-                        .lanes
-                        .load(self.0.client.inbox(), &self.0.application);
+                    let current = self.0.lanes.load(
+                        self.0.client.inbox(),
+                        &self.0.application,
+                        self.0.client.lane(),
+                    );
                     self.0.client.watch_capacity(&current.lanes)?;
                     self.0.client.send_with_creator_turn(
                         &self.0.application,
@@ -194,8 +208,11 @@ impl ApplicationTarget {
 
     fn check_destination(&self) -> Result<()> {
         self.0.client.check_open(&self.0.application)?;
-        let current =
-            self.0.lanes.load(self.0.client.inbox(), &self.0.application);
+        let current = self.0.lanes.load(
+            self.0.client.inbox(),
+            &self.0.application,
+            self.0.client.lane(),
+        );
         if current.lanes.is_empty() {
             return Err(super::Error::NoConsumer(
                 self.0.application.to_string(),

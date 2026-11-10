@@ -770,21 +770,10 @@ async fn bounded_receivers_fill_from_each_senders_home() {
         None,
     )
     .unwrap();
-    let second = ApplicationClient::join_segment(
-        Arc::clone(&segment),
-        "b",
-        11,
-        None,
-        None,
-    )
-    .unwrap();
     let lanes: Vec<usize> =
         receivers.iter().map(|joined| joined.lane).collect();
     let order = |client: &ApplicationClient| -> Vec<usize> {
-        let home = client.lane() % lanes.len();
-        (0..lanes.len())
-            .map(|offset| lanes[(home + offset) % lanes.len()])
-            .collect()
+        super::rendezvous_order(client.lane(), lanes.clone())
     };
     // Joining clients ask every application for its state with a control
     // frame; count only what the sends below add.
@@ -797,10 +786,8 @@ async fn bounded_receivers_fill_from_each_senders_home() {
         segment.inbox().depth(lane).unwrap() - before[at]
     };
 
-    // The two senders' homes differ because their lanes do.
-    assert_ne!(order(&first)[0], order(&second)[0]);
-
-    // One sender fills its home to the bound, then the next, then the last.
+    // A sender fills its home to the bound, then the next in its own
+    // rendezvous order, then the last.
     let target = first.target("example");
     let mut sent = Vec::new();
     for receiver in order(&first) {
@@ -822,7 +809,6 @@ async fn bounded_receivers_fill_from_each_senders_home() {
     let bodies =
         ApplicationBodies::for_segment(&segment, first.lane(), 10).unwrap();
     first.leave();
-    second.leave();
     for joined in &receivers {
         let _ = segment.inbox().release_lane(joined.lane);
     }
