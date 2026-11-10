@@ -308,10 +308,10 @@ when submitted and again when applied, and are refused during shutdown.
 
 - `start` / `stop` switch an automatic trigger on or off by changing the live
   `enabled` of the member's timing; `stop` drains the supervised bodies, even
-  commands whose `exit_action` would leave them running at exit. Manual tasks
-  have no trigger to switch.
+  commands whose `exit_action` would leave them running at exit. Explicit runs
+  are neither cancelled nor waited for. Manual tasks have no trigger to switch.
 - `restart` drains and replaces an enabled daemon generation; every local
-  slot drains before its replacement starts.
+  slot drains before its replacement starts. Explicit runs are left running.
 - `reload` applies the task's `reload_action`, or restarts a daemon that
   declares none; for a non-daemon it does nothing.
 - `run` executes one occurrence in the runtime that receives it, without an

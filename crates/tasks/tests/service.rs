@@ -1749,13 +1749,15 @@ async fn audit_lifecycle_completion_selects_only_reload_targets_and_explicit_run
         supervisors: ["target".into()].into_iter().collect(),
         ..Default::default()
     };
-    let mut waiter = service.wait_reload_targets(&targets, None).boxed();
+    let mut waiter = service.wait_reload_targets(&targets, None, true).boxed();
     assert!(poll!(&mut waiter).is_pending());
     releases.remove(0).send(()).unwrap();
     assert!(
         poll!(&mut waiter).is_pending(),
         "explicit execution still owns work"
     );
+    // A management stop or restart leaves explicit runs alone.
+    assert!(service.wait_reload_targets(&targets, None, false).await);
     service.finish_explicit_run("target", 1, Ok(()));
     assert!(waiter.await);
     assert_eq!(

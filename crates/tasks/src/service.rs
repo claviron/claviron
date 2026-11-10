@@ -1261,7 +1261,11 @@ impl TaskService {
                     },
                 )?;
                 if !self
-                    .wait_reload_targets(&targets, self.graceful_timeout())
+                    .wait_reload_targets(
+                        &targets,
+                        self.graceful_timeout(),
+                        false,
+                    )
                     .await
                 {
                     return Err(claviron_runtime::registry::Error::msg(
@@ -1311,7 +1315,11 @@ impl TaskService {
                 let signalled =
                     self.begin_reload_targets(&targets, &tasks, &changes);
                 if !self
-                    .wait_reload_targets(&targets, self.graceful_timeout())
+                    .wait_reload_targets(
+                        &targets,
+                        self.graceful_timeout(),
+                        true,
+                    )
                     .await
                 {
                     return Err(claviron_runtime::registry::Error::msg(
@@ -1333,7 +1341,11 @@ impl TaskService {
                 );
                 let signalled = self.begin_stop_targets(&targets);
                 if !self
-                    .wait_reload_targets(&targets, self.graceful_timeout())
+                    .wait_reload_targets(
+                        &targets,
+                        self.graceful_timeout(),
+                        false,
+                    )
                     .await
                 {
                     return Err(claviron_runtime::registry::Error::msg(
@@ -1876,9 +1888,14 @@ impl TaskService {
 
     /// Snapshot exact generation joins before awaiting; no registry lock crosses
     /// an await, and completion before waiter registration remains observable.
+    /// Joins of the selected supervisors and slot controllers, and of their
+    /// explicit runs when `explicit_runs`. Reload and shutdown cancel those
+    /// runs too; a management stop or restart leaves them running, so it
+    /// does not wait for them.
     fn completion_waiters(
         &self,
         targets: Option<&ReloadTargets>,
+        explicit_runs: bool,
     ) -> Vec<BoxFuture<'static, ()>> {
         let mut waiters: Vec<_> = self
             .inner
@@ -1896,6 +1913,9 @@ impl TaskService {
                 .pool_reloader
                 .completions(targets.map(|targets| &targets.pools)),
         );
+        if !explicit_runs {
+            return waiters;
+        }
         waiters.extend(
             self.inner
                 .explicit_runs
@@ -1920,9 +1940,13 @@ impl TaskService {
         &self,
         targets: &ReloadTargets,
         timeout: Option<Duration>,
+        explicit_runs: bool,
     ) -> bool {
-        if !completion::wait(self.completion_waiters(Some(targets)), timeout)
-            .await
+        if !completion::wait(
+            self.completion_waiters(Some(targets), explicit_runs),
+            timeout,
+        )
+        .await
         {
             error!("TaskService reload timed out while draining task state");
             return false;
@@ -1947,8 +1971,10 @@ impl TaskService {
     ) {
         let service = self.clone();
         let state = state.clone();
-        let drained =
-            completion::wait(self.completion_waiters(Some(&targets)), None);
+        let drained = completion::wait(
+            self.completion_waiters(Some(&targets), true),
+            None,
+        );
         tokio::spawn(async move {
             drained.await;
             let _guard = Arc::clone(&service.reload_lock).lock_owned().await;
@@ -1994,7 +2020,8 @@ impl TaskService {
         timeout: Option<Duration>,
     ) {
         debug!(?timeout, "TaskService stop: waiting for owned task completion");
-        if completion::wait(self.completion_waiters(None), timeout).await {
+        if completion::wait(self.completion_waiters(None, true), timeout).await
+        {
             debug!("TaskService stop: all tasks stopped");
         } else {
             error!(
@@ -2291,7 +2318,7 @@ impl Reloadable<AppState> for TaskService {
             "🔸 TaskService reload: draining selected task state"
         );
 
-        if !self.wait_reload_targets(&targets, graceful_timeout).await {
+        if !self.wait_reload_targets(&targets, graceful_timeout, true).await {
             self.restore_after_drain(state, targets);
             return Err(claviron_runtime::registry::Error::msg(
                 "TaskService reload timed out; candidate config was not published",
