@@ -153,56 +153,66 @@ impl ApplicationTarget {
                 }
                 result => return result,
             }
-            // Receiver pressure never retains the creator turn. Arm before
-            // retrying so a return between the attempt and park is observed.
-            let changed = self.0.client.capacity_changed().notified();
-            tokio::pin!(changed);
-            changed.as_mut().enable();
-            let current = self.0.lanes.load(
-                self.0.client.inbox(),
-                &self.0.application,
-                self.0.client.lane(),
-            );
-            self.0.client.watch_capacity(&current.lanes)?;
-            let retry = match self.0.client.send_to(
-                &self.0.application,
-                &current.lanes,
-                &mut request,
-            ) {
-                Err(super::Error::Stream(
-                    orbitive::stream::Error::Full { .. }
-                    | orbitive::stream::Error::WouldBlock,
-                )) => {
-                    // Keep receiver interest armed through creator acquisition.
-                    // A busy turn alone cannot recheck receiver availability;
-                    // do not bounce between FIFO owners when both are full.
-                    let turn = self.wait_creator_turn().await?;
-                    let current = self.0.lanes.load(
-                        self.0.client.inbox(),
-                        &self.0.application,
-                        self.0.client.lane(),
-                    );
-                    self.0.client.watch_capacity(&current.lanes)?;
-                    self.0.client.send_with_creator_turn(
-                        &self.0.application,
-                        &current.lanes,
-                        &mut request,
-                        turn,
-                    )
+            // Receiver pressure never retains the creator turn. Wait in this
+            // worker's queue: only its head re-arms and retries, so a release
+            // wakes one exchange per worker, not every waiting one. The head
+            // hands the turn on by letting it go, when its exchange went out
+            // (more capacity may remain) or when it turns to creator pressure.
+            let turn = self.0.client.capacity_turn().await;
+            loop {
+                // Arm before retrying so a return between the attempt and park is
+                // observed.
+                let changed = self.0.client.capacity_changed().notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                let current = self.0.lanes.load(
+                    self.0.client.inbox(),
+                    &self.0.application,
+                    self.0.client.lane(),
+                );
+                self.0.client.watch_capacity(&current.lanes)?;
+                let retry = match self.0.client.send_to(
+                    &self.0.application,
+                    &current.lanes,
+                    &mut request,
+                ) {
+                    Err(super::Error::Stream(
+                        orbitive::stream::Error::Full { .. }
+                        | orbitive::stream::Error::WouldBlock,
+                    )) => {
+                        // Keep receiver interest armed through creator acquisition.
+                        // A busy turn alone cannot recheck receiver availability;
+                        // do not bounce between FIFO owners when both are full.
+                        let turn = self.wait_creator_turn().await?;
+                        let current = self.0.lanes.load(
+                            self.0.client.inbox(),
+                            &self.0.application,
+                            self.0.client.lane(),
+                        );
+                        self.0.client.watch_capacity(&current.lanes)?;
+                        self.0.client.send_with_creator_turn(
+                            &self.0.application,
+                            &current.lanes,
+                            &mut request,
+                            turn,
+                        )
+                    }
+                    result => result,
+                };
+                match retry {
+                    // Keep the turn: the next change wakes this head again.
+                    Err(super::Error::CapacityFull) => changed.await,
+                    Err(super::Error::Stream(
+                        orbitive::stream::Error::Full { .. }
+                        | orbitive::stream::Error::WouldBlock,
+                    )) => {
+                        creator_pressure = true;
+                        break;
+                    }
+                    result => return result,
                 }
-                result => result,
-            };
-            match retry {
-                Err(super::Error::CapacityFull) => {
-                    changed.await;
-                    creator_pressure = false;
-                }
-                Err(super::Error::Stream(
-                    orbitive::stream::Error::Full { .. }
-                    | orbitive::stream::Error::WouldBlock,
-                )) => creator_pressure = true,
-                result => return result,
             }
+            drop(turn);
         }
     }
 

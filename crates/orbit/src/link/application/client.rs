@@ -378,6 +378,9 @@ pub struct ApplicationClient {
     rotation: AtomicU64,
     directory: Mutex<Directory>,
     creator: CreatorAdmission,
+    /// One exchange per worker waits on receiver capacity at a time; the
+    /// others queue behind it in order (`capacity_turn`).
+    capacity_turn: tokio::sync::Mutex<()>,
     hot: Arc<Hot>,
     waiting: Arc<Waiting>,
     reader: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -686,6 +689,7 @@ impl ApplicationClient {
             rotation: AtomicU64::new(lane as u64),
             directory: Mutex::default(),
             creator: CreatorAdmission::default(),
+            capacity_turn: tokio::sync::Mutex::new(()),
             hot: Arc::default(),
             waiting: Arc::new(Waiting::default()),
             reader: Mutex::new(None),
@@ -788,6 +792,15 @@ impl ApplicationClient {
 
     pub(super) async fn creator_turn(&self) -> CreatorTurn<'_> {
         self.creator.acquire().await
+    }
+
+    /// The turn to wait on receiver capacity, in arrival order. Its holder
+    /// alone registers interest and retries after a capacity change; it
+    /// hands the turn on by letting it go.
+    pub(super) async fn capacity_turn(
+        &self
+    ) -> tokio::sync::MutexGuard<'_, ()> {
+        self.capacity_turn.lock().await
     }
 
     pub(super) fn creator_available(&self) -> bool {

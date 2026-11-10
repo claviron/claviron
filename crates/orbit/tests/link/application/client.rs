@@ -695,6 +695,54 @@ async fn concurrent_receiver_waiters_do_not_cycle_through_creator_turns() {
     assert_eq!(case.client.correlation.load(Ordering::Relaxed), 2);
 }
 
+/// Only the head of a worker's capacity queue waits on receiver capacity;
+/// each release goes to it, and letting the turn go hands it to the next.
+#[tokio::test]
+async fn receiver_waiters_take_released_capacity_in_turn() {
+    let mut case = CreatorPressure::with_capacity("q", 2);
+    let held =
+        case.segment.reserve_work(case.worker.lane, case.client.lane).unwrap();
+    let target = case.client.target("example");
+    let mut waiters: Vec<_> = (0..3)
+        .map(|_| Box::pin(target.send_wait(Exchange::default())))
+        .collect();
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    for waiter in &mut waiters {
+        assert!(waiter.as_mut().poll(&mut cx).is_pending());
+    }
+    assert!(
+        case.client.capacity_turn.try_lock().is_err(),
+        "the first waiter holds the turn, the others queue"
+    );
+
+    drop(held);
+    let first = waiters[0].as_mut().await.unwrap();
+    for waiter in &mut waiters[1..] {
+        assert!(waiter.as_mut().poll(&mut cx).is_pending());
+    }
+
+    // The receiver completes the first exchange; the next in line gets it.
+    let mut frame = Vec::new();
+    loop {
+        let received = case.receiver.next(&mut frame).await.unwrap();
+        if !matches!(received, Received::Work(_)) {
+            continue;
+        }
+        if let Some((_, execution)) = case
+            .segment
+            .accept_frame(case.worker.lane, received, &frame)
+            .unwrap()
+        {
+            drop(execution);
+            break;
+        }
+    }
+    let second = waiters[1].as_mut().await.unwrap();
+    assert!(second.correlation > first.correlation);
+    assert!(waiters[2].as_mut().poll(&mut cx).is_pending());
+    drop((first, second, waiters));
+}
+
 #[tokio::test]
 async fn creator_probe_discards_a_never_opened_loan_without_reusing_its_ticket()
 {
