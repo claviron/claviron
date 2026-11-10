@@ -1,5 +1,3 @@
-use std::os::unix::process::CommandExt;
-use std::process::Command;
 use std::sync::Arc;
 
 use claviron_runtime::{AppState, WorkerCount, WorkerId};
@@ -7,11 +5,10 @@ use tracing::debug;
 
 use crate::control::{WorkerControl, WorkerProcess};
 use crate::lifecycle::{OwnedProcess, WorkerIntent, WorkerPhase};
-use crate::{Error, Result, WorkerBootstrap};
+use crate::{Error, Result, WorkerBootstrap, WorkerLauncher};
 
-/// Spawn a single worker process using the private environment bootstrap
-/// protocol. The embedding application's CLI is deliberately not involved:
-/// downstream binaries may define any flags or subcommands they need.
+/// Spawn a worker through the registered launcher and private bootstrap.
+/// The default launcher does not forward the embedding application's CLI.
 /// Caller MUST hold the fleet table write lock from before this call until
 /// installing the returned row: a fast child's acknowledgement must not race
 /// ahead of its authoritative process identity.
@@ -29,17 +26,8 @@ pub(crate) fn spawn_worker(
             "worker #{id} is not spawned: the fleet is shutting down"
         )));
     }
-    let current_exe = std::env::current_exe().map_err(|e| {
-        Error::service(format!("failed to get current exe path: {}", e))
-    })?;
     let config_dir = state.config_dir();
 
-    let mut cmd = Command::new(&current_exe);
-    let executable_name = current_exe
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("claviron");
-    cmd.arg0(format!("{executable_name} [worker #{id}]"));
     let bootstrap = WorkerBootstrap::new(
         id,
         claviron_runtime::FleetNodeId::new(u16::from(id.raw())),
@@ -50,9 +38,9 @@ pub(crate) fn spawn_worker(
         state.name(),
         state.fleet_name(),
         config_dir,
-        // What the launch decided, carried verbatim. A worker is a re-exec
-        // and the command line is deliberately not passed along, so without
-        // this a worker would come up on defaults the operator never chose.
+        // What the launch decided, carried verbatim. The default launcher
+        // re-executes without CLI arguments, so workers need this to retain
+        // the options the operator chose.
         state
             .registry_ref()
             .resolve::<claviron_runtime::LaunchBlob>()
@@ -70,7 +58,9 @@ pub(crate) fn spawn_worker(
         Error::service(format!("prepare worker descriptors: {error}"))
     })?;
     let bootstrap = bootstrap.with_descriptors(descriptors.manifest());
-    bootstrap.apply_to(&mut cmd)?;
+    let launcher = state.registry_ref().resolve_dyn::<dyn WorkerLauncher>();
+    let mut cmd =
+        super::launcher::prepare_command(launcher.as_deref(), &bootstrap)?;
     descriptors.attach(&mut cmd);
 
     let child = cmd.spawn().map_err(|e| {

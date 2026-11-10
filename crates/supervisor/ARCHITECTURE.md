@@ -1,9 +1,9 @@
 # Worker Supervisor Architecture
 
 `supervisor` turns `RunMode::Master` and `RunMode::Worker` into a
-managed process topology. It spawns identical worker processes, proves worker
-liveness, restarts failed workers, applies process-level rotation policy, and
-coordinates reload and shutdown.
+managed process topology. By default it re-executes the current binary as
+workers. It proves worker liveness, restarts failed workers, applies
+process-level rotation policy, and coordinates reload and shutdown.
 
 The crate is a control plane. It owns its narrow process-management metric
 family, but it is not an HTTP subsystem, domain metrics aggregator, or generic
@@ -511,13 +511,49 @@ Native Orbit notification drives the common event
 registry on Linux and FreeBSD, so reload adds no supervisor polling interval or
 private SHM kinds.
 
+## Worker Launcher
+
+`WorkerLauncher::prepare(&WorkerBootstrap)` returns a `std::process::Command`.
+Bind it in code before starting the runtime to choose an executable, arguments,
+working directory and environment. Without a binding, `CurrentExecutable`
+keeps the current-binary re-exec and worker `argv[0]`; CLI arguments are not
+forwarded. There is no corresponding Edge or YAML setting.
+
+```rust
+use std::{io, process::Command, sync::Arc};
+use claviron::supervisor::{WorkerBootstrap, WorkerLauncher};
+
+struct ApplicationWorker;
+
+impl WorkerLauncher for ApplicationWorker {
+    fn prepare(&self, worker: &WorkerBootstrap) -> io::Result<Command> {
+        let mut command = Command::new("application-worker");
+        command.arg("--slot").arg(worker.worker_id().to_string());
+        Ok(command)
+    }
+}
+
+// In the application's registration callback:
+state.registry_ref().insert(Arc::new(ApplicationWorker))?;
+state.registry_ref()
+    .bind_dyn::<dyn WorkerLauncher, ApplicationWorker>(|launcher| launcher)?;
+```
+
+The hook only prepares the command and runs under the worker table lock; it
+must not spawn or wait for readiness. A preparation failure fails that launch.
+The supervisor applies its authoritative bootstrap after the hook, attaches
+owned descriptor duplicates, spawns, captures exact process identity and retains
+the child in the fleet table. Readiness, heartbeat, exit observation, drain and
+reap follow the same contracts for every launcher. A different executable must
+implement those worker protocols; this hook does not define a foreign ABI.
+
 ## Worker Bootstrap
 
 Event-listener and bridge registration errors map to `Error::Bootstrap`, which
 retains the original registry error. Runtime service/worker failures remain
 separate; being an event error alone does not make a runtime failure a boot error.
 
-The master re-executes the current binary with a private validated envelope:
+The master starts its worker command with a private validated envelope:
 
 ```text
 CLAVIRON_INTERNAL_WORKER_BOOTSTRAP={

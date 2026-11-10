@@ -2,9 +2,10 @@
 //!
 //! Worker identity is not part of an embedding application's CLI. The master
 //! resolves the process-family options once, serializes this envelope into the
-//! child environment, and re-executes the current binary. Every downstream
-//! binary can therefore own an arbitrary CLI without the supervisor assuming
-//! flags such as `--worker-id` or `--config-dir` exist.
+//! child environment, and starts the worker command. The default launcher
+//! re-executes the current binary. Every downstream binary can own an arbitrary
+//! CLI without the supervisor assuming flags such as `--worker-id` or
+//! `--config-dir` exist.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -33,7 +34,7 @@ pub enum ProcessEntry {
     /// Externally launched process. Server options decide whether it becomes
     /// standalone or a master with workers.
     Primary,
-    /// Child process re-executed by [`crate::WorkerControl`].
+    /// Child process spawned by [`crate::WorkerControl`].
     Worker(WorkerBootstrap),
 }
 
@@ -96,8 +97,8 @@ pub struct WorkerBootstrap {
     config_dir: PathBuf,
     /// What the launch decided, exactly as the embedding application encoded
     /// it. Carried, never read: the supervisor has no business parsing an
-    /// application's options, and this exists only because a worker is a
-    /// re-exec that deliberately does not inherit the command line.
+    /// application's options. The default worker launcher re-executes without
+    /// inheriting the command line.
     launch: LaunchBlob,
     descriptors: Vec<(Box<str>, i32)>,
 }

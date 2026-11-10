@@ -1,4 +1,5 @@
 pub(crate) mod health;
+pub(crate) mod launcher;
 pub(crate) mod observer;
 pub(crate) mod spawn;
 
