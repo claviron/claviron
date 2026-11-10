@@ -15,6 +15,7 @@ fn omitted_and_null_bounds_do_not_inherit_the_physical_inbox_capacity() {
 fn explicit_bound_overrides_the_engine_fallback() {
     let mut config = LinkConfig::default();
     config.geometry.inbox_capacity = 4;
+    config.geometry.lane_capacity = 2;
     let control = LinkCapacity::new(None);
     control.prepare(&config, Some(2)).unwrap();
     assert_eq!(control.limit().unwrap(), Some(2));
@@ -43,6 +44,9 @@ fn physical_shape_and_bound_are_validated_before_join() {
     config.max_in_flight = Some(1);
     config.geometry.lane_capacity = 3;
     assert!(config.validate().is_err());
+    // A sender's inbox must take the replies to all its open exchanges.
+    config.geometry.lane_capacity = 4;
+    assert!(config.validate().is_err());
 }
 
 #[test]
@@ -54,7 +58,7 @@ fn live_control_preserves_existing_work_and_owns_no_join() {
             fleet_capacity: 4,
             inbox_capacity: 4,
             inbox_payload_capacity: 1024,
-            lane_capacity: 4,
+            lane_capacity: 2,
             buffer_bytes: 1024,
         },
     };

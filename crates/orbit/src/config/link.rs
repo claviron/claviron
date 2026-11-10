@@ -70,6 +70,12 @@ impl LinkGeometry {
                 "Link inbox_capacity and buffer_bytes must be powers of two",
             ));
         }
+        if !crate::link::application::lane_fits_inbox(self.spec()) {
+            return Err(registry::Error::msg(format!(
+                "Link lane_capacity {} must be below inbox_capacity {}: a sender's inbox takes the replies to all its open exchanges and control frames beside them",
+                self.lane_capacity, self.inbox_capacity
+            )));
+        }
         Ok(())
     }
 

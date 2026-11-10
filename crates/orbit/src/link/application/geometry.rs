@@ -34,9 +34,14 @@ pub const LINK_STREAM_KIND: u8 = 181;
 /// Each exchange occupies one slot in its creator's lane, and an edge process
 /// past this answers 503, so it bounds the connections one process can carry.
 /// The table's pages are resident only once a slot is used.
+///
+/// Below `LINK_INBOX_CAPACITY` by default: an owner that declares no shape
+/// takes these ceilings as its shape, and every reply to a sender's open
+/// exchanges, with the control frames beside them, must fit that sender's
+/// inbox.
 pub const LINK_LANE_CAPACITY: usize = orbitive::core::compile::usize_from_env(
     option_env!("ORBIT_LINK_LANE_CAPACITY"),
-    1024,
+    512,
 );
 
 /// Buffered bytes per stream direction before the writer waits.
@@ -88,6 +93,12 @@ pub(super) const fn link_spec(fleet_capacity: u16) -> LinkSpec {
         InboxGeometry::new(LINK_INBOX_CAPACITY, LINK_INBOX_PAYLOAD_CAPACITY),
         LINK_STREAM_SPEC,
     )
+}
+
+/// Whether every reply to a sender's open exchanges, with the control frames
+/// beside them, fits that sender's inbox: its lane is smaller than the inbox.
+pub fn lane_fits_inbox(spec: LinkSpec) -> bool {
+    spec.streams.lane_capacity < spec.inbox.capacity
 }
 
 /// Whether an adopted shape fits what this build was compiled to hold.

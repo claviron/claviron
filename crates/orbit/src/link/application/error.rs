@@ -32,6 +32,11 @@ pub enum Error {
          {inbox_capacity}: the inbox also carries control frames"
     )]
     AdmissionExceedsInbox { max_in_flight: usize, inbox_capacity: usize },
+    #[error(
+        "Link lane_capacity {lane_capacity} must be below inbox_capacity {inbox_capacity}: \
+         a sender's inbox takes the replies to all its open exchanges and control frames"
+    )]
+    LaneExceedsInbox { lane_capacity: usize, inbox_capacity: usize },
     #[error("the Link fleet '{0}' has no owner yet")]
     DestinationAbsent(String),
     #[error(

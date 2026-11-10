@@ -69,6 +69,14 @@ impl ApplicationSegment {
         spec: LinkSpec,
         access: &Access,
     ) -> Result<Self> {
+        // The owner's shape, configured or compiled (bindings open with the
+        // compiled one): every sender's replies must fit its inbox.
+        if !super::geometry::lane_fits_inbox(spec) {
+            return Err(Error::LaneExceedsInbox {
+                lane_capacity: spec.streams.lane_capacity,
+                inbox_capacity: spec.inbox.capacity,
+            });
+        }
         let link =
             Arc::new(access.open(fleet_name, spec).map_err(map_link_error)?);
         Ok(Self {

@@ -78,6 +78,7 @@ async fn geometry_warns_once_while_snapshot_and_manual_application_do_not_warn()
     this.configure(&initial).await.unwrap();
     let mut changed = initial.clone();
     changed.link.as_mut().unwrap().geometry.inbox_capacity /= 2;
+    changed.link.as_mut().unwrap().geometry.lane_capacity /= 2;
     changed.link.as_mut().unwrap().max_in_flight = Some(1);
     let warnings = Warnings(Arc::new(AtomicUsize::new(0)));
     tracing::subscriber::with_default(warnings.clone(), || {
@@ -107,6 +108,7 @@ async fn explicit_reload_of_a_new_geometry_only_logs_debug() {
     this.configure(&config).await.unwrap();
     let mut changed = config;
     changed.link.as_mut().unwrap().geometry.inbox_capacity /= 2;
+    changed.link.as_mut().unwrap().geometry.lane_capacity /= 2;
     let warnings = Warnings(Arc::new(AtomicUsize::new(0)));
     tracing::subscriber::with_default(warnings.clone(), || {
         this.apply_change(&changed, false).unwrap()
