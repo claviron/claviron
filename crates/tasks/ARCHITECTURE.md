@@ -211,8 +211,8 @@ controller without locks.
 
 `attempts` (1–255 or `unlimited`, default 1) bounds the attempts of one
 execution; the default performs no retry, and unlimited must be written.
-Only a body's ordinary error (`Error::Other`) is retried; a terminal exit or
-I/O error ends the execution at once. Between attempts the runner waits:
+A body's ordinary error (`Error::Other` or `Error::Io`) is retried; a
+terminal exit (`Error::Exit`) ends the execution at once. Between attempts the runner waits:
 
 - before attempt 2: `backoff` (default 1s), exactly;
 - after that: `backoff · 2^(n-1)` with the exponent clamped at 10, capped at

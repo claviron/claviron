@@ -1305,16 +1305,7 @@ impl TaskRunner {
                     }
                     return Err(Error::Exit(reason));
                 }
-                Err(Error::Io(err)) => {
-                    execution.complete(TaskExecutionResult::Failed);
-                    error!(
-                        "‼️  '{}' #{} I/O error: {}",
-                        self.name(),
-                        worker_number,
-                        err
-                    );
-                    return Err(Error::Io(err));
-                }
+                // An ordinary error, I/O included, goes through attempts.
                 Err(e) => {
                     error!(
                         "❌ '{}' #{} failed attempt {}: {}",

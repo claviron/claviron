@@ -158,10 +158,11 @@ async fn unlimited_attempt_limit_retries_until_success() {
         TaskRunner::from(move |_: AppState, _: CancellationToken| {
             let calls = Arc::clone(&calls_for_task);
             async move {
-                if calls.fetch_add(1, Ordering::SeqCst) < 2 {
-                    Err(Error::other("retry"))
-                } else {
-                    Ok(())
+                // An I/O error is an ordinary failure, retried like any other.
+                match calls.fetch_add(1, Ordering::SeqCst) {
+                    0 => Err(Error::other("retry")),
+                    1 => Err(Error::Io(std::io::Error::other("transient"))),
+                    _ => Ok(()),
                 }
             }
         });
