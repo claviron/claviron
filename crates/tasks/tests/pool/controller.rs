@@ -69,6 +69,19 @@ fn pool_participant_count_follows_scope() {
         );
     }
     assert_eq!(state.worker_count(), 8);
+
+    // A standalone process plays every role, the master's too.
+    let standalone = AppState::initialize(
+        RunMode::Standalone,
+        FleetNodeId::new(0),
+        WorkerCount::new(0),
+        FleetCapacity::new(1).unwrap(),
+        None,
+        PathBuf::from("."),
+    );
+    for scope in [TaskScope::Master, TaskScope::Workers, TaskScope::Fleet] {
+        assert_eq!(eligible_runtime_count(scope, &standalone).unwrap(), 1);
+    }
 }
 
 #[test]

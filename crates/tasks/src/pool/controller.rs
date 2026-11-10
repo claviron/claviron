@@ -319,10 +319,15 @@ fn eligible_runtime_count(
     let members = current_members(state)?;
     Ok(members
         .iter()
-        .filter(|member| match scope {
-            TaskScope::Master => member.role == FleetMemberRole::Master,
-            TaskScope::Workers => member.role != FleetMemberRole::Master,
-            TaskScope::Fleet => true,
+        .filter(|member| {
+            member.role == FleetMemberRole::Standalone
+                || match scope {
+                    TaskScope::Master => member.role == FleetMemberRole::Master,
+                    TaskScope::Workers => {
+                        member.role != FleetMemberRole::Master
+                    }
+                    TaskScope::Fleet => true,
+                }
         })
         .count() as u16)
 }
