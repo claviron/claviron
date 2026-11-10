@@ -72,8 +72,12 @@ pub(crate) fn failure_response(error: RequestFailure) -> RouteResponse {
         | RequestFailure::ResponseBodyIdleTimeout => {
             StatusCode::GATEWAY_TIMEOUT
         }
+        // The client's body is why the attempt ended, not the upstream.
+        RequestFailure::RequestBodyTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+        RequestFailure::RequestBodyReadIdleTimeout => {
+            StatusCode::REQUEST_TIMEOUT
+        }
         RequestFailure::ConnectFailed
-        | RequestFailure::RequestBodyReadIdleTimeout
         | RequestFailure::RequestBodyFailed
         | RequestFailure::RequestWriteFailed
         | RequestFailure::ProtocolError => StatusCode::BAD_GATEWAY,

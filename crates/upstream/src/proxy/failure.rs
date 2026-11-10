@@ -16,6 +16,9 @@ pub enum RequestFailure {
     ConnectFailed,
     NoHealthyOrigin,
     RequestBodyReadIdleTimeout,
+    /// The client's body passed the listener's `max_body_size` while it was
+    /// being forwarded: the client's request, not the upstream, failed.
+    RequestBodyTooLarge,
     RequestBodyFailed,
     RequestWriteFailed,
     ResponseHeaderTimeout,
@@ -35,6 +38,9 @@ impl RequestFailure {
             Self::ConnectFailed => "failed connecting to upstream",
             Self::NoHealthyOrigin => "no healthy upstream origin is available",
             Self::RequestBodyReadIdleTimeout => "incoming request body stalled",
+            Self::RequestBodyTooLarge => {
+                "incoming request body exceeds the listener limit"
+            }
             Self::RequestBodyFailed => "incoming request body failed",
             Self::RequestWriteFailed => "upstream request write failed",
             Self::ResponseHeaderTimeout => {

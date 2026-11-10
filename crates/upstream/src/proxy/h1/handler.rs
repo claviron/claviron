@@ -89,7 +89,7 @@ impl UpstreamService {
                 close_pooled_connection(pool, pooled);
                 self.record_request_error(origin_index);
                 tracing::debug!(error = %err, "upstream h1 request write failed");
-                return Err(RequestFailure::RequestWriteFailed);
+                return Err(crate::proxy::body::send_failure(&err));
             }
             Err(_) => {
                 close_pooled_connection(pool, pooled);

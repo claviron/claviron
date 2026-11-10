@@ -20,3 +20,7 @@ pub mod service;
 #[cfg(test)]
 #[path = "../tests/proxy/profile.rs"]
 mod test_profile;
+
+#[cfg(test)]
+#[path = "../tests/proxy/upload.rs"]
+mod upload_tests;

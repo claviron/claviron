@@ -45,6 +45,47 @@ impl StdError for PoolBodyError {
 pub(crate) mod buffer;
 pub(crate) mod timeout;
 
+/// What a failed client body means for the attempt: the listener's own
+/// limits keep their meaning, anything else is a failed client body.
+pub(crate) fn client_body_failure(
+    error: &(dyn StdError + 'static)
+) -> RequestFailure {
+    let mut cause = Some(error);
+    while let Some(error) = cause {
+        match error.downcast_ref::<claviron_http::body::BodyLimit>() {
+            Some(claviron_http::body::BodyLimit::TooLarge { .. }) => {
+                return RequestFailure::RequestBodyTooLarge;
+            }
+            Some(claviron_http::body::BodyLimit::Stalled { .. }) => {
+                return RequestFailure::RequestBodyReadIdleTimeout;
+            }
+            None => cause = error.source(),
+        }
+    }
+    RequestFailure::RequestBodyFailed
+}
+
+/// The client-body outcome inside a failed send, when the body is why the
+/// send failed. Otherwise the upstream write itself failed.
+pub(crate) fn send_failure(error: &hyper::Error) -> RequestFailure {
+    let mut cause = StdError::source(error);
+    while let Some(error) = cause {
+        if let Some(PoolBodyError::Pool(failure)) =
+            error.downcast_ref::<PoolBodyError>()
+            && matches!(
+                failure,
+                RequestFailure::RequestBodyTooLarge
+                    | RequestFailure::RequestBodyReadIdleTimeout
+                    | RequestFailure::RequestBodyFailed
+            )
+        {
+            return failure.clone();
+        }
+        cause = error.source();
+    }
+    RequestFailure::RequestWriteFailed
+}
+
 use crate::proxy::failure::RequestFailure;
 
 // Concrete request variants retain the transport's existing RouteBody box.

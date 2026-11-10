@@ -89,3 +89,6 @@ orbitive.workspace = true
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
 tokio = { workspace = true, features = ["macros", "rt", "sync"] }
+# An in-process origin for tests that check what crosses the proxy.
+hyper = { workspace = true, features = ["server", "http1"] }
+http-body-util.workspace = true

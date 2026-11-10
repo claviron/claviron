@@ -129,7 +129,7 @@ impl Body for RequestBodyReadTimeout {
                 this.lease.take();
                 tracing::debug!(%error, "upstream incoming request body failed");
                 Poll::Ready(Some(Err(PoolBodyError::pool(
-                    RequestFailure::RequestBodyFailed,
+                    super::client_body_failure(&*error),
                 ))))
             }
             Poll::Ready(None) => {

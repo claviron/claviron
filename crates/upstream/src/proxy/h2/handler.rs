@@ -100,7 +100,7 @@ impl UpstreamService {
                 pool.clear_connection(conn_id).await;
                 self.record_request_error(origin_index);
                 tracing::debug!(error = %err, "upstream h2 request write failed");
-                return Err(RequestFailure::RequestWriteFailed);
+                return Err(crate::proxy::body::send_failure(&err));
             }
             Err(_) => {
                 let conn_id = permit.conn_id;

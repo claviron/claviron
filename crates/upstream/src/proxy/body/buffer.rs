@@ -75,7 +75,7 @@ pub(crate) async fn collect(
         };
         let frame = frame.map_err(|error| {
             tracing::debug!(%error, "upstream request buffer source failed");
-            RequestFailure::RequestBodyFailed
+            super::client_body_failure(&*error)
         })?;
         let data = match frame.into_data() {
             Ok(data) => data,
