@@ -1347,7 +1347,12 @@ impl TaskRunner {
                         );
                         return Err(e);
                     }
-                    let delay = exponential_delay(attempt, backoff);
+                    // A long-lived attempt starts the count again, and its
+                    // retry waits as a first retry does.
+                    let delay = exponential_delay(
+                        if reset { 1 } else { attempt },
+                        backoff,
+                    );
 
                     tokio::select! {
                         _ = parent.cancelled() => {

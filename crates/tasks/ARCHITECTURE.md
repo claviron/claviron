@@ -219,9 +219,10 @@ I/O error ends the execution at once. Between attempts the runner waits:
   60s, then jittered by ±20% (so up to 72s).
 
 An attempt that ran for at least 300s before failing makes the following
-attempt count from 1 again; the delay before it is still computed from the old
-count, and the limit is checked first. With a finite limit above one, a body
-that always fails after more than 300s therefore retries without end.
+attempt count from 1 again and waits only `backoff` before it: a stable task
+that fails is treated as a transient failure. The limit is checked first, so
+the default single attempt still ends; with a finite limit above one, a body
+that always fails after more than 300s retries without end.
 
 What follows spent attempts:
 
