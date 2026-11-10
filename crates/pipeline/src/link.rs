@@ -256,17 +256,24 @@ async fn dispatch(
         upgrade: websocket,
     };
 
+    // One budget for the whole wait before the application starts: the
+    // sender's own stream slot, then the receiver's queue.
+    let deadline = policy
+        .queue_timeout
+        .map(|timeout| tokio::time::Instant::now() + timeout);
     let sending = target.send_wait(exchange);
-    let admitted = match policy.queue_timeout {
-        Some(timeout) => match tokio::time::timeout(timeout, sending).await {
-            Ok(result) => result,
-            Err(_) => {
-                return unavailable(
-                    "Link admission exceeded requests.queue_timeout",
-                    &policy,
-                );
+    let admitted = match deadline {
+        Some(deadline) => {
+            match tokio::time::timeout_at(deadline, sending).await {
+                Ok(result) => result,
+                Err(_) => {
+                    return unavailable(
+                        "Link admission exceeded requests.queue_timeout",
+                        &policy,
+                    );
+                }
             }
-        },
+        }
         None => sending.await,
     };
     let pending = match admitted {
@@ -303,7 +310,31 @@ async fn dispatch(
         (None, None)
     };
 
-    let head = match reply.head().await {
+    // A bounded receiver may hold the exchange in its queue. If the budget
+    // ends first, take it back: when that wins it never ran, so this is a
+    // 503; when the receiver started it first, its reply is still owed.
+    let withdrawal = reply.withdrawal();
+    let waiting = reply.head();
+    tokio::pin!(waiting);
+    let replied = match (deadline, withdrawal) {
+        (Some(deadline), Some(withdrawal)) => {
+            tokio::select! {
+                biased;
+                replied = &mut waiting => replied,
+                () = tokio::time::sleep_until(deadline) => {
+                    if withdrawal.withdraw() {
+                        return unavailable(
+                            "Link exchange waited in the receiver's queue past requests.queue_timeout",
+                            &policy,
+                        );
+                    }
+                    waiting.await
+                }
+            }
+        }
+        _ => waiting.await,
+    };
+    let head = match replied {
         Ok(head) => head,
         // The application took the request and did not answer: its process is
         // gone. That is a gateway failure, not a refusal to admit.

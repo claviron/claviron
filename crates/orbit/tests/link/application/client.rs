@@ -1,4 +1,5 @@
 use super::*;
+use std::task::Poll;
 
 #[tokio::test]
 async fn dropping_a_lent_reader_cancels_before_the_upload_returns() {
@@ -56,6 +57,7 @@ fn reply_wait() -> (ReplyWait, Endpoint, ReadHalf, Arc<Waiting>) {
         waiting: Arc::clone(&waiting),
         correlation: 1,
         completed: false,
+        withdrawal: None,
     };
     (reply, remote, read, waiting)
 }
@@ -556,7 +558,8 @@ async fn creator_rechecks_do_not_repeat_receiver_reservations() {
 }
 
 #[tokio::test]
-async fn receiver_wait_releases_creator_turn_for_another_application() {
+async fn a_full_receiver_is_refused_once_the_creator_turn_frees_and_holds_none()
+{
     let case = CreatorPressure::new("g");
     let other =
         case.segment.join_with_capacity("other", "rust", 3, Some(1)).unwrap();
@@ -566,12 +569,17 @@ async fn receiver_wait_releases_creator_turn_for_another_application() {
     let target = case.client.target("example");
     let mut blocked = Box::pin(target.send_wait(Exchange::default()));
     let mut cx = Context::from_waker(std::task::Waker::noop());
+    // Queued behind the creator turn another exchange holds.
     assert!(blocked.as_mut().poll(&mut cx).is_pending());
     drop(turn);
-    assert!(blocked.as_mut().poll(&mut cx).is_pending());
+    // Then refused at once: a sender never waits for receiver capacity.
+    assert!(matches!(
+        blocked.as_mut().poll(&mut cx),
+        Poll::Ready(Err(Error::CapacityFull))
+    ));
     assert!(
         !case.client.creator.contended(),
-        "receiver wait holds no creator turn"
+        "a refusal holds no creator turn"
     );
     let sent = case.client.target("other").send(Exchange::default()).unwrap();
     assert_eq!(sent.correlation, 1);
@@ -667,7 +675,7 @@ async fn creator_turn_does_not_limit_active_exchanges_to_one() {
 }
 
 #[tokio::test]
-async fn concurrent_receiver_waiters_do_not_cycle_through_creator_turns() {
+async fn concurrent_refusals_do_not_cycle_through_creator_turns() {
     let mut case = CreatorPressure::new("k");
     let (pending, remote) = case.occupy().await;
     let held =
@@ -682,65 +690,26 @@ async fn concurrent_receiver_waiters_do_not_cycle_through_creator_turns() {
     assert!(a.as_mut().poll(&mut cx).is_pending());
     assert!(b.as_mut().poll(&mut cx).is_pending());
     drop((pending, remote, turn));
-    assert!(a.as_mut().poll(&mut cx).is_pending());
-    assert!(b.as_mut().poll(&mut cx).is_pending());
-    assert!(a.as_mut().poll(&mut cx).is_pending());
-    assert!(b.as_mut().poll(&mut cx).is_pending());
-    assert!(
-        !case.client.creator.contended(),
-        "both callers park on receiver capacity"
-    );
-    drop((a, b, held));
-    case.assert_receiver_is_free();
-    assert_eq!(case.client.correlation.load(Ordering::Relaxed), 2);
-}
-
-/// Only the head of a worker's capacity queue waits on receiver capacity;
-/// each release goes to it, and letting the turn go hands it to the next.
-#[tokio::test]
-async fn receiver_waiters_take_released_capacity_in_turn() {
-    let mut case = CreatorPressure::with_capacity("q", 2);
-    let held =
-        case.segment.reserve_work(case.worker.lane, case.client.lane).unwrap();
-    let target = case.client.target("example");
-    let mut waiters: Vec<_> = (0..3)
-        .map(|_| Box::pin(target.send_wait(Exchange::default())))
-        .collect();
-    let mut cx = Context::from_waker(std::task::Waker::noop());
-    for waiter in &mut waiters {
-        assert!(waiter.as_mut().poll(&mut cx).is_pending());
-    }
-    assert!(
-        case.client.capacity_turn.try_lock().is_err(),
-        "the first waiter holds the turn, the others queue"
-    );
-
-    drop(held);
-    let first = waiters[0].as_mut().await.unwrap();
-    for waiter in &mut waiters[1..] {
-        assert!(waiter.as_mut().poll(&mut cx).is_pending());
-    }
-
-    // The receiver completes the first exchange; the next in line gets it.
-    let mut frame = Vec::new();
-    loop {
-        let received = case.receiver.next(&mut frame).await.unwrap();
-        if !matches!(received, Received::Work(_)) {
-            continue;
+    // Each is refused once it reaches the turn; neither keeps it.
+    let mut refused = 0;
+    for _ in 0..4 {
+        for sending in [&mut a, &mut b] {
+            if matches!(
+                sending.as_mut().poll(&mut cx),
+                Poll::Ready(Err(Error::CapacityFull))
+            ) {
+                refused += 1;
+            }
         }
-        if let Some((_, execution)) = case
-            .segment
-            .accept_frame(case.worker.lane, received, &frame)
-            .unwrap()
-        {
-            drop(execution);
+        if refused == 2 {
             break;
         }
     }
-    let second = waiters[1].as_mut().await.unwrap();
-    assert!(second.correlation > first.correlation);
-    assert!(waiters[2].as_mut().poll(&mut cx).is_pending());
-    drop((first, second, waiters));
+    assert_eq!(refused, 2);
+    assert!(!case.client.creator.contended());
+    drop((a, b, held));
+    case.assert_receiver_is_free();
+    assert_eq!(case.client.correlation.load(Ordering::Relaxed), 2);
 }
 
 #[tokio::test]

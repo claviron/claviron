@@ -106,9 +106,32 @@ pub struct ReplyWait {
     waiting: Arc<Waiting>,
     correlation: u64,
     completed: bool,
+    withdrawal: Option<Withdrawal>,
+}
+
+/// Takes back an exchange the receiver holds in its queue but has not
+/// started, once its sender's deadline has passed.
+#[derive(Clone)]
+pub struct Withdrawal {
+    segment: Arc<ApplicationSegment>,
+    ticket: super::WorkTicket,
+}
+
+impl Withdrawal {
+    /// True: it never started and its place is free, so it can be refused
+    /// as not run. False: the receiver started it first; its reply is owed.
+    pub fn withdraw(&self) -> bool {
+        self.segment.inbox().withdraw_work(self.ticket)
+    }
 }
 
 impl ReplyWait {
+    /// For an exchange sent to a bounded receiver: the handle that takes it
+    /// back while it still waits in that receiver's queue.
+    pub fn withdrawal(&self) -> Option<Withdrawal> {
+        self.withdrawal.clone()
+    }
+
     /// Wait for the status and headers.
     ///
     /// No deadline: a failed publication resets the existing response stream,
@@ -378,9 +401,6 @@ pub struct ApplicationClient {
     rotation: AtomicU64,
     directory: Mutex<Directory>,
     creator: CreatorAdmission,
-    /// One exchange per worker waits on receiver capacity at a time; the
-    /// others queue behind it in order (`capacity_turn`).
-    capacity_turn: tokio::sync::Mutex<()>,
     hot: Arc<Hot>,
     waiting: Arc<Waiting>,
     reader: Mutex<Option<tokio::task::JoinHandle<()>>>,
@@ -689,7 +709,6 @@ impl ApplicationClient {
             rotation: AtomicU64::new(lane as u64),
             directory: Mutex::default(),
             creator: CreatorAdmission::default(),
-            capacity_turn: tokio::sync::Mutex::new(()),
             hot: Arc::default(),
             waiting: Arc::new(Waiting::default()),
             reader: Mutex::new(None),
@@ -794,15 +813,6 @@ impl ApplicationClient {
         self.creator.acquire().await
     }
 
-    /// The turn to wait on receiver capacity, in arrival order. Its holder
-    /// alone registers interest and retries after a capacity change; it
-    /// hands the turn on by letting it go.
-    pub(super) async fn capacity_turn(
-        &self
-    ) -> tokio::sync::MutexGuard<'_, ()> {
-        self.capacity_turn.lock().await
-    }
-
     pub(super) fn creator_available(&self) -> bool {
         self.hot.available(&self.bodies) || self.bodies.streams().can_create()
     }
@@ -863,6 +873,14 @@ impl ApplicationClient {
     /// stopping point, so unbounded receivers get two random choices instead,
     /// the shallower first — constant cost, without reading every lane.
     ///
+    /// A bounded receiver's declared admission is a window: it runs part of
+    /// it at once and queues the rest. The home order stops at the first
+    /// receiver that will start the exchange now. When none will, the
+    /// exchange is going to wait in some receiver's queue: that is unmet
+    /// demand, reported once, and two random receivers are tried, the less
+    /// loaded first. A sender never waits for receiver capacity: when every
+    /// window is full the exchange is refused.
+    ///
     /// Either way, when neither yields a reservation, every lane is tried once
     /// in the same order, so a full fleet still reads as full and an empty one
     /// as having no consumer.
@@ -876,10 +894,30 @@ impl ApplicationClient {
         // `lanes` is in this sender's rendezvous order: its home first.
         let bounded =
             self.inbox().work_capacity(lanes[0]).ok().flatten().is_some();
-        if !bounded && let (Some(chosen), full) = self.choose_two(lanes)? {
+        let mut full = false;
+        if bounded {
+            for &target in lanes {
+                if self.candidate(target).is_none() || !self.runs_now(target) {
+                    continue;
+                }
+                if let Some(chosen) = self.try_reserve(target, &mut full)? {
+                    return Ok((Some(chosen), full));
+                }
+            }
+            // One load unless the owner declared a growth policy and no
+            // episode is open.
+            self.inbox().report_pressure();
+            if let (Some(chosen), refused) = self.choose_two(lanes, |lane| {
+                self.candidate(lane)?;
+                self.inbox().work_load(lane).ok().map(|load| load as u64)
+            })? {
+                return Ok((Some(chosen), full || refused));
+            }
+        } else if let (Some(chosen), full) =
+            self.choose_two(lanes, |lane| self.candidate(lane))?
+        {
             return Ok((Some(chosen), full));
         }
-        let mut full = false;
         for &target in lanes {
             if self.candidate(target).is_none() {
                 continue;
@@ -891,10 +929,25 @@ impl ApplicationClient {
         Ok((None, full))
     }
 
-    /// Two receivers picked at random, the shallower tried first.
+    /// Whether a bounded receiver will start an exchange at once: fewer
+    /// window slots held than it runs.
+    fn runs_now(
+        &self,
+        lane: usize,
+    ) -> bool {
+        match (self.inbox().work_load(lane), self.inbox().work_execution(lane))
+        {
+            (Ok(load), Ok(Some(execution))) => load < execution,
+            _ => false,
+        }
+    }
+
+    /// Two receivers picked at random, the lower `key` tried first; a
+    /// receiver whose key is `None` cannot take work.
     fn choose_two(
         &self,
         lanes: &[usize],
+        key: impl Fn(usize) -> Option<u64>,
     ) -> Result<(Option<Chosen>, bool)> {
         let mut full = false;
         if lanes.len() < 2 {
@@ -910,7 +963,7 @@ impl ApplicationClient {
             second += 1;
         }
         let (first, second) = (lanes[first], lanes[second]);
-        let order = match (self.candidate(first), self.candidate(second)) {
+        let order = match (key(first), key(second)) {
             (Some(a), Some(b)) if b < a => [Some(second), Some(first)],
             (Some(_), Some(_)) => [Some(first), Some(second)],
             (Some(_), None) => [Some(first), None],
@@ -997,6 +1050,10 @@ impl ApplicationClient {
         };
         self.waiting.insert(correlation, owner, sender);
 
+        let withdrawal = admission.as_ref().map(|admission| Withdrawal {
+            segment: Arc::clone(&self.segment),
+            ticket: admission.ticket(),
+        });
         let published = match admission {
             Some(admission) => admission.publish(&[&head, body.inline()]),
             None => self
@@ -1039,12 +1096,9 @@ impl ApplicationClient {
                 waiting: Arc::clone(&self.waiting),
                 correlation,
                 completed: false,
+                withdrawal,
             },
         })
-    }
-
-    pub(super) fn capacity_changed(&self) -> &tokio::sync::Notify {
-        &self.waiting.capacity_changed
     }
 
     pub(super) fn streams_returned(&self) -> &tokio::sync::Notify {
@@ -1059,18 +1113,6 @@ impl ApplicationClient {
         &self
     ) -> orbitive::stream::CapacityChanged {
         self.bodies.streams().capacity_changed()
-    }
-
-    pub(super) fn watch_capacity(
-        &self,
-        lanes: &[usize],
-    ) -> Result<()> {
-        for &lane in lanes {
-            self.inbox()
-                .watch_capacity(lane, self.lane)
-                .map_err(super::map_link_error)?;
-        }
-        Ok(())
     }
 
     /// A kept stream re-armed for this exchange, or a new one.

@@ -232,10 +232,8 @@ fn an_application_with_no_worker_is_refused_rather_than_queued() {
 }
 
 #[tokio::test]
-async fn receiver_capacity_is_shared_and_waiting_does_not_take_a_stream() {
-    use std::future::{Future, poll_fn};
-    use std::task::{Context, Waker};
-
+async fn receiver_capacity_is_shared_and_a_full_window_is_refused_without_a_stream()
+ {
     let name = format!("ad{:x}", std::process::id());
     let segment = Arc::new(ApplicationSegment::for_fleet(&name).unwrap());
     struct Cleanup(Arc<ApplicationSegment>);
@@ -267,33 +265,11 @@ async fn receiver_capacity_is_shared_and_waiting_does_not_take_a_stream() {
         Err(Error::CapacityFull)
     ));
 
-    let mut cancelled = Box::pin(target.send_wait(Exchange::default()));
-    assert!(
-        cancelled
-            .as_mut()
-            .poll(&mut Context::from_waker(Waker::noop()))
-            .is_pending()
-    );
-    drop(cancelled);
-    // No exchange correlation or body slot was acquired by either failed try.
-    // The first successful send from this client must still be correlation 1.
-    let (parked, entered) = tokio::sync::oneshot::channel();
-    let waiting = tokio::spawn(async move {
-        let sending = target.send_wait(Exchange::default());
-        tokio::pin!(sending);
-        let mut parked = Some(parked);
-        poll_fn(|cx| {
-            let result = sending.as_mut().poll(cx);
-            if result.is_pending()
-                && let Some(parked) = parked.take()
-            {
-                parked.send(()).unwrap();
-            }
-            result
-        })
-        .await
-    });
-    entered.await.unwrap();
+    // A full window is refused at once: no wait, no stream, no correlation.
+    assert!(matches!(
+        target.send_wait(Exchange::default()).await,
+        Err(Error::CapacityFull)
+    ));
     let command = ControlCommand {
         application: "bounded".into(),
         name: "status".into(),
@@ -315,9 +291,10 @@ async fn receiver_capacity_is_shared_and_waiting_does_not_take_a_stream() {
             break;
         }
     }
-    assert!(!waiting.is_finished());
     drop(execution);
-    let resumed = waiting.await.unwrap().unwrap();
+    // The first exchange this client sends is correlation 1: the refusals
+    // took nothing.
+    let resumed = target.send_wait(Exchange::default()).await.unwrap();
     assert_eq!(resumed.correlation, 1);
     let received = receiver.next(&mut frame).await.unwrap();
     let admitted = segment.accept_frame(worker.lane, received, &frame).unwrap();
@@ -334,9 +311,8 @@ async fn receiver_capacity_is_shared_and_waiting_does_not_take_a_stream() {
 }
 
 #[tokio::test]
-async fn bounded_intake_rejects_raw_requests_and_withdrawal_wakes_capacity_waiters()
- {
-    use std::future::{Future, poll_fn};
+async fn bounded_intake_rejects_raw_requests_and_a_full_window_refuses_at_once()
+{
     let name = format!("aw{:x}", std::process::id());
     let segment = Arc::new(ApplicationSegment::for_fleet(&name).unwrap());
     let worker =
@@ -350,25 +326,17 @@ async fn bounded_intake_rejects_raw_requests_and_withdrawal_wakes_capacity_waite
     let reservation =
         segment.reserve_work(worker.lane, client.lane()).unwrap().unwrap();
     let target = client.target("bounded");
-    let (parked, entered) = tokio::sync::oneshot::channel();
-    let waiting = tokio::spawn(async move {
-        let sending = target.send_wait(Exchange::default());
-        tokio::pin!(sending);
-        let mut parked = Some(parked);
-        poll_fn(|cx| {
-            let result = sending.as_mut().poll(cx);
-            if result.is_pending()
-                && let Some(parked) = parked.take()
-            {
-                parked.send(()).unwrap();
-            }
-            result
-        })
-        .await
-    });
-    entered.await.unwrap();
+    // The window is full: refused at once, not parked.
+    assert!(matches!(
+        target.send_wait(Exchange::default()).await,
+        Err(Error::CapacityFull)
+    ));
+    // A withdrawn receiver is no consumer at all.
     segment.inbox().release_lane(worker.lane).unwrap();
-    assert!(matches!(waiting.await.unwrap(), Err(Error::NoConsumer(_))));
+    assert!(matches!(
+        target.send_wait(Exchange::default()).await,
+        Err(Error::NoConsumer(_))
+    ));
     drop(reservation);
     client.leave();
     let _ =

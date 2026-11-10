@@ -107,10 +107,12 @@ impl ApplicationTarget {
         self.0.client.send_to(&self.0.application, &lanes.lanes, &mut request)
     }
 
-    /// Wait for receiver or creator stream capacity without holding either
-    /// reservation while parked. Dropping
-    /// this future cancels only the unsubmitted exchange. The caller owns
-    /// any waiting budget; this method adds no timer or retry interval.
+    /// Send, waiting only for this worker's own creator stream capacity. A
+    /// receiver's capacity is never waited for here: a bounded receiver
+    /// queues past what it runs, and when every window is full the exchange
+    /// is refused at once (`CapacityFull`). Dropping this future cancels only
+    /// the unsubmitted exchange. The caller owns any waiting budget; this
+    /// method adds no timer or retry interval.
     pub async fn send_wait(
         &self,
         mut request: Exchange,
@@ -143,76 +145,16 @@ impl ApplicationTarget {
                 )
             };
             match result {
-                Err(super::Error::CapacityFull) => {}
                 Err(super::Error::Stream(
                     orbitive::stream::Error::Full { .. }
                     | orbitive::stream::Error::WouldBlock,
-                )) => {
-                    creator_pressure = true;
-                    continue;
-                }
+                )) => creator_pressure = true,
+                // Sent, refused because every window is full, or gone: a
+                // sender never waits for receiver capacity. A full window is
+                // answered at once; a receiver's queue is where waiting
+                // happens.
                 result => return result,
             }
-            // Receiver pressure never retains the creator turn. Wait in this
-            // worker's queue: only its head re-arms and retries, so a release
-            // wakes one exchange per worker, not every waiting one. The head
-            // hands the turn on by letting it go, when its exchange went out
-            // (more capacity may remain) or when it turns to creator pressure.
-            let turn = self.0.client.capacity_turn().await;
-            loop {
-                // Arm before retrying so a return between the attempt and park is
-                // observed.
-                let changed = self.0.client.capacity_changed().notified();
-                tokio::pin!(changed);
-                changed.as_mut().enable();
-                let current = self.0.lanes.load(
-                    self.0.client.inbox(),
-                    &self.0.application,
-                    self.0.client.lane(),
-                );
-                self.0.client.watch_capacity(&current.lanes)?;
-                let retry = match self.0.client.send_to(
-                    &self.0.application,
-                    &current.lanes,
-                    &mut request,
-                ) {
-                    Err(super::Error::Stream(
-                        orbitive::stream::Error::Full { .. }
-                        | orbitive::stream::Error::WouldBlock,
-                    )) => {
-                        // Keep receiver interest armed through creator acquisition.
-                        // A busy turn alone cannot recheck receiver availability;
-                        // do not bounce between FIFO owners when both are full.
-                        let turn = self.wait_creator_turn().await?;
-                        let current = self.0.lanes.load(
-                            self.0.client.inbox(),
-                            &self.0.application,
-                            self.0.client.lane(),
-                        );
-                        self.0.client.watch_capacity(&current.lanes)?;
-                        self.0.client.send_with_creator_turn(
-                            &self.0.application,
-                            &current.lanes,
-                            &mut request,
-                            turn,
-                        )
-                    }
-                    result => result,
-                };
-                match retry {
-                    // Keep the turn: the next change wakes this head again.
-                    Err(super::Error::CapacityFull) => changed.await,
-                    Err(super::Error::Stream(
-                        orbitive::stream::Error::Full { .. }
-                        | orbitive::stream::Error::WouldBlock,
-                    )) => {
-                        creator_pressure = true;
-                        break;
-                    }
-                    result => return result,
-                }
-            }
-            drop(turn);
         }
     }
 
