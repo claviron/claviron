@@ -634,12 +634,18 @@ must not reuse another subsystem's. Configuration checks are structural and open
 
 ## Link Admission
 
-An application joins with `max_in_flight` or no bound. A bounded receiver
-advertises shared admission slots, at most `LINK_INBOX_CAPACITY`; this is
-separate from unread inbox frames and creator-side body slots. All callers
-reserve the same target capacity before taking a body slot. `send` is fail-fast;
-`ApplicationTarget::send_wait` registers interest, rechecks and parks through the
-existing inbox bell. Creator-full enters one process-local FIFO acquisition
+An application joins with `max_in_flight` or no bound. A bounded receiver also
+declares `queue` and advertises a *window* of `max_in_flight + queue` shared
+admission slots, below the inbox capacity; it publishes `max_in_flight` as the
+part it runs at once (`set_work_execution`). This is separate from unread inbox
+frames and creator-side body slots. All callers reserve a window slot before
+taking a body slot. Target choice takes the home receiver while it will start
+the exchange now (`work_load < work_execution`); otherwise it reports pressure
+and tries the less loaded of two, then every lane once. Neither `send` nor
+`ApplicationTarget::send_wait` ever waits for receiver capacity: a full window
+everywhere is `CapacityFull` at once. `send_wait` waits only for this client's
+own creator capacity.
+Creator-full enters one process-local FIFO acquisition
 turn per `ApplicationClient`, shared by all application names in that client.
 Only its head observes local endpoint return and remote claim release through
 the stream doorbell. It arms both signals before rechecking non-owning creator
@@ -647,20 +653,23 @@ readiness; a locally returned endpoint alone does not prove remote release.
 While blocked it neither selects targets nor reserves receiver capacity. Actual
 stream acquisition still follows receiver reservation and revalidates the hint.
 The turn is released before encoding or publication, not at exchange completion.
-Receiver-full releases the turn before waiting. No parked caller retains a body
-slot or receiver reservation; cancellation hands inspection to the next caller.
+No parked caller retains a body slot or receiver reservation; cancellation hands
+inspection to the next caller.
 Directory/close signals also interrupt queued destinations. Ordinary `send`
 remains fail-fast and reports stream `WouldBlock` while a creator turn is queued
 or held. The uncontended path adds one local contention-state load, with no turn
-registration, readiness scan or capacity observer. Already-started direct attempts
-may race queue entry; actual acquisition remains authoritative. Already-published
-requests are never retried.
-Pipeline waiting wraps the whole send in one `requests.queue_timeout` when
-declared; retries do not renew it. Cancellation removes the pending observations,
-not accepted remote work. Inbox publication failure remains fail-fast.
+registration or readiness scan. Already-published requests are never retried.
+Pipeline dispatch takes one `requests.queue_timeout` deadline when declared: it
+bounds the send and then the time the exchange waits in the receiver's queue.
+At the deadline the pipeline withdraws a still-queued exchange (`Withdrawal`,
+Orbitive `withdraw_work`): won, nothing ran, 503; lost, the receiver started it
+and its reply is awaited. Inbox publication failure remains fail-fast.
 
 `ApplicationReceiver` keeps reading control/events while work runs and observes
-exact originating-process exit for abandoned reservations. `accept_frame`
+exact originating-process exit for abandoned reservations. Requests go through a
+`WorkQueue`: up to the published execution start at once, the rest wait with
+their tickets still reserved and are accepted (RESERVED → ACTIVE) when a running
+exchange ends; withdrawn or orphaned entries are passed. `accept_frame`
 validates request tickets before application execution; raw requests cannot bypass
 a bound. The accepted owner retains admission through response body/session
 completion. Before publication, dropping the reservation rolls back only that
@@ -677,7 +686,10 @@ the engine's declared admission default. Without an engine default, an omitted o
 null `max_in_flight` leaves receiver admission unbounded; physical inbox and body
 stream capacities remain finite. Inbox geometry never supplies an admission default.
 
-Positive `orbit.link.max_in_flight` bounds are receiver-owned and may change live.
+Positive `orbit.link.max_in_flight` bounds are receiver-owned and may change live;
+`orbit.link.queue` is required with any bound (configured or the engine's) and
+is frozen with the geometry. A live bound change moves the window and the
+published execution together.
 Reservations and accepted exchanges retain their tickets through body/session completion.
 Growth wakes registered callers; shrink retires claims above the new boundary
 before refilling lower slots. Event and control reading remains independent.

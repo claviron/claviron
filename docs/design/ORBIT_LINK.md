@@ -34,19 +34,29 @@ change, not something one side can deploy by silently resizing a live segment.
 
 ## Receiver-owned admission
 
-`max_in_flight` limits one application receiver's reserved and accepted exchanges
-across every caller. `None` remains unbounded; a declared positive limit must fit
-`LINK_INBOX_CAPACITY`. This is distinct from inbox depth, stream byte windows and
-the number of body slots a caller can originate.
+`max_in_flight` limits how many exchanges one application receiver runs at
+once, across every caller. `None` remains unbounded. A bounded receiver also
+declares `queue`: how many more it holds itself, in arrival order, and starts as
+running ones end. Its admission *window* is `max_in_flight + queue`, and the
+window must stay below the inbox capacity, which also carries control frames.
+`queue: 0` refuses past `max_in_flight`. This is distinct from inbox depth,
+stream byte windows and the number of body slots a caller can originate.
 
-A caller reserves target capacity before obtaining a body slot. When all targets
-are busy, pipeline dispatch waits on a capacity notification, subject to the
-existing `requests.queue_timeout` if set. Direct `send` stays fail-fast;
-`ApplicationTarget::send_wait` provides notified waiting without a timer or local
-overflow queue. Dropping a wait has not submitted work.
+A caller reserves a window slot before obtaining a body slot. It prefers its
+home receiver while that receiver will start the exchange at once; otherwise
+the exchange will wait in some receiver's queue, which is reported as unmet
+demand (a growth policy may add a worker), and the less loaded of two receivers
+is tried. A caller never waits for receiver capacity: when every window is
+full the exchange is refused at once and answered 503. Waiting happens in the
+receiver's queue, where the end of one exchange starts the next without a
+wake. The route's `requests.queue_timeout` is one budget for the whole wait
+before the application starts: the caller's own body slot, then the receiver's
+queue. When it ends with the exchange still queued, the caller withdraws it
+atomically; if that wins, nothing ran and the answer is 503, otherwise the
+receiver started it first and its reply is still owed.
 
-The receiver validates admission before execution and holds it through the
-response body or accepted message session. Its reader keeps processing events
+The receiver accepts admission when it starts an exchange, not when the frame
+arrives, and holds it through the response body or accepted message session. Its reader keeps processing events
 and control at full capacity. Unpublished reservations roll back on cancellation;
 accepted work is released by its receiver. Recovery uses confirmed process exit
 and exact lane ownership, not age or a heartbeat. Native bindings use the same
