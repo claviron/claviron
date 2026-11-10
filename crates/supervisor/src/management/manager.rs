@@ -253,7 +253,14 @@ impl WorkerManager {
         }
         let snapshot = self.list()?;
         validate_stable_fleet(&snapshot)?;
-        let previous_worker_count = snapshot.workers_expected;
+        // The master's own count is the one the resize is checked against
+        // and moves the moment a growth completes; the published snapshot
+        // follows it. Elsewhere only the snapshot is known.
+        let previous_worker_count = if self.state.is_master() {
+            self.state.worker_count()
+        } else {
+            snapshot.workers_expected
+        };
         let target_worker_count = match direction {
             ResizeDirection::Grow => {
                 let worker_capacity = self.state.worker_capacity();
