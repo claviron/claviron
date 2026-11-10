@@ -4,7 +4,7 @@ use super::*;
 fn omitted_and_null_bounds_do_not_inherit_the_physical_inbox_capacity() {
     for yaml in ["{}", "max_in_flight: null"] {
         let config: LinkConfig = serde_yaml::from_str(yaml).unwrap();
-        let control = LinkCapacity::new(None);
+        let control = LinkCapacity::new(None, 0);
         control.prepare(&config, None).unwrap();
         assert_eq!(control.limit().unwrap(), None);
         assert_eq!(control.geometry().unwrap(), config.geometry);
@@ -16,7 +16,10 @@ fn explicit_bound_overrides_the_engine_fallback() {
     let mut config = LinkConfig::default();
     config.geometry.inbox_capacity = 4;
     config.geometry.lane_capacity = 2;
-    let control = LinkCapacity::new(None);
+    let control = LinkCapacity::new(None, 0);
+    // A bound from the engine needs a declared queue like any other.
+    assert!(control.prepare(&config, Some(2)).is_err());
+    config.queue = Some(0);
     control.prepare(&config, Some(2)).unwrap();
     assert_eq!(control.limit().unwrap(), Some(2));
     config.max_in_flight = Some(3);
@@ -35,12 +38,21 @@ fn physical_shape_and_bound_are_validated_before_join() {
     config.geometry.lane_capacity = 2;
     config.geometry.buffer_bytes = 1024;
     config.max_in_flight = Some(3);
+    assert!(config.validate().is_err(), "a bound without a queue");
+    config.queue = Some(0);
     config.validate().unwrap();
     assert_eq!(config.geometry.spec().inbox.capacity, 4);
     assert_eq!(config.geometry.spec().streams.lane_capacity, 2);
     // The inbox also carries control frames: a bound equal to it is refused.
     config.max_in_flight = Some(4);
     assert!(config.validate().is_err());
+    // The window, not the bound alone, must stay below the inbox.
+    config.max_in_flight = Some(2);
+    config.queue = Some(2);
+    assert!(config.validate().is_err());
+    config.queue = Some(1);
+    config.validate().unwrap();
+    config.queue = Some(0);
     config.max_in_flight = Some(1);
     config.geometry.lane_capacity = 3;
     assert!(config.validate().is_err());
@@ -51,9 +63,10 @@ fn physical_shape_and_bound_are_validated_before_join() {
 
 #[test]
 fn live_control_preserves_existing_work_and_owns_no_join() {
-    let control = LinkCapacity::new(None);
+    let control = LinkCapacity::new(None, 0);
     let config = LinkConfig {
         max_in_flight: Some(1),
+        queue: Some(0),
         geometry: LinkGeometry {
             fleet_capacity: 4,
             inbox_capacity: 4,

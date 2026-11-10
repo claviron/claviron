@@ -314,8 +314,12 @@ impl OrbitDoor {
         Self {
             application: application.into(),
             runtime,
+            // A bound given here holds no queue: past it, senders are
+            // refused. A configured door takes `orbit.link` through
+            // `capacity`.
             capacity: Arc::new(claviron_orbit::config::LinkCapacity::new(
                 max_in_flight,
+                0,
             )),
         }
     }

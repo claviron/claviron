@@ -62,7 +62,7 @@ fn owner(
             programmatic: false,
         }),
         applied: Mutex::new(Applied::default()),
-        capacity: Arc::new(LinkCapacity::new(None)),
+        capacity: Arc::new(LinkCapacity::new(None, 0)),
         report_changes: true,
     }
 }
@@ -80,6 +80,7 @@ async fn geometry_warns_once_while_snapshot_and_manual_application_do_not_warn()
     changed.link.as_mut().unwrap().geometry.inbox_capacity /= 2;
     changed.link.as_mut().unwrap().geometry.lane_capacity /= 2;
     changed.link.as_mut().unwrap().max_in_flight = Some(1);
+    changed.link.as_mut().unwrap().queue = Some(0);
     let warnings = Warnings(Arc::new(AtomicUsize::new(0)));
     tracing::subscriber::with_default(warnings.clone(), || {
         this.apply_change(&changed, true).unwrap();
@@ -121,7 +122,7 @@ async fn runner_section_is_read_with_the_owners_environment_and_without_boot() {
     let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(
         file.path(),
-        "name: example\norbit:\n  link:\n    max_in_flight: 2\nengine: {}\n",
+        "name: example\norbit:\n  link:\n    max_in_flight: 2\n    queue: 0\nengine: {}\n",
     )
     .unwrap();
     let this = owner(file.path().to_owned(), true);
@@ -156,6 +157,7 @@ async fn admission_mode_changes_wait_for_restart_but_positive_bounds_update() {
         let initial = OrbitConfig {
             link: Some(super::super::LinkConfig {
                 max_in_flight: initial_limit,
+                queue: initial_limit.map(|_| 0),
                 ..Default::default()
             }),
             ..OrbitConfig::default()
@@ -164,6 +166,8 @@ async fn admission_mode_changes_wait_for_restart_but_positive_bounds_update() {
         let mut changed = initial.clone();
         changed.link.as_mut().unwrap().max_in_flight =
             if initial_limit.is_some() { None } else { Some(1) };
+        changed.link.as_mut().unwrap().queue =
+            if initial_limit.is_some() { None } else { Some(0) };
         let warnings = Warnings(Arc::new(AtomicUsize::new(0)));
         tracing::subscriber::with_default(warnings.clone(), || {
             this.apply_change(&changed, true).unwrap();
@@ -176,6 +180,7 @@ async fn admission_mode_changes_wait_for_restart_but_positive_bounds_update() {
         assert_eq!(this.capacity.limit().unwrap(), initial_limit);
         if initial_limit.is_some() {
             changed.link.as_mut().unwrap().max_in_flight = Some(2);
+            changed.link.as_mut().unwrap().queue = Some(0);
             this.apply_change(&changed, true).unwrap();
             assert_eq!(this.capacity.limit().unwrap(), Some(2));
         }
@@ -185,19 +190,28 @@ async fn admission_mode_changes_wait_for_restart_but_positive_bounds_update() {
 #[tokio::test]
 async fn resolved_programmatic_capacity_remains_pinned_across_file_changes() {
     let file = tempfile::NamedTempFile::new().unwrap();
-    std::fs::write(file.path(), "orbit: {link: {max_in_flight: 2}}\n").unwrap();
+    std::fs::write(
+        file.path(),
+        "orbit: {link: {max_in_flight: 2, queue: 0}}\n",
+    )
+    .unwrap();
     let this = owner(file.path().to_owned(), true);
     let mut initial = OrbitConfig {
         link: Some(super::super::LinkConfig::default()),
         ..OrbitConfig::default()
     };
     initial.link.as_mut().unwrap().max_in_flight = Some(3);
+    initial.link.as_mut().unwrap().queue = Some(0);
     this.source.lock().unwrap().resolved = Some(initial.clone());
     let reader = ConfigReader::new().with_builtin_parsers().unwrap();
     let startup = this.read_config(&reader).await.unwrap();
     assert_eq!(startup, initial);
     this.configure(&startup).await.unwrap();
-    std::fs::write(file.path(), "orbit: {link: {max_in_flight: 1}}\n").unwrap();
+    std::fs::write(
+        file.path(),
+        "orbit: {link: {max_in_flight: 1, queue: 0}}\n",
+    )
+    .unwrap();
     let candidate = this.read_config(&reader).await.unwrap();
     assert_eq!(candidate.link.unwrap().max_in_flight, Some(3));
 }

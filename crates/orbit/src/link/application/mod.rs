@@ -13,6 +13,7 @@ pub use super::interest;
 pub use super::{Access, GroupAccess};
 pub mod message;
 pub mod peer;
+mod queue;
 mod receiver;
 pub mod segment;
 pub mod service;
@@ -43,6 +44,7 @@ pub use peer::{
     ApplicationConnected, ApplicationDisconnected, EdgeConnected,
     EdgeDisconnected, LinkJoined, LinkPressure, Peer, Peers,
 };
+pub use queue::{Offered, Start, WorkQueue};
 pub use receiver::ApplicationReceiver;
 pub use segment::{ApplicationSegment, INBOX_GEOMETRY};
 pub use service::{ApplicationService, LinkedApplication};

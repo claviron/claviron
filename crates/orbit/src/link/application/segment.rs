@@ -175,6 +175,16 @@ impl ApplicationSegment {
             .map_err(map_link_error)
     }
 
+    /// Publish how many of this receiver's window slots run at once; the rest
+    /// are its own queue.
+    pub fn set_work_execution(
+        &self,
+        lane: usize,
+        execution: usize,
+    ) -> Result<()> {
+        self.inbox().set_work_execution(lane, execution).map_err(map_link_error)
+    }
+
     /// Change the bound for this process's joined receiver without replacing it.
     pub fn update_work_capacity(
         &self,
