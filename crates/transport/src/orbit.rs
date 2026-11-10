@@ -533,21 +533,27 @@ impl OrbitDoor {
         // (no `workers` block) publishes nothing and senders report nothing.
         let growth = match self.capacity.workers()? {
             Some(workers) => {
-                if workers.max > state.worker_capacity() as u16 {
+                let capacity = u16::from(state.worker_capacity());
+                let max = workers.max.resolve(capacity);
+                if max > capacity {
                     return Err(registry::Error::msg(format!(
-                        "Link workers.max {} exceeds the supervisor's worker capacity {}",
-                        workers.max,
-                        state.worker_capacity()
+                        "Link workers.max {max} exceeds the supervisor's worker capacity {capacity}"
+                    )));
+                }
+                let lanes = self.capacity.geometry()?.fleet_capacity;
+                if usize::from(max) >= lanes {
+                    return Err(registry::Error::msg(format!(
+                        "Link workers.max {max} must leave a lane for a caller in fleet_capacity {lanes}"
                     )));
                 }
                 let count = u16::from(state.worker_count());
-                if count < workers.min || count > workers.max {
+                if workers.min > max || count < workers.min || count > max {
                     return Err(registry::Error::msg(format!(
-                        "the launch's {count} workers lie outside Link workers {}..={}",
-                        workers.min, workers.max
+                        "the launch's {count} workers lie outside Link workers {}..={max}",
+                        workers.min
                     )));
                 }
-                workers.growth()
+                workers.growth(capacity)
             }
             None => None,
         };

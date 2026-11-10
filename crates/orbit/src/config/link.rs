@@ -31,9 +31,9 @@ pub struct LinkWorkers {
     pub policy: WorkerPolicy,
     /// Never fewer workers.
     pub min: u16,
-    /// Never more workers; within the supervisor's worker capacity and the
-    /// fleet's lanes.
-    pub max: u16,
+    /// Never more workers: a count, or `available` for the supervisor's
+    /// worker capacity. Within that capacity and the fleet's lanes either way.
+    pub max: WorkerMax,
     /// Workers added per pressure episode.
     pub step: u16,
     /// Automatic retirement of workers added under pressure.
@@ -49,6 +49,35 @@ pub enum WorkerPolicy {
     OnPressure,
 }
 
+/// The upper bound of a growth policy, written as a number or by name.
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum WorkerMax {
+    Count(u16),
+    Named(WorkerMaxName),
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkerMaxName {
+    /// The supervisor's worker capacity: the compiled fleet capacity less the
+    /// master. Not a CPU count. Resolved by the master at boot.
+    Available,
+}
+
+impl WorkerMax {
+    /// The bound as a number, given the supervisor's worker capacity.
+    pub fn resolve(
+        self,
+        worker_capacity: u16,
+    ) -> u16 {
+        match self {
+            Self::Count(count) => count,
+            Self::Named(WorkerMaxName::Available) => worker_capacity,
+        }
+    }
+}
+
 /// Only `off` is defined: what "idle" means without an invented duration is
 /// still open, so nothing is retired automatically.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -59,9 +88,12 @@ pub enum RetireIdle {
 
 impl LinkWorkers {
     pub fn validate(&self) -> registry::Result<()> {
-        if self.min == 0 || self.min > self.max {
+        // A named maximum is checked once it is resolved, at the master.
+        if self.min == 0
+            || matches!(self.max, WorkerMax::Count(max) if self.min > max)
+        {
             return Err(registry::Error::msg(format!(
-                "Link workers need 0 < min <= max (min {}, max {})",
+                "Link workers need 0 < min <= max (min {}, max {:?})",
                 self.min, self.max
             )));
         }
@@ -76,12 +108,16 @@ impl LinkWorkers {
         Ok(())
     }
 
-    /// What the fleet publishes: `None` while the policy is static.
-    pub fn growth(&self) -> Option<orbitive::link::GrowthPolicy> {
+    /// What the fleet publishes, with the maximum resolved: `None` while the
+    /// policy is static.
+    pub fn growth(
+        &self,
+        worker_capacity: u16,
+    ) -> Option<orbitive::link::GrowthPolicy> {
         (self.policy == WorkerPolicy::OnPressure).then_some(
             orbitive::link::GrowthPolicy {
                 min: self.min,
-                max: self.max,
+                max: self.max.resolve(worker_capacity),
                 step: self.step,
             },
         )
@@ -196,10 +232,12 @@ impl LinkConfig {
         if let Some(workers) = &self.workers {
             workers.validate()?;
             // The fleet's lanes hold every worker and at least one caller.
-            if usize::from(workers.max) >= self.geometry.fleet_capacity {
+            if let WorkerMax::Count(max) = workers.max
+                && usize::from(max) >= self.geometry.fleet_capacity
+            {
                 return Err(registry::Error::msg(format!(
-                    "Link workers.max {} must leave a lane for a caller in fleet_capacity {}",
-                    workers.max, self.geometry.fleet_capacity
+                    "Link workers.max {max} must leave a lane for a caller in fleet_capacity {}",
+                    self.geometry.fleet_capacity
                 )));
             }
         }

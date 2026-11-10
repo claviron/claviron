@@ -95,15 +95,20 @@ fn a_growth_policy_is_declared_whole_and_fits_its_fleet() {
                 workers: { policy: on_pressure, min: 2, max: 6, step: 1, retire_idle: off }";
     let config: LinkConfig = serde_yaml::from_str(yaml).unwrap();
     config.validate().unwrap();
-    let growth = config.workers.unwrap().growth().unwrap();
+    let growth = config.workers.unwrap().growth(40).unwrap();
     assert_eq!((growth.min, growth.max, growth.step), (2, 6, 1));
+
+    let named = "workers: { policy: on_pressure, min: 2, max: available, step: 1, retire_idle: off }";
+    let named: LinkConfig = serde_yaml::from_str(named).unwrap();
+    named.validate().unwrap();
+    assert_eq!(named.workers.unwrap().growth(40).unwrap().max, 40);
 
     let mut stepped = config.clone();
     stepped.workers.as_mut().unwrap().step = 2;
     assert!(stepped.validate().is_err(), "one worker per episode");
 
     let mut crowded = config.clone();
-    crowded.workers.as_mut().unwrap().max = 8;
+    crowded.workers.as_mut().unwrap().max = WorkerMax::Count(8);
     assert!(crowded.validate().is_err(), "a caller needs a lane too");
 
     let partial = "workers: { policy: on_pressure, min: 2, max: 6 }";
