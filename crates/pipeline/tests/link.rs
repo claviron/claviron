@@ -75,7 +75,11 @@ fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
         routes: vec![LinkRoute {
             path: Some(serde_yaml::from_str("/api").unwrap()),
             destination: Arc::new(super::LinkDestination::unavailable()),
-            requests: RequestPolicyOverride::default(),
+            // Retry-After follows the declared queue wait, rounded up.
+            requests: RequestPolicyOverride {
+                queue_timeout: Some(std::time::Duration::from_millis(1500)),
+                ..RequestPolicyOverride::default()
+            },
         }]
         .into(),
         shutdown: CancellationToken::new(),
@@ -99,7 +103,7 @@ fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
                     response.status(),
                     http::StatusCode::SERVICE_UNAVAILABLE
                 );
-                assert_eq!(response.headers()["retry-after"], "1");
+                assert_eq!(response.headers()["retry-after"], "2");
                 assert_eq!(drops.load(Ordering::Relaxed), 1);
             }
             ServiceResult::Unhandled(request) => {

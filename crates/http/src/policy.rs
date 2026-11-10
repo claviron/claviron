@@ -29,7 +29,7 @@ use serde::Deserialize;
 /// |---|---|
 /// | `max_body_size`, `body_read_timeout`, `buffer_size` | narrows only |
 /// | `buffering` | replaces |
-/// | `queue_timeout` | replaces |
+/// | `queue_timeout`, `retry_after` | replaces |
 ///
 /// These are transport concerns, not routing ones: a body that never stops
 /// arriving and a body that stops arriving halfway cost the process the same
@@ -73,6 +73,11 @@ pub struct RequestPolicy {
     /// its body and of its reply. How long an application takes to run is the
     /// application's own.
     pub queue_timeout: Option<Duration>,
+    /// What a refusal that never reached the application (a 503) tells the
+    /// client to wait before trying again, as `Retry-After`. Undeclared, it
+    /// is `queue_timeout`: the wait this policy already allows. Read through
+    /// [`Self::retry_after`].
+    pub retry_after: Option<Duration>,
 }
 
 impl RequestPolicy {
@@ -85,6 +90,7 @@ impl RequestPolicy {
             buffering: Buffering::StreamDefault,
             buffer_size: None,
             queue_timeout: None,
+            retry_after: None,
         }
     }
 
@@ -110,6 +116,7 @@ impl RequestPolicy {
             buffering: declared.buffering.unwrap_or_default(),
             buffer_size: declared.buffer_size.and_then(Limit::value),
             queue_timeout: declared.queue_timeout,
+            retry_after: declared.retry_after,
         })
     }
 
@@ -129,7 +136,14 @@ impl RequestPolicy {
             buffering: nearer.buffering.unwrap_or(self.buffering),
             buffer_size: narrowed(self.buffer_size, nearer.buffer_size),
             queue_timeout: nearer.queue_timeout.or(self.queue_timeout),
+            retry_after: nearer.retry_after.or(self.retry_after),
         }
+    }
+
+    /// The `Retry-After` a 503 carries: declared, or else `queue_timeout`.
+    /// Neither declared: none, and the header is not sent.
+    pub fn retry_after(&self) -> Option<Duration> {
+        self.retry_after.or(self.queue_timeout)
     }
 
     /// How one request's body reaches `need`'s backend, decided at the start
@@ -259,6 +273,12 @@ pub struct RequestPolicyOverride {
         deserialize_with = "claviron_helpers::de::deserialize_optional_duration"
     )]
     pub queue_timeout: Option<Duration>,
+    /// A duration (`"2s"`); undeclared, `queue_timeout` is used.
+    #[serde(
+        default,
+        deserialize_with = "claviron_helpers::de::deserialize_optional_duration"
+    )]
+    pub retry_after: Option<Duration>,
 }
 
 impl RequestPolicyOverride {
@@ -278,6 +298,7 @@ impl RequestPolicyOverride {
             buffering: nearer.buffering.or(self.buffering),
             buffer_size: nearer.buffer_size.or(self.buffer_size),
             queue_timeout: nearer.queue_timeout.or(self.queue_timeout),
+            retry_after: nearer.retry_after.or(self.retry_after),
         }
     }
 }

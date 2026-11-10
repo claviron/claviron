@@ -149,11 +149,6 @@ impl DispatchStep for LinkBackend {
                 StatusCode::FORBIDDEN,
             )));
         }
-        let Some(target) = route.destination.target() else {
-            return DispatchCall::ready(ServiceResult::Handled(unavailable(
-                "the Link route's destination has no owner yet",
-            )));
-        };
         // Taken while the context is lent: the exchange outlives this call.
         // The edge's policy for this scope, narrowed by this application's
         // block; with no accepted transport behind the request there is no
@@ -162,6 +157,12 @@ impl DispatchStep for LinkBackend {
             .and_then(|context| context.policy())
             .map_or(RequestPolicy::unlimited(), |policy| policy.requests)
             .narrow(&route.requests);
+        let Some(target) = route.destination.target() else {
+            return DispatchCall::ready(ServiceResult::Handled(unavailable(
+                "the Link route's destination has no owner yet",
+                &policy,
+            )));
+        };
         let connection = context.map(|context| context.connection.clone());
         DispatchCall::new(async move {
             ServiceResult::Handled(
@@ -262,6 +263,7 @@ async fn dispatch(
             Err(_) => {
                 return unavailable(
                     "Link admission exceeded requests.queue_timeout",
+                    &policy,
                 );
             }
         },
@@ -276,7 +278,7 @@ async fn dispatch(
                 application = target.application(),
                 "exchange refused: {error}"
             );
-            return unavailable(&error.to_string());
+            return unavailable(&error.to_string(), &policy);
         }
     };
 
@@ -442,12 +444,21 @@ pub fn exchange_headers(
     result
 }
 
-fn unavailable(reason: &str) -> RouteResponse {
+/// Nothing reached the application, so the client may try again: a 503 with
+/// the policy's `Retry-After`, in whole seconds rounded up, or none when the
+/// policy declares no wait at all.
+fn unavailable(
+    reason: &str,
+    policy: &RequestPolicy,
+) -> RouteResponse {
     tracing::debug!("Link dispatch unavailable: {reason}");
     let mut response = err_status(StatusCode::SERVICE_UNAVAILABLE);
-    response
-        .headers_mut()
-        .insert(http::header::RETRY_AFTER, http::HeaderValue::from_static("1"));
+    if let Some(wait) = policy.retry_after() {
+        let seconds = wait.as_secs() + u64::from(wait.subsec_nanos() > 0);
+        response
+            .headers_mut()
+            .insert(http::header::RETRY_AFTER, seconds.into());
+    }
     response
 }
 
