@@ -161,7 +161,9 @@ pub enum Command {
     Prepare,
     /// One timed exchange per caller, after every caller has been prepared.
     Preflight,
-    Load { depth: usize },
+    Load {
+        depth: usize,
+    },
     Begin,
     End,
     Drain,

@@ -102,9 +102,7 @@ fn spread(bound: u64) -> u64 {
 
 /// The native baseline, under `/_bench`.
 fn baseline_routes(stats: MethodRouter) -> Router {
-    Router::new()
-        .route("/rust", get(rust).post(rust))
-        .route("/stats", stats)
+    Router::new().route("/rust", get(rust).post(rust)).route("/stats", stats)
 }
 
 /// One workload router for both Edge and standalone runners.
@@ -199,9 +197,7 @@ struct StatsIdentity<'a> {
     worker: Option<u8>,
 }
 
-async fn stats(
-    state: Option<Extension<AppState>>
-) -> axum::response::Response {
+async fn stats(state: Option<Extension<AppState>>) -> axum::response::Response {
     let identity = state.as_ref().map(|Extension(state)| StatsIdentity {
         application: state.name(),
         runtime: "rust",
