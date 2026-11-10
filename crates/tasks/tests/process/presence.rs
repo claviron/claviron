@@ -43,6 +43,34 @@ fn record_instance(
     .unwrap();
 }
 
+#[tokio::test]
+async fn retained_capacity_requires_the_child_lock_not_an_old_record() {
+    let (state, mut runtime) = fixture();
+    runtime.task_dispatch = TaskDispatch::Pool;
+    runtime.task_worker_number = 3;
+    let process = identity(std::process::id()).unwrap();
+    let controller = Controller::acquire(&state, &runtime).await.unwrap();
+    record_instance(&state, &runtime, process);
+    controller.publish(process, false, TaskProcessPhase::Running).unwrap();
+    let child_lock = instance::open_instance_file(
+        &instance::instance_path(&state, &runtime).unwrap(),
+    )
+    .unwrap();
+    instance::try_lock(child_lock.as_raw_fd()).unwrap();
+    drop(controller);
+    assert_eq!(
+        retained_pool_slots(&state, runtime.task_name.as_ref()).unwrap(),
+        3
+    );
+    drop(child_lock);
+    // Even a still-live PID in the old record cannot retain a released slot.
+    assert_eq!(
+        retained_pool_slots(&state, runtime.task_name.as_ref()).unwrap(),
+        0
+    );
+    fs::remove_dir_all(instance::instance_directory(&state).unwrap()).unwrap();
+}
+
 #[test]
 fn process_owner_and_identity_round_trip() {
     let process = ProcessIdentity::new(123, 987654321);

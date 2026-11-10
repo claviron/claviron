@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -121,11 +122,15 @@ pub enum StopCause {
     ExecutionTimeout = 2,
 }
 
-/// Shared process-control state: cancellation metadata and in-place reloads.
+/// Shared process-control state: cancellation metadata, in-place reloads and
+/// the process each slot's command runs as.
 struct StopState {
     cause: AtomicU8,
     reload_action: Mutex<Option<ReloadAction>>,
     reload_signal: watch::Sender<Option<ProcessSignal>>,
+    /// Slot to pid of the command running there. An Orbit task's controller
+    /// matches them to the Link lanes its processes claim.
+    processes: watch::Sender<BTreeMap<u8, u32>>,
 }
 
 impl Default for StopState {
@@ -134,6 +139,7 @@ impl Default for StopState {
             cause: AtomicU8::new(StopCause::Shutdown as u8),
             reload_action: Mutex::new(None),
             reload_signal: watch::channel(None).0,
+            processes: watch::channel(BTreeMap::new()).0,
         }
     }
 }
@@ -235,6 +241,28 @@ impl StopContext {
     #[inline]
     pub(crate) fn reload_action(&self) -> Option<ReloadAction> {
         *self.shared.reload_action.lock_unpoisoned()
+    }
+
+    /// Say which process `slot`'s command runs as now, or that it runs none.
+    pub(crate) fn set_process(
+        &self,
+        slot: u8,
+        pid: Option<u32>,
+    ) {
+        self.shared.processes.send_modify(|processes| match pid {
+            Some(pid) => {
+                processes.insert(slot, pid);
+            }
+            None => {
+                processes.remove(&slot);
+            }
+        });
+    }
+
+    pub(crate) fn subscribe_processes(
+        &self
+    ) -> watch::Receiver<BTreeMap<u8, u32>> {
+        self.shared.processes.subscribe()
     }
 }
 
@@ -368,6 +396,11 @@ impl TaskRunner {
     #[inline]
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// This runner generation's process-control state, shared by its slots.
+    pub(crate) fn stop_context(&self) -> &StopContext {
+        &self.stop
     }
 
     #[inline]
@@ -985,6 +1018,37 @@ impl TaskRunner {
     /// Execute one service-owned daemon slot. Fleet coordination deliberately
     /// stays in `TaskService`; the runner only owns body/retry semantics.
     pub(crate) async fn run_daemon_slot(
+        self: Arc<Self>,
+        worker_number: u8,
+        state: AppState,
+        cfg: Arc<TaskConfig>,
+        scope: TaskScope,
+        dispatch: TaskDispatch,
+        token: CancellationToken,
+    ) {
+        if cfg
+            .orbit
+            .as_ref()
+            .is_some_and(|orbit| orbit.kind == crate::OrbitTaskKind::Task)
+        {
+            crate::orbit::Execution {
+                runner: self,
+                state,
+                config: cfg,
+                scope,
+                token,
+            }
+            .run()
+            .await;
+            return;
+        }
+        self.run_owned_slot(worker_number, state, cfg, scope, dispatch, token)
+            .await;
+    }
+
+    /// Run one slot's body with its retries; an Orbit task's controller runs
+    /// each of its processes through this.
+    pub(crate) async fn run_owned_slot(
         self: Arc<Self>,
         worker_number: u8,
         state: AppState,

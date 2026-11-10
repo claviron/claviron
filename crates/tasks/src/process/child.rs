@@ -39,7 +39,6 @@ impl Running {
         }
     }
 
-    #[cfg(feature = "metrics")]
     pub(super) fn pid(&self) -> u32 {
         match self {
             Self::Spawned(child) => {

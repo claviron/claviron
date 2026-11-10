@@ -114,8 +114,11 @@ pub(crate) async fn run_command(
     };
 
     let mut running = start(&spec, &runtime, instance).await?;
+    let _process =
+        ProcessGuard { stop: &stop, slot: runtime.task_worker_number };
 
     loop {
+        stop.set_process(runtime.task_worker_number, Some(running.pid()));
         publish_presence(
             &controller,
             &running,
@@ -244,6 +247,18 @@ pub(crate) async fn run_command(
                 running = start(&spec, &runtime, Some(next)).await?;
             }
         }
+    }
+}
+
+/// The slot runs no process once its command returns, however it returns.
+struct ProcessGuard<'a> {
+    stop: &'a StopContext,
+    slot: u8,
+}
+
+impl Drop for ProcessGuard<'_> {
+    fn drop(&mut self) {
+        self.stop.set_process(self.slot, None);
     }
 }
 

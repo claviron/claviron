@@ -6,6 +6,7 @@ mod environment;
 
 pub mod executor;
 mod manager;
+mod orbit;
 mod output;
 mod pool;
 mod process;
@@ -22,7 +23,8 @@ mod metrics;
 pub use claviron_macros::task;
 pub(crate) use config::*;
 pub use config::{
-    SchedulerConfig, TaskConfig, TaskExecutor, TaskExecutorKind, TaskOverlap,
+    OrbitTask, OrbitTaskKind, SchedulerConfig, TaskConfig, TaskExecutor,
+    TaskExecutorKind, TaskOverlap,
 };
 pub use error::{Error, Reason, TaskResult};
 pub use executor::{Executor, ScriptSpec, TaskExecution};

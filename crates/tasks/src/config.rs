@@ -317,6 +317,11 @@ pub struct TaskConfig {
     #[serde(default)]
     pub command: Option<CommandSpec>,
 
+    /// Run the processes of one Orbit fleet; see [`OrbitTask`]. Its command
+    /// becomes this task's `command` when the configuration is prepared.
+    #[serde(default)]
+    pub orbit: Option<OrbitTask>,
+
     /// Run this task on the embedded PHP engine. Mutually exclusive with the
     /// other two — see [`TaskConfig::executor`].
     #[serde(default)]
@@ -386,6 +391,12 @@ pub struct TaskConfig {
 }
 
 impl TaskConfig {
+    /// The entry an empty `tasks.yaml` mapping declares: every field at the
+    /// value its omission selects.
+    pub(crate) fn empty() -> Self {
+        serde_yaml::from_str("{}").expect("an empty task entry is complete")
+    }
+
     /// A task's own configuration, written in the same words as a
     /// `tasks.yaml` entry. This is how a builtin task carries its defaults in
     /// code: the entry it would otherwise need in the file.
@@ -421,6 +432,93 @@ impl TaskConfig {
             + self.js.is_some() as u8
             + self.lua.is_some() as u8;
         declared > 1
+    }
+}
+
+/// The processes of one Orbit fleet, run by TaskService.
+///
+/// The processes create and join their fleet themselves and declare its
+/// geometry; TaskService never does. It starts and stops them on the master
+/// (one controller, so scope, dispatch, timing and concurrency are not
+/// written) and, for [`OrbitTaskKind::Task`], adds one per pressure episode
+/// of the fleet within `workers`. A [`OrbitTaskKind::Runner`] grows its own
+/// workers: TaskService starts its one process.
+#[derive(Deserialize, Clone, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct OrbitTask {
+    pub fleet: String,
+    pub kind: OrbitTaskKind,
+    /// How many processes run: required for `task`, refused for `runner`.
+    #[serde(default)]
+    pub workers: Option<claviron_orbit::config::LinkWorkers>,
+    /// Moved to the task's `command` when the configuration is prepared.
+    command: Option<CommandSpec>,
+}
+
+impl OrbitTask {
+    pub fn new(
+        fleet: impl Into<String>,
+        kind: OrbitTaskKind,
+        workers: Option<claviron_orbit::config::LinkWorkers>,
+        command: CommandSpec,
+    ) -> Self {
+        Self { fleet: fleet.into(), kind, workers, command: Some(command) }
+    }
+}
+
+/// Who grows an Orbit task's processes.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OrbitTaskKind {
+    /// TaskService, on the fleet's pressure, within `workers`.
+    Task,
+    /// The process itself: a runner whose master owns its workers.
+    Runner,
+}
+
+impl TaskConfig {
+    /// Settle an Orbit task into the command task it runs as: its command,
+    /// on the master, as one daemon. Refuses what an Orbit task does not let
+    /// the entry choose.
+    pub(crate) fn materialize_orbit(&mut self) -> Result<(), String> {
+        let Some(orbit) = self.orbit.as_mut() else { return Ok(()) };
+        let Some(command) = orbit.command.take() else {
+            // Prepared already: a builtin entry is settled once.
+            return Ok(());
+        };
+        if self.command.is_some()
+            || self.php.is_some()
+            || self.js.is_some()
+            || self.lua.is_some()
+        {
+            return Err(
+                "an Orbit task declares its process under orbit.command only"
+                    .into(),
+            );
+        }
+        if self.scope.is_some()
+            || self.dispatch.is_some()
+            || self.timing != TaskTiming::default()
+            || self.concurrency != 1
+        {
+            return Err("an Orbit task runs on the master as one daemon; scope, dispatch, timing and concurrency are not written".into());
+        }
+        match (orbit.kind, orbit.workers.is_some()) {
+            (OrbitTaskKind::Task, false) => {
+                return Err(
+                    "an Orbit task of kind task declares workers".into()
+                );
+            }
+            (OrbitTaskKind::Runner, true) => {
+                return Err("a runner grows its own workers; its Orbit task declares none".into());
+            }
+            _ => {}
+        }
+        self.command = Some(command);
+        self.scope = Some(TaskScope::Master);
+        self.dispatch = Some(TaskDispatch::One);
+        self.timing = TaskTiming::Daemon { enabled: true };
+        Ok(())
     }
 }
 

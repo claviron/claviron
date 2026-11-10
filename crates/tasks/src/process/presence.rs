@@ -384,6 +384,47 @@ pub(crate) fn inspect(state: &AppState) -> io::Result<TaskProcessSnapshot> {
     Ok(snapshot)
 }
 
+/// Highest retained command-pool slot for one task. A durable record alone
+/// does not reserve capacity: the child's inherited instance lock must still
+/// be held. This only probes locks and never adopts or signals a process.
+pub(crate) fn retained_pool_slots(
+    state: &AppState,
+    task: &str,
+) -> io::Result<u8> {
+    let inventory = inspect(state)?;
+    if !inventory.issues.is_empty() {
+        return Err(invalid(
+            "command inventory is incomplete; refusing to infer Orbit process ownership",
+        ));
+    }
+    let directory = instance::instance_directory(state)?;
+    let mut retained = 0;
+    for process in inventory.processes {
+        if process.task.as_deref() != Some(task)
+            || process.dispatch != Some(TaskDispatch::Pool)
+        {
+            continue;
+        }
+        let path = directory.join(format!("{}.instance", process.instance_key));
+        let file = open_read(&path)?;
+        match instance::try_lock(file.as_raw_fd()) {
+            Ok(()) => continue,
+            Err(error) if instance::is_lock_busy(&error) => {
+                if !process.process.is_alive() {
+                    return Err(invalid(
+                        "retained command lock has no verified process identity",
+                    ));
+                }
+                retained = retained.max(process.slot.ok_or_else(|| {
+                    invalid("retained command has no task slot")
+                })?);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(retained)
+}
+
 fn inspect_one(
     path: &Path,
     instance_key: String,

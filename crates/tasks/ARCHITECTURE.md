@@ -181,6 +181,27 @@ A Rust handler and an external command share the same scheduling and
 retry machinery. External commands additionally expose OS-process exit
 policy because they can survive the task runner that started them.
 
+### Orbit tasks
+
+An `orbit: { fleet, kind, workers, command }` entry runs the processes of one
+Orbit Link fleet; `TaskService::register_orbit` registers the same entry in
+code. It settles into a command task on the master, as one daemon: scope,
+dispatch, timing and concurrency are not written. One task runs each fleet,
+never the fleet hosting the service.
+
+The processes create and join their fleet and declare its geometry; the
+service never does. `kind: runner` starts the one process and leaves its
+workers to the runner's master. `kind: task` starts `workers.min` processes in
+stable pool slots, waits for the Link the first one creates
+(`ApplicationSegment::adopt_when_created`, woken by the creator's bell), then
+publishes its growth policy and watches the fleet without a lane through
+`FleetGrowth`. It counts the processes it started, never lanes or application
+names: a process may claim several lanes, serve several names or only invoke.
+One pressure episode starts one process; the episode ends when that process's
+pid claims a lane, or when its slot ends. A slot whose attempts are spent stops
+growth rather than being refilled by the next episode. Each slot publishes its
+command's pid in the runner's shared process-control state; nothing polls.
+
 ---
 
 ## 2. Position in the layering
