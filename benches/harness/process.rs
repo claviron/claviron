@@ -98,6 +98,22 @@ impl Family {
         self.peers.sort_by_key(|peer| peer.identity.worker);
         Ok(())
     }
+    /// Whether a worker that connected after startup — one its supervisor
+    /// added — belongs to this family and is not one already known.
+    fn admits(
+        &self,
+        info: &Identity,
+    ) -> bool {
+        info.side == self.launch.side
+            && info.master_pid == self.child.id()
+            && info.fleet == self.launch.fleet
+            && info.worker.is_some()
+            && !self.peers.iter().any(|peer| {
+                peer.identity.worker == info.worker
+                    || peer.identity.pid == info.pid
+            })
+    }
+
     pub async fn shutdown(&mut self) -> Result<()> {
         if self.joined {
             return Ok(());
@@ -144,6 +160,33 @@ impl Drop for Family {
             let _ = self.process.signal(libc::SIGTERM);
             let _ = self.child.wait();
         }
+    }
+}
+
+/// Take every worker that connected since the last look into its family,
+/// without waiting for one: called between measurement windows, so a worker
+/// added under pressure is measured from the next window on, whole.
+pub async fn adopt_late(
+    listener: &UnixListener,
+    families: &mut [Family],
+) -> Result<usize> {
+    let mut adopted = 0;
+    loop {
+        let (stream, _) = tokio::select! {
+            biased;
+            accepted = listener.accept() => accepted?,
+            () = std::future::ready(()) => return Ok(adopted),
+        };
+        let mut channel = Channel::new(stream);
+        let Reply::Ready(info) = channel.receive::<Reply>().await? else {
+            return Err("a late peer sent no readiness identity".into());
+        };
+        let family = families
+            .iter_mut()
+            .find(|family| family.admits(&info))
+            .ok_or("a late peer belongs to no supervised family")?;
+        family.peers.push(Peer { identity: info, channel });
+        adopted += 1;
     }
 }
 

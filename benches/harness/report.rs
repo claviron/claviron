@@ -164,6 +164,8 @@ async fn measure(
         wait(families, args.warmup_seconds).await?;
         let mut samples = Vec::new();
         for _ in 0..args.samples.get() {
+            // Workers added under pressure join from this window on.
+            process::adopt_late(listener, families).await?;
             process::require_ack(
                 process::broadcast(families, &Command::Begin).await?,
             )?;
