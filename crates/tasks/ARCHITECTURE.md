@@ -273,9 +273,9 @@ classifies each task against the active one, drains the selected tasks within
 one deadline (the candidate's `graceful_timeout`), and only then publishes.
 
 - **One at a time.** A reload takes the service's reload lock, which
-  management commands also take. A reload that finds it held returns at once
-  without reading the configuration, so a change that lands while another
-  reload or a command runs is not applied until the next reload.
+  management commands also take. A reload that finds it held waits, then
+  reads the newest configuration; a change that lands during another reload
+  is applied by the reload it triggered.
 - **Classification.** Each task is unchanged, started, stopped, rebuilt
   (executor, Orbit block, scope, dispatch, concurrency, overlap or timing kind
   changed), rescheduled (other timing fields) or reconfigured (command, Orbit

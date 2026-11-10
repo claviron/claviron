@@ -2189,17 +2189,13 @@ impl Reloadable<AppState> for TaskService {
         #[cfg(feature = "metrics")]
         crate::metrics::inc_reload();
 
-        // Claim the whole reload transaction before reading config. Otherwise
-        // a coalesced signal could publish a new snapshot without restarting
-        // the supervisors that consume it.
-        let Ok(guard) = Arc::clone(&self.reload_lock).try_lock_owned() else {
-            // Already reloading; coalesce this signal
-            debug!(
-                "TaskService reload: coalesced (reload already in progress)"
-            );
-            return Ok(());
-        };
-        let _guard = guard;
+        // Claim the whole reload transaction before reading config, so a
+        // snapshot is never published without restarting the supervisors
+        // that consume it. A reload that finds another reload or a
+        // management command running waits for it and then reads the newest
+        // configuration: returning at once would acknowledge a change that
+        // nobody applies.
+        let _guard = Arc::clone(&self.reload_lock).lock_owned().await;
 
         // Re-read and validate before the old runners are touched. Keep the
         // candidate private while the current runtime begins its reload
