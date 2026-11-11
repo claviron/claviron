@@ -29,6 +29,10 @@ pub(super) enum Connection {
     WebTransport(H3Connection),
 }
 
+#[allow(
+    clippy::large_enum_variant,
+    reason = "The connection loop consumes each accept result immediately. Keeping the resolver inline avoids a separate allocation for each accepted bidirectional stream."
+)]
 pub(super) enum Incoming {
     Bidi(BidiResolver),
     Ignored,

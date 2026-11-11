@@ -165,6 +165,10 @@ impl Execution {
         outcome
     }
 
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "The controller owns the process slots and cancellation tokens through shutdown. The growth loop borrows that state and its worker policy."
+    )]
     async fn grow(
         &self,
         orbit: &OrbitTask,
@@ -236,12 +240,12 @@ impl Execution {
                 expired = idle_wait => {
                     if let Some(pid) = expired.map_err(|error| registry::Error::msg(error.to_string()))? {
                         let slot = *started as u8;
-                        if processes.borrow().get(&slot).copied() == Some(pid) {
-                            if let Some(token) = tokens.get(&slot) {
-                                retiring = Some(slot);
-                                token.cancel();
-                                tracing::info!(task, slot, pid, "retiring idle Orbit command slot");
-                            }
+                        if processes.borrow().get(&slot).copied() == Some(pid)
+                            && let Some(token) = tokens.get(&slot)
+                        {
+                            retiring = Some(slot);
+                            token.cancel();
+                            tracing::info!(task, slot, pid, "retiring idle Orbit command slot");
                         }
                     }
                 }
