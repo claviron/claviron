@@ -832,3 +832,20 @@ async fn bounded_receivers_fill_from_each_senders_home() {
     let _ = bodies.unlink();
     let _ = segment.unlink();
 }
+
+/// A refusal is stated once per episode, and the episode ends only when the
+/// directory generation moves: repeated refusals under one generation stay
+/// silent, and the first one under the next is stated again.
+#[test]
+fn a_refusal_episode_is_stated_once_per_directory_generation() {
+    let episode = Episode::default();
+    assert!(episode.opens(7));
+    assert!(!episode.opens(7));
+    assert!(!episode.opens(7));
+    assert!(episode.opens(8));
+    assert!(!episode.opens(8));
+    // Generation zero is a generation like any other, not "no episode".
+    let episode = Episode::default();
+    assert!(episode.opens(0));
+    assert!(!episode.opens(0));
+}

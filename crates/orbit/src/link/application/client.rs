@@ -407,6 +407,26 @@ pub struct ApplicationClient {
     reader: Mutex<Option<tokio::task::JoinHandle<()>>>,
     last_seen: Arc<Mutex<HashMap<String, String>>>,
     application_states: Arc<Mutex<HashMap<usize, ApplicationBatch>>>,
+    /// The episode in which every stream slot of this caller's lane was open.
+    lane_full: Episode,
+}
+
+/// One refusal episode, stated once. The episode is the directory
+/// generation it was stated under: it ends when the directory moves, an
+/// event, never a timer. Only the refusal path reads or writes it.
+#[derive(Default)]
+struct Episode(AtomicU64);
+
+impl Episode {
+    /// Whether a refusal seen under `generation` opens a new episode.
+    fn opens(
+        &self,
+        generation: u64,
+    ) -> bool {
+        // Zero is no episode; a stated one holds its generation plus one.
+        let stamp = generation.wrapping_add(1).max(1);
+        self.0.swap(stamp, Ordering::Relaxed) != stamp
+    }
 }
 
 #[derive(Default)]
@@ -729,6 +749,7 @@ impl ApplicationClient {
             reader: Mutex::new(None),
             last_seen: Arc::new(Mutex::new(HashMap::new())),
             application_states: Arc::new(Mutex::new(HashMap::new())),
+            lane_full: Episode::default(),
         });
         let reader = client.spawn_reader(name, events, link)?;
         *client.reader.lock().expect("reader handle") = Some(reader);
@@ -1043,7 +1064,18 @@ impl ApplicationClient {
         // here rather than after the write, because the frame below is what
         // tells the far side a new exchange has begun and it must not carry a
         // slot that still holds the last one's state.
-        let (mut endpoint, ticket) = self.take_hot()?;
+        let (mut endpoint, ticket) = match self.take_hot() {
+            Ok(slot) => slot,
+            Err(error) => {
+                if let Error::Stream(orbitive::stream::Error::Full {
+                    capacity,
+                }) = &error
+                {
+                    self.lane_full(application, *capacity);
+                }
+                return Err(error);
+            }
+        };
         // Only acquisition is serialized. Encoding, publication and the whole
         // exchange lifetime run after the next queued creator can proceed.
         drop(acquisition);
@@ -1155,6 +1187,27 @@ impl ApplicationClient {
         &self
     ) -> orbitive::stream::CapacityChanged {
         self.bodies.streams().capacity_changed()
+    }
+
+    /// Every stream slot of this caller's lane is held by an open exchange:
+    /// the destination's declared `lane_capacity` bounds what one caller has
+    /// open toward its fleet, and this exchange waits for one to end, up to
+    /// the caller's own queue budget. The receivers are not full, so this is
+    /// no growth pressure. Stated once per episode.
+    fn lane_full(
+        &self,
+        application: &str,
+        capacity: usize,
+    ) {
+        if self.lane_full.opens(self.inbox().directory()) {
+            tracing::warn!(
+                fleet_name = %self.fleet,
+                application,
+                lane_capacity = capacity,
+                "🛰 this process holds lane_capacity {capacity} open Link exchanges to '{}'; requests for '{application}' wait for one to end",
+                self.fleet
+            );
+        }
     }
 
     /// A kept stream re-armed for this exchange, or a new one.
