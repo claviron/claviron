@@ -317,10 +317,14 @@ pub struct TaskConfig {
     #[serde(default)]
     pub command: Option<CommandSpec>,
 
-    /// Run the processes of one Orbit fleet; see [`OrbitTask`]. Its command
+    /// Run the processes of one Link fleet; see [`LinkTask`]. Its command
     /// becomes this task's `command` when the configuration is prepared.
     #[serde(default)]
-    pub orbit: Option<OrbitTask>,
+    pub link: Option<LinkTask>,
+
+    /// Removed; read only to say so. The block is now `link:`.
+    #[serde(default, rename = "orbit", deserialize_with = "removed_orbit")]
+    pub(crate) removed_orbit: (),
 
     /// Run this task on the embedded PHP engine. Mutually exclusive with the
     /// other two — see [`TaskConfig::executor`].
@@ -435,30 +439,38 @@ impl TaskConfig {
     }
 }
 
-/// The processes of one Orbit fleet, run by TaskService.
+fn removed_orbit<'de, D: Deserializer<'de>>(_: D) -> Result<(), D::Error> {
+    Err(de::Error::custom(
+        "a task's `orbit:` block is now `link:`, and its `kind: task` is now `kind: worker`",
+    ))
+}
+
+/// The processes of one Link fleet, run by TaskService: worker policy for
+/// applications that have no supervisor of their own. A fixed count needs no
+/// Link task; an ordinary `each` or `pool` task runs it.
 ///
 /// The processes create and join their fleet themselves and declare its
 /// geometry; TaskService never does. It starts and stops them on the master
 /// (one controller, so scope, dispatch, timing and concurrency are not
-/// written) and, for [`OrbitTaskKind::Task`], adds one per pressure episode
-/// of the fleet within `workers`. A [`OrbitTaskKind::Runner`] grows its own
+/// written) and, for [`LinkTaskKind::Worker`], adds one per pressure episode
+/// of the fleet within `workers`. A [`LinkTaskKind::Runner`] grows its own
 /// workers: TaskService starts its one process.
 #[derive(Deserialize, Clone, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct OrbitTask {
+pub struct LinkTask {
     pub fleet: String,
-    pub kind: OrbitTaskKind,
-    /// How many processes run: required for `task`, refused for `runner`.
+    pub kind: LinkTaskKind,
+    /// How many processes run: required for `worker`, refused for `runner`.
     #[serde(default)]
     pub workers: Option<claviron_orbit::config::Workers>,
     /// Moved to the task's `command` when the configuration is prepared.
     command: Option<CommandSpec>,
 }
 
-impl OrbitTask {
+impl LinkTask {
     pub fn new(
         fleet: impl Into<String>,
-        kind: OrbitTaskKind,
+        kind: LinkTaskKind,
         workers: Option<claviron_orbit::config::Workers>,
         command: CommandSpec,
     ) -> Self {
@@ -466,28 +478,51 @@ impl OrbitTask {
     }
 }
 
-/// Who grows an Orbit task's processes.
+/// What a Link task's command is, and so who owns the worker count.
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum OrbitTaskKind {
-    /// TaskService, on the fleet's pressure, within `workers`.
-    Task,
-    /// The process itself: a runner whose master owns its workers.
+#[serde(try_from = "LinkTaskKindName")]
+pub enum LinkTaskKind {
+    /// One worker of the fleet. TaskService owns the count: it grows on the
+    /// fleet's pressure, within `workers`.
+    Worker,
+    /// A runner whose master owns its workers.
     Runner,
 }
 
+/// The kinds as written, including the one that was renamed.
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum LinkTaskKindName {
+    Worker,
+    Runner,
+    Task,
+}
+
+impl TryFrom<LinkTaskKindName> for LinkTaskKind {
+    type Error = &'static str;
+    fn try_from(value: LinkTaskKindName) -> Result<Self, Self::Error> {
+        match value {
+            LinkTaskKindName::Worker => Ok(Self::Worker),
+            LinkTaskKindName::Runner => Ok(Self::Runner),
+            LinkTaskKindName::Task => {
+                Err("Link task `kind: task` is now `kind: worker`")
+            }
+        }
+    }
+}
+
 impl TaskConfig {
-    /// Settle an Orbit task into the command task it runs as: its command,
-    /// on the master, as one daemon. Refuses what an Orbit task does not let
+    /// Settle a Link task into the command task it runs as: its command,
+    /// on the master, as one daemon. Refuses what a Link task does not let
     /// the entry choose.
-    pub(crate) fn materialize_orbit(&mut self) -> Result<(), String> {
-        let Some(orbit) = self.orbit.as_mut() else { return Ok(()) };
-        let Some(command) = orbit.command.take() else {
+    pub(crate) fn materialize_link(&mut self) -> Result<(), String> {
+        let Some(link) = self.link.as_mut() else { return Ok(()) };
+        let Some(command) = link.command.take() else {
             // A registered entry is settled once, and keeps what it ran.
             if self.command.is_some() {
                 return Ok(());
             }
-            return Err("an Orbit task declares orbit.command".into());
+            return Err("a Link task declares link.command".into());
         };
         if self.command.is_some()
             || self.php.is_some()
@@ -495,7 +530,7 @@ impl TaskConfig {
             || self.lua.is_some()
         {
             return Err(
-                "an Orbit task declares its process under orbit.command only"
+                "a Link task declares its process under link.command only"
                     .into(),
             );
         }
@@ -504,21 +539,29 @@ impl TaskConfig {
             || self.timing != TaskTiming::default()
             || self.concurrency != 1
         {
-            return Err("an Orbit task runs on the master as one daemon; scope, dispatch, timing and concurrency are not written".into());
+            return Err("a Link task runs on the master as one daemon; scope, dispatch, timing and concurrency are not written".into());
         }
-        match (orbit.kind, orbit.workers.is_some()) {
-            (OrbitTaskKind::Task, false) => {
+        match (link.kind, link.workers.is_some()) {
+            (LinkTaskKind::Worker, false) => {
                 return Err(
-                    "an Orbit task of kind task declares workers".into()
+                    "a Link task of kind worker declares workers".into()
                 );
             }
-            (OrbitTaskKind::Runner, true) => {
-                return Err("a runner grows its own workers; its Orbit task declares none".into());
+            (LinkTaskKind::Runner, true) => {
+                return Err("a runner grows its own workers; its Link task declares none".into());
             }
             _ => {}
         }
-        if let Some(workers) = orbit.workers {
+        if let Some(workers) = link.workers {
             workers.validate().map_err(|error| error.to_string())?;
+            if let claviron_orbit::config::Workers::Dynamic(policy) = workers
+                && matches!(
+                    policy.max,
+                    claviron_orbit::config::WorkerMax::Named(_)
+                )
+            {
+                return Err("a Link task declares workers.max as a number: `available` counts a supervisor's seats, and a Link task has none".into());
+            }
         }
         self.command = Some(command);
         self.scope = Some(TaskScope::Master);

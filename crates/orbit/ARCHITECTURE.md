@@ -722,8 +722,11 @@ opening a mismatched object refuses it rather than resizing or unlinking peers.
 `Static { count }` starts exactly that count and publishes no growth;
 `Dynamic(GrowthPolicy)` (`policy: dynamic`; `on_pressure` is still accepted)
 starts at `min` and grows up to `max`, one process per unmet-demand episode. A
-runner uses its supervisor; an Orbit Task controller uses its owned command
-slots. `orbit[].balance: first | round_robin` belongs to the caller's prepared
+runner uses its supervisor; a Link task (`tasks.<name>.link`, `kind: worker`)
+uses its owned command slots, and refuses `max: available`, which counts a
+supervisor's seats. `dynamic` needs receivers that declare `max_in_flight`;
+the Link task's controller withdraws its policy over unbounded ones.
+`orbit[].balance: first | round_robin` belongs to the caller's prepared
 backend and never travels through a binding ABI.
 
 `retire_idle: off` adds no lane or timer. An explicit

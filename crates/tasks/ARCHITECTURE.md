@@ -25,14 +25,14 @@ one of:
 | builtin | `#[task]`, `TaskService::register_fn`, `register_builtin` | A Rust future in the runtime's Tokio runtime |
 | command | `command:` | A child process |
 | php / js / lua | `php:`, `js:`, `lua:` | A script on an engine the binary carries |
-| orbit | `orbit:`, `TaskService::register_orbit` | The processes of one Orbit fleet (§11) |
+| link | `link:`, `TaskService::register_link` | The processes of one Link fleet (§11) |
 
 One entry declares at most one body block. `TaskConfig::executor()` is the
 one place that decides which body an entry has.
 
 **The task table** is what runs. It is the prepared `tasks.yaml`, plus the
 entries that registered tasks carry for themselves (a `#[task(config = …)]`
-or `register_builtin` default, and every `register_orbit` entry). A file entry
+or `register_builtin` default, and every `register_link` entry). A file entry
 under the same name replaces a registered one whole; nothing is merged. A
 Rust body with no entry in the table is registered but never started, and an
 explicit run of it reports `TaskNotFound`.
@@ -70,8 +70,8 @@ outside standalone, the kind `226` snapshot ring. It is:
   commands, snapshot publication and shutdown need one owner.
 
 Preparing a candidate table, at boot or reload, folds in the registered
-entries, the scheduler policy and the service's `command.path`, settles Orbit
-entries (§11), and validates the whole table before anything is published. A
+entries, the scheduler policy and the service's `command.path`, settles Link
+task entries (§11), and validates the whole table before anything is published. A
 failed boot or reload never exposes a partly accepted table.
 
 **Starting a task.** Only an entry whose automatic trigger is enabled is
@@ -278,8 +278,8 @@ one deadline (the candidate's `graceful_timeout`), and only then publishes.
   reads the newest configuration; a change that lands during another reload
   is applied by the reload it triggered.
 - **Classification.** Each task is unchanged, started, stopped, rebuilt
-  (executor, Orbit block, scope, dispatch, concurrency, overlap or timing kind
-  changed), rescheduled (other timing fields) or reconfigured (command, Orbit
+  (executor, Link block, scope, dispatch, concurrency, overlap or timing kind
+  changed), rescheduled (other timing fields) or reconfigured (command, Link
   declaration, attempts, backoff, graceful timeout, silent). A disabled entry
   counts as absent. Every class but unchanged drains and restarts the task;
   the names are reported in the log. Changing only `reload_action` or the
@@ -427,38 +427,48 @@ only after stopping it: it does not take the controller lock.
 
 ---
 
-## 11. Orbit tasks
+## 11. Link tasks
 
-An `orbit:` entry runs the processes of one Orbit Link fleet:
+A `link:` entry runs the processes of one Link fleet. It is worker policy for
+applications that have no supervisor of their own: bindings, and a runner
+built without the supervisor feature. It gives them what
+`orbit.link.workers` gives a runner. A fixed count needs no Link task; an
+ordinary `each` or `pool` command task runs it.
 
 ```yaml
 tasks:
   c-link:
-    orbit:
+    link:
       fleet: c
-      kind: task
+      kind: worker
       workers: { policy: dynamic, min: 4, max: 16, step: 1, retire_idle: off }
       command: { program: /path/to/c-link, args: [--execution, current] }
 ```
 
-`TaskService::register_orbit(name, OrbitTask)` registers the same entry in
+| | `kind: worker` | `kind: runner` |
+| --- | --- | --- |
+| The command is | one worker of the fleet | a runner that owns its workers |
+| Count owned by | the task (`workers` required) | the runner (`workers` refused) |
+| Why declare it | growth and retirement | the task is known to manage a Link fleet |
+
+`TaskService::register_link(name, LinkTask)` registers the same entry in
 code. The entry settles into a command task: its `command` moves to the
 task's, and it runs on the master as one daemon (`scope: master`,
 `dispatch: one`). Scope, dispatch, timing and concurrency are therefore not
 written. One task runs each fleet, and never the fleet hosting the service.
+`workers.max: available` is refused: it counts a supervisor's seats, and a
+Link task has none. The earlier `orbit:` block and `kind: task` are refused
+with messages naming `link:` and `kind: worker`.
 
 The processes create and join their fleet and declare its geometry; the
-service never does.
-
-- `kind: runner` starts the one process. Its workers belong to the runner's
-  master, so the entry declares no `workers`.
-- `kind: task` requires `workers` and takes a host-wide lock on the fleet. It
-  starts `max(initial_count, retained)` processes in stable pool slots, where
-  retained is the highest slot whose command still holds its instance lock
-  (more than `workers.max` refuses to start). It then waits for the Link the
-  first process creates (`ApplicationSegment::adopt_when_created`, woken by
-  the creator's bell), publishes its growth policy through `FleetGrowth`, and
-  watches the fleet without a lane.
+service never does. A `kind: worker` task takes a host-wide lock on the fleet
+(`claviron.link.task:{euid}:{fleet}`). It starts
+`max(initial_count, retained)` processes in stable pool slots, where retained
+is the highest slot whose command still holds its instance lock (more than
+`workers.max` refuses to start). It then waits for the Link the first process
+creates (`ApplicationSegment::adopt_when_created`, woken by the creator's
+bell), publishes its growth policy through `FleetGrowth`, and watches the
+fleet without a lane.
 
 It counts the processes it started, never lanes or application names: a
 process may claim several lanes, serve several names, or only invoke. A
@@ -468,6 +478,12 @@ or its slot ends. Each slot publishes its command's pid in the runner's stop
 state, so nothing polls. Growth stops for good once any slot spends its
 attempts, and the policy is withdrawn at `workers.max`. On stop the policy is
 withdrawn and every slot is drained.
+
+`dynamic` needs bounded receivers: an unbounded one never reports pressure.
+Once one of its processes has claimed a lane, the controller reads that
+lane's declared work capacity on the directory and process events it already
+handles. With none it logs one error, withdraws the policy and grows no
+further; the processes keep running.
 
 ---
 
@@ -587,7 +603,7 @@ Every section and entry refuses unknown fields. Per-task fields and defaults:
 
 | Field | Default | |
 |---|---|---|
-| `command` / `php` / `js` / `lua` / `orbit` | none | At most one; none is a Rust body |
+| `command` / `php` / `js` / `lua` / `link` | none | At most one; none is a Rust body |
 | `scope` | body default, else the runner's | §4 |
 | `dispatch` | body default, else the runner's | §4 |
 | `timing` | manual, 30s | §3 |
@@ -611,7 +627,7 @@ listed in §9.
 |---|---|
 | `lib.rs` | Public surface; `register()` wires the fleet, lock, snapshot ring, scheduler, manager and metrics |
 | `registry.rs` | `TaskRegistration`; re-exports `TaskScope`, `TaskDispatch` |
-| `config.rs` | `TaskServiceConfig`, `TaskConfig`, timing, attempts, body selection, Orbit settling |
+| `config.rs` | `TaskServiceConfig`, `TaskConfig`, timing, attempts, body selection, Link task settling |
 | `service.rs` | `TaskService`: table preparation and validation, start, reload, management commands, serve loop |
 | `runner.rs` | `TaskRunner`, `TaskRuntime`, `StopContext`; trigger loops, attempts and backoff, overlap |
 | `scheduler.rs` | The builtin cron scheduler |
@@ -619,7 +635,7 @@ listed in §9.
 | `completion.rs` | Shared join futures for stop and reload barriers |
 | `manager.rs` | `TaskManager` |
 | `snapshot.rs` | Status model, runtime state, kind `226` batches |
-| `orbit.rs` | The Orbit `kind: task` controller |
+| `link.rs` | The Link task `kind: worker` controller |
 | `executor.rs` | Engine tasks: `ScriptSpec`, `Executor`, `set_executor` |
 | `environment.rs` | Execution environment and its renewal |
 | `output.rs` | `LogConfig`, `LogTarget`, task-local writers |
@@ -635,9 +651,9 @@ listed in §9.
 
 Tests live under `tests/` and are included by each module through `#[path]`.
 
-### Orbit command count and routing are independent
+### Link worker count and routing are independent
 
-`orbit.workers` selects `static` with an explicit `count`, or `dynamic`
+`link.workers` selects `static` with an explicit `count`, or `dynamic`
 with `min`, `max`, `step: 1` and `retire_idle`. Static starts that count and
 has no growth policy. Growing command pools start at `min`. This master-only
 controller owns command slots; it does not dispatch application requests.
@@ -655,5 +671,5 @@ exhausts the slot's attempts and disables further growth. No polling or new
 termination budget is added.
 
 An ordinary command with `scope: workers`, `dispatch: each`, and
-`concurrency: 1` starts once per hosting worker. It has no Orbit controller,
-regardless of whether the executable itself serves requests over Orbit.
+`concurrency: 1` starts once per hosting worker. It has no Link controller,
+regardless of whether the executable itself serves requests over Link.

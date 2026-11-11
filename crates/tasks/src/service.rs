@@ -27,7 +27,7 @@ use tracing::{debug, error, info, warn};
 #[cfg(feature = "metrics")]
 use crate::config::TaskMetricsConfig;
 use crate::config::{
-    OrbitTask, TaskConfig, TaskExecutor, TaskExecutorKind, TaskPoolConfig,
+    LinkTask, TaskConfig, TaskExecutor, TaskExecutorKind, TaskPoolConfig,
     TaskServiceConfig, TaskSnapshotConfig, TaskTable, TaskTiming,
 };
 use crate::executor::Executor;
@@ -62,8 +62,8 @@ impl Clone for TaskService {
 pub(crate) struct Inner {
     /// Statically registered built-in task bodies.
     pub(crate) registry: RwLock<HashMap<String, Arc<TaskRunner>>>,
-    /// Entries registered in code with no body of their own, such as an
-    /// Orbit task; a `tasks.yaml` entry under the same name replaces one.
+    /// Entries registered in code with no body of their own, such as a
+    /// Link task; a `tasks.yaml` entry under the same name replaces one.
     declared: RwLock<TaskTable>,
     /// Command runners materialized from the active YAML task table.
     command_runners: RwLock<HashMap<String, Arc<TaskRunner>>>,
@@ -229,7 +229,7 @@ fn classify_task_change(
     };
 
     let structure_changed = active.executor_kind() != candidate.executor_kind()
-        || active.orbit.is_some() != candidate.orbit.is_some()
+        || active.link.is_some() != candidate.link.is_some()
         || effective_scope(active, runner)
             != effective_scope(candidate, runner)
         || effective_dispatch(active, runner)
@@ -247,7 +247,7 @@ fn classify_task_change(
     }
 
     if !same_command_runtime(&active.command, &candidate.command)
-        || active.orbit != candidate.orbit
+        || active.link != candidate.link
         || active.attempts != candidate.attempts
         || active.backoff != candidate.backoff
         || active.graceful_timeout != candidate.graceful_timeout
@@ -478,8 +478,8 @@ impl TaskService {
         self.merge_builtin_defaults(&mut cfg.tasks);
         Self::materialize_scheduler(&mut cfg)?;
         for (name, task) in cfg.tasks.iter_mut() {
-            if task.orbit.is_some() {
-                Arc::make_mut(task).materialize_orbit().map_err(|error| {
+            if task.link.is_some() {
+                Arc::make_mut(task).materialize_link().map_err(|error| {
                     claviron_runtime::registry::Error::msg(format!(
                         "task '{name}': {error}"
                     ))
@@ -832,7 +832,7 @@ impl TaskService {
     ) -> claviron_runtime::registry::Result<()> {
         let registry = self.inner.registry.read_unpoisoned();
         let mut needs_fleet = false;
-        crate::orbit::validate_fleets(
+        crate::link::validate_fleets(
             tasks.iter().map(|(name, task)| (name.as_str(), task.as_ref())),
             state.fleet_name(),
         )?;
@@ -1028,15 +1028,15 @@ impl TaskService {
         self.register_fn(name, runner.with_defaults(config))
     }
 
-    /// Register an Orbit task in code: the entry exists without a line in
+    /// Register a Link task in code: the entry exists without a line in
     /// `tasks.yaml`, and a line under its name replaces it whole. Its
     /// declaration is checked with the configuration, at boot or reload.
-    pub fn register_orbit(
+    pub fn register_link(
         &self,
         name: impl Into<String>,
-        orbit: OrbitTask,
+        link: LinkTask,
     ) -> &Self {
-        let entry = TaskConfig { orbit: Some(orbit), ..TaskConfig::empty() };
+        let entry = TaskConfig { link: Some(link), ..TaskConfig::empty() };
         self.inner
             .declared
             .write_unpoisoned()

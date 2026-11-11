@@ -128,7 +128,7 @@ struct StopState {
     cause: AtomicU8,
     reload_action: Mutex<Option<ReloadAction>>,
     reload_signal: watch::Sender<Option<ProcessSignal>>,
-    /// Slot to pid of the command running there. An Orbit task's controller
+    /// Slot to pid of the command running there. A Link task's controller
     /// matches them to the Link lanes its processes claim.
     processes: watch::Sender<BTreeMap<u8, u32>>,
 }
@@ -1027,11 +1027,11 @@ impl TaskRunner {
         token: CancellationToken,
     ) {
         if cfg
-            .orbit
+            .link
             .as_ref()
-            .is_some_and(|orbit| orbit.kind == crate::OrbitTaskKind::Task)
+            .is_some_and(|link| link.kind == crate::LinkTaskKind::Worker)
         {
-            crate::orbit::Execution {
+            crate::link::Execution {
                 runner: self,
                 state,
                 config: cfg,
@@ -1046,8 +1046,8 @@ impl TaskRunner {
             .await;
     }
 
-    /// Run one slot's body with its retries; an Orbit task's controller runs
-    /// each of its processes through this.
+    /// Run one slot's body with its retries; a Link task's controller runs
+    /// each of its workers through this.
     pub(crate) async fn run_owned_slot(
         self: Arc<Self>,
         worker_number: u8,

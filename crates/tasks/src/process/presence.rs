@@ -394,7 +394,7 @@ pub(crate) fn retained_pool_slots(
     let inventory = inspect(state)?;
     if !inventory.issues.is_empty() {
         return Err(invalid(
-            "command inventory is incomplete; refusing to infer Orbit process ownership",
+            "command inventory is incomplete; refusing to infer Link worker ownership",
         ));
     }
     let directory = instance::instance_directory(state)?;

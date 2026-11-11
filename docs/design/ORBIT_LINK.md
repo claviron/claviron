@@ -165,13 +165,20 @@ with the consumer.
 ## Process counts and receiver selection
 
 A caller route's `balance` selects `first` or `round_robin`; the application
-process owner selects its count. A runner or command controller can declare
+process owner selects its count. A runner (`orbit.link.workers`) or a Link
+task (`tasks.<name>.link`) can declare
 `workers: { policy: static, count: 4 }`, or
 `workers: { policy: dynamic, min: 4, max: 16, step: 1, retire_idle: off }`
 (`on_pressure` is the earlier spelling of `dynamic`, still accepted).
-Static and growing applications use the same independent routing policies.
-Without an Orbit controller, a plain command may be launched by any ordinary
-process owner and serve as many instances as that owner starts.
+Static and growing applications use the same independent `balance`.
+`dynamic` grows only over receivers that declare `max_in_flight`: an unbounded
+receiver never reports pressure.
+
+A Link task is worker policy for applications without a supervisor of their
+own, such as a binding's process: `kind: worker` grows the fleet's processes,
+`kind: runner` starts one runner that owns its workers. A fixed count needs no
+Link task; a plain command may be launched by any ordinary process owner and
+serve as many instances as that owner starts.
 
 Idle retirement is opt-in with a declared `idle_timeout`, requires tracked
 admission and uses existing capacity wakes. It is the owner's graceful removal
