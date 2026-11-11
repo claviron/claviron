@@ -44,8 +44,8 @@ budget; transport geometry and cache/HTTP hot paths are unchanged.
 
 Each placement retains its own description, so a mixed deployment does not
 silently take one worker's metadata as the whole application's truth.
-Embedded and linked applications use this same snapshot and controller
-vocabulary. Linked is a remote control relationship; Orbit is the currently
+Embedded and Link applications use this same snapshot and controller
+vocabulary. Link is a remote control relationship. Orbit is the currently
 implemented connection method. Ordinary HTTP/FastCGI upstreams remain a
 separate domain and acquire no start/stop authority merely by being reachable.
 
@@ -95,7 +95,7 @@ and PID is nullable when the directory has no owner. No remote process role or
 source fleet is inferred. The former transponder query/reply topics and
 automatic responder are removed: an edge with N workers and an application
 with M workers needs N×M local connection observations on either side, not
-queries and answers broadcast to every other worker and linked application.
+queries and answers broadcast to every other worker and Link application.
 Application-private and explicit shared domain events keep their normal
 fleet/Link transport. No SHM layout, capacity or duration changes.
 
@@ -132,6 +132,10 @@ reported. Supervised workers publish at their existing application snapshot
 cadence; a runner also reports when its Link lane joins, on an Edge status
 request, and after an application lifecycle event. Application state is never
 inferred from a connected Link lane.
+
+An application owner may attach its declared executor placement to the
+description where the same owner produces the status. Unavailable placement
+stays absent. The optional value occupies the existing description budget.
 
 Description-bearing rows use wire version 2 and SHM kind `192`, replacing
 retired kind `235`. The 512-byte payload capacity is unchanged; description

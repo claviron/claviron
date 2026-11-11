@@ -40,7 +40,7 @@ This selects processes, independently of your Tokio runtime and listener executi
 
 Each listener is a managed runnable. Edge prepares a pipeline for each selected
 listener/host combination; unused layers contribute no request-time action.
-Serve files, register Rust handlers or route to embedded and Orbit-linked apps.
+Serve files, register Rust handlers or route to embedded and Orbit Link apps.
 See the [Edge guide](crates/edge/README.md) for configuration and host registration.
 
 ## Write your own application server
@@ -514,7 +514,7 @@ and connection details.
 processes or fleets connected through [Orbit Link](https://crates.io/crates/orbitive)
 on the same host.
 
-<p><a href="assets/gui-applications.png"><img src="assets/gui-applications.png" width="480" alt="Embedded and Orbit-linked applications"></a></p>
+<p><a href="assets/gui-applications.png"><img src="assets/gui-applications.png" width="480" alt="Embedded and Orbit Link applications"></a></p>
 
 **Tasks** — daemon, scheduled, and manual task groups; the daemon list shows
 running instance counts.

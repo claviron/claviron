@@ -1,3 +1,5 @@
+use claviron_runtime::{ExecutorKind, ExecutorSpec};
+
 use crate::ApplicationId;
 
 /// Boot-prepared execution facts, independent of application identity and transport.
@@ -23,6 +25,34 @@ pub struct ApplicationDescription {
     /// Engine-owned vocabulary: e.g. application/script, ASGI/WSGI or fetch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_mode: Option<String>,
+    /// Placement declared by the application owner, when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution: Option<ApplicationExecution>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ApplicationExecution {
+    Inherit,
+    Shared,
+    DedicatedCurrentThread,
+    DedicatedMultiThread { threads: std::num::NonZeroUsize },
+}
+
+impl ApplicationExecution {
+    pub fn from_executor(spec: &ExecutorSpec) -> Option<Self> {
+        match spec {
+            ExecutorSpec::Inherit => Some(Self::Inherit),
+            ExecutorSpec::Shared(_) => Some(Self::Shared),
+            ExecutorSpec::Dedicated(ExecutorKind::CurrentThread) => {
+                Some(Self::DedicatedCurrentThread)
+            }
+            ExecutorSpec::Dedicated(ExecutorKind::MultiThread { threads }) => {
+                Some(Self::DedicatedMultiThread { threads: *threads })
+            }
+            _ => None,
+        }
+    }
 }
 
 impl ApplicationDescription {

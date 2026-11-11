@@ -45,7 +45,7 @@ application or script. Framework labels are free-form informational tags.
 The same description travels in the
 existing Application snapshot over local fleet observation or Link; no HTTP
 request discovers it. Link does not imply a particular request mode, and
-ordinary upstream routing remains separate from linked application control.
+ordinary upstream routing remains separate from Link application control.
 
 A runner exists per language **engine**: the owner is the engine's service
 (embedded PHP, the ASGI engine, the JavaScript runtime). A framework on an

@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use async_trait::async_trait;
 use claviron_app::{
     ApplicationControlResult, ApplicationController, ApplicationDescription,
-    ApplicationId, ApplicationLifecycle, ApplicationName,
+    ApplicationExecution, ApplicationId, ApplicationLifecycle, ApplicationName,
     ApplicationPoolStatus, ApplicationRuntime, ApplicationSnapshot,
 };
 use claviron_http::policy::HttpPolicy;
@@ -187,6 +187,14 @@ impl ModuleApplication {
         *self.last_error.lock().expect("application error") = failure;
     }
 
+    fn execution(&self) -> claviron_runtime::ExecutorSpec {
+        claviron_runtime::ExecutorSpec::Dedicated(
+            claviron_runtime::ExecutorKind::MultiThread {
+                threads: std::num::NonZeroUsize::from(self.settings.instances),
+            },
+        )
+    }
+
     fn snapshot(
         &self,
         runtime: &ApplicationRuntime,
@@ -195,6 +203,8 @@ impl ModuleApplication {
             ApplicationDescription::new(RUNTIME, "application");
         description.frameworks.clone_from(&self.settings.frameworks);
         description.icon.clone_from(&self.settings.icon);
+        description.execution =
+            ApplicationExecution::from_executor(&self.execution());
         let accepting = self.accepting.load(Ordering::Acquire);
         let last_error =
             self.last_error.lock().expect("application error").clone();
@@ -235,13 +245,7 @@ pub(crate) struct ModuleBackend {
 impl BackendHandler for ModuleBackend {
     fn contract(&self) -> BackendContract {
         BackendContract {
-            execution: claviron_runtime::ExecutorSpec::Dedicated(
-                claviron_runtime::ExecutorKind::MultiThread {
-                    threads: std::num::NonZeroUsize::from(
-                        self.application.settings.instances,
-                    ),
-                },
-            ),
+            execution: self.application.execution(),
             // A handler runs on another thread, where a borrowed context cannot
             // go: the connection and policy travel in the request.
             identity: BackendIdentity::Request,

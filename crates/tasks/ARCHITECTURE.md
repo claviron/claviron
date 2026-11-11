@@ -323,6 +323,12 @@ when submitted and again when applied, and are refused during shutdown.
 - `list` and `status` are observations (§13); `processes` reads the
   persistent command inventory (§10).
 
+A Link task reports its fleet, kind and declared worker policy from the local
+task table. The management endpoint can supplement a worker task with the
+number of verified running command processes in the local inventory. Task
+snapshot rows retain their existing shape. A runner task's workers belong to
+that runner.
+
 Commands report acceptance, not fleet convergence. A member that boots later,
 or reloads, reads the desired state from `tasks.yaml` again; there is no
 durable command store.

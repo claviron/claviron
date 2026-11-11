@@ -77,9 +77,9 @@ fn oversized_errors_are_truncated_explicitly() {
 }
 
 #[test]
-fn linked_snapshot_reuses_the_complete_application_row() {
+fn link_snapshot_reuses_the_complete_application_row() {
     let member = FleetMember { node_id: 2, role: FleetMemberRole::Worker };
-    let snapshot = FleetApplicationListSnapshot {
+    let mut snapshot = FleetApplicationListSnapshot {
         captured_at: UNIX_EPOCH + Duration::from_millis(1234),
         members_expected: 1,
         members_reporting: 1,
@@ -88,6 +88,10 @@ fn linked_snapshot_reuses_the_complete_application_row() {
             application("reports", member),
         ],
     };
+    snapshot.applications[0].placements[0].description.execution =
+        Some(crate::ApplicationExecution::DedicatedMultiThread {
+            threads: std::num::NonZeroUsize::new(2).unwrap(),
+        });
     let rows = encode_local_rows(&snapshot, member).unwrap();
     let decoded = decode_link_rows(&rows).unwrap();
     assert_eq!(decoded.applications.len(), 2);

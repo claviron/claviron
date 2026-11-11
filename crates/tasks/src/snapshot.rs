@@ -9,7 +9,7 @@ use bytes::Bytes;
 use claviron_helpers::sync::LockUnpoisoned;
 use claviron_orbit::{Fleet, NodeId, OrbitTyped, RingSpec};
 
-use crate::config::{TaskTable, TaskTiming};
+use crate::config::{LinkTaskKind, TaskTable, TaskTiming};
 use crate::registry::{TaskDispatch, TaskScope};
 
 const TASK_SNAPSHOT_RING_KIND: u8 = 226;
@@ -48,6 +48,7 @@ pub struct TaskStatus {
     pub timing: TaskTimingSummary,
     pub concurrency: u8,
     pub placements: Vec<TaskPlacementStatus>,
+    pub link_task: Option<LinkTaskStatus>,
 }
 
 /// The body implementation selected by the configured task.
@@ -58,6 +59,18 @@ pub enum TaskKind {
     Php,
     Js,
     Lua,
+    Link,
+}
+
+/// A task's Link declaration with an optional observation of its managed workers.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkTaskStatus {
+    pub fleet: String,
+    pub kind: LinkTaskKind,
+    pub workers: Option<claviron_orbit::config::Workers>,
+    /// Verified running command processes for a worker task. The runner kind
+    /// owns its workers in another process and does not report a count here.
+    pub running_workers: Option<u32>,
 }
 
 /// Operator-relevant timing information without exposing the whole config.

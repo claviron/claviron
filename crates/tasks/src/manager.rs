@@ -14,9 +14,12 @@ use claviron_orbit::{
 use claviron_runtime::AppState;
 use claviron_runtime::events::Event;
 
-use crate::TaskResult;
 use crate::service::TaskService;
 use crate::snapshot::{TaskListSnapshot, TaskStatusSnapshot};
+use crate::{
+    LinkTaskKind, TaskDispatch, TaskProcessControl, TaskProcessLiveness,
+    TaskProcessPhase, TaskResult, TaskStatus,
+};
 
 const TASK_COMMAND_TOPIC: &str = "claviron.tasks.command.v1";
 const ORBIT_EVENT_HEADER_BYTES: usize = 12;
@@ -237,6 +240,46 @@ impl TaskManager {
                 collected.by_task.remove(&task.name).unwrap_or_default();
         }
         Ok(snapshot)
+    }
+
+    /// Supplement configured worker tasks with a local command inventory
+    /// observation. This leaves the fleet snapshot record unchanged.
+    pub async fn observe_link_workers(
+        &self,
+        tasks: &mut [TaskStatus],
+    ) {
+        if !tasks.iter().any(|task| {
+            task.link_task
+                .as_ref()
+                .is_some_and(|link| link.kind == LinkTaskKind::Worker)
+        }) {
+            return;
+        }
+        let Ok(snapshot) = self.processes().await else {
+            return;
+        };
+        if !snapshot.issues.is_empty() {
+            return;
+        }
+        let mut counts = std::collections::HashMap::new();
+        for process in snapshot.processes {
+            if let Some(name) = process.task
+                && process.dispatch == Some(TaskDispatch::Pool)
+                && process.control == TaskProcessControl::Managed
+                && process.liveness == TaskProcessLiveness::Alive
+                && process.last_phase == Some(TaskProcessPhase::Running)
+            {
+                *counts.entry(name).or_insert(0u32) += 1;
+            }
+        }
+        for task in tasks {
+            if let Some(link) = &mut task.link_task
+                && link.kind == LinkTaskKind::Worker
+            {
+                link.running_workers =
+                    Some(counts.get(&task.name).copied().unwrap_or(0));
+            }
+        }
     }
 
     /// Return the current fleet snapshot for one configured logical task.

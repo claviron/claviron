@@ -76,7 +76,7 @@ where
         }
     }
 
-    /// A fixed execution bound supplied by the engine. A linked launch can
+    /// A fixed execution bound supplied by the engine. A Link launch can
     /// declare its waiting capacity but cannot override this bound. The
     /// tuple pairs the capacity with the engine key named in diagnostics.
     pub fn default_in_flight(

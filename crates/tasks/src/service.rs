@@ -40,8 +40,9 @@ use crate::process::{
 use crate::registry::{TaskDispatch, TaskScope};
 use crate::runner::{ExecutionPlacement, StopCause, StopContext, TaskRunner};
 use crate::snapshot::{
-    TaskKind, TaskLifecycle, TaskListSnapshot, TaskMember, TaskMemberRole,
-    TaskPlacementStatus, TaskRuntimeState, TaskStatus, TaskTimingSummary,
+    LinkTaskStatus, TaskKind, TaskLifecycle, TaskListSnapshot, TaskMember,
+    TaskMemberRole, TaskPlacementStatus, TaskRuntimeState, TaskStatus,
+    TaskTimingSummary,
 };
 use crate::{Error, TaskResult};
 
@@ -764,13 +765,23 @@ impl TaskService {
 
             statuses.push(TaskStatus {
                 name: name.clone(),
-                kind: match config.executor_kind() {
-                    TaskExecutorKind::Builtin => TaskKind::Builtin,
-                    TaskExecutorKind::Command => TaskKind::Command,
-                    TaskExecutorKind::Php => TaskKind::Php,
-                    TaskExecutorKind::Js => TaskKind::Js,
-                    TaskExecutorKind::Lua => TaskKind::Lua,
+                kind: if config.link.is_some() {
+                    TaskKind::Link
+                } else {
+                    match config.executor_kind() {
+                        TaskExecutorKind::Builtin => TaskKind::Builtin,
+                        TaskExecutorKind::Command => TaskKind::Command,
+                        TaskExecutorKind::Php => TaskKind::Php,
+                        TaskExecutorKind::Js => TaskKind::Js,
+                        TaskExecutorKind::Lua => TaskKind::Lua,
+                    }
                 },
+                link_task: config.link.as_ref().map(|link| LinkTaskStatus {
+                    fleet: link.fleet.clone(),
+                    kind: link.kind,
+                    workers: link.workers,
+                    running_workers: None,
+                }),
                 scope,
                 dispatch,
                 timing: TaskTimingSummary::from(&config.timing),

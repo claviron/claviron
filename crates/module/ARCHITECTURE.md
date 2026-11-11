@@ -8,7 +8,7 @@ C types and no `abi` feature. It uses their ordinary Rust APIs, the way the PHP 
 do. A module links against nothing of ours, so all it can reach is the host table.
 
 A module is in the process and is not an upstream: no gateway stands in front of it, and it is not
-reached over Orbit. A library in its own process is the C binding over Orbit, listed as a linked application.
+reached over Orbit. A library in its own process is the C binding over Orbit, listed as a Link application.
 That process's runnables are not Continuo services here, and nothing pretends they are.
 
 ## Sources

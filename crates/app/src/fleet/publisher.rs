@@ -170,11 +170,11 @@ impl Runnable<AppState, (Arc<ApplicationManager>, Arc<FleetProvider>)>
                                     None,
                                 )
                             {
-                                warn!(%error, "linked application snapshot publication failed");
+                                warn!(%error, "Link application snapshot publication failed");
                             }
                         }
                         Err(error) => {
-                            warn!(%error, "linked application snapshot encoding failed")
+                            warn!(%error, "Link application snapshot encoding failed")
                         }
                     }
                 }

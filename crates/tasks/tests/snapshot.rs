@@ -31,6 +31,7 @@ fn member_snapshot_batch_round_trips() {
         tasks: vec![TaskStatus {
             name: "queue".to_string(),
             kind: TaskKind::Command,
+            link_task: None,
             scope: TaskScope::Workers,
             dispatch: TaskDispatch::Pool,
             timing: TaskTimingSummary::Daemon { enabled: true },

@@ -28,6 +28,6 @@ pub use identity::{
 pub use manager::{ApplicationManager, ApplicationManagerError, register};
 pub use policy::{ApplicationLimits, ApplicationRetryPolicy};
 pub use status::{
-    ApplicationDescription, ApplicationLifecycle, ApplicationPoolStatus,
-    ApplicationSnapshot,
+    ApplicationDescription, ApplicationExecution, ApplicationLifecycle,
+    ApplicationPoolStatus, ApplicationSnapshot,
 };

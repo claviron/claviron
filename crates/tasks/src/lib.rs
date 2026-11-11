@@ -40,9 +40,9 @@ pub use process::{
 pub use registry::{TaskDispatch, TaskRegistration, TaskScope};
 pub use runner::{StopCause, StopContext, TaskRunner, TaskRuntime};
 pub use snapshot::{
-    TaskExecutionOutcome, TaskExecutionResult, TaskKind, TaskLifecycle,
-    TaskListSnapshot, TaskMember, TaskMemberRole, TaskPlacementStatus,
-    TaskStatus, TaskStatusSnapshot, TaskTimingSummary,
+    LinkTaskStatus, TaskExecutionOutcome, TaskExecutionResult, TaskKind,
+    TaskLifecycle, TaskListSnapshot, TaskMember, TaskMemberRole,
+    TaskPlacementStatus, TaskStatus, TaskStatusSnapshot, TaskTimingSummary,
 };
 
 /// Register the task service and every inventory-discovered Rust task.

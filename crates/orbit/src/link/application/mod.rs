@@ -53,7 +53,7 @@ pub use queue::{Offered, Start, WorkQueue};
 pub use receiver::ApplicationReceiver;
 pub use retirement::{IdleRetirement, RetirementSource, RetirementTarget};
 pub use segment::{ApplicationSegment, INBOX_GEOMETRY};
-pub use service::{ApplicationService, LinkedApplication};
+pub use service::{ApplicationService, LinkApplication};
 pub use target::ApplicationTarget;
 
 #[cfg(test)]

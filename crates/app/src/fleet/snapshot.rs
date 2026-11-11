@@ -210,16 +210,14 @@ pub(super) fn decode_link_rows(
     payloads: &[Vec<u8>]
 ) -> Result<FleetApplicationListSnapshot, String> {
     let Some(first) = payloads.first() else {
-        return Err("linked application snapshot has no rows".to_owned());
+        return Err("Link application snapshot has no rows".to_owned());
     };
     let first = WirePlacement::decode(first)?;
     let count = usize::from(first.row_count);
     if count > APPLICATION_SNAPSHOT_RING_CAPACITY
         || payloads.len() != count.max(1)
     {
-        return Err(
-            "linked application snapshot row count is invalid".to_owned()
-        );
+        return Err("Link application snapshot row count is invalid".to_owned());
     }
     let mut applications = Vec::with_capacity(count);
     for (index, payload) in payloads.iter().enumerate() {
@@ -230,18 +228,18 @@ pub(super) fn decode_link_rows(
             || row.row_count != first.row_count
             || usize::from(row.row_index) != index
         {
-            return Err("linked application snapshot rows disagree".to_owned());
+            return Err("Link application snapshot rows disagree".to_owned());
         }
         if count == 0 {
             if row.id.is_some() || index != 0 {
                 return Err(
-                    "linked empty application snapshot has an identity"
+                    "empty Link application snapshot has an identity"
                         .to_owned(),
                 );
             }
         } else {
             let id = row.id.clone().ok_or_else(|| {
-                "linked application snapshot is missing an identity".to_owned()
+                "Link application snapshot is missing an identity".to_owned()
             })?;
             applications.push(FleetApplicationStatus {
                 id,

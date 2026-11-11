@@ -24,7 +24,7 @@ use super::{
 /// One live or configured Link target. Link reachability says nothing about
 /// the owner process outside the Link directory.
 #[derive(Clone, Debug)]
-pub struct LinkedApplication {
+pub struct LinkApplication {
     pub fleet: FleetName,
     pub name: String,
     pub runtime: Option<String>,
@@ -149,7 +149,7 @@ impl ApplicationService {
 
     /// Read the current Link directories of every destination fleet this
     /// worker has joined, including applications without an edge route.
-    pub fn linked_applications(&self) -> Result<Vec<LinkedApplication>> {
+    pub fn link_applications(&self) -> Result<Vec<LinkApplication>> {
         let targets = self
             .targets
             .lock()
@@ -180,27 +180,26 @@ impl ApplicationService {
             .iter()
             .map(|(fleet, client)| (*fleet, Arc::clone(client)))
             .collect();
-        let mut found: BTreeMap<(FleetName, String), LinkedApplication> =
-            targets
-                .iter()
-                .map(|(fleet, name)| {
-                    (
-                        (*fleet, name.clone()),
-                        LinkedApplication {
-                            fleet: *fleet,
-                            name: name.clone(),
-                            runtime: None,
-                            peers: Vec::new(),
-                            reports: Vec::new(),
-                        },
-                    )
-                })
-                .collect();
+        let mut found: BTreeMap<(FleetName, String), LinkApplication> = targets
+            .iter()
+            .map(|(fleet, name)| {
+                (
+                    (*fleet, name.clone()),
+                    LinkApplication {
+                        fleet: *fleet,
+                        name: name.clone(),
+                        runtime: None,
+                        peers: Vec::new(),
+                        reports: Vec::new(),
+                    },
+                )
+            })
+            .collect();
         for (fleet, client) in clients {
             for (name, runtime) in client.known_applications() {
                 let entry =
                     found.entry((fleet, name.clone())).or_insert_with(|| {
-                        LinkedApplication {
+                        LinkApplication {
                             fleet,
                             name,
                             runtime: None,
@@ -213,7 +212,7 @@ impl ApplicationService {
             for peer in client.applications() {
                 let entry = found
                     .entry((fleet, peer.name.clone()))
-                    .or_insert_with(|| LinkedApplication {
+                    .or_insert_with(|| LinkApplication {
                         fleet,
                         name: peer.name.clone(),
                         runtime: None,
