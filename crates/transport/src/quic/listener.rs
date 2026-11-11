@@ -24,7 +24,7 @@ use claviron_types::ssl::peer::peer_identity;
 use futures_util::FutureExt;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use h3_quinn::Connection as H3QuinnConnection;
-use h3_webtransport::server::{AcceptedBi, IncomingStream};
+use h3_webtransport::server::AcceptedBi;
 use http::{Request, StatusCode};
 use quinn::crypto::rustls::HandshakeData;
 use quinn::{Connection as QuinnConnection, Endpoint, Incoming, VarInt};
@@ -37,8 +37,9 @@ use super::drain;
 use super::request::{check_early_data, send_status_response};
 use super::wt::streams::SessionStreams;
 use super::wt::{
-    Authorized, AuthorizedSession, H3Connection, QuicSession, authorize,
-    is_web_transport_connect, serve_session,
+    Authorized, AuthorizedSession, Connection, H3Connection,
+    Incoming as H3Incoming, QuicSession, authorize, is_web_transport_connect,
+    serve_session,
 };
 
 type SessionOf<S> =
@@ -402,10 +403,17 @@ async fn accept_streams<S: Quic>(
         h3_builder
             .enable_webtransport(true)
             .enable_extended_connect(true)
-            .enable_datagram(true);
+            .enable_datagram(true)
+            // Each WT session occupies one client-initiated bidi CONNECT.
+            .max_webtransport_sessions(u64::from(
+                settings.quic.max_concurrent_bidi_streams,
+            ));
     }
     let mut h3_conn = match h3_builder.build::<_, Bytes>(quinn_conn).await {
-        Ok(c) => H3Connection::new(c),
+        Ok(c) if web_transport_enabled => {
+            Connection::WebTransport(H3Connection::new(c))
+        }
+        Ok(c) => Connection::Http(c),
         Err(e) => {
             error!("❌ Failed to build H3 connection: {e:?}");
             return;
@@ -438,14 +446,14 @@ async fn accept_streams<S: Quic>(
     // still dispatched. The driver stays alive until their authorization,
     // request tasks and session tasks have all completed.
     let mut resolving = FuturesUnordered::new();
-    let mut authorizing = FuturesUnordered::new();
+    let mut authorizing: Option<FuturesUnordered<_>> = None;
     let mut sessions = SessionStreams::new(input_capacity);
     let mut accepting = true;
     let mut transport_open = true;
     loop {
         if !accepting
             && resolving.is_empty()
-            && authorizing.is_empty()
+            && authorizing.as_ref().is_none_or(FuturesUnordered::is_empty)
             && streams.is_empty()
         {
             break;
@@ -471,14 +479,22 @@ async fn accept_streams<S: Quic>(
                     _ => {},
                 }
             }
-            Some(authorized) = authorizing.next(), if !authorizing.is_empty() => {
+            Some(authorized) = async {
+                match &mut authorizing {
+                    Some(queue) => queue.next().await,
+                    None => None,
+                }
+            }, if authorizing.as_ref().is_some_and(|queue| !queue.is_empty()) => {
                 let authorized: Option<AuthorizedSession<SessionOf<S>>> = authorized;
                 if let Some(authorized) = authorized {
+                    let Connection::WebTransport(connection) = &mut h3_conn else {
+                        unreachable!("only a WebTransport driver authorizes sessions");
+                    };
                     let id = authorized.id();
                     // Register before sending 200: the peer may immediately
                     // open a WT stream after receiving the response.
                     let incoming = sessions.register(id);
-                    let serving = serve_session(authorized, &mut h3_conn, incoming);
+                    let serving = serve_session(authorized, connection, incoming);
                     streams.spawn(async move {
                         serving.await;
                         StreamCompletion::Session(id)
@@ -548,7 +564,9 @@ async fn accept_streams<S: Quic>(
 
                     let scope = SessionScope { permit: permit.clone(), retired: retired.clone() };
                     match requests.connect(h3_head, scope) {
-                        Ok(deciding) => authorizing.push(authorize(deciding, stream)),
+                        Ok(deciding) => authorizing
+                            .get_or_insert_with(FuturesUnordered::new)
+                            .push(authorize(deciding, stream)),
                         Err(status) => {
                             streams.spawn(async move {
                                 send_status_response(&mut stream, status).await;
@@ -574,18 +592,14 @@ async fn accept_streams<S: Quic>(
             // the driver required by already accepted work.
             res = h3_conn.accept(), if transport_open => {
                 match res {
-                    Ok(Some(IncomingStream::Bidirectional(resolver))) => {
+                    Ok(Some(H3Incoming::Bidi(resolver))) => {
                         if accepting {
                             resolving.push(resolver.resolve());
                         }
                         // After GOAWAY, do not retain newly opened streams
                         // or await their headers. Earlier resolvers survive.
                     }
-                    Ok(Some(IncomingStream::Unidirectional(_, stream))) => {
-                        // Current handlers consume a reliable bidi stream;
-                        // uni streams have no registered receiver.
-                        drop(stream);
-                    }
+                    Ok(Some(H3Incoming::Ignored)) => {}
                     Ok(None) => {
                         debug!("🔹 H3 peer closed from={}", remote.ip());
                         accepting = false;

@@ -121,6 +121,15 @@ policy; refusals return 425 before dispatch. Established streams skip this
 check. WebTransport rejects 0-RTT independently. A host policy cannot enable
 listener 0-RTT; declaring it is valid even on listeners without early data.
 
+Host transport declarations accept `h1.websocket` as an alias for
+`h1.upgrade` and `h2.connect` for `h2.connect_protocol`. To offer WebTransport,
+allow H3 and set `transport.h3.webtransport: true` (`wt` and `web_transport`
+are aliases). A bound handler is also required. Only such QUIC hosts install
+the WebTransport stage and allocate the connection's WT driver. The driver
+creates its authorization queue when the first WT attempt needs it.
+The advertised session ceiling comes from the listener's QUIC bidirectional
+stream limit, since each session occupies a CONNECT stream.
+
 Within the selected scope, entries follow this order. Every entry is conditional
 on effective configuration (including inherited defaults) or explicit Rust
 registration. No layer is installed unconditionally.

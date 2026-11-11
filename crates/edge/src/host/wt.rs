@@ -191,8 +191,8 @@ struct WebTransportRouteKey {
 
 /// Code-driven WebTransport binding table.
 ///
-/// Host config can enable or deny WebTransport for the vhost, but it cannot
-/// name Rust code. Providers register concrete handlers here during boot, keyed
+/// Host config opts in through `transport.h3.webtransport`. Providers
+/// register concrete handlers here during boot, keyed
 /// by canonical host and exact path (`/wt/orbit`, `/wt/nwd1`, ...).
 /// Orbit composition may additionally bind a host fallback which selects the
 /// application from the admitted host snapshot after exact native handlers.

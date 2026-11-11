@@ -90,6 +90,7 @@ impl HostCompiler<'_> {
         // direct path.
         #[cfg(feature = "webtransport")]
         let upgrades = if matches!(protocol, Some(RouteProtocol::Quic))
+            && host_config.transport.allows_webtransport()
             && state
                 .registry_ref()
                 .resolve::<crate::host::WebTransportRegistry>()

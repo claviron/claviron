@@ -45,6 +45,11 @@ impl TransportPolicy {
             .as_ref()
             .is_none_or(|protocols| protocols.contains(&protocol))
     }
+
+    #[cfg(feature = "http3")]
+    pub fn allows_webtransport(&self) -> bool {
+        self.h3.webtransport && self.allows_protocol(HttpProtocol::H3)
+    }
 }
 
 fn deserialize_protocols<'de, D>(
@@ -69,7 +74,7 @@ where
 pub struct H1Policy {
     /// Permit Upgrade requests. A registered handler must still accept and own
     /// the upgraded IO; this declaration does not create a handler.
-    #[serde(default)]
+    #[serde(default, alias = "websocket")]
     pub upgrade: bool,
 }
 
@@ -78,7 +83,7 @@ pub struct H1Policy {
 pub struct H2Policy {
     /// Permit extended CONNECT and advertise ENABLE_CONNECT_PROTOCOL on the
     /// selected host's H2 connection. Handler registration is independent.
-    #[serde(default)]
+    #[serde(default, alias = "connect")]
     pub connect_protocol: bool,
 }
 
@@ -90,6 +95,9 @@ pub struct H2Policy {
     reason = "the private serde field rejects a removed config key with a migration diagnostic"
 )]
 pub struct H3Policy {
+    /// Permit WebTransport on this host when a handler is bound.
+    #[serde(default, alias = "wt", alias = "web_transport")]
+    pub webtransport: bool,
     /// Request replay policy; only relevant when the QUIC listener accepts 0-RTT.
     #[serde(default)]
     pub early_data: EarlyDataPolicy,
@@ -125,3 +133,7 @@ pub enum EarlyDataPolicy {
     #[serde(alias = "allow")]
     AllowAll,
 }
+
+#[cfg(test)]
+#[path = "../../tests/config/transport.rs"]
+mod tests;

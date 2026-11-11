@@ -6,7 +6,10 @@ use std::future::Future;
 use bytes::Bytes;
 use h3::ext::Protocol;
 use h3::quic;
-use h3_webtransport::server::{WebTransportConnection, WebTransportSession};
+use h3_webtransport::server::{
+    AcceptedBi, BiStreamResolver, IncomingStream, WebTransportConnection,
+    WebTransportSession,
+};
 use http::{Request, StatusCode};
 use tokio::sync::mpsc;
 use tracing::{debug, error};
@@ -16,6 +19,75 @@ use super::request::send_status_response;
 pub mod streams;
 
 pub type H3Connection = WebTransportConnection<h3_quinn::Connection, Bytes>;
+type HttpConnection = h3::server::Connection<h3_quinn::Connection, Bytes>;
+
+/// Keep the normal H3 driver free of WebTransport's session registry when the
+/// selected host did not advertise it. Both drivers resolve headers outside
+/// the connection's accept loop.
+pub(super) enum Connection {
+    Http(HttpConnection),
+    WebTransport(H3Connection),
+}
+
+pub(super) enum Incoming {
+    Bidi(BidiResolver),
+    Ignored,
+}
+
+pub(super) enum BidiResolver {
+    Http(h3::server::RequestResolver<h3_quinn::Connection, Bytes>),
+    WebTransport(BiStreamResolver<h3_quinn::Connection, Bytes>),
+}
+
+impl Connection {
+    pub(super) async fn accept(
+        &mut self
+    ) -> Result<Option<Incoming>, h3::error::ConnectionError> {
+        match self {
+            Self::Http(connection) => Ok(connection
+                .accept()
+                .await?
+                .map(|resolver| Incoming::Bidi(BidiResolver::Http(resolver)))),
+            Self::WebTransport(connection) => {
+                Ok(connection.accept().await?.map(|stream| match stream {
+                    IncomingStream::Bidirectional(resolver) => {
+                        Incoming::Bidi(BidiResolver::WebTransport(resolver))
+                    }
+                    // Current handlers consume reliable bidirectional streams.
+                    IncomingStream::Unidirectional(_, _) => Incoming::Ignored,
+                }))
+            }
+        }
+    }
+
+    pub(super) async fn shutdown(
+        &mut self,
+        max_requests: usize,
+    ) -> Result<(), h3::error::ConnectionError> {
+        match self {
+            Self::Http(connection) => connection.shutdown(max_requests).await,
+            Self::WebTransport(connection) => {
+                connection.shutdown(max_requests).await
+            }
+        }
+    }
+}
+
+impl BidiResolver {
+    pub(super) async fn resolve(
+        self
+    ) -> Result<AcceptedBi<h3_quinn::Connection, Bytes>, h3::error::StreamError>
+    {
+        match self {
+            Self::Http(resolver) => {
+                let (head, stream) = resolver.resolve_request().await?;
+                Ok(AcceptedBi::Request(head, stream))
+            }
+            Self::WebTransport(resolver) => resolver.resolve().await,
+        }
+    }
+}
+
 /// An accepted session, before its owner wraps it.
 pub type NativeSession = WebTransportSession<h3_quinn::Connection, Bytes>;
 /// A reliable incoming WebTransport bidirectional stream.

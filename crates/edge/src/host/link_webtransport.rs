@@ -18,6 +18,7 @@ use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
 use crate::Site;
+use crate::config::HostConfig;
 use crate::host::{
     AnyAuthenticated, AuthContext, H3WebTransportSession, WebTransportAccept,
     WebTransportHandler, WebTransportRegistry, WebTransportReject,
@@ -27,10 +28,11 @@ use crate::host::{
 pub(super) fn bind(
     state: &AppState,
     host: &Host,
-    config: &Site,
+    config: &HostConfig,
 ) -> registry::Result<()> {
-    if config.orbit().is_empty()
-        && config.routes.iter().all(|(_, route)| route.orbit().is_empty())
+    if !config.transport.allows_webtransport()
+        || (config.orbit().is_empty()
+            && config.routes.iter().all(|(_, route)| route.orbit().is_empty()))
     {
         return Ok(());
     }

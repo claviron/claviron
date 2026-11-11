@@ -50,7 +50,8 @@ impl QuicHost for SelectedHost {
     }
 
     fn web_transport(&self) -> bool {
-        self.web_transport.has_host(&self.vctx.vhost_key.0)
+        self.vctx.vhost_config.transport.allows_webtransport()
+            && self.web_transport.has_host(&self.vctx.vhost_key.0)
     }
 
     fn retired(&self) -> impl Future<Output = ()> + Send + 'static {
