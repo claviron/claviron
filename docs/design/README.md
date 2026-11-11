@@ -14,6 +14,9 @@ contracts, not protocol standards or chronological decision records.
   boot/reload preparation of active policies and request owners.
 - [EDGE_BACKENDS](EDGE_BACKENDS.md): application execution and forwarding owners;
   HTTP policy, body delivery and protocol boundaries at their pipeline handoff.
+- [EXECUTION_AND_ADMISSION](EXECUTION_AND_ADMISSION.md): where work runs, how
+  much runs and waits, and who owns a Link fleet's process count; one name and
+  one owner for each.
 - [EARLY_DATA_POLICY](EARLY_DATA_POLICY.md): transport acceptance of 0-RTT
   does not grant application permission to execute replayable work.
 - [CONNECTION_HIJACK](CONNECTION_HIJACK.md): PHP and native Rust borrow the same
