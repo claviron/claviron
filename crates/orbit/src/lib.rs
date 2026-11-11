@@ -18,6 +18,8 @@
 use std::sync::Arc;
 
 use claviron_runtime::AppState;
+#[cfg(feature = "metrics")]
+pub use orbitive::metrics;
 pub use orbitive::{Fleet, NodeId, OrbitTyped, RingSpec};
 
 pub mod arena;

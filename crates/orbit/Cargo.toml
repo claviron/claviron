@@ -17,6 +17,7 @@ autotests = false
 
 [features]
 default = []
+metrics = ["orbitive/metrics"]
 quota = ["orbitive/quota"]
 
 [dependencies]
