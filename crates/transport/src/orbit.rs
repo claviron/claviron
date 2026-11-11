@@ -438,6 +438,19 @@ impl OrbitDoor {
                         ));
                     }
                 }
+                () = self.capacity.execution_changed(), if work.waiting() != 0 => {
+                    while let Some((request, admission)) = work.start_waiting(&segment, lane) {
+                        exchanges.spawn(serve(
+                            request,
+                            lane,
+                            Arc::clone(&owner),
+                            Arc::clone(&segment),
+                            Arc::clone(&bodies),
+                            shutdown.clone(),
+                            admission,
+                        ));
+                    }
+                }
                 arrived = receiver.next(&mut frame) => match arrived {
                     Ok(Received::Directory(_)) => { observe_edges(&state, &mut edges, segment.inbox(), &self.application); },
                     Ok(Received::Capacity(_)) => {},

@@ -61,8 +61,8 @@ exit; the next bind removes one only after a refused connection proves it stale.
 `orbit.rs` drives an application's Orbit Link lane. `websocket.rs` adapts an
 owner's whole-message sessions to socket WebSockets. These use the same owner
 contract; they introduce no virtual-host configuration. Orbit joins with its
-optional `max_in_flight` bound and its `max_waiting`, publishing `max_waiting` as the window
-(callers reserve a window slot) and running `max_in_flight` at once through the
+optional `max_in_flight` bound and its `max_queued`, publishing their sum as
+the admission window and running `max_in_flight` at once through the
 shared `WorkQueue`; the rest wait in arrival order and start, without a wake,
 when a running exchange ends. It uses the shared `ApplicationReceiver` and
 `accept_frame` contract; accepted work retains its slot through body/session

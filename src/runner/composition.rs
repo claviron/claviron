@@ -31,7 +31,7 @@ pub struct Composition<O> {
     launch: Launch<O>,
     name: String,
     runtime: &'static str,
-    default_in_flight: Option<usize>,
+    default_in_flight: Option<(usize, &'static str)>,
     config_dir: PathBuf,
     config_file: Option<PathBuf>,
     system_log: Option<Option<crate::logging::SystemLogConfig>>,
@@ -76,11 +76,12 @@ where
         }
     }
 
-    /// The bound on requests in flight on the Orbit lane when the launch names
-    /// none.
+    /// A fixed execution bound supplied by the engine. A linked launch can
+    /// declare its waiting capacity but cannot override this bound. The
+    /// tuple pairs the capacity with the engine key named in diagnostics.
     pub fn default_in_flight(
         mut self,
-        limit: Option<usize>,
+        limit: Option<(usize, &'static str)>,
     ) -> Self {
         self.default_in_flight = limit;
         self
@@ -266,7 +267,7 @@ where
                     state,
                     &launch.runner,
                     runtime,
-                    default_in_flight,
+                    default_in_flight.map(|(limit, _)| limit),
                 )
             }))
     }

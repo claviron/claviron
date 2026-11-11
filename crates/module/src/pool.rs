@@ -43,7 +43,7 @@ impl Pool {
     }
 
     /// Queue work; `false` once closed. What bounds the queue is the caller's
-    /// admission: at most `max_waiting` new requests, and a piece of work per
+    /// admission: at most `max_queued` new requests, and a piece of work per
     /// exchange otherwise.
     pub(crate) fn submit(
         &self,

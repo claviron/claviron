@@ -50,7 +50,7 @@ application's OS threads, reached from Tokio through a queue:
 
 ```text
 Tokio   connection, plan, policy
-  | queue (max_waiting; queue_timeout waits here and nowhere else)
+  | queue (max_queued; queue_timeout waits here and nowhere else)
 thread  a handler (one of `instances`)
   | oneshot, bounded channel
 Tokio   the response

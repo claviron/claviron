@@ -10,22 +10,22 @@ use std::time::Duration;
 /// acquire an execution slot and how an over-budget guest is interrupted.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ApplicationLimits {
-    max_waiting: usize,
+    max_in_flight: usize,
     execution_timeout: Option<Duration>,
 }
 
 impl ApplicationLimits {
     pub const fn new(
-        max_waiting: usize,
+        max_in_flight: usize,
         execution_timeout: Option<Duration>,
     ) -> Self {
-        Self { max_waiting, execution_timeout }
+        Self { max_in_flight, execution_timeout }
     }
 
-    /// Maximum concurrent callers admitted to application dispatch, including
-    /// active executions and callers waiting for an execution slot.
-    pub const fn max_waiting(self) -> usize {
-        self.max_waiting
+    /// Maximum concurrent exchanges admitted to the application, including
+    /// unfinished response producers.
+    pub const fn max_in_flight(self) -> usize {
+        self.max_in_flight
     }
 
     /// Maximum time owned by one accepted application execution.

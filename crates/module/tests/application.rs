@@ -89,7 +89,7 @@ async fn a_body_echoed_from_its_callback_arrives_whole() {
         None,
         ApplicationConfig {
             instances: NonZeroU16::new(1).unwrap(),
-            max_waiting: 1,
+            max_queued: 1,
             frameworks: Vec::new(),
             icon: None,
         },

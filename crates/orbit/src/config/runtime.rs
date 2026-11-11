@@ -16,7 +16,7 @@ struct Source {
     path: PathBuf,
     nested: bool,
     absent: OrbitConfig,
-    fallback: Option<usize>,
+    engine: Option<(usize, &'static str)>,
     resolved: Option<OrbitConfig>,
     programmatic: bool,
 }
@@ -24,7 +24,7 @@ struct Source {
 #[derive(Default)]
 struct Applied {
     startup: Option<OrbitConfig>,
-    warned: Option<(Option<LinkGeometry>, bool)>,
+    warned: Option<(Option<LinkGeometry>, Option<usize>, bool)>,
 }
 
 /// Geometry is frozen for the process lifetime. Only a positive receiver
@@ -47,7 +47,7 @@ impl OrbitConfiguration {
                 path: state.config_dir().join("orbit.yaml"),
                 nested: false,
                 absent: OrbitConfig::default(),
-                fallback: None,
+                engine: None,
                 resolved: None,
                 programmatic: false,
             }),
@@ -63,7 +63,7 @@ impl OrbitConfiguration {
         state: &AppState,
         path: PathBuf,
         initial: OrbitConfig,
-        fallback: Option<usize>,
+        engine: Option<(usize, &'static str)>,
     ) -> registry::Result<()> {
         Self::register(state)?;
         let this = state.registry_ref().resolve::<Self>().ok_or_else(|| {
@@ -88,7 +88,7 @@ impl OrbitConfiguration {
             path,
             nested: true,
             absent: initial.clone(),
-            fallback,
+            engine,
             resolved: Some(initial),
             programmatic: false,
         };
@@ -113,23 +113,28 @@ impl OrbitConfiguration {
         })?;
         let frozen = startup.link.as_ref().map(|link| link.geometry);
         let candidate = config.link.as_ref().map(|link| link.geometry);
-        let fallback = self
+        let engine = self
             .source
             .lock()
             .map_err(|_| registry::Error::msg("Orbit source lock poisoned"))?
-            .fallback;
+            .engine;
         let limit = config
             .link
             .as_ref()
-            .and_then(|link| link.max_in_flight.or(fallback));
+            .map(|link| link.execution_bound(engine))
+            .transpose()?
+            .flatten();
         let active_limit = self.capacity.limit()?;
         let mode_changed = active_limit.is_some() != limit.is_some();
-        let pending = (candidate, limit.is_some());
-        if frozen != candidate || mode_changed {
+        let queued = self.capacity.max_queued()?;
+        let candidate_queue =
+            config.link.as_ref().and_then(|link| link.max_queued);
+        let pending = (candidate, candidate_queue, limit.is_some());
+        if frozen != candidate || queued != candidate_queue || mode_changed {
             if watched && applied.warned != Some(pending) {
                 if self.report_changes {
                     tracing::warn!(
-                        "Orbit Link geometry, enablement or bounded/unbounded admission mode changed; current resources are retained; new settings will apply on the next restart"
+                        "Orbit Link geometry, queue, enablement or bounded/unbounded admission mode changed; current resources are retained; new settings will apply on the next restart"
                     );
                 }
                 applied.warned = Some(pending);
@@ -144,11 +149,11 @@ impl OrbitConfiguration {
         if !mode_changed && let Some(limit) = limit {
             // A candidate's physical expansion is pending restart, so a limit
             // that does not fit the active shape must remain pending too.
-            let admitted = self.capacity.max_waiting()?.unwrap_or(limit);
-            if active_limit != Some(limit)
+            let queued = queued.unwrap_or(0);
+            let pending_expansion = frozen != candidate
                 && frozen
-                    .is_some_and(|geometry| geometry.admits(limit, admitted))
-            {
+                    .is_some_and(|geometry| !geometry.admits(limit, queued));
+            if active_limit != Some(limit) && !pending_expansion {
                 self.capacity.set_max_in_flight(limit)?;
             }
         }
@@ -245,14 +250,14 @@ impl Configurable for OrbitConfiguration {
                 "Orbit configuration is already prepared",
             ));
         }
-        let fallback = self
+        let engine = self
             .source
             .lock()
             .map_err(|_| congif::Error::msg("Orbit source lock poisoned"))?
-            .fallback;
+            .engine;
         if let Some(link) = &config.link {
             self.capacity
-                .prepare(link, fallback)
+                .prepare(link, engine)
                 .map_err(congif::Error::invalid)?;
         }
         applied.startup = Some(config.clone());

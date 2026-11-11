@@ -50,10 +50,12 @@ pub struct Args {
     pub max_streams: Option<NonZeroUsize>,
     #[arg(long)]
     pub max_in_flight: Option<NonZeroUsize>,
-    /// Exchanges each receiver admits in all, running ones included;
-    /// required with `--max-in-flight` (equal to it refuses at once).
+    /// Exchanges each receiver can queue; required with `--max-in-flight`.
     #[arg(long)]
-    pub max_waiting: Option<usize>,
+    pub max_queued: Option<usize>,
+    #[arg(long = "max-waiting", hide = true, value_parser = retired_max_waiting)]
+    #[serde(skip)]
+    _retired_max_waiting: Option<String>,
     #[arg(long, value_parser = duration)]
     pub queue_timeout: Option<Duration>,
     /// Retain a rejected phase instead of returning an unsuccessful benchmark exit.
@@ -160,4 +162,9 @@ impl Launch {
             directory.join("harness.json"),
         )?)?)
     }
+}
+
+fn retired_max_waiting(_: &str) -> std::result::Result<String, String> {
+    Err("--max-waiting was removed; --max-queued counts only waiting exchanges"
+        .into())
 }

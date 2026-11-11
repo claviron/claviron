@@ -276,7 +276,7 @@ impl DispatchStep for ModuleBackend {
             }
         }
         let waiting = application.waiting.fetch_add(1, Ordering::AcqRel);
-        if waiting >= application.settings.max_waiting {
+        if waiting >= application.settings.max_queued {
             application.left_queue();
             return DispatchCall::ready(ServiceResult::Handled(err_status(
                 StatusCode::SERVICE_UNAVAILABLE,

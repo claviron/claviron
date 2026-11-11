@@ -61,7 +61,7 @@ impl WorkQueue {
             .map_err(super::error::map_link_error)?;
         match (received, execution) {
             (Received::Work(ticket), Some(execution))
-                if self.running >= execution =>
+                if self.running >= execution || !self.waiting.is_empty() =>
             {
                 if !matches!(
                     super::frame_kind(frame),
@@ -92,6 +92,15 @@ impl WorkQueue {
         lane: usize,
     ) -> Option<Start> {
         self.running = self.running.saturating_sub(1);
+        self.start_waiting(segment, lane)
+    }
+
+    /// Fill an execution place with the oldest still-reserved exchange.
+    pub fn start_waiting(
+        &mut self,
+        segment: &ApplicationSegment,
+        lane: usize,
+    ) -> Option<Start> {
         let execution = segment.inbox().work_execution(lane).ok().flatten()?;
         while self.running < execution {
             let (frame, ticket) = self.waiting.pop_front()?;

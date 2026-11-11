@@ -72,15 +72,14 @@ growth policy, or run against a static worker set.
 
 ## Receiver-owned admission
 
-`max_in_flight` limits how many exchanges one application receiver runs at
-once, across every caller. `None` remains unbounded. A bounded receiver also
-declares `max_waiting`: how many it admits in all, running ones included (PHP's
-`max_waiting` counts the same way); those beyond `max_in_flight` wait in the
-receiver, in arrival order, and start as running ones end. `max_waiting` is
-the admission *window*: `max_in_flight <= max_waiting`, and it stays below the
-inbox capacity, which also carries control frames. `max_waiting` equal to
-`max_in_flight` refuses as soon as every running place is taken. This is distinct from inbox depth,
-stream byte windows and the number of body slots a caller can originate.
+A receiver's `max_in_flight` limits how many exchanges it runs at once across
+all callers. A bounded receiver declares `max_queued`, the number of exchanges
+that may wait in its queue. It publishes `max_in_flight + max_queued` as its
+admission window, which must leave room in the inbox for control frames.
+`max_queued: 0` admits only work that can run immediately. An unbounded
+receiver has no queue. A persistent PHP runner takes its execution bound from
+`php.application.instances` and keeps its waiting room in Link. Other runners
+without a fixed engine capacity declare the bound as `orbit.link.max_in_flight`.
 
 A caller reserves a window slot before obtaining a body slot. It prefers its
 home receiver while that receiver will start the exchange at once; otherwise

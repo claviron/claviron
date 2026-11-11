@@ -217,7 +217,7 @@ unknown keys, which is why the file is divided by hand.
 name: shop                     # application / instance address
 fleet_name: shop               # independent process-family namespace
 orbit:
-  link: {max_in_flight: 128, max_waiting: 192}
+  link: {max_in_flight: 128, max_queued: 64}
 defaults:
   listener:
     execution: inherit
@@ -291,9 +291,8 @@ before server construction, not a panic from converting an unchecked string.
   name, read by one Tokio task through `InboxReceiver`; SHM holds the frame
   and a named descriptor bell wakes the reactor directly, with no poll and no
   thread/channel handoff. `max_in_flight` bounds the exchanges run at once, each through response
-  body/session completion, and `max_waiting` the ones it admits in all; those
-  beyond `max_in_flight` wait in the receiver and start as running ones end; callers never wait for capacity, a full
-  window answers 503. The receiver keeps reading control/events. A WebSocket there is spoken by the edge: the owner's Orbit session
+  body/session completion. Up to `max_queued` additional exchanges wait in
+  Link and start as running ones end. A full window answers 503. The receiver keeps reading control/events. A WebSocket there is spoken by the edge: the owner's Orbit session
   handler gets the request, the slot and the handshake answer, and exchanges
   whole messages. Shutdown releases the lane first, cancels the receiver,
   serves what it already took and completes what was accepted. The common

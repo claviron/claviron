@@ -14,7 +14,7 @@ modules:
 applications:
   shop:
     instances: 8
-    max_waiting: 256
+    max_queued: 256
 ```
 
 ```yaml
@@ -69,7 +69,7 @@ operations, publish events and log through the host table it is handed.
 | --- | --- | --- |
 | Name, kind, handlers | The library | Its register function |
 | Its own settings | The library | A file it reads in `boot` |
-| `instances`, `max_waiting`, `scope`, `dispatch`, `handlers`, `events` | The operator | `modules.yaml` |
+| `instances`, `max_queued`, `scope`, `dispatch`, `handlers`, `events` | The operator | `modules.yaml` |
 | `requests`, `responses`, ACLs and everything else in front of an application | The operator | Listener, host and route |
 
 Nothing in `modules.yaml` has a default. A name no library registered, one a library registered
@@ -82,7 +82,7 @@ to the file takes a server restart.
 | --- | --- |
 | A handler returns an error | 500 |
 | The application is stopped | 503 |
-| No room to wait (`max_waiting`), or `requests.queue_timeout` passes | 503 |
+| No room to wait (`max_queued`), or `requests.queue_timeout` passes | 503 |
 | A memory fault | The process dies with the code that would have answered. Its connections drop with no status. |
 
 A service whose `run` returns an error reads failed, and the server carries on. Nothing restarts

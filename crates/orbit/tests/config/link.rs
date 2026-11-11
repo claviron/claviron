@@ -12,23 +12,53 @@ fn omitted_and_null_bounds_do_not_inherit_the_physical_inbox_capacity() {
 }
 
 #[test]
-fn explicit_bound_overrides_the_engine_fallback() {
+fn an_engine_bound_is_fixed_and_needs_a_declared_queue() {
     let mut config = LinkConfig::default();
     config.geometry.inbox_capacity = 4;
     config.geometry.lane_capacity = 2;
     let control = LinkCapacity::new(None, None);
-    // A bound from the engine needs a declared max_waiting like any other.
-    assert!(control.prepare(&config, Some(2)).is_err());
-    config.max_waiting = Some(3);
-    control.prepare(&config, Some(2)).unwrap();
+    assert!(
+        control
+            .prepare(&config, Some((2, "php.application.instances")))
+            .is_err()
+    );
+    config.max_queued = Some(1);
+    control.prepare(&config, Some((2, "php.application.instances"))).unwrap();
     assert_eq!(control.limit().unwrap(), Some(2));
-    config.max_in_flight = Some(3);
-    control.prepare(&config, Some(2)).unwrap();
-    assert_eq!(control.limit().unwrap(), Some(3));
+    assert!(control.set_max_in_flight(1).is_err());
+    config.max_in_flight = Some(2);
+    assert!(
+        control
+            .prepare(&config, Some((2, "php.application.instances")))
+            .unwrap_err()
+            .to_string()
+            .contains("php.application.instances")
+    );
     config.max_in_flight = None;
-    assert!(control.prepare(&config, Some(4)).is_err());
-    assert_eq!(control.limit().unwrap(), Some(3));
-    assert!(control.prepare(&config, Some(0)).is_err());
+    assert!(
+        control
+            .prepare(&config, Some((4, "php.application.instances")))
+            .is_err()
+    );
+    assert!(
+        control
+            .prepare(&config, Some((0, "php.application.instances")))
+            .is_err()
+    );
+    assert!(control.prepare(&config, None).is_err());
+    assert_eq!(control.limit().unwrap(), Some(2));
+}
+
+#[test]
+fn retired_waiting_key_names_the_new_count() {
+    for yaml in ["max_waiting: 4", "max_waiting: null"] {
+        let error = serde_yaml::from_str::<LinkConfig>(yaml).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("max_queued counts only waiting exchanges")
+        );
+    }
 }
 
 #[test]
@@ -38,24 +68,22 @@ fn physical_shape_and_bound_are_validated_before_join() {
     config.geometry.lane_capacity = 2;
     config.geometry.buffer_bytes = 1024;
     config.max_in_flight = Some(3);
-    assert!(config.validate().is_err(), "a bound without max_waiting");
-    config.max_waiting = Some(3);
+    assert!(config.validate().is_err(), "a bound without max_queued");
+    config.max_queued = Some(0);
     config.validate().unwrap();
     assert_eq!(config.geometry.spec().inbox.capacity, 4);
     assert_eq!(config.geometry.spec().streams.lane_capacity, 2);
-    // The inbox also carries control frames: a bound equal to it is refused.
-    config.max_in_flight = Some(4);
-    config.max_waiting = Some(4);
+    // The inbox must leave room for control frames.
+    config.max_queued = Some(1);
     assert!(config.validate().is_err());
-    // What is admitted in all stays below the inbox and covers what runs.
+    config.max_queued = Some(usize::MAX);
+    assert!(config.validate().is_err(), "window overflow");
     config.max_in_flight = Some(2);
-    assert!(config.validate().is_err());
-    config.max_waiting = Some(1);
-    assert!(config.validate().is_err());
-    config.max_waiting = Some(3);
+    config.max_queued = Some(1);
     config.validate().unwrap();
+    config.max_in_flight = Some(0);
+    assert!(config.validate().is_err(), "a zero execution bound");
     config.max_in_flight = Some(1);
-    config.max_waiting = Some(1);
     config.geometry.lane_capacity = 3;
     assert!(config.validate().is_err());
     // A sender's inbox must take the replies to all its open exchanges.
@@ -63,12 +91,12 @@ fn physical_shape_and_bound_are_validated_before_join() {
     assert!(config.validate().is_err());
 }
 
-#[test]
-fn live_control_preserves_existing_work_and_owns_no_join() {
+#[tokio::test]
+async fn live_control_preserves_existing_work_and_owns_no_join() {
     let control = LinkCapacity::new(None, None);
     let config = LinkConfig {
         max_in_flight: Some(1),
-        max_waiting: Some(3),
+        max_queued: Some(1),
         geometry: LinkGeometry {
             fleet_capacity: 4,
             inbox_capacity: 4,
@@ -86,13 +114,25 @@ fn live_control_preserves_existing_work_and_owns_no_join() {
         segment.reserve_work(joined.lane, origin.lane).unwrap().unwrap();
     let execution =
         segment.accept_work(joined.lane, reservation.ticket()).unwrap();
-    // A live bound moves how many run at once; the admitted window stays.
+    // A live bound moves how many run at once and keeps one place waiting.
     control.set_max_in_flight(2).unwrap();
+    let mut wake = std::pin::pin!(control.execution_changed());
+    let poll = std::future::poll_fn(|cx| {
+        std::task::Poll::Ready(std::future::Future::poll(wake.as_mut(), cx))
+    });
+    assert!(poll.await.is_ready(), "a live increase must wake the receiver");
     assert_eq!(segment.inbox().work_execution(joined.lane).unwrap(), Some(2));
     assert_eq!(segment.inbox().work_capacity(joined.lane).unwrap(), Some(3));
-    assert!(control.set_max_in_flight(4).is_err(), "beyond max_waiting");
+    assert!(
+        control.set_max_in_flight(3).is_err(),
+        "window reaches the inbox capacity"
+    );
     let next = segment.reserve_work(joined.lane, origin.lane).unwrap().unwrap();
     let last = segment.reserve_work(joined.lane, origin.lane).unwrap().unwrap();
+    assert!(segment.reserve_work(joined.lane, origin.lane).is_err());
+    control.set_max_in_flight(1).unwrap();
+    assert_eq!(segment.inbox().work_execution(joined.lane).unwrap(), Some(1));
+    assert_eq!(segment.inbox().work_capacity(joined.lane).unwrap(), Some(2));
     assert!(segment.reserve_work(joined.lane, origin.lane).is_err());
     drop((next, last));
     assert!(segment.reserve_work(joined.lane, origin.lane).is_ok());

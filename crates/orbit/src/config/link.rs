@@ -12,22 +12,46 @@ use crate::link::application::{
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(default, deny_unknown_fields)]
+#[serde(from = "LinkFields")]
 pub struct LinkConfig {
-    /// Receiver admission bound; absent uses the engine's declared default,
-    /// or leaves admission unbounded when the engine declares none.
+    /// The exchanges that run at once. An engine may declare its own bound.
     pub max_in_flight: Option<usize>,
-    /// Exchanges the receiver admits in all, running ones included, as PHP's
-    /// `max_waiting` counts them: up to `max_in_flight` run at once and the
-    /// rest wait in the receiver's own queue, started as running ones end.
-    /// Past it a sender is refused at once (503); it never waits for
-    /// receiver capacity. Required for a bounded receiver; equal to
-    /// `max_in_flight` refuses as soon as every running place is taken.
-    pub max_waiting: Option<usize>,
+    /// The exchanges that can wait at the receiver. Zero disables the queue.
+    pub max_queued: Option<usize>,
     pub geometry: LinkGeometry,
     /// The owner's exact count or growth bounds. Absent leaves process counts
     /// to the external owner and publishes no growth policy.
     pub workers: Option<Workers>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct LinkFields {
+    max_in_flight: Option<usize>,
+    max_queued: Option<usize>,
+    geometry: LinkGeometry,
+    workers: Option<Workers>,
+    #[serde(rename = "max_waiting", deserialize_with = "reject_max_waiting")]
+    _retired: (),
+}
+
+fn reject_max_waiting<'de, D: serde::Deserializer<'de>>(
+    _: D
+) -> Result<(), D::Error> {
+    Err(serde::de::Error::custom(
+        "orbit.link.max_waiting was removed; max_queued counts only waiting exchanges",
+    ))
+}
+
+impl From<LinkFields> for LinkConfig {
+    fn from(fields: LinkFields) -> Self {
+        Self {
+            max_in_flight: fields.max_in_flight,
+            max_queued: fields.max_queued,
+            geometry: fields.geometry,
+            workers: fields.workers,
+        }
+    }
 }
 
 /// The worker owner declares either an exact count (`static`) or a growth
@@ -322,30 +346,29 @@ impl LinkGeometry {
         Ok(())
     }
 
-    /// A receiver admits `max_waiting` exchanges in all and runs up to
-    /// `max_in_flight` of them, so `0 < max_in_flight <= max_waiting`; its
-    /// inbox also carries control frames (status, shutdown), so `max_waiting`
-    /// stays below the inbox capacity.
+    /// The inbox also carries control frames, so the admission window must
+    /// leave space beyond the running and queued exchanges.
     pub fn admits(
         self,
         max_in_flight: usize,
-        max_waiting: usize,
+        max_queued: usize,
     ) -> bool {
         max_in_flight != 0
-            && max_in_flight <= max_waiting
-            && max_waiting < self.inbox_capacity
+            && max_in_flight
+                .checked_add(max_queued)
+                .is_some_and(|window| window < self.inbox_capacity)
     }
 
     fn check_admission(
         self,
         max_in_flight: usize,
-        max_waiting: usize,
+        max_queued: usize,
     ) -> registry::Result<()> {
-        if self.admits(max_in_flight, max_waiting) {
+        if self.admits(max_in_flight, max_queued) {
             return Ok(());
         }
         Err(registry::Error::msg(format!(
-            "Link needs 0 < max_in_flight ({max_in_flight}) <= max_waiting ({max_waiting}) < inbox_capacity ({}): the inbox also carries control frames",
+            "Link needs positive max_in_flight ({max_in_flight}) and max_in_flight + max_queued ({max_queued}) below inbox_capacity ({}): the inbox also carries control frames",
             self.inbox_capacity
         )))
     }
@@ -370,17 +393,8 @@ impl LinkGeometry {
 impl LinkConfig {
     pub fn validate(&self) -> registry::Result<()> {
         self.geometry.validate()?;
-        match (self.max_in_flight, self.max_waiting) {
-            (Some(limit), Some(admitted)) => {
-                self.geometry.check_admission(limit, admitted)?
-            }
-            (Some(_), None) => {
-                return Err(registry::Error::msg(
-                    "Link max_in_flight needs max_waiting: the exchanges admitted in all, running ones included",
-                ));
-            }
-            // The bound may come from the engine; `prepare` knows.
-            (None, _) => {}
+        if let Some(limit) = self.max_in_flight {
+            self.check_bound(Some(limit))?;
         }
         if let Some(workers) = &self.workers {
             workers.validate()?;
@@ -397,6 +411,49 @@ impl LinkConfig {
         }
         Ok(())
     }
+
+    pub(super) fn execution_bound(
+        &self,
+        engine: Option<(usize, &'static str)>,
+    ) -> registry::Result<Option<usize>> {
+        if let Some((_, key)) = engine
+            && self.max_in_flight.is_some()
+        {
+            return Err(registry::Error::msg(format!(
+                "orbit.link.max_in_flight is set by {key}; remove orbit.link.max_in_flight",
+            )));
+        }
+        let limit = engine.map(|(limit, _)| limit).or(self.max_in_flight);
+        self.check_bound(limit)?;
+        if limit.is_none()
+            && self.workers.is_some_and(|workers| {
+                workers.retire_idle().timeout().is_some()
+            })
+        {
+            return Err(registry::Error::msg(
+                "idle retirement requires tracked receiver admission (max_in_flight/max_queued)",
+            ));
+        }
+        Ok(limit)
+    }
+
+    fn check_bound(
+        &self,
+        limit: Option<usize>,
+    ) -> registry::Result<()> {
+        match (limit, self.max_queued) {
+            (Some(limit), Some(queued)) => {
+                self.geometry.check_admission(limit, queued)
+            }
+            (Some(_), None) => Err(registry::Error::msg(
+                "a bounded Link receiver needs orbit.link.max_queued: max_queued counts only waiting exchanges",
+            )),
+            (None, Some(_)) => Err(registry::Error::msg(
+                "orbit.link.max_queued needs a receiver execution bound",
+            )),
+            (None, None) => Ok(()),
+        }
+    }
 }
 
 struct Active {
@@ -406,31 +463,36 @@ struct Active {
 
 struct State {
     limit: Option<usize>,
-    /// Admitted in all, frozen at startup with the geometry. `None` only for
-    /// a programmatic bound: it admits what it runs.
-    max_waiting: Option<usize>,
+    max_queued: Option<usize>,
+    engine_key: Option<&'static str>,
     geometry: LinkGeometry,
     workers: Option<Workers>,
     active: Option<Active>,
 }
 
 /// Cold-path control of a receiver. It retains no lane or exchange ownership.
-pub struct LinkCapacity(Mutex<State>);
+pub struct LinkCapacity {
+    state: Mutex<State>,
+    execution_changed: tokio::sync::Notify,
+}
 
 impl LinkCapacity {
-    /// `max_waiting` is what a bounded receiver admits in all; `None` admits
-    /// only what it runs. It has no meaning without a limit.
+    /// A programmatic bound with no queue admits only what it runs.
     pub fn new(
         limit: Option<usize>,
-        max_waiting: Option<usize>,
+        max_queued: Option<usize>,
     ) -> Self {
-        Self(Mutex::new(State {
-            limit,
-            max_waiting,
-            geometry: LinkGeometry::default(),
-            workers: None,
-            active: None,
-        }))
+        Self {
+            state: Mutex::new(State {
+                limit,
+                max_queued,
+                engine_key: None,
+                geometry: LinkGeometry::default(),
+                workers: None,
+                active: None,
+            }),
+            execution_changed: tokio::sync::Notify::new(),
+        }
     }
 
     pub fn set_max_in_flight(
@@ -438,39 +500,57 @@ impl LinkCapacity {
         limit: usize,
     ) -> registry::Result<()> {
         let mut state = self
-            .0
+            .state
             .lock()
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))?;
-        let admitted = state.max_waiting.unwrap_or(limit);
-        state.geometry.check_admission(limit, admitted)?;
+        if let Some(key) = state.engine_key
+            && state.limit != Some(limit)
+        {
+            return Err(registry::Error::msg(format!(
+                "orbit.link.max_in_flight is set by {key}",
+            )));
+        }
+        let queued = state.max_queued.unwrap_or(0);
+        state.geometry.check_admission(limit, queued)?;
         if let Some(active) = state.active.as_ref()
             && let (Some(segment), Some(joined)) =
                 (active.segment.upgrade(), active.joined.upgrade())
         {
-            // A declared `max_waiting` keeps the window; only how much of
-            // it runs at once moves.
-            if state.max_waiting.is_none() {
-                segment
-                    .update_work_capacity(&joined, admitted)
-                    .map_err(|e| registry::Error::msg(e.to_string()))?;
-            }
-            segment
-                .set_work_execution(joined.lane, limit)
-                .map_err(|e| registry::Error::msg(e.to_string()))?;
+            let update_window =
+                || segment.update_work_capacity(&joined, limit + queued);
+            let update_execution =
+                || segment.set_work_execution(joined.lane, limit);
+            // Keep the execution bound inside the window through both writes.
+            let updated = if queued == 0 {
+                update_window()
+            } else if state.limit.is_some_and(|previous| limit < previous) {
+                update_execution().and_then(|()| update_window())
+            } else {
+                update_window().and_then(|()| update_execution())
+            };
+            updated.map_err(|e| registry::Error::msg(e.to_string()))?;
+        }
+        if queued != 0 && state.limit.is_some_and(|previous| limit > previous) {
+            self.execution_changed.notify_one();
         }
         state.limit = Some(limit);
         Ok(())
+    }
+
+    /// Wake the receiver when an increase can start work it already holds.
+    pub async fn execution_changed(&self) {
+        self.execution_changed.notified().await;
     }
 
     /// Configure before serving; a live receiver's shape cannot change.
     pub fn prepare(
         &self,
         config: &LinkConfig,
-        fallback: Option<usize>,
+        engine: Option<(usize, &'static str)>,
     ) -> registry::Result<()> {
         config.validate()?;
         let mut state = self
-            .0
+            .state
             .lock()
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))?;
         if state
@@ -482,35 +562,9 @@ impl LinkCapacity {
                 "Link geometry is already in use",
             ));
         }
-        let limit = config.max_in_flight.or(fallback);
-        let max_waiting = match (limit, config.max_waiting) {
-            (Some(limit), Some(admitted)) => {
-                config.geometry.check_admission(limit, admitted)?;
-                Some(admitted)
-            }
-            (Some(_), None) => {
-                return Err(registry::Error::msg(
-                    "a bounded Link receiver needs orbit.link.max_waiting: the exchanges admitted in all, running ones included",
-                ));
-            }
-            (None, Some(_)) => {
-                return Err(registry::Error::msg(
-                    "Link max_waiting needs max_in_flight: an unbounded receiver runs everything",
-                ));
-            }
-            (None, None) => None,
-        };
-        if limit.is_none()
-            && config.workers.is_some_and(|workers| {
-                workers.retire_idle().timeout().is_some()
-            })
-        {
-            return Err(registry::Error::msg(
-                "idle retirement requires tracked receiver admission (max_in_flight/max_waiting)",
-            ));
-        }
-        state.limit = limit;
-        state.max_waiting = max_waiting;
+        state.limit = config.execution_bound(engine)?;
+        state.max_queued = config.max_queued;
+        state.engine_key = engine.map(|(_, key)| key);
         state.geometry = config.geometry;
         state.workers = config.workers;
         Ok(())
@@ -518,29 +572,29 @@ impl LinkCapacity {
 
     /// The owner's declared count policy, for its fleet and its master.
     pub fn workers(&self) -> registry::Result<Option<Workers>> {
-        self.0
+        self.state
             .lock()
             .map(|state| state.workers)
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))
     }
 
-    /// What a bounded receiver admits in all, running ones included.
-    pub fn max_waiting(&self) -> registry::Result<Option<usize>> {
-        self.0
+    /// The startup queue bound, counting waiting exchanges only.
+    pub fn max_queued(&self) -> registry::Result<Option<usize>> {
+        self.state
             .lock()
-            .map(|state| state.max_waiting)
+            .map(|state| state.max_queued)
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))
     }
 
     pub(super) fn limit(&self) -> registry::Result<Option<usize>> {
-        self.0
+        self.state
             .lock()
             .map(|state| state.limit)
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))
     }
 
     pub fn geometry(&self) -> registry::Result<LinkGeometry> {
-        self.0
+        self.state
             .lock()
             .map(|state| state.geometry)
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))
@@ -554,7 +608,7 @@ impl LinkCapacity {
         incarnation: u64,
     ) -> registry::Result<(Arc<ApplicationSegment>, Arc<Joined>)> {
         let mut state = self
-            .0
+            .state
             .lock()
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))?;
         let segment = Arc::new(
@@ -565,14 +619,17 @@ impl LinkCapacity {
             )
             .map_err(|e| registry::Error::msg(e.to_string()))?,
         );
+        let queued = state.max_queued.unwrap_or(0);
+        let window = state
+            .limit
+            .map(|limit| {
+                state.geometry.check_admission(limit, queued)?;
+                Ok::<_, registry::Error>(limit + queued)
+            })
+            .transpose()?;
         let joined = Arc::new(
             segment
-                .join_with_capacity(
-                    application,
-                    runtime,
-                    incarnation,
-                    state.limit.map(|limit| state.max_waiting.unwrap_or(limit)),
-                )
+                .join_with_capacity(application, runtime, incarnation, window)
                 .map_err(|e| registry::Error::msg(e.to_string()))?,
         );
         // The window is published; how much of it runs at once goes with it.

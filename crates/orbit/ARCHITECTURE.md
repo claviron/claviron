@@ -635,8 +635,8 @@ must not reuse another subsystem's. Configuration checks are structural and open
 ## Link Admission
 
 An application joins with `max_in_flight` or no bound. A bounded receiver also
-declares `max_waiting` and advertises it as a *window* of shared
-admission slots, below the inbox capacity; it publishes `max_in_flight` as the
+declares `max_queued` and advertises the sum of running and queued exchanges
+as the window of shared admission slots, below the inbox capacity; it publishes `max_in_flight` as the
 part it runs at once (`set_work_execution`). This is separate from unread inbox
 frames and creator-side body slots. All callers reserve a window slot before
 taking a body slot. Receiver balance defaults to `LinkBalance::First`:
@@ -692,15 +692,14 @@ withdrawal nor a request timeout authorizes cancelling accepted remote work.
 launch file. `link.geometry` selects physical capacities no greater than the
 compiled `ORBIT_LINK_*` ceilings. All participants must select the same shape.
 Absent Link configuration creates no Link segment. Runner `orbit.link: {}` uses
-the engine's declared admission default. Without an engine default, an omitted or
-null `max_in_flight` leaves receiver admission unbounded; physical inbox and body
-stream capacities remain finite. Inbox geometry never supplies an admission default.
+an unbounded receiver when the engine supplies no fixed execution bound.
+A bounded receiver declares `orbit.link.max_queued`, with zero disabling waiting.
+Inbox geometry never supplies an admission bound.
 
-Positive `orbit.link.max_in_flight` bounds are receiver-owned and may change live;
-`orbit.link.max_waiting` (admitted in all, running included; at least
-`max_in_flight`) is required with any bound (configured or the engine's) and
-is frozen with the geometry. A live bound change moves the window and the
-published execution together.
+A configured positive `orbit.link.max_in_flight` may change live if the new
+sum fits the active inbox. The live update moves the window and execution
+bound together, using the queue size frozen at startup. A PHP application
+takes its fixed bound from `php.application.instances`.
 Reservations and accepted exchanges retain their tickets through body/session completion.
 Growth wakes registered callers; shrink retires claims above the new boundary
 before refilling lower slots. Event and control reading remains independent.

@@ -46,18 +46,44 @@ pub struct EventsConfig {
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[serde(from = "ApplicationFields")]
 pub struct ApplicationConfig {
     /// OS threads running this application's handlers, in each serving process:
     /// how many run at once.
     pub instances: NonZeroU16,
     /// Requests that may wait for an instance. Beyond it, refused with 503.
-    pub max_waiting: usize,
+    pub max_queued: usize,
     /// Management metadata.
-    #[serde(default)]
     pub frameworks: Vec<String>,
-    #[serde(default)]
     pub icon: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ApplicationFields {
+    instances: NonZeroU16,
+    max_queued: usize,
+    #[serde(
+        default,
+        rename = "max_waiting",
+        deserialize_with = "reject_max_waiting"
+    )]
+    _retired_max_waiting: (),
+    #[serde(default)]
+    frameworks: Vec<String>,
+    #[serde(default)]
+    icon: Option<String>,
+}
+
+impl From<ApplicationFields> for ApplicationConfig {
+    fn from(fields: ApplicationFields) -> Self {
+        Self {
+            instances: fields.instances,
+            max_queued: fields.max_queued,
+            frameworks: fields.frameworks,
+            icon: fields.icon,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -76,5 +102,36 @@ impl ServiceConfig {
             dispatch: self.dispatch,
             policy: self.dispatch_policy,
         }
+    }
+}
+
+fn reject_max_waiting<'de, D: serde::Deserializer<'de>>(
+    _: D
+) -> Result<(), D::Error> {
+    Err(serde::de::Error::custom(
+        "max_waiting was removed; max_queued counts only waiting exchanges",
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn application_queue_accepts_zero_and_rejects_the_old_key() {
+        let config = serde_yaml::from_str::<ApplicationConfig>(
+            "{instances: 2, max_queued: 0}",
+        )
+        .unwrap();
+        assert_eq!(config.max_queued, 0);
+        let error = serde_yaml::from_str::<ApplicationConfig>(
+            "{instances: 2, max_waiting: 0}",
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("max_queued counts only waiting exchanges")
+        );
     }
 }
