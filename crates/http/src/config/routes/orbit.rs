@@ -1,18 +1,22 @@
 use serde::Deserialize;
 
-pub use claviron_types::link::LinkPolicy;
+pub use claviron_types::link::LinkBalance;
 
 /// One route reaching an application process over Orbit shared memory.
 ///
 /// `fleet_name` selects the shared-memory namespace; `application` selects
 /// the service advertised inside it. No socket or raw SHM path is required.
-/// `policy` selects a worker among the lanes serving that name.
+/// `balance` selects a receiver among the lanes serving that name.
 ///
 /// Deliberately named for the transport rather than for a language: what is on
 /// the other side may be Python today and something else tomorrow, and the
 /// edge cannot tell the difference.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
+#[expect(
+    clippy::manual_non_exhaustive,
+    reason = "the private serde field rejects a removed config key with a migration diagnostic"
+)]
 pub struct OrbitRouteConfig {
     /// The destination namespace, not this edge's own process-family fleet.
     /// Must match the runner's `fleet_name`.
@@ -21,13 +25,36 @@ pub struct OrbitRouteConfig {
     /// The name the application process advertises in its lane.
     #[serde(deserialize_with = "deserialize_orbit_application_name")]
     pub application: String,
-    /// Per-exchange target selection; independent of process growth.
-    #[serde(default = "default_link_policy")]
-    pub policy: LinkPolicy,
+    /// Per-exchange receiver selection; independent of the worker policy.
+    #[serde(default)]
+    pub balance: LinkBalance,
+    /// Removed; read only to say so. The route's receiver selection is
+    /// `balance`; `policy` now names only the owner's worker policy.
+    #[serde(default, rename = "policy", deserialize_with = "removed_policy")]
+    #[expect(
+        dead_code,
+        reason = "never read: it exists only for its deserialization error"
+    )]
+    removed_policy: (),
 }
 
-fn default_link_policy() -> LinkPolicy {
-    LinkPolicy::default()
+impl OrbitRouteConfig {
+    /// A route declared in code, as its YAML would declare it.
+    pub fn new(
+        fleet_name: claviron_runtime::FleetName,
+        application: String,
+        balance: LinkBalance,
+    ) -> Self {
+        Self { fleet_name, application, balance, removed_policy: () }
+    }
+}
+
+fn removed_policy<'de, D: serde::Deserializer<'de>>(
+    _: D
+) -> Result<(), D::Error> {
+    Err(serde::de::Error::custom(
+        "an Orbit route's `policy` is now `balance: first | round_robin`",
+    ))
 }
 
 #[cfg(test)]

@@ -5,7 +5,7 @@ use std::sync::Arc;
 use arc_swap::{ArcSwap, Guard};
 
 use super::selection::Selection;
-use super::{ApplicationClient, Exchange, Inbox, LinkPolicy, Pending, Result};
+use super::{ApplicationClient, Exchange, Inbox, LinkBalance, Pending, Result};
 
 /// One application in an already joined destination fleet.
 ///
@@ -80,10 +80,10 @@ impl ApplicationTarget {
     pub(super) fn new(
         client: Arc<ApplicationClient>,
         application: Arc<str>,
-        policy: LinkPolicy,
+        balance: LinkBalance,
     ) -> Self {
         let lanes = Lanes::new(client.inbox(), &application, client.lane());
-        let selection = Selection::new(policy, client.lane());
+        let selection = Selection::new(balance, client.lane());
         Self(Arc::new(Prepared { client, application, lanes, selection }))
     }
 

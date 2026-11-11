@@ -260,18 +260,21 @@ fn orbit_flag_selects_the_link_object_without_a_boolean_schema() {
 fn worker_start_count_comes_from_the_declared_owner() {
     for (declaration, expected) in [
         ("{policy: static, count: 4}", 4),
-        ("{policy: on_pressure, min: 2, max: 8, step: 1, retire_idle: off}", 2),
+        ("{policy: dynamic, min: 2, max: 8, step: 1, retire_idle: off}", 2),
     ] {
         let mut options: RunnerOptions = serde_yaml::from_str(&format!(
             "orbit: {{link: {{workers: {declaration}}}}}"
         ))
         .unwrap();
         assert_eq!(options.initial_workers().unwrap(), expected);
+        options.validate().unwrap();
         options.workers = Some(6);
         assert!(
             options.initial_workers().is_err(),
             "two conflicting count authorities"
         );
+        let refused = options.validate().unwrap_err();
+        assert!(refused.starts_with("declare workers once"), "{refused}");
     }
     assert_eq!(RunnerOptions::default().initial_workers().unwrap(), 0);
 }

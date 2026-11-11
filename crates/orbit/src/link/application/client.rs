@@ -58,7 +58,7 @@ use super::{
     Access, ApplicationBodies, ApplicationConnected, ApplicationDisconnected,
     ApplicationLinkSetup, ApplicationSegment, ApplicationStateNotice,
     ControlCommand, Error, Exchange, ExchangeBody, ExchangeReply, FrameKind,
-    LinkJoined, LinkPolicy, Peers, Result, fit_inline, frame_kind,
+    LinkBalance, LinkJoined, Peers, Result, fit_inline, frame_kind,
 };
 
 /// The runtime tag an edge worker's lane carries. It serves no name — its lane
@@ -557,20 +557,20 @@ impl ApplicationClient {
         self: &Arc<Self>,
         application: impl Into<Arc<str>>,
     ) -> super::ApplicationTarget {
-        self.target_with_policy(application, LinkPolicy::default())
+        self.target_with_balance(application, LinkBalance::default())
     }
 
-    /// Prepare an application destination with its own selection policy.
+    /// Prepare an application destination with its own receiver balance.
     /// Clones share the round-robin turn; other targets remain independent.
-    pub fn target_with_policy(
+    pub fn target_with_balance(
         self: &Arc<Self>,
         application: impl Into<Arc<str>>,
-        policy: LinkPolicy,
+        balance: LinkBalance,
     ) -> super::ApplicationTarget {
         super::ApplicationTarget::new(
             Arc::clone(self),
             application.into(),
-            policy,
+            balance,
         )
     }
 
@@ -1004,7 +1004,7 @@ impl ApplicationClient {
         selection: Option<&Selection>,
     ) -> Result<Pending> {
         let (selected, full) = match selection {
-            Some(selection) if selection.policy == LinkPolicy::RoundRobin => {
+            Some(selection) if selection.balance == LinkBalance::RoundRobin => {
                 let mut full = false;
                 let selected = selection.round_robin(
                     lanes,

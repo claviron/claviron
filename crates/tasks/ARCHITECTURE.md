@@ -437,7 +437,7 @@ tasks:
     orbit:
       fleet: c
       kind: task
-      workers: { policy: on_pressure, min: 4, max: 16, step: 1, retire_idle: off }
+      workers: { policy: dynamic, min: 4, max: 16, step: 1, retire_idle: off }
       command: { program: /path/to/c-link, args: [--execution, current] }
 ```
 
@@ -637,11 +637,11 @@ Tests live under `tests/` and are included by each module through `#[path]`.
 
 ### Orbit command count and routing are independent
 
-`orbit.workers` selects `static` with an explicit `count`, or `on_pressure`
+`orbit.workers` selects `static` with an explicit `count`, or `dynamic`
 with `min`, `max`, `step: 1` and `retire_idle`. Static starts that count and
 has no growth policy. Growing command pools start at `min`. This master-only
 controller owns command slots; it does not dispatch application requests.
-`orbit[].policy: first | round_robin` is the caller backend's independent
+`orbit[].balance: first | round_robin` is the caller backend's independent
 receiver selection. Neither this count configuration nor receiver selection
 adds a native binding ABI contract.
 

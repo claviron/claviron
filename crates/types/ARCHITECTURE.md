@@ -6,7 +6,7 @@ types. Its default build contains only `Host`, `Sni`, `KeyString`, `Aliases`, an
 dependency. The optional `ssl` feature adds X.509 value types, the
 on-disk certificate-store layout, parsers, generators, and formatters.
 
-`link::LinkPolicy` is shared pure-data selection policy (`first` or
+`link::LinkBalance` is shared pure-data receiver selection (`first` or
 `round_robin`). HTTP route configuration and Orbit callers use the same enum
 without making schema parsing depend on a Link driver. Selection state and
 execution stay in `claviron-orbit`; the enum adds no runtime dependency.

@@ -27,11 +27,11 @@ all depend on this crate, and it depends only on `claviron-http`.
   scope of a `Site`.
 - `accept`: work done once while a connection is accepted.
 - `link`: dispatch to an application process over Orbit Link, behind `orbit`.
-  Each `orbit:` destination prepares its configured selection `policy` once:
-  `on_pressure` retains home-first selection, `round_robin` rotates suitable
-  receivers. The target's cursor is shared by its clones but not other routes.
-  Policy reload prepares a new destination; in-flight exchanges keep their
-  original target. This does not change application worker-growth policy.
+  Each `orbit:` destination prepares its configured `balance` once: `first`
+  retains home-first selection, `round_robin` rotates suitable receivers. The
+  target's cursor is shared by its clones but not other routes. A reload
+  prepares a new destination; in-flight exchanges keep their original target.
+  This does not change the application's worker policy.
   `compile` prepares it from a scope's `orbit:` declaration, so a site served by
   one listener reaches its applications the same way a host does. It needs
   `claviron_orbit::register`, which the full server calls; a `Single` composition

@@ -30,12 +30,13 @@ pub struct LinkConfig {
     pub workers: Option<Workers>,
 }
 
-/// The worker owner declares either an exact count or a growth policy.
+/// The worker owner declares either an exact count (`static`) or a growth
+/// policy (`dynamic`, PHP-FPM's word; `on_pressure` is still accepted).
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(try_from = "WorkerConfig", into = "WorkerConfig")]
 pub enum Workers {
     Static { count: u16 },
-    OnPressure(GrowthPolicy),
+    Dynamic(GrowthPolicy),
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -55,7 +56,8 @@ enum WorkerConfig {
         #[serde(default)]
         retire_idle: StaticRetirement,
     },
-    OnPressure(GrowthPolicy),
+    #[serde(alias = "on_pressure")]
+    Dynamic(GrowthPolicy),
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Serialize)]
@@ -70,7 +72,7 @@ impl TryFrom<WorkerConfig> for Workers {
     fn try_from(value: WorkerConfig) -> Result<Self, Self::Error> {
         let workers = match value {
             WorkerConfig::Static { count, .. } => Self::Static { count },
-            WorkerConfig::OnPressure(policy) => Self::OnPressure(policy),
+            WorkerConfig::Dynamic(policy) => Self::Dynamic(policy),
         };
         workers.validate().map_err(|error| error.to_string())?;
         Ok(workers)
@@ -83,7 +85,7 @@ impl From<Workers> for WorkerConfig {
             Workers::Static { count } => {
                 Self::Static { count, retire_idle: StaticRetirement::Off }
             }
-            Workers::OnPressure(policy) => Self::OnPressure(policy),
+            Workers::Dynamic(policy) => Self::Dynamic(policy),
         }
     }
 }
@@ -177,7 +179,7 @@ impl Workers {
     pub fn initial_count(self) -> u16 {
         match self {
             Self::Static { count } => count,
-            Self::OnPressure(policy) => policy.min,
+            Self::Dynamic(policy) => policy.min,
         }
     }
     pub fn maximum(
@@ -186,13 +188,13 @@ impl Workers {
     ) -> u16 {
         match self {
             Self::Static { count } => count,
-            Self::OnPressure(policy) => policy.max.resolve(capacity),
+            Self::Dynamic(policy) => policy.max.resolve(capacity),
         }
     }
     pub fn retire_idle(self) -> RetireIdle {
         match self {
             Self::Static { .. } => RetireIdle::Off,
-            Self::OnPressure(policy) => policy.retire_idle,
+            Self::Dynamic(policy) => policy.retire_idle,
         }
     }
     pub fn validate(&self) -> registry::Result<()> {
@@ -201,7 +203,7 @@ impl Workers {
                 "workers count/min must be positive",
             ));
         }
-        if let Self::OnPressure(policy) = self {
+        if let Self::Dynamic(policy) = self {
             if matches!(policy.max, WorkerMax::Count(max) if max < policy.min) {
                 return Err(registry::Error::msg("workers need min <= max"));
             }
@@ -252,7 +254,7 @@ impl Workers {
     ) -> Option<orbitive::link::GrowthPolicy> {
         match self {
             Self::Static { .. } => None,
-            Self::OnPressure(policy) => Some(orbitive::link::GrowthPolicy {
+            Self::Dynamic(policy) => Some(orbitive::link::GrowthPolicy {
                 min: policy.min,
                 max: policy.max.resolve(worker_capacity),
                 step: policy.step,

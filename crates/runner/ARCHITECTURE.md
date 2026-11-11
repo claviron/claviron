@@ -385,11 +385,12 @@ serves. The supervisor's restart, backoff and liveness policy is its own
 section, passed through unchanged; the shell adds none.
 
 For a managed Orbit launch, `orbit.link.workers` is the single count source:
-`{ policy: static, count: 4 }` starts four workers; a complete `on_pressure`
-policy starts `min` workers and bounds growth at `max`. A simultaneous numeric
-`workers`/`--workers` declaration is rejected. Without a Link worker declaration,
-the existing numeric option still selects standalone or a fixed supervisor.
-The runner owns these bounds; the Edge's route selection policy is independent.
+`{ policy: static, count: 4 }` starts four workers; a complete `dynamic`
+policy (`on_pressure` is still accepted) starts `min` workers and bounds growth
+at `max`. A simultaneous numeric `workers`/`--workers` declaration is refused
+when the launch is validated. Without a Link worker declaration, the existing
+numeric option still selects standalone or a fixed supervisor. The runner owns
+these bounds; the Edge route's `balance` is independent.
 
 Idle retirement is disabled by `retire_idle: off`. An explicit
 `retire_idle: { idle_timeout: 30s }` opts into zero-claim observation through

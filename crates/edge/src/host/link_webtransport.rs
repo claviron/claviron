@@ -50,11 +50,11 @@ pub(super) fn bind(
         .map(|(_, route)| PreparedRoute {
             route: route.clone(),
             destination:
-                claviron_pipeline::link::LinkDestination::new_with_policy(
+                claviron_pipeline::link::LinkDestination::new_with_balance(
                     state,
                     route.fleet_name,
                     route.application.clone().into(),
-                    route.policy,
+                    route.balance,
                 ),
         })
         .collect();

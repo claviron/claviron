@@ -21,6 +21,11 @@ use claviron_http::policy::{HttpPolicy, HttpPolicyOverride};
 use claviron_http::trust::Network;
 use serde::{Deserialize, Serialize};
 
+/// The top-level `workers` count and `orbit.link.workers` are two answers to
+/// one question; validation and launch refuse the pair in the same words.
+#[cfg(all(feature = "orbit", feature = "supervisor"))]
+const DECLARE_WORKERS_ONCE: &str = "declare workers once: orbit.link.workers already defines the initial count; remove --workers/top-level workers";
+
 /// What a runner does when the edge master announces its own shutdown.
 #[derive(
     Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize,
@@ -186,7 +191,7 @@ impl RunnerOptions {
         {
             workers.validate().map_err(|error| error.to_string())?;
             if self.workers.is_some() {
-                return Err("declare workers once: orbit.link.workers already defines the initial count; remove --workers/top-level workers".into());
+                return Err(DECLARE_WORKERS_ONCE.into());
             }
             return u8::try_from(workers.initial_count()).map_err(|_| {
                 "initial workers exceed the supported process count".into()
@@ -346,11 +351,17 @@ impl RunnerOptions {
         #[cfg(feature = "orbit")]
         if let Some(config) = self.orbit_config()? {
             config.validate().map_err(|e| e.to_string())?;
+            let link_workers =
+                config.link.as_ref().is_some_and(|link| link.workers.is_some());
             #[cfg(not(feature = "supervisor"))]
-            if config.link.as_ref().is_some_and(|link| link.workers.is_some()) {
+            if link_workers {
                 return Err(
                     "orbit.link.workers requires supervisor support".into()
                 );
+            }
+            #[cfg(feature = "supervisor")]
+            if link_workers && self.workers.is_some() {
+                return Err(DECLARE_WORKERS_ONCE.into());
             }
         }
 

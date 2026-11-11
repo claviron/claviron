@@ -34,14 +34,14 @@ change, not something one side can deploy by silently resizing a live segment.
 
 ## Selecting application workers
 
-Each Orbit destination declares its target-selection `policy` independently
-of the application's worker-growth policy:
+Each Orbit destination declares its receiver selection, `balance`,
+independently of the application's worker policy:
 
 ```yaml
 orbit:
   - application: example-app
     fleet: apps
-    policy: round_robin
+    balance: round_robin
 ```
 
 - `first` is the default and preserves existing selection: prefer this
@@ -56,19 +56,19 @@ orbit:
   prepared target in each caller process, is shared by its clones, and is not
   a fleet-wide request counter or a guarantee of equal CPU use.
 
-New and departed receivers are reflected by directory notifications. A policy
-change takes effect when the host/site is prepared again; already-published
-exchanges stay with their original receiver. No queue budget, retry, admission
-limit, stream ownership or cancellation rule changes with the selection policy.
+New and departed receivers are reflected by directory notifications. A
+`balance` change takes effect when the host/site is prepared again;
+already-published exchanges stay with their original receiver. No queue budget,
+retry, admission limit, stream ownership or cancellation rule changes with it.
 
-In Rust, use `ApplicationClient::target_with_policy(application, LinkPolicy::RoundRobin)`.
+In Rust, use `ApplicationClient::target_with_balance(application, LinkBalance::RoundRobin)`.
 `target(application)` and direct `send` retain `first`. The enum is shared
 pure data, re-exported from `claviron::orbit::link::application` and the HTTP route
 configuration; schema-only builds do not acquire a Link runtime dependency.
 
-`workers.policy: on_pressure` has a different job: the process owner starts more
-workers after unmet demand is reported. Either target-selection policy can use
-that same growth policy, or run against a static worker set.
+`workers.policy: dynamic` has a different job: the process owner starts more
+workers after unmet demand is reported. Either `balance` can use that same
+growth policy, or run against a static worker set.
 
 ## Receiver-owned admission
 
@@ -164,10 +164,11 @@ with the consumer.
 
 ## Process counts and receiver selection
 
-A caller route selects `first` or `round_robin`; the application process owner
-selects its count. A runner or command controller can declare
+A caller route's `balance` selects `first` or `round_robin`; the application
+process owner selects its count. A runner or command controller can declare
 `workers: { policy: static, count: 4 }`, or
-`workers: { policy: on_pressure, min: 4, max: 16, step: 1, retire_idle: off }`.
+`workers: { policy: dynamic, min: 4, max: 16, step: 1, retire_idle: off }`
+(`on_pressure` is the earlier spelling of `dynamic`, still accepted).
 Static and growing applications use the same independent routing policies.
 Without an Orbit controller, a plain command may be launched by any ordinary
 process owner and serve as many instances as that owner starts.

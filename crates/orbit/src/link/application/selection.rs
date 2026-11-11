@@ -3,19 +3,19 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::LinkPolicy;
+use super::LinkBalance;
 
 pub(super) struct Selection {
-    pub policy: LinkPolicy,
+    pub balance: LinkBalance,
     turn: AtomicUsize,
 }
 
 impl Selection {
     pub fn new(
-        policy: LinkPolicy,
+        balance: LinkBalance,
         sender: usize,
     ) -> Self {
-        Self { policy, turn: AtomicUsize::new(sender) }
+        Self { balance, turn: AtomicUsize::new(sender) }
     }
 
     /// One turn per selection, with a runnable pass before queueing. A failed

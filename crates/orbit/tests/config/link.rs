@@ -109,32 +109,33 @@ fn live_control_preserves_existing_work_and_owns_no_join() {
 #[test]
 fn a_growth_policy_is_declared_whole_and_fits_its_fleet() {
     let yaml = "geometry: { fleet_capacity: 8, inbox_capacity: 16, inbox_payload_capacity: 1024, lane_capacity: 8, buffer_bytes: 1024 }\n\
-                workers: { policy: on_pressure, min: 2, max: 6, step: 1, retire_idle: off }";
+                workers: { policy: dynamic, min: 2, max: 6, step: 1, retire_idle: off }";
     let config: LinkConfig = serde_yaml::from_str(yaml).unwrap();
     config.validate().unwrap();
     let growth = config.workers.unwrap().growth(40).unwrap();
     assert_eq!((growth.min, growth.max, growth.step), (2, 6, 1));
 
+    // `on_pressure` is the earlier spelling of `dynamic`, still accepted.
     let named = "workers: { policy: on_pressure, min: 2, max: available, step: 1, retire_idle: off }";
     let named: LinkConfig = serde_yaml::from_str(named).unwrap();
     named.validate().unwrap();
     assert_eq!(named.workers.unwrap().growth(40).unwrap().max, 40);
 
     let mut stepped = config.clone();
-    let Workers::OnPressure(policy) = stepped.workers.as_mut().unwrap() else {
+    let Workers::Dynamic(policy) = stepped.workers.as_mut().unwrap() else {
         panic!("growth")
     };
     policy.step = 2;
     assert!(stepped.validate().is_err(), "one worker per episode");
 
     let mut crowded = config.clone();
-    let Workers::OnPressure(policy) = crowded.workers.as_mut().unwrap() else {
+    let Workers::Dynamic(policy) = crowded.workers.as_mut().unwrap() else {
         panic!("growth")
     };
     policy.max = WorkerMax::Count(8);
     assert!(crowded.validate().is_err(), "a caller needs a lane too");
 
-    let partial = "workers: { policy: on_pressure, min: 2, max: 6 }";
+    let partial = "workers: { policy: dynamic, min: 2, max: 6 }";
     assert!(serde_yaml::from_str::<LinkConfig>(partial).is_err());
 }
 
@@ -154,7 +155,7 @@ fn worker_count_has_one_owner_and_retirement_reserves_its_control_lane() {
         serde_yaml::from_str::<Workers>("{policy: static, min: 4, max: 8}")
             .is_err()
     );
-    let growing: Workers = serde_yaml::from_str("{policy: on_pressure, min: 2, max: 6, step: 1, retire_idle: {idle_timeout: 7s}}").unwrap();
+    let growing: Workers = serde_yaml::from_str("{policy: dynamic, min: 2, max: 6, step: 1, retire_idle: {idle_timeout: 7s}}").unwrap();
     assert_eq!(growing.initial_count(), 2);
     assert!(
         growing.for_owner(40, 7, 2).is_err(),
@@ -162,6 +163,7 @@ fn worker_count_has_one_owner_and_retirement_reserves_its_control_lane() {
     );
     assert!(growing.for_owner(40, 8, 2).is_ok());
     let encoded = serde_yaml::to_string(&growing).unwrap();
+    assert!(encoded.contains("policy: dynamic"), "{encoded}");
     assert_eq!(serde_yaml::from_str::<Workers>(&encoded).unwrap(), growing);
-    assert!(serde_yaml::from_str::<Workers>("{policy: on_pressure, min: 2, max: 6, step: 1, retire_idle: {idle_timeout: 0s}}").is_err());
+    assert!(serde_yaml::from_str::<Workers>("{policy: dynamic, min: 2, max: 6, step: 1, retire_idle: {idle_timeout: 0s}}").is_err());
 }

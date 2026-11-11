@@ -17,7 +17,7 @@ fn next(
 
 #[test]
 fn round_robin_cycles_without_filling_the_home_receiver() {
-    let selection = Selection::new(LinkPolicy::RoundRobin, 1);
+    let selection = Selection::new(LinkBalance::RoundRobin, 1);
     let selected: Vec<_> =
         (0..6).map(|_| next(&selection, &[7, 3, 9]).unwrap()).collect();
     assert_eq!(selected, [3, 9, 7, 3, 9, 7]);
@@ -25,7 +25,7 @@ fn round_robin_cycles_without_filling_the_home_receiver() {
 
 #[test]
 fn round_robin_skips_saturated_workers_before_using_any_queue() {
-    let selection = Selection::new(LinkPolicy::RoundRobin, 0);
+    let selection = Selection::new(LinkBalance::RoundRobin, 0);
     let mut reservations = Vec::new();
     let result = selection
         .round_robin(
@@ -45,7 +45,7 @@ fn round_robin_skips_saturated_workers_before_using_any_queue() {
 
 #[test]
 fn round_robin_reports_pressure_before_queueing_and_skips_refusals() {
-    let selection = Selection::new(LinkPolicy::RoundRobin, 0);
+    let selection = Selection::new(LinkBalance::RoundRobin, 0);
     let pressure = Cell::new(false);
     let result = selection
         .round_robin(
@@ -63,7 +63,7 @@ fn round_robin_reports_pressure_before_queueing_and_skips_refusals() {
 
 #[test]
 fn round_robin_full_or_empty_snapshot_never_invents_a_wait() {
-    let selection = Selection::new(LinkPolicy::RoundRobin, 0);
+    let selection = Selection::new(LinkBalance::RoundRobin, 0);
     let pressure = Cell::new(0);
     let mut reservations = 0;
     let result = selection
@@ -93,7 +93,7 @@ fn round_robin_full_or_empty_snapshot_never_invents_a_wait() {
 
 #[test]
 fn round_robin_cursor_survives_membership_changes_and_wraps() {
-    let selection = Selection::new(LinkPolicy::RoundRobin, usize::MAX);
+    let selection = Selection::new(LinkBalance::RoundRobin, usize::MAX);
     assert!(next(&selection, &[2, 4]).is_some());
     assert_eq!(next(&selection, &[4]), Some(4));
     let seen: Vec<_> =
@@ -104,17 +104,17 @@ fn round_robin_cursor_survives_membership_changes_and_wraps() {
 #[test]
 fn round_robin_clones_share_turns_but_independent_targets_do_not() {
     let selection =
-        std::sync::Arc::new(Selection::new(LinkPolicy::RoundRobin, 0));
+        std::sync::Arc::new(Selection::new(LinkBalance::RoundRobin, 0));
     let clone = std::sync::Arc::clone(&selection);
     assert_eq!(next(&selection, &[1, 2]), Some(1));
     assert_eq!(next(&clone, &[1, 2]), Some(2));
-    let independent = Selection::new(LinkPolicy::RoundRobin, 0);
+    let independent = Selection::new(LinkBalance::RoundRobin, 0);
     assert_eq!(next(&independent, &[1, 2]), Some(1));
 }
 
 #[test]
 fn round_robin_propagates_reservation_errors_without_replaying() {
-    let selection = Selection::new(LinkPolicy::RoundRobin, 0);
+    let selection = Selection::new(LinkBalance::RoundRobin, 0);
     let mut attempts = 0;
     let result = selection.round_robin(
         &[1, 2],

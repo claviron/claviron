@@ -28,11 +28,11 @@ impl Backend {
     ) -> Result<Arc<Self>> {
         Ok(Arc::new(match launch.transport {
             Transport::Orbit => {
-                let route = OrbitRouteConfig {
-                    fleet_name: FleetName::try_new(&launch.application_fleet)?,
-                    application: launch.application_name.clone(),
-                    policy: Default::default(),
-                };
+                let route = OrbitRouteConfig::new(
+                    FleetName::try_new(&launch.application_fleet)?,
+                    launch.application_name.clone(),
+                    Default::default(),
+                );
                 let policy = RequestPolicyOverride {
                     buffering: Some(Buffering::StreamDefault),
                     buffer_size: launch.args.buffer_size.map(Limit::Value),

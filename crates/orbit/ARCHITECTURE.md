@@ -639,17 +639,17 @@ declares `max_waiting` and advertises it as a *window* of shared
 admission slots, below the inbox capacity; it publishes `max_in_flight` as the
 part it runs at once (`set_work_execution`). This is separate from unread inbox
 frames and creator-side body slots. All callers reserve a window slot before
-taking a body slot. Target selection defaults to `LinkPolicy::First`:
+taking a body slot. Receiver balance defaults to `LinkBalance::First`:
 take the home receiver while it will start the exchange now
 (`work_load < work_execution`); otherwise report pressure and try the less
-loaded of two, then every lane once. `LinkPolicy::RoundRobin` advances a
+loaded of two, then every lane once. `LinkBalance::RoundRobin` advances a
 per-prepared-target atomic cursor, shared by its clones. It tries runnable
 receivers cyclically, then reports pressure and tries receiver queue capacity
 in that same cyclic order when none can start immediately. Full or departed
 receivers are skipped and a published exchange is never replayed. A directory
-change refreshes membership for both policies without retaining departed lanes.
-`target_with_policy` selects explicitly; `target` and direct `send` preserve
-the existing default. HTTP routes select this with their `orbit[].policy`;
+change refreshes membership for both without retaining departed lanes.
+`target_with_balance` selects explicitly; `target` and direct `send` preserve
+the existing default. HTTP routes select this with their `orbit[].balance`;
 this is independent of `workers.policy`, which controls process growth.
 Neither `send` nor
 `ApplicationTarget::send_wait` ever waits for receiver capacity: a full window
@@ -720,10 +720,11 @@ opening a mismatched object refuses it rather than resizing or unlinking peers.
 
 `config::Workers` is an owner declaration, not a destination selection enum:
 `Static { count }` starts exactly that count and publishes no growth;
-`OnPressure(GrowthPolicy)` starts at `min` and grows up to `max`, one process
-per unmet-demand episode. A runner uses its supervisor; an Orbit Task controller
-uses its owned command slots. `orbit[].policy: first | round_robin` belongs to
-the caller's prepared backend and never travels through a binding ABI.
+`Dynamic(GrowthPolicy)` (`policy: dynamic`; `on_pressure` is still accepted)
+starts at `min` and grows up to `max`, one process per unmet-demand episode. A
+runner uses its supervisor; an Orbit Task controller uses its owned command
+slots. `orbit[].balance: first | round_robin` belongs to the caller's prepared
+backend and never travels through a binding ABI.
 
 `retire_idle: off` adds no lane or timer. An explicit
 `retire_idle: { idle_timeout: 30s }` enables a controller-owned management lane

@@ -1,7 +1,7 @@
 use super::*;
 
 const WORKERS: &str =
-    "{ policy: on_pressure, min: 1, max: 4, step: 1, retire_idle: off }";
+    "{ policy: dynamic, min: 1, max: 4, step: 1, retire_idle: off }";
 
 fn entry(yaml: &str) -> Result<TaskConfig, String> {
     let mut config = TaskConfig::from_yaml(yaml)?;
