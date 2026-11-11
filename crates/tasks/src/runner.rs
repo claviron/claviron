@@ -648,11 +648,8 @@ impl TaskRunner {
         scope: TaskScope,
         dispatch: TaskDispatch,
     ) {
-        // Both fleet-arbitrated dispatches are owned by the controller. `one`
-        // is a pool of exactly one slot: the slot lease *is* the election, held
-        // by one runtime and renewed, rather than re-run by every runtime on
-        // every occurrence.
-        if matches!(dispatch, TaskDispatch::Pool | TaskDispatch::One) {
+        // Multi-runtime arbitration is owned by TaskService's pool controller.
+        if dispatch.is_controller_driven() {
             error!(
                 task = self.name(),
                 ?dispatch,
@@ -721,12 +718,14 @@ impl TaskRunner {
                     workers.spawn(runner.run_with_interval(*every, run));
                 }
                 TaskTiming::Daemon { .. } => {
-                    workers.spawn(runner.run_with_retries(
+                    let token = runner.token();
+                    workers.spawn(runner.run_daemon_slot(
                         i + 1,
                         st,
                         cfg.clone(),
                         scope,
                         dispatch,
+                        token,
                     ));
                 }
             }
@@ -892,7 +891,7 @@ impl TaskRunner {
             return;
         };
         let token = run.token.clone();
-        match service.inner.scheduler.register(&cron, self.clone(), run) {
+        match service.inner.scheduler.register(&cron, self.clone(), run, 1) {
             Ok(handle) => {
                 token.cancelled().await;
                 handle.stop();
@@ -1010,11 +1009,7 @@ impl TaskRunner {
         dispatch: TaskDispatch,
         token: CancellationToken,
     ) {
-        if cfg
-            .link
-            .as_ref()
-            .is_some_and(|link| link.kind == crate::LinkTaskKind::Worker)
-        {
+        if cfg.link.is_some() {
             crate::link::Execution {
                 runner: self,
                 state,

@@ -99,6 +99,7 @@ struct Registration {
     schedule: Schedule,
     runner: Arc<TaskRunner>,
     run: ScheduleContext,
+    slots: u8,
     status: Arc<ScheduleStatus>,
 }
 
@@ -205,6 +206,7 @@ impl Scheduler {
         expression: &str,
         runner: Arc<TaskRunner>,
         run: ScheduleContext,
+        slots: u8,
     ) -> Result<ScheduleHandle, String> {
         let schedule =
             Schedule::from_str(expression).map_err(|e| e.to_string())?;
@@ -217,12 +219,26 @@ impl Scheduler {
         {
             let role =
                 crate::metrics::role_label_from_run_mode(run.state.run_mode());
-            crate::metrics::set_workers_total(runner.name(), &role, 1);
-            crate::metrics::set_workers_healthy(runner.name(), &role, 1);
+            crate::metrics::set_workers_total(
+                runner.name(),
+                &role,
+                u64::from(slots),
+            );
+            crate::metrics::set_workers_healthy(
+                runner.name(),
+                &role,
+                u64::from(slots),
+            );
         }
         let id = self.queue.lock_unpoisoned().insert(
             next,
-            Registration { schedule, runner, run, status: Arc::clone(&status) },
+            Registration {
+                schedule,
+                runner,
+                run,
+                slots,
+                status: Arc::clone(&status),
+            },
         );
         Ok(ScheduleHandle { scheduler: Arc::clone(self), id, status })
     }
@@ -255,15 +271,18 @@ impl Scheduler {
                 entry.status.changed.notify_waiters();
                 continue;
             }
-            if let Some(execution) =
-                entry.runner.scheduled_occurrence(entry.run.clone())
-            {
-                entry.status.pending.fetch_add(1, Ordering::AcqRel);
-                let guard = OccurrenceGuard(Arc::clone(&entry.status));
-                tokio::spawn(async move {
-                    let _guard = guard;
-                    execution.await;
-                });
+            for offset in 0..entry.slots {
+                let mut run = entry.run.clone();
+                run.worker_number += offset;
+                if let Some(execution) = entry.runner.scheduled_occurrence(run)
+                {
+                    entry.status.pending.fetch_add(1, Ordering::AcqRel);
+                    let guard = OccurrenceGuard(Arc::clone(&entry.status));
+                    tokio::spawn(async move {
+                        let _guard = guard;
+                        execution.await;
+                    });
+                }
             }
             if let Some(next) = entry
                 .schedule

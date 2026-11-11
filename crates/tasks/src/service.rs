@@ -899,6 +899,13 @@ impl TaskService {
                 effective_dispatch(cfg, runner.map(Arc::as_ref))
             });
 
+            if scope == TaskScope::Master && dispatch.is_controller_driven() {
+                let dispatch = crate::registry::dispatch_label(dispatch);
+                return Err(claviron_runtime::registry::Error::msg(format!(
+                    "task '{name}' uses dispatch '{dispatch}' with scope 'master'; the master is one process and master-scoped tasks run directly in it, with dispatch omitted or 'each'"
+                )));
+            }
+
             if cfg.timing.execution_timeout().is_some_and(|execution_timeout| {
                 execution_timeout.is_zero()
                     || tokio::time::Instant::now()
@@ -961,11 +968,13 @@ impl TaskService {
                             ),
                         ));
                     }
-                    if dispatch.is_controller_driven() && field == "exit_action"
+                    if field == "exit_action"
+                        && (cfg.link.is_some()
+                            || dispatch.is_controller_driven())
                     {
                         return Err(claviron_runtime::registry::Error::msg(
                             format!(
-                                "task '{name}' uses coordinated dispatch with a non-terminating {field}; slot ownership cannot be relinquished while its command remains running"
+                                "task '{name}' configures a non-terminating {field}; slot ownership cannot be relinquished while its command remains running"
                             ),
                         ));
                     }
@@ -981,14 +990,14 @@ impl TaskService {
                 )));
             }
 
+            if !dispatch.is_controller_driven() {
+                continue;
+            }
+
+            if !state.is_standalone() {
+                needs_fleet = true;
+            }
             if dispatch == TaskDispatch::Pool {
-                if scope == TaskScope::Master {
-                    return Err(claviron_runtime::registry::Error::msg(
-                        format!(
-                            "task '{name}' uses dispatch 'pool' with scope 'master'; pool requires scope 'workers' or 'fleet'"
-                        ),
-                    ));
-                }
                 if !cfg.timing.is_daemon() {
                     return Err(claviron_runtime::registry::Error::msg(
                         format!(
@@ -996,18 +1005,7 @@ impl TaskService {
                         ),
                     ));
                 }
-
-                if !matches!(state.run_mode(), RunMode::Standalone) {
-                    needs_fleet = true;
-                }
                 continue;
-            }
-
-            if dispatch != TaskDispatch::One {
-                continue;
-            }
-            if !matches!(state.run_mode(), RunMode::Standalone) {
-                needs_fleet = true;
             }
             if cfg.concurrency != 1 {
                 return Err(claviron_runtime::registry::Error::msg(format!(
@@ -1672,6 +1670,11 @@ impl TaskService {
                         expression,
                         Arc::clone(&runner),
                         context,
+                        if scope == TaskScope::Master {
+                            cf.concurrency
+                        } else {
+                            1
+                        },
                     ) {
                         Ok(handle) => SupervisorHandle::Schedule(handle),
                         Err(error) => {
@@ -2371,8 +2374,15 @@ fn state_task_start(
     scope: TaskScope,
     dispatch: TaskDispatch,
 ) {
-    let slots = if dispatch == TaskDispatch::One { 1 } else { cfg.concurrency };
-    let scope = crate::registry::scope_label(scope);
+    if cfg.link.is_some() {
+        return;
+    }
+    let slots = cfg.concurrency;
+    let scope = match scope {
+        TaskScope::Master => "master",
+        TaskScope::Worker => "worker",
+        TaskScope::Any => "any",
+    };
     let dispatch = crate::registry::dispatch_label(dispatch);
     let timing = cfg.timing.label();
     if state.is_worker() {

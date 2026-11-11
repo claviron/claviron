@@ -129,8 +129,7 @@ pub struct TaskPlacementStatus {
     /// moment an operator is likely to look. Without this, such a task reads as
     /// if nobody had it.
     ///
-    /// Zero for `each`, which arbitrates nothing and is therefore owned by
-    /// every eligible member at once.
+    /// Zero for direct tasks, including all master-scoped tasks.
     pub owned_slots: usize,
     pub last_execution: Option<TaskExecutionOutcome>,
     pub observed_at: SystemTime,

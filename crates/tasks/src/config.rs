@@ -512,9 +512,8 @@ impl TryFrom<LinkTaskKindName> for LinkTaskKind {
 }
 
 impl TaskConfig {
-    /// Settle a Link task into the command task it runs as: its command,
-    /// on the master, as one daemon. Refuses what a Link task does not let
-    /// the entry choose.
+    /// Move the Link command into one direct daemon on the master or
+    /// standalone process. Its Link controller owns the destination fleet.
     pub(crate) fn materialize_link(&mut self) -> Result<(), String> {
         let Some(link) = self.link.as_mut() else { return Ok(()) };
         let Some(command) = link.command.take() else {
@@ -565,7 +564,7 @@ impl TaskConfig {
         }
         self.command = Some(command);
         self.scope = Some(TaskScope::Master);
-        self.dispatch = Some(TaskDispatch::One);
+        self.dispatch = Some(TaskDispatch::Each);
         self.timing = TaskTiming::Daemon { enabled: true };
         Ok(())
     }

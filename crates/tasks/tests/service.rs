@@ -1440,23 +1440,132 @@ tasks:
     assert!(error.to_string().contains("restart 'always' with a schedule"));
 }
 
-#[test]
-fn dispatch_pool_rejects_master_scope() {
-    let (service, state) = service_with(
-        r#"
-tasks:
-  queue:
-    scope: master
-    dispatch: pool
-    concurrency: 3
-    timing: { kind: daemon }
-"#,
+fn master_state() -> AppState {
+    AppState::initialize(
+        RunMode::Master,
+        FleetNodeId::ZERO,
+        WorkerCount::new(1),
+        FleetCapacity::new(2).unwrap(),
+        Some(format!("task-master-test-{:016x}", fastrand::u64(..)).into()),
+        PathBuf::from("."),
+    )
+}
+
+#[tokio::test]
+async fn master_dispatch_runs_local_slots_without_a_fleet_controller() {
+    let state = master_state();
+    let yaml = "tasks:\n  example:\n    scope: master\n    concurrency: 3\n    timing: { kind: daemon }\n";
+    for dispatch in ["one", "pool"] {
+        let (invalid, _) =
+            service_with(&format!("{yaml}    dispatch: {dispatch}"));
+        let error =
+            invalid.validate_task_policies(&state).unwrap_err().to_string();
+        assert!(error.contains("task 'example'"));
+        assert!(error.contains(&format!("dispatch '{dispatch}'")));
+        assert!(error.contains("the master is one process"));
+    }
+
+    let (service, _) = service_with(yaml);
+    service.validate_task_policies(&state).unwrap();
+    let (started, mut slots) = tokio::sync::mpsc::unbounded_channel();
+    service.register_fn(
+        "example",
+        crate::TaskRunner::from_with_stop_context(
+            move |_, token, runtime, _| {
+                started.send(runtime.slot()).unwrap();
+                async move {
+                    token.cancelled().await;
+                    Ok(())
+                }
+            },
+        ),
     );
 
-    let error = service
-        .validate_task_policies(&state)
-        .expect_err("master-only pool must fail");
-    assert!(error.to_string().contains("scope 'workers' or 'fleet'"));
+    assert_eq!(service.start_tasks(&state), Some(1));
+    let mut seen = Vec::new();
+    for _ in 0..3 {
+        seen.push(
+            timeout(Duration::from_secs(1), slots.recv())
+                .await
+                .unwrap()
+                .unwrap(),
+        );
+    }
+    seen.sort_unstable();
+    assert_eq!(seen, [1, 2, 3]);
+    assert!(service.inner.pool_reloader.runner("example").is_none());
+    let snapshot = service.local_snapshot(&state);
+    assert_eq!(
+        snapshot.tasks[0].placements[0].lifecycle,
+        TaskLifecycle::Active
+    );
+    assert_eq!(snapshot.tasks[0].placements[0].owned_slots, 0);
+
+    service.cancel_all();
+    timeout(Duration::from_secs(1), service.wait_all_stopped(None))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn link_commands_start_without_a_hosting_fleet_lease() {
+    for (kind, workers, expected) in [
+        ("runner", "", crate::TaskDispatch::One),
+        (
+            "worker",
+            "workers: { policy: static, count: 1, retire_idle: off }\n",
+            crate::TaskDispatch::Pool,
+        ),
+    ] {
+        let fleet = format!("lk{:06x}", fastrand::u32(..=0xffffff));
+        let workers = workers.replace('\n', "\n      ");
+        let (service, _) = service_with(&format!(
+            "tasks:\n  example:\n    link:\n      fleet: {fleet}\n      kind: {kind}\n      {workers}command: {{ program: ./example }}\n"
+        ));
+        let mut tasks = (*service.task_snapshot()).clone();
+        Arc::make_mut(tasks.get_mut("example").unwrap())
+            .materialize_link()
+            .unwrap();
+        service.inner.tasks.store(Arc::new(tasks));
+        let state = master_state();
+        service.validate_task_policies(&state).unwrap();
+
+        let (started, mut slots) = tokio::sync::mpsc::unbounded_channel();
+        let mut runner = crate::TaskRunner::from_with_stop_context(
+            move |_, token, runtime, _| {
+                started.send((runtime.slot(), runtime.task_dispatch)).unwrap();
+                async move {
+                    token.cancelled().await;
+                    Ok(())
+                }
+            },
+        );
+        runner.set_name("example");
+        service
+            .inner
+            .command_runners
+            .write()
+            .unwrap()
+            .insert("example".into(), Arc::new(runner));
+
+        assert_eq!(service.start_tasks(&state), Some(1));
+        assert_eq!(
+            timeout(Duration::from_secs(1), slots.recv()).await.unwrap(),
+            Some((1, expected))
+        );
+        assert!(service.inner.pool_reloader.runner("example").is_none());
+
+        let lock_key = format!("claviron.link.task:{}:{fleet}", unsafe {
+            nix::libc::geteuid()
+        });
+        assert!(
+            claviron_sys::process::ProcessLock::try_acquire(&lock_key).is_err()
+        );
+        service.cancel_all();
+        timeout(Duration::from_secs(1), service.wait_all_stopped(None))
+            .await
+            .unwrap();
+    }
 }
 
 #[test]

@@ -26,7 +26,9 @@ use claviron_runtime::{AppState, registry};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
-use crate::{LinkTask, TaskConfig, TaskDispatch, TaskRunner, TaskScope};
+use crate::{
+    LinkTask, LinkTaskKind, TaskConfig, TaskDispatch, TaskRunner, TaskScope,
+};
 
 /// Slot numbers are a task's `u8`; the controller numbers processes 1..=max.
 const SLOT_CAPACITY: u16 = u8::MAX as u16;
@@ -87,8 +89,7 @@ impl Execution {
         let scope = self.scope;
         let token = self.token.child_token();
         tokens.insert(slot, token.clone());
-        // The task's own `one` slot elects this controller; its processes
-        // keep stable pool slot identities, so a retained one is reattached.
+        // Keep the persistent pool slot keys for these command instances.
         slots.spawn(async move {
             runner
                 .run_owned_slot(
@@ -108,8 +109,6 @@ impl Execution {
         let task = self.runner.name();
         let link: &LinkTask =
             self.config.link.as_ref().expect("a Link task has its block");
-        let workers: Workers =
-            link.workers.expect("a worker-kind Link task declares workers");
         // TaskService instances on one host may run the same task table;
         // one of them runs a fleet's processes.
         let _owner = claviron_sys::process::ProcessLock::try_acquire(&format!(
@@ -123,6 +122,23 @@ impl Execution {
                 link.fleet
             ))
         })?;
+        if link.kind == LinkTaskKind::Runner {
+            tracing::info!(task, fleet = %link.fleet, "🛰 Link task takes its fleet");
+            // A retained runner was recorded under the singleton command key.
+            Arc::clone(&self.runner)
+                .run_owned_slot(
+                    1,
+                    self.state.clone(),
+                    Arc::clone(&self.config),
+                    self.scope,
+                    TaskDispatch::One,
+                    self.token.clone(),
+                )
+                .await;
+            return Ok(());
+        }
+        let workers =
+            link.workers.expect("a worker-kind Link task declares workers");
         workers.validate()?;
         let max = workers.maximum(SLOT_CAPACITY);
         if max > SLOT_CAPACITY || workers.initial_count() > max {

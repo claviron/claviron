@@ -155,7 +155,11 @@ through `claviron_orbit::placement`.
 | `any` | ✅ | ✅ | ✅ |
 
 **Dispatch** says how execution is shared among the eligible runtimes, and
-gives `concurrency` (default 1, never 0) its meaning:
+gives `concurrency` (default 1, never 0) its meaning. A master-scoped task
+runs directly with `concurrency` local slots. It accepts `dispatch: each` or
+omission. The task table refuses `one` and `pool` for master scope during
+boot, reload and configuration checks. The table below describes dispatch
+for scopes eligible on multiple runtimes:
 
 | `dispatch` | Behavior | `concurrency` |
 |---|---|---|
@@ -163,8 +167,8 @@ gives `concurrency` (default 1, never 0) its meaning:
 | `one` | Eligible runtimes contend for one slot; its owner runs the trigger. | Must be 1 |
 | `pool` | Eligible runtimes share daemon slots and run the ones they hold. | Slots across the scope |
 
-`pool` requires daemon timing and a scope other than `master`. Outside
-standalone, `one` and `pool` need the Orbit fleet.
+Fleet-arbitrated `pool` requires daemon timing. Outside standalone,
+fleet-arbitrated `one` and `pool` need the Orbit fleet.
 
 **Resolution order.** The entry's `scope`/`dispatch`, else the body's default
 (command, php, js and lua: `worker` and `each`), else the Rust runner's
@@ -387,7 +391,7 @@ manual timing.
 - `{ signal: <other> }`: send it and stop supervising.
 - `keep-running`: send nothing and stop supervising.
 
-The last two are refused for scheduled tasks and for `one`/`pool`.
+The last two are refused for scheduled tasks, fleet-arbitrated tasks and Link tasks.
 
 **Reload action** applies on a reload or a management reload of an unchanged
 command: omitted does nothing, `restart` drains and restarts, `{ signal: kill }`
@@ -473,10 +477,8 @@ tasks:
 | Why declare it | growth and retirement | the task is known to manage a Link fleet |
 
 `TaskService::register_link(name, LinkTask)` registers the same entry in
-code. The entry settles into a command task: its `command` moves to the
-task's, and it runs on the master as one daemon (`scope: master`,
-`dispatch: one`). Scope, dispatch, timing and concurrency are therefore not
-written. One task runs each fleet, and never the fleet hosting the service.
+code. TaskService moves the command into one direct daemon on the master or
+standalone process. Scope, dispatch, timing and concurrency are implicit. One task runs each fleet, and never the fleet hosting the service.
 `workers.max: available` is refused: it counts a supervisor's seats, and a
 Link task has none. The earlier `orbit:` block and `kind: task` are refused
 with messages naming `link:` and `kind: worker`.
@@ -487,8 +489,9 @@ owner-only fleet. Cross-user workers require fleet group access, which Link
 tasks do not declare.
 
 The processes create and join their fleet and declare its geometry; the
-service never does. A `kind: worker` task takes a host-wide lock on the fleet
-(`claviron.link.task:{euid}:{fleet}`). It starts
+service never does. Both kinds take a host-wide process lock on the
+destination fleet (`claviron.link.task:{euid}:{fleet}`). The runner kind
+starts one command and retains its singleton instance key. The worker kind starts
 `max(initial_count, retained)` processes in stable pool slots, where retained
 is the highest slot whose command still holds its instance lock (more than
 `workers.max` refuses to start). It then waits for the Link the first process
@@ -640,8 +643,9 @@ Every section and entry refuses unknown fields. Per-task fields and defaults:
 | `silent` | false | Suppresses per-attempt start/exit info lines |
 
 Validation also rejects: a zero or unrepresentable duration, an unparsable
-cron expression, `restart: always` on a scheduled task, `pool` without daemon
-timing or with `scope: master`, coordinated dispatch without a fleet outside
+cron expression, `restart: always` on a scheduled task, a fleet-arbitrated
+`pool` without daemon timing, `one` or `pool` with master scope,
+coordinated dispatch without a fleet outside
 standalone, and the non-terminating exit actions and in-place reload signals
 listed in §9.
 

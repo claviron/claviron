@@ -17,7 +17,7 @@ fn a_link_task_settles_into_one_master_daemon_and_chooses_nothing_else() {
     .unwrap();
     assert!(config.command.is_some());
     assert_eq!(config.scope, Some(TaskScope::Master));
-    assert_eq!(config.dispatch, Some(TaskDispatch::One));
+    assert_eq!(config.dispatch, Some(TaskDispatch::Each));
     assert!(config.timing.is_daemon());
 
     let runner =
@@ -77,5 +77,5 @@ fn static_command_counts_are_owned_by_the_controller_not_dispatch() {
     assert_eq!(workers, Workers::Static { count: 3 });
     assert_eq!(workers.growth(40), None);
     assert_eq!(config.scope, Some(TaskScope::Master));
-    assert_eq!(config.dispatch, Some(TaskDispatch::One));
+    assert_eq!(config.dispatch, Some(TaskDispatch::Each));
 }
