@@ -205,7 +205,9 @@ Listener connection/protocol settings are per declaration. Request and response
 policy stays application-wide under `requests` and `responses` at the runner
 root. Per-listener body policy is rejected rather than silently ignored.
 `defaults.listener` supplies shared socket settings and Orbit's execution
-selection. Each named socket listener can override those defaults. The former
+selection. Use `inherit` for the process runtime or `dedicated` for
+Continuo's `Dedicated(CurrentThread)` on each listener or door. Each named
+socket listener can override the defaults. The former
 top-level `listener` key is no longer accepted.
 
 The application name and fleet name are separate. An explicit fleet name avoids

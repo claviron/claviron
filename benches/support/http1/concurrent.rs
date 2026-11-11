@@ -10,7 +10,8 @@ use std::{
 };
 
 use clap::{Parser, ValueEnum};
-use claviron::http::config::{HttpSnapshot, ListenerConfig, ListenerExecution};
+use claviron::Execution;
+use claviron::http::config::{HttpSnapshot, ListenerConfig};
 use serde::{Deserialize, Serialize};
 
 #[path = "concurrent/allocation.rs"]
@@ -156,8 +157,8 @@ impl Args {
 
     fn http_threads(&self) -> Result<usize> {
         Ok(match self.listener()?.execution {
-            ListenerExecution::Shared => self.server_threads.get(),
-            ListenerExecution::Dedicated => 1,
+            Execution::Inherit => self.server_threads.get(),
+            Execution::Dedicated => 1,
         })
     }
 
@@ -178,13 +179,6 @@ impl Args {
 }
 
 /// How a report names the listener's execution.
-fn execution_name(execution: ListenerExecution) -> &'static str {
-    match execution {
-        ListenerExecution::Shared => "shared",
-        ListenerExecution::Dedicated => "dedicated",
-    }
-}
-
 fn seconds(text: &str) -> std::result::Result<Duration, String> {
     let value: f64 = text.parse().map_err(|error| format!("{error}"))?;
     let duration = Duration::try_from_secs_f64(value)
@@ -540,7 +534,7 @@ pub fn run() -> Result<()> {
         mode: args.mode,
         connections: args.connections.get(),
         server_threads: args.server_threads.get(),
-        listener_execution: execution_name(args.listener()?.execution),
+        listener_execution: args.listener()?.execution.as_str(),
         http_threads,
         client_threads: args.client_threads.get(),
         control,

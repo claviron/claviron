@@ -5,8 +5,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use claviron_orbit::placement::{Scope, Scoped};
 use claviron_runtime::{
-    AppState, Component, ExecutionSpec, FleetIncarnation, RunContext, Runnable,
-    ServiceStartPolicy, registry,
+    AppState, Component, Execution, ExecutionSpec, FleetIncarnation,
+    RunContext, Runnable, ServiceStartPolicy, execution::execution_spec,
+    registry,
 };
 use claviron_transport::orbit::OrbitDoor;
 pub use claviron_transport::orbit::{
@@ -20,7 +21,7 @@ use crate::routing::Application;
 /// Claviron owns.
 pub struct OrbitIngress {
     door: OrbitDoor,
-    execution: ExecutionSpec,
+    execution: Execution,
 }
 
 impl OrbitIngress {
@@ -36,7 +37,7 @@ impl OrbitIngress {
     ) -> Self {
         Self {
             door: OrbitDoor::new(application, runtime, max_in_flight),
-            execution: ExecutionSpec::default(),
+            execution: Execution::default(),
         }
     }
 
@@ -60,7 +61,7 @@ impl OrbitIngress {
     /// each process: the same choice a socket's listener makes.
     pub fn execution(
         mut self,
-        execution: ExecutionSpec,
+        execution: Execution,
     ) -> Self {
         self.execution = execution;
         self
@@ -99,7 +100,7 @@ impl Runnable<AppState, <Self as Component<AppState>>::Deps> for OrbitIngress {
         &self,
         _: &AppState,
     ) -> ExecutionSpec {
-        self.execution.clone()
+        execution_spec(self.execution)
     }
 
     fn start_policy(

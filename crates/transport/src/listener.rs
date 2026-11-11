@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use claviron_http::config::ListenerConfig;
 use claviron_runtime::{
     AppState, ExecutionSpec, Reloadable, Resolve, RunContext, Runnable,
-    RunnableInstance, ServiceStartPolicy, registry,
+    RunnableInstance, ServiceStartPolicy, execution::execution_spec, registry,
 };
 
 /// An application-owned adapter supplies a listener's prepared inputs.
@@ -61,7 +61,7 @@ impl<A: Adapter> Runnable<AppState, A::Deps> for Listener<A> {
         &self,
         _: &AppState,
     ) -> ExecutionSpec {
-        self.0.config().execution_spec()
+        execution_spec(self.0.config().execution)
     }
 
     fn start_policy(

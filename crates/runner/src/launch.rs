@@ -289,12 +289,7 @@ pub fn register_doors(
                 .listener_defaults()
                 .map_err(registry::Error::msg)?
                 .execution
-                .resolve(&claviron_http::config::ListenerExecution::default())
-                .for_listener(&"orbit".parse().map_err(
-                    |error: claviron_http::listener::InvalidListenerId| {
-                        registry::Error::msg(error.to_string())
-                    },
-                )?);
+                .resolve(&claviron_runtime::Execution::default());
             let configuration = state
                 .registry_ref()
                 .resolve::<claviron_orbit::config::OrbitConfiguration>()

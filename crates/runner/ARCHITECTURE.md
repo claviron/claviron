@@ -220,7 +220,7 @@ orbit:
   link: {max_in_flight: 128, max_waiting: 192}
 defaults:
   listener:
-    execution: shared
+    execution: inherit
 listeners:
   application:
     transport: tcp
@@ -253,7 +253,9 @@ source files.
 Named socket listeners use HTTP's common `ListenerDefinition` and resolver.
 `RunnerOptions.defaults` carries `defaults.listener`; named declarations override
 these shared settings, and Orbit takes its execution selection from the same
-defaults. `listener_defaults()` validates the nested block before either ingress
+defaults. `inherit` uses the process runtime. `dedicated` uses Continuo's
+`Dedicated(CurrentThread)` for the socket listener or Orbit door.
+`listener_defaults()` validates the nested block before either ingress
 is prepared. Request and response policy belongs at the runner root.
 The runner owns the application adapter in `socket.rs`; it defines no socket
 Runnable. Transport's `Listener` owns `Listener:<id>`, executor placement and

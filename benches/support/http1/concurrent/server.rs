@@ -17,7 +17,7 @@ use tokio::{
     task::JoinSet,
 };
 
-use claviron::http::config::ListenerExecution;
+use claviron::Execution;
 
 use super::{
     Args, Command, Mode, Reply, Result, Target, allocation, cpu::Usage,
@@ -89,10 +89,8 @@ pub(super) fn run(args: &Args) -> Result<()> {
 
 pub(super) async fn start(args: &Args) -> Result<Server> {
     let expected = match args.listener()?.execution {
-        ListenerExecution::Shared => tokio::runtime::RuntimeFlavor::MultiThread,
-        ListenerExecution::Dedicated => {
-            tokio::runtime::RuntimeFlavor::CurrentThread
-        }
+        Execution::Inherit => tokio::runtime::RuntimeFlavor::MultiThread,
+        Execution::Dedicated => tokio::runtime::RuntimeFlavor::CurrentThread,
     };
     assert_eq!(tokio::runtime::Handle::current().runtime_flavor(), expected);
     match args.target {

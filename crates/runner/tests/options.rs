@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn named_listeners_survive_worker_serialization_and_keep_their_settings() {
     let (shared, own) = split(serde_yaml::from_str(
-        "defaults:\n  listener:\n    execution: dedicated\n    uds: {backlog: 17}\nlisteners:\n  private:\n    transport: unix\n    listen: unix:/tmp/example.sock\n    protocols: [h1, h2]\n  shared:\n    transport: unix\n    listen: unix:/tmp/shared.sock\n    protocols: h1\n    execution: shared\n"
+        "defaults:\n  listener:\n    execution: dedicated\n    uds: {backlog: 17}\nlisteners:\n  private:\n    transport: unix\n    listen: unix:/tmp/example.sock\n    protocols: [h1, h2]\n  shared:\n    transport: unix\n    listen: unix:/tmp/shared.sock\n    protocols: h1\n    execution: inherit\n"
     ).unwrap()).unwrap();
     assert!(own.as_mapping().unwrap().is_empty());
     let written: RunnerOptions = serde_yaml::from_value(shared).unwrap();
@@ -19,16 +19,16 @@ fn named_listeners_survive_worker_serialization_and_keep_their_settings() {
         assert_eq!(
             options.listener_defaults().unwrap().execution,
             claviron_http::config::Override::Value(
-                claviron_http::config::ListenerExecution::Dedicated
+                claviron_runtime::Execution::Dedicated
             )
         );
         assert_eq!(
             listeners[0].execution,
-            claviron_http::config::ListenerExecution::Dedicated
+            claviron_runtime::Execution::Dedicated
         );
         assert_eq!(
             listeners[1].execution,
-            claviron_http::config::ListenerExecution::Shared
+            claviron_runtime::Execution::Inherit
         );
         assert_eq!(
             listeners[0].transport(),
@@ -187,7 +187,8 @@ fn what_only_a_file_says_survives_on_either_side_of_a_layering() {
 
 #[test]
 fn runner_listener_defaults_are_checked_when_read() {
-    use claviron_http::config::{ListenerExecution, Override};
+    use claviron_http::config::Override;
+    use claviron_runtime::Execution;
     let written = |listener: &str| RunnerOptions {
         defaults: Some(
             serde_yaml::from_str(&format!("{{listener: {listener}}}")).unwrap(),
@@ -197,10 +198,7 @@ fn runner_listener_defaults_are_checked_when_read() {
     let listener = written("{execution: dedicated, max_connections: 8}")
         .listener_defaults()
         .unwrap();
-    assert_eq!(
-        listener.execution,
-        Override::Value(ListenerExecution::Dedicated)
-    );
+    assert_eq!(listener.execution, Override::Value(Execution::Dedicated));
     assert!(
         written("{requests: {max_body_size: off}}").socket_listeners().is_err()
     );

@@ -18,13 +18,11 @@ response-header policy belong to `edge-config` and `edge`, not here.
 Application-specific middleware and its response policy live in the consuming
 framework, not in this primitive crate.
 
-`config::ListenerExecution` selects `shared` (default) or `dedicated`
-for each listener. `defaults.listener.execution` supplies an inherited default;
-`listeners.<id>.execution` overrides it for plain TCP, TLS TCP or QUIC.
-`ListenerConfig::execution_spec()` converts the resolved choice into Runnable
-placement. Current-thread domains use the listener identity within each process
-and retain their I/O driver through provider finalization. Changes apply on the
-next listener start/restart.
+`claviron_types::Execution` selects `inherit` (default) or `dedicated`
+for each listener. `defaults.listener.execution` supplies a default and
+`listeners.<id>.execution` overrides it. Transport applies the resolved
+choice on the next listener start or restart through the runtime's execution
+conversion. Dedicated maps to Continuo's `Dedicated(CurrentThread)`.
 
 The role is *hub*: every transport listener in the workspace and
 every middleware-bearing crate downstream pulls types from here.
@@ -295,7 +293,7 @@ request defaults from connection/transport policy:
 defaults:
   deny: ['^/private']
   listener:
-    execution: shared
+    execution: inherit
     requests: {max_body_size: off, body_read_timeout: off}
     max_connections: 500
     graceful_timeout: 30s

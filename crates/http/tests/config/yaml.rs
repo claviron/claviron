@@ -1,3 +1,5 @@
+use claviron_types::Execution;
+
 use super::*;
 
 #[test]
@@ -31,24 +33,26 @@ fn http_yaml_rejects_unknown_directives() {
 
 #[test]
 fn listener_execution_inherits_and_overrides_for_plain_tls_and_quic() {
-    use claviron_runtime::{ExecutionDomain, ExecutionSpec, ExecutorSpec};
+    use claviron_runtime::{
+        ExecutionSpec, ExecutorKind, ExecutorSpec, execution::execution_spec,
+    };
     for driver in [
         "    transport: tcp\n    protocols: h1\n",
         "    transport: tcp\n    tls: true\n    protocols: [h1, h2]\n",
         "    transport: quic\n    protocols: h3\n",
     ] {
         for (inherited, local, expected) in [
-            ("", "", ListenerExecution::Shared),
-            ("    execution: dedicated\n", "", ListenerExecution::Dedicated),
+            ("", "", Execution::Inherit),
+            ("    execution: dedicated\n", "", Execution::Dedicated),
             (
                 "    execution: dedicated\n",
-                "    execution: shared\n",
-                ListenerExecution::Shared,
+                "    execution: inherit\n",
+                Execution::Inherit,
             ),
             (
-                "    execution: shared\n",
+                "    execution: inherit\n",
                 "    execution: dedicated\n",
-                ListenerExecution::Dedicated,
+                Execution::Dedicated,
             ),
         ] {
             let source = format!(
@@ -58,18 +62,17 @@ fn listener_execution_inherits_and_overrides_for_plain_tls_and_quic() {
             let listener = config.listeners.values().next().unwrap();
             assert_eq!(listener.execution, expected);
             let spec = match expected {
-                ListenerExecution::Shared => ExecutionSpec::default(),
-                ListenerExecution::Dedicated => ExecutionSpec::default()
-                    .with_executor(ExecutorSpec::Shared(
-                        ExecutionDomain::named::<ListenerExecution>("selected"),
-                    )),
+                Execution::Inherit => ExecutionSpec::default(),
+                Execution::Dedicated => ExecutionSpec::default().with_executor(
+                    ExecutorSpec::Dedicated(ExecutorKind::CurrentThread),
+                ),
             };
-            assert_eq!(listener.execution_spec(), spec);
+            assert_eq!(execution_spec(listener.execution), spec);
             let mut changed = listener.as_ref().clone();
-            changed.execution = if expected == ListenerExecution::Shared {
-                ListenerExecution::Dedicated
+            changed.execution = if expected == Execution::Inherit {
+                Execution::Dedicated
             } else {
-                ListenerExecution::Shared
+                Execution::Inherit
             };
             assert!(listener.same_binding(&changed));
         }
@@ -84,11 +87,23 @@ fn listener_execution_rejects_unknown_and_mistyped_modes() {
         )
     };
     assert!(
-        serde_yaml::from_str::<HttpSnapshot>(&source("shared", "shared"))
+        serde_yaml::from_str::<HttpSnapshot>(&source("inherit", "inherit"))
             .is_ok()
     );
+    for (inherited, local) in [("shared", "inherit"), ("inherit", "shared")] {
+        let error =
+            serde_yaml::from_str::<HttpSnapshot>(&source(inherited, local))
+                .err()
+                .expect("shared is retired");
+        assert!(
+            error
+                .to_string()
+                .contains("execution 'shared' has been replaced by 'inherit'"),
+            "{error}"
+        );
+    }
     for value in ["null", "false", "4", "multi_thread", "{}", "[]"] {
-        for (inherited, local) in [(value, "shared"), ("shared", value)] {
+        for (inherited, local) in [(value, "inherit"), ("inherit", value)] {
             assert!(
                 serde_yaml::from_str::<HttpSnapshot>(&source(inherited, local))
                     .is_err()
@@ -275,25 +290,6 @@ fn connection_limits_are_only_applied_when_declared() {
             "defaults={defaults:?}, local={local:?}"
         );
     }
-}
-
-#[test]
-fn listener_execution_domains_are_scoped_to_listener_identity() {
-    let first = "first".parse().unwrap();
-    let second = "second".parse().unwrap();
-    let configured = ListenerExecution::Dedicated;
-    assert_eq!(
-        configured.for_listener(&first),
-        configured.for_listener(&first)
-    );
-    assert_ne!(
-        configured.for_listener(&first),
-        configured.for_listener(&second)
-    );
-    assert_eq!(
-        ListenerExecution::Shared.for_listener(&first),
-        claviron_runtime::ExecutionSpec::default()
-    );
 }
 
 #[test]

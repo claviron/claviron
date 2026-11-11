@@ -5,14 +5,15 @@ use std::num::{NonZeroU16, NonZeroUsize};
 use std::time::Duration;
 
 use claviron_helpers::de::one_or_many;
+use claviron_types::Execution;
 use serde::de::{MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
 use super::proxy::ProxyOverrideExt;
 use super::{
     ConfigError, H1Config, H1Override, H2Config, H2Override, HttpPolicy,
-    ListenerExecution, Override, ProxyConfig, ProxyOverride, QuicConfig,
-    QuicOverride, RequestPolicy, RequestPolicyOverride, ResponsePolicy,
+    Override, ProxyConfig, ProxyOverride, QuicConfig, QuicOverride,
+    RequestPolicy, RequestPolicyOverride, ResponsePolicy,
     ResponsePolicyOverride, TcpConfig, TcpOverride, UdsConfig, UdsOverride,
 };
 use crate::ListenerId;
@@ -24,7 +25,7 @@ use crate::listener::{HttpProtocol, ListenAddress, ListenerTransport};
 #[serde(deny_unknown_fields)]
 pub struct ListenerOverrides {
     #[serde(default)]
-    pub execution: Override<ListenerExecution>,
+    pub execution: Override<Execution>,
     #[serde(default)]
     pub max_connections: Override<Option<NonZeroUsize>>,
     #[serde(default, deserialize_with = "super::helpers::optional_duration")]
@@ -62,7 +63,7 @@ pub struct ListenerDefinition {
     #[serde(default = "default_explicit")]
     pub explicit: bool,
     #[serde(default)]
-    pub execution: Override<ListenerExecution>,
+    pub execution: Override<Execution>,
     pub transport: ListenerTransport,
     #[serde(deserialize_with = "one_or_many")]
     pub listen: Vec<ListenAddress>,
@@ -127,7 +128,7 @@ pub struct ListenerConfig {
     pub id: ListenerId,
     pub explicit: bool,
     /// Placement for the next generation; independent of transport and binds.
-    pub execution: ListenerExecution,
+    pub execution: Execution,
     pub listen: Vec<ListenAddress>,
     pub limits: ConnectionLimits,
     pub proxy: Option<ProxyConfig>,
@@ -141,11 +142,6 @@ pub struct ListenerConfig {
 }
 
 impl ListenerConfig {
-    /// Common Runnable placement for plain TCP, TLS TCP and QUIC.
-    pub fn execution_spec(&self) -> claviron_runtime::ExecutionSpec {
-        self.execution.for_listener(&self.id)
-    }
-
     /// Both sides of this listener's policy: the guarantee every host and
     /// application on it narrows.
     pub fn policy(&self) -> HttpPolicy {
@@ -369,11 +365,9 @@ impl ListenerDefinition {
             }
         }
         let options = self.overrides();
-        let execution = options.execution.resolve(
-            &defaults
-                .execution
-                .resolve(&super::execution::default_listener_execution()),
-        );
+        let execution = options
+            .execution
+            .resolve(&defaults.execution.resolve(&Execution::default()));
         let limits =
             options.limits(&defaults.limits(&ConnectionLimits::default()));
         let proxy =

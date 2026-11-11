@@ -11,6 +11,8 @@ on-disk certificate-store layout, parsers, generators, and formatters.
 without making schema parsing depend on a Link driver. Selection state and
 execution stay in `claviron-orbit`; the enum adds no runtime dependency.
 
+`Execution` declares runnable placement as `inherit` or `dedicated`. The runtime owns its conversion into a runnable execution spec.
+
 The crate is deliberately reusable on **both server and CLI sides**.
 A long-running listener uses these primitives to resolve SNI to a
 host record at handshake time. A command-line tool uses the same

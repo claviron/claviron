@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use claviron::orbit::link::application::{ApplicationService, LinkJoined};
 use claviron::orbit::{Scope, Scoped};
+use claviron::runtime::execution::execution_spec;
 use claviron::{
     AppState, Component, ExecutionSpec, ProcessStarted, RunContext, Runnable,
     registry,
@@ -81,13 +82,8 @@ impl Runnable<AppState> for Control {
         &self,
         state: &AppState,
     ) -> ExecutionSpec {
-        if !state.is_master()
-            && self.launch.side == Side::Client
-            && self.launch.client.execution == "dedicated"
-        {
-            claviron::http::config::ListenerExecution::Dedicated.for_listener(
-                &"benchmark-client".parse().expect("valid listener id"),
-            )
+        if !state.is_master() && self.launch.side == Side::Client {
+            execution_spec(self.launch.client.execution)
         } else {
             ExecutionSpec::default()
         }
@@ -141,7 +137,7 @@ impl Control {
             execution: if state.is_master() {
                 "supervisor".into()
             } else if self.launch.side == Side::Client {
-                self.launch.client.execution.clone()
+                self.launch.client.execution.as_str().into()
             } else {
                 "runner".into()
             },

@@ -11,7 +11,7 @@ use super::thread::ThreadExecution;
 use crate::registry::{Error, Result};
 use crate::{ExecutionFuture, PreparedExecution, RunContext};
 
-/// Owned reactor and submitted jobs, retained by a shared domain or dedicated root.
+/// Owned reactor and submitted jobs, retained by a shared domain or dedicated owner.
 #[derive(Clone, Default)]
 pub(super) struct ResidentExecution(Arc<Mutex<State>>);
 

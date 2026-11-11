@@ -113,9 +113,11 @@ def build(target):
 def listener_execution(path):
     """What the one listener declares; the benchmark reads the same file."""
     found = re.findall(r"^\s+execution:\s*(\w+)\s*$", path.read_text(), re.M)
-    if len(found) > 1 or any(value not in ("shared", "dedicated") for value in found):
-        raise RuntimeError(f"{path}: expected one listener execution, shared or dedicated")
-    return found[0] if found else "shared"
+    if "shared" in found:
+        raise RuntimeError(f"{path}: execution 'shared' has been replaced by 'inherit'")
+    if len(found) > 1 or any(value not in ("inherit", "dedicated") for value in found):
+        raise RuntimeError(f"{path}: expected one listener execution, inherit or dedicated")
+    return found[0] if found else "inherit"
 
 def compatible(first, second, execution_change=False):
     before, after = dict(first.get("controls", {})), dict(second.get("controls", {}))
@@ -250,7 +252,7 @@ def main():
     parser.add_argument("--server-threads", type=positive_int)
     parser.add_argument("--http-config", type=Path,
                         help="An http.yaml with one listener; its execution places the server. "
-                             "Concurrent targets require it; benches/config/http1 has shared and dedicated.")
+                             "Concurrent targets require it; benches/config/http1 has inherit and dedicated.")
     parser.add_argument("--client-threads", type=positive_int)
     parser.add_argument("--control", choices=CONCURRENT_TARGETS,
                         help="Measure this owner in alternating windows of the same run.")

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use clap::{Parser, ValueEnum};
+use claviron::Execution;
 use serde::{Deserialize, Serialize};
 
 use super::Result;
@@ -107,7 +108,7 @@ fn seconds(text: &str) -> std::result::Result<Duration, String> {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ClientConfig {
-    pub execution: String,
+    pub execution: Execution,
     #[serde(with = "humantime_serde")]
     pub request_timeout: Duration,
     pub accept: f64,
@@ -115,9 +116,6 @@ pub struct ClientConfig {
 
 impl ClientConfig {
     pub fn validate(&self) -> Result<()> {
-        if !matches!(self.execution.as_str(), "shared" | "dedicated") {
-            return Err("client execution must be shared or dedicated".into());
-        }
         if self.request_timeout.is_zero()
             || !self.accept.is_finite()
             || !(0.0..=100.0).contains(&self.accept)

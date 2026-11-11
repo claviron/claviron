@@ -25,6 +25,7 @@ pub use application_build::ApplicationBuild;
 /// Version of the Claviron runtime, distinct from its embedding application.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub use claviron_types::Execution;
 pub use congif;
 pub use congif::{ConfigReader, HasConfigReader};
 pub use continuo::events::{Event, ProcessEventBus, ShutdownInitiated};
@@ -37,11 +38,11 @@ pub use continuo::registry::{
     Result, Runnable, RunnableInstance, ValidationFailure, ValidationOutcome,
 };
 pub use continuo::{
-    ExecutionDomain, ExecutionDriver, ExecutionFuture, ExecutionSpec,
-    ExecutorKind, ExecutorSpec, HasEvents, HasRegistry, PollPriority,
-    PreparedExecution, Register, RunContext, RunIdentity, SchedulingPolicy,
-    ServiceManager, ServiceManagerError, ServiceSnapshot, ServiceStartPolicy,
-    ServiceStatus, SharedState, gate, guard, registry,
+    ExecutionDomain, ExecutionDriver, ExecutionFuture, ExecutionOwner,
+    ExecutionSpec, ExecutorKind, ExecutorSpec, HasEvents, HasRegistry,
+    PollPriority, PreparedExecution, Register, RunContext, RunIdentity,
+    SchedulingPolicy, ServiceManager, ServiceManagerError, ServiceSnapshot,
+    ServiceStartPolicy, ServiceStatus, SharedState, gate, guard, registry,
 };
 pub use events::{EventDispatcher, ProcessStarted, ReopenLogs};
 pub use orbitive::FleetName;

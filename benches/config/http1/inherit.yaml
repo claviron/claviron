@@ -8,4 +8,4 @@ listeners:
     transport: tcp
     protocols: h1
     listen: 127.0.0.1:0
-    execution: shared
+    execution: inherit

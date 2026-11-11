@@ -1,6 +1,5 @@
 //! Desired HTTP configuration and its validated, immutable runtime snapshot.
 
-mod execution;
 mod listeners;
 mod proxy;
 mod quic;
@@ -12,7 +11,6 @@ use std::sync::Arc;
 
 use claviron_helpers::de::deserialize_regex_set;
 pub use claviron_helpers::overrides as helpers;
-pub use execution::ListenerExecution;
 pub use helpers::Override;
 pub use listeners::{
     ConnectionLimits, ListenerConfig, ListenerDefinition, ListenerOverrides,

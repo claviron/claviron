@@ -112,9 +112,9 @@ warm-up; the measured windows contain persistent connections only. Runs of
 different modes are never compared with each other.
 
 `--http-config` names an `http.yaml` with one listener, and its `execution`
-places the server: `shared` serves HTTP on the main runtime, `dedicated` places
-bind, accept and connection tasks on one additional current-thread executor using Claviron's production `CurrentThreadDriver` and
-listener execution specification. All native and Edge controls use the same
+places the server. `inherit` uses the main runtime. `dedicated` uses
+Continuo's `Dedicated(CurrentThread)` with Claviron's `CurrentThreadDriver`
+for bind, accept and connection tasks. All native and Edge controls use the same
 cold placement setup; native HTTP still runs directly through Hyper or
 `axum::serve`. Setup and executor teardown remain outside measurement.
 The benchmark checks the selected runtime flavor before binding.
@@ -220,7 +220,7 @@ TLS. Read its ratio beside the `plain` ratio of the same pair: both sides pay
 for the same record encryption, so the difference between the two ratios is
 what the TLS serving path adds.
 
-Repeat each case with `benches/config/http1/shared.yaml`, leaving connections,
+Repeat each case with `benches/config/http1/inherit.yaml`, leaving connections,
 main-runtime threads, client threads and timing unchanged, to measure execution
 placement separately. Check its HTTP-thread utilization before reading its
 CPU/request.

@@ -3,12 +3,12 @@
 use std::net::SocketAddr;
 
 use claviron::runtime::{
-    ExecutionDriver, PreparedExecution, RunContext,
-    execution::CurrentThreadDriver,
+    ExecutionDriver, ExecutionOwner, PreparedExecution, RunContext,
+    execution::{CurrentThreadDriver, execution_spec},
 };
 use tokio::{runtime::Runtime, sync::oneshot, task::JoinHandle};
 
-use claviron::http::config::ListenerExecution;
+use claviron::Execution;
 
 use super::{Args, Result, server};
 use crate::support::http1::Server;
@@ -34,14 +34,17 @@ impl Running {
             .enable_all()
             .build()?;
         let listener = args.listener()?;
-        if listener.execution == ListenerExecution::Shared {
+        if listener.execution == Execution::Inherit {
             let server = runtime.block_on(server::start(args))?;
             return Ok(Self { runtime, server, current: None });
         }
 
         let driver = CurrentThreadDriver::default();
         let prepared = driver
-            .prepare(listener.execution_spec())
+            .prepare(
+                &ExecutionOwner::of::<Self>(listener.id.to_string()),
+                execution_spec(listener.execution),
+            )
             .map_err(claviron::registry::Error::into_std)?;
         let (ready, received) = oneshot::channel();
         let (release, released) = oneshot::channel();

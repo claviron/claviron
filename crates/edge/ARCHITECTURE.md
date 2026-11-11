@@ -315,15 +315,12 @@ changes require stop/restart. All addresses of one listener share its admission
 gate and generation. Unchanged instances retain management identity; removals
 cancel and drain that instance, and re-addition retains a still-draining handle.
 
-Each listener selects `execution: shared` or `execution: dedicated` through
-its resolved `ListenerConfig`. `defaults.listener.execution` supplies the default;
-individual declarations override it. The three concrete Runnable types use the
-same `ListenerConfig::execution_spec()` API. Shared uses ambient Tokio;
-current-thread uses a listener-named, process-local domain retained through
-provider finalization. Bind, accept and connection tasks stay on the selected
-executor, including Hyper H2 tasks and Quinn endpoint/stream tasks. Changes apply
-to the next instance start/restart. Listener count and process count jointly
-determine the selected executor count; this setting supplies no CPU affinity.
+Each listener resolves `execution: inherit` (ambient Tokio) or
+`execution: dedicated` (Continuo's `Dedicated(CurrentThread)` for that
+runnable instance). Bind, accept and connection tasks stay on the selected
+executor, including Hyper H2 tasks and Quinn endpoint and stream tasks. Changes
+apply to the next instance start or restart. A dedicated executor stays alive
+through provider finalization.
 
 Relative disk paths remain process-working-directory relative. Prefix mappings
 inherit the nearest declared `directory`; URL-derived dot segments are rejected.

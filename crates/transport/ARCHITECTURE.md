@@ -14,7 +14,8 @@ instance is managed as `Listener:<id>`; the master accepts no connections.
 
 Configuration is `claviron_http::config::ListenerDefinition`, resolved once to
 `ListenerConfig`. TCP, Unix and QUIC use the same named declaration and
-`shared`/`dedicated` (listener-owned current-thread) execution choice. `single.rs` composes the socket
+`inherit`/`dedicated` execution choice. Dedicated uses Continuo's
+`Dedicated(CurrentThread)` for this runnable instance. `single.rs` composes the socket
 drivers for one request owner. `owner.rs` defines that owner's body and request
 contract. Virtual-host selection and host pipelines belong to Edge's adapters.
 

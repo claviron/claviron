@@ -19,15 +19,15 @@ stays in `continuo`.
 `execution.rs` provides the optional `CurrentThreadDriver` for Continuo's
 generic execution contract. `execution/thread.rs` owns an OS thread, its Tokio
 current-thread runtime and physical join. `execution/resident.rs` owns submitted
-jobs and retains one reactor per typed shared domain across runnable generations.
-`execution/dedicated.rs` retains one reactor per admitted generation: root
-submission owns finalization; `execute_child` reuses that reactor for tracked
-children, including nested submissions.
-Generation submission and teardown use the bridge; request processing does not.
-Continuo drains submitted work before provider finalization, including aborted
-submitters. Shared reactors remain alive for provider cleanup of pooled I/O;
-`Runtime::finalize_execution` joins them last. Dedicated executors instead end
-with their generation. The driver supports inherited poll scheduling only.
+jobs. The driver keeps a shared reactor per `ExecutionDomain` and a dedicated
+reactor per Continuo `ExecutionOwner`. Root submission starts the reactor lazily
+and child submissions reuse it. Continuo drains submitted jobs before provider
+finalization and keeps both kinds of reactors alive for pooled I/O cleanup.
+`Runtime::finalize_execution` joins them last.
+
+The runtime converts `Execution::Inherit` into the ambient execution spec and
+`Execution::Dedicated` into Continuo's `Dedicated(CurrentThread)`. The driver
+supports inherited poll scheduling.
 
 The opt-in `metrics` module owns `MetricsFamily`, `MetricsProvider` and
 registration, formerly a separate package. It uses `AppState` directly and
