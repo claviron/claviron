@@ -13,11 +13,14 @@ fn in_front(files: Arc<Files>) -> Arc<Application> {
     let state = AppState::standalone("runner-files", ".");
     crate::routing::register_owner(
         &state,
-        Owner::new(tower::service_fn(|_: AppRequest| async {
-            Ok::<_, std::convert::Infallible>(Response::new(
-                claviron_http::bytes_body("application".into()),
-            ))
-        })),
+        Owner::new(
+            claviron_runtime::ExecutorSpec::Inherit,
+            tower::service_fn(|_: AppRequest| async {
+                Ok::<_, std::convert::Infallible>(Response::new(
+                    claviron_http::bytes_body("application".into()),
+                ))
+            }),
+        ),
     )
     .unwrap();
     Routing::new(HttpPolicy::unlimited())

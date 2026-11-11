@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use claviron_http::{RouteBody, RustRouter};
+use claviron_runtime::ExecutorSpec;
 use http::Request;
 
 use crate::{
@@ -14,8 +15,8 @@ use crate::{
 /// Register this owner through `Backend`, so its metadata contract is prepared
 /// with the host plan rather than rediscovered during request execution.
 pub trait BackendHandler: DispatchStep {
-    /// Declared once during preparation. There is no implicit identity export
-    /// or response-lifetime policy for a newly registered backend.
+    /// Declared once during preparation. Each backend supplies its identity,
+    /// execution placement and response lifetime.
     fn contract(&self) -> BackendContract;
 
     /// The router this owner is, when it is one: where nothing else stands
@@ -48,6 +49,10 @@ pub enum BackendReply {
 /// Mandatory cold declaration of the request and response handoff.
 #[derive(Clone)]
 pub struct BackendContract {
+    /// Where this owner runs an exchange. A Tokio task on the caller's executor
+    /// is still `Inherit`. An engine exposes a configuration key only when it
+    /// supports an execution choice.
+    pub execution: ExecutorSpec,
     pub identity: BackendIdentity,
     pub reply: BackendReply,
 }
@@ -65,6 +70,7 @@ impl DispatchStep for RustRouter {
 impl BackendHandler for RustRouter {
     fn contract(&self) -> BackendContract {
         BackendContract {
+            execution: ExecutorSpec::Inherit,
             identity: if RustRouter::reads_identity(self) {
                 BackendIdentity::Request
             } else {
@@ -95,6 +101,7 @@ impl DispatchStep for Arc<dyn HostHandler> {
 impl BackendHandler for Arc<dyn HostHandler> {
     fn contract(&self) -> BackendContract {
         BackendContract {
+            execution: ExecutorSpec::Inherit,
             identity: BackendIdentity::None,
             reply: BackendReply::Owner,
         }

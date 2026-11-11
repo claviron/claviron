@@ -13,6 +13,7 @@ use claviron_http::{OtherHandler, RouteBody, RouteBodyError, RouteResponse};
 use claviron_pipeline::HostContext;
 #[cfg(feature = "pipeline")]
 use claviron_pipeline::plan::HostExecution;
+use claviron_runtime::ExecutorSpec;
 use http::Request;
 use http_body_util::BodyExt;
 
@@ -83,6 +84,10 @@ impl http_body::Body for RequestBody {
 /// The one owner of every request a `Single` listener accepts: either a
 /// [`Handler`] or a site compiled by `claviron_pipeline::compile`.
 pub trait Owner: Send + Sync + 'static {
+    /// Declared placement of the exchange; a task on the caller's executor
+    /// inherits it. This declaration does not schedule work.
+    fn execution(&self) -> ExecutorSpec;
+
     /// Answer one request. `connection` is absent where the connection has no
     /// addresses to describe it. The returned future owns what it needs.
     fn call(
@@ -98,6 +103,10 @@ pub trait Owner: Send + Sync + 'static {
 pub struct Handler<H>(pub H);
 
 impl<H: OtherHandler> Owner for Handler<H> {
+    fn execution(&self) -> ExecutorSpec {
+        ExecutorSpec::Inherit
+    }
+
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -118,6 +127,10 @@ impl<H: OtherHandler> Owner for Handler<H> {
 /// backends run on every request, with the connection's facts lent to them.
 #[cfg(feature = "pipeline")]
 impl Owner for HostExecution {
+    fn execution(&self) -> ExecutorSpec {
+        ExecutorSpec::Inherit
+    }
+
     fn call(
         &self,
         request: Request<RouteBody>,

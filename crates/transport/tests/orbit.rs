@@ -258,6 +258,10 @@ async fn admission_stays_owned_after_the_head_until_the_streamed_body_ends() {
         }
     }
     impl Owner for StreamingOwner {
+        fn execution(&self) -> claviron_runtime::ExecutorSpec {
+            claviron_runtime::ExecutorSpec::Inherit
+        }
+
         fn call(
             &self,
             _: http::Request<claviron_http::RouteBody>,

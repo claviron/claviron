@@ -122,6 +122,10 @@ struct Front {
 }
 
 impl TransportOwner for Front {
+    fn execution(&self) -> claviron_runtime::ExecutorSpec {
+        self.application.execution()
+    }
+
     fn call(
         &self,
         request: Request<RouteBody>,

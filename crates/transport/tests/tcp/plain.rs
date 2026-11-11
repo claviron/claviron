@@ -170,6 +170,7 @@ impl claviron_pipeline::DispatchStep for Named {
 impl claviron_pipeline::BackendHandler for Named {
     fn contract(&self) -> claviron_pipeline::BackendContract {
         claviron_pipeline::BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: claviron_pipeline::BackendIdentity::None,
             reply: claviron_pipeline::BackendReply::Owner,
         }

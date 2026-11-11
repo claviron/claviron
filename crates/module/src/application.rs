@@ -235,6 +235,13 @@ pub(crate) struct ModuleBackend {
 impl BackendHandler for ModuleBackend {
     fn contract(&self) -> BackendContract {
         BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Dedicated(
+                claviron_runtime::ExecutorKind::MultiThread {
+                    threads: std::num::NonZeroUsize::from(
+                        self.application.settings.instances,
+                    ),
+                },
+            ),
             // A handler runs on another thread, where a borrowed context cannot
             // go: the connection and policy travel in the request.
             identity: BackendIdentity::Request,

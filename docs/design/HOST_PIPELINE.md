@@ -83,6 +83,9 @@ backend dispatch. Plain `non_ssl: redirect` remains a separate listener policy.
 
 ## Execution and ownership
 
+Each backend declares request identity, reply lifetime and execution placement
+during preparation. `Inherit` means the owner runs on the caller's executor.
+
 ```mermaid
 flowchart LR
     Reply[Response: handled / early refusal / fallback] --> Hooks[Optional request-local ReplyHooks: reverse order]

@@ -28,7 +28,7 @@ use claviron_pipeline::compile::{SiteTerms, compile_site};
 use claviron_pipeline::factory::{BackendPlacement, BackendScope, backend};
 use claviron_pipeline::plan::HostExecution;
 use claviron_pipeline::{BackendHandler, Site, SiteRegistry};
-use claviron_runtime::{AppState, registry};
+use claviron_runtime::{AppState, ExecutorSpec, registry};
 use http::{Method, Request, Response, StatusCode};
 use tower::Service;
 use tower::util::{BoxCloneSyncService, ServiceExt};
@@ -57,12 +57,16 @@ pub type Upgrades = BoxCloneSyncService<AppRequest, AppResponse, Infallible>;
 /// is filled at boot is what a runner hands over.
 #[derive(Clone)]
 pub struct Owner {
+    execution: ExecutorSpec,
     service: BoxCloneSyncService<AppRequest, AppResponse, Infallible>,
     upgrades: Option<Upgrades>,
 }
 
 impl Owner {
-    pub fn new<S, B>(service: S) -> Self
+    pub fn new<S, B>(
+        execution: ExecutorSpec,
+        service: S,
+    ) -> Self
     where
         S: Service<AppRequest, Response = Response<B>, Error = Infallible>
             + Clone
@@ -73,7 +77,12 @@ impl Owner {
         B: http_body::Body<Data = Bytes> + Send + 'static,
         B::Error: Into<RouteBodyError>,
     {
-        Self { service: boxed(service), upgrades: None }
+        Self { execution, service: boxed(service), upgrades: None }
+    }
+
+    /// The registered engine's execution placement.
+    pub fn execution(&self) -> ExecutorSpec {
+        self.execution.clone()
     }
 
     /// Requests attempting to open a session, on any door: what answers one
@@ -282,6 +291,7 @@ impl Routing {
 /// then the compiled site.
 pub struct Application {
     execution: HostExecution,
+    owner_execution: ExecutorSpec,
 }
 
 impl Application {
@@ -319,6 +329,10 @@ impl Application {
 /// A door with no connection facts of its own to attach: over Orbit the
 /// exchange already carries what the edge knew.
 impl claviron_transport::owner::Owner for Application {
+    fn execution(&self) -> ExecutorSpec {
+        self.owner_execution.clone()
+    }
+
     fn call(
         &self,
         request: Request<RouteBody>,
@@ -401,6 +415,7 @@ where
 /// layers, then the service itself.
 fn compose<S, B>(
     state: &AppState,
+    owner_execution: ExecutorSpec,
     service: S,
 ) -> registry::Result<()>
 where
@@ -416,6 +431,7 @@ where
     let policy = routing(state)?.policy;
     compose_router(
         state,
+        owner_execution,
         RustRouter::Other(OtherService::new(Composed { service, policy })),
     )
 }
@@ -431,6 +447,7 @@ fn routing(state: &AppState) -> registry::Result<Arc<Routing>> {
 /// it, and a scope's own owner replaces this one there.
 fn compose_router(
     state: &AppState,
+    owner_execution: ExecutorSpec,
     router: RustRouter,
 ) -> registry::Result<()> {
     let routing = routing(state)?;
@@ -457,7 +474,9 @@ fn compose_router(
         },
         Some(&sites),
     )?;
-    state.registry_ref().insert(Arc::new(Application { execution }))?;
+    state
+        .registry_ref()
+        .insert(Arc::new(Application { execution, owner_execution }))?;
     Ok(())
 }
 
@@ -481,9 +500,9 @@ pub(crate) fn register_prepared_router(
                 response
             }
         });
-        return compose_router(state, routes.into());
+        return compose_router(state, ExecutorSpec::Inherit, routes.into());
     }
-    compose_router(state, router)
+    compose_router(state, ExecutorSpec::Inherit, router)
 }
 
 /// The routables registered through `claviron::pipeline::routing`, in front of the
@@ -506,6 +525,7 @@ fn routables_over(
     let Some(router) = routables.build(state)? else {
         return Ok(owner);
     };
+    let execution = owner.execution();
     let unmatched = owner.clone();
     let router = router
         .with_state(state.clone())
@@ -515,7 +535,11 @@ fn routables_over(
             async move { owner.handle(request).await }
         });
     // Attempts meet the same routes; what those leave reaches the owner's own.
-    Ok(Owner { service: boxed(router.clone()), upgrades: Some(boxed(router)) })
+    Ok(Owner {
+        execution,
+        service: boxed(router.clone()),
+        upgrades: Some(boxed(router)),
+    })
 }
 
 /// Make sure something answers. An application that registered nothing is
@@ -527,9 +551,10 @@ pub fn ensure_application(state: &AppState) -> registry::Result<()> {
         return Ok(());
     }
     #[cfg(feature = "axum")]
-    return compose(state, routables_over(state, owner(state)?)?);
+    let owner = routables_over(state, owner(state)?)?;
     #[cfg(not(feature = "axum"))]
-    compose(state, owner(state)?)
+    let owner = owner(state)?;
+    compose(state, owner.execution(), owner)
 }
 
 #[cfg(all(feature = "rust", feature = "axum"))]
@@ -571,9 +596,9 @@ where
                 response
             }
         });
-        return compose_router(state, router.into());
+        return compose_router(state, ExecutorSpec::Inherit, router.into());
     }
-    compose(state, service)
+    compose(state, ExecutorSpec::Inherit, service)
 }
 
 /// This application's Rust routes, in front of its owner.
@@ -600,6 +625,7 @@ where
 {
     let router = build(state.clone());
     let owner = routables_over(state, owner(state)?)?;
+    let execution = owner.execution();
     let unmatched = owner.clone();
     let router = router.fallback_service(owner).method_not_allowed_fallback(
         move |request: axum::extract::Request| {
@@ -607,7 +633,7 @@ where
             async move { owner.handle(request).await }
         },
     );
-    compose_router(state, router.into())
+    compose_router(state, execution, router.into())
 }
 
 /// This application's service, placing the owner yourself: its own 404 for a
@@ -638,8 +664,9 @@ where
     let owner = routables_over(state, owner(state)?)?;
     #[cfg(not(feature = "axum"))]
     let owner = owner(state)?;
+    let execution = owner.execution();
     let service = build(owner);
-    compose(state, service)
+    compose(state, execution, service)
 }
 
 /// Place selected Rust paths before an existing application owner.
@@ -672,6 +699,7 @@ pub fn register_routes(
     let policy = routing(state)?.policy;
     compose_router(
         state,
+        owner.execution(),
         RustRouter::Other(OtherService::new(SelectedRoutes {
             routes,
             owner,

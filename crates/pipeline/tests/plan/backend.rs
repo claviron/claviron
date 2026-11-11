@@ -52,6 +52,7 @@ struct First;
 impl BackendHandler for First {
     fn contract(&self) -> crate::BackendContract {
         crate::BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: crate::BackendIdentity::Request,
             reply: crate::BackendReply::Owner,
         }
@@ -87,6 +88,7 @@ struct Last(Arc<ConnCtx>);
 impl BackendHandler for Last {
     fn contract(&self) -> crate::BackendContract {
         crate::BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: crate::BackendIdentity::Request,
             reply: crate::BackendReply::Owner,
         }
@@ -149,6 +151,7 @@ struct Untouched;
 impl BackendHandler for Untouched {
     fn contract(&self) -> BackendContract {
         BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: BackendIdentity::None,
             reply: BackendReply::Owner,
         }
@@ -194,6 +197,7 @@ struct Pending;
 impl BackendHandler for Pending {
     fn contract(&self) -> crate::BackendContract {
         crate::BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: crate::BackendIdentity::Request,
             reply: crate::BackendReply::Owner,
         }
@@ -239,6 +243,7 @@ struct External(tokio_util::sync::CancellationToken);
 impl BackendHandler for External {
     fn contract(&self) -> BackendContract {
         BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: BackendIdentity::None,
             reply: BackendReply::ExternalEventStream(self.0.clone()),
         }
@@ -330,6 +335,7 @@ struct Borrower {
 impl BackendHandler for Borrower {
     fn contract(&self) -> crate::BackendContract {
         crate::BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: crate::BackendIdentity::None,
             reply: crate::BackendReply::Owner,
         }

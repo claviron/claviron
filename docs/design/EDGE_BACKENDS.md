@@ -122,6 +122,14 @@ completion or its declared cancellation path; cancellation of one request
 does not stop the shared runtime or unrelated work. Follow
 [GRACEFUL_OWNERSHIP](GRACEFUL_OWNERSHIP.md) for drain and shutdown.
 
+## Execution placement
+
+`BackendContract` declares the owner's execution along with identity and reply
+lifetime. `ExecutorSpec::Inherit` covers work on the caller's executor, including
+a Tokio task spawned there. Dedicated owners declare their thread topology.
+The runner door's `Owner::execution()` uses the same type. An engine exposes an
+`execution` key only if it supports a choice.
+
 ## Request identity
 
 Every backend call is lent a `HostContext`: the accepted `Arc<ConnCtx>`, the

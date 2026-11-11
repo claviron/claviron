@@ -18,7 +18,7 @@ where
 {
     let state = AppState::standalone("runner-routing", ".");
     Routing::new(policy).register(&state).unwrap();
-    compose(&state, service).unwrap();
+    compose(&state, claviron_runtime::ExecutorSpec::Inherit, service).unwrap();
     state.registry_ref().resolve::<Application>().unwrap()
 }
 
@@ -73,11 +73,14 @@ async fn routables_stand_between_the_application_and_the_owner() {
     let state = AppState::standalone("routable-order", ".");
     register_owner(
         &state,
-        Owner::new(tower::service_fn(|_: AppRequest| async {
-            Ok::<_, Infallible>(Response::new(claviron_http::bytes_body(
-                Bytes::from("owner"),
-            )))
-        })),
+        Owner::new(
+            claviron_runtime::ExecutorSpec::Inherit,
+            tower::service_fn(|_: AppRequest| async {
+                Ok::<_, Infallible>(Response::new(claviron_http::bytes_body(
+                    Bytes::from("owner"),
+                )))
+            }),
+        ),
     )
     .unwrap();
     Routing::new(HttpPolicy::unlimited()).register(&state).unwrap();
@@ -245,14 +248,17 @@ async fn warp_routes_select_before_body_and_keep_rejections_terminal() {
     let observed = calls.clone();
     register_owner(
         &state,
-        Owner::new(tower::service_fn(move |request: AppRequest| {
-            observed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            async move {
-                Ok::<_, Infallible>(Response::new(
-                    request.into_body().into_inner(),
-                ))
-            }
-        })),
+        Owner::new(
+            claviron_runtime::ExecutorSpec::Inherit,
+            tower::service_fn(move |request: AppRequest| {
+                observed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                async move {
+                    Ok::<_, Infallible>(Response::new(
+                        request.into_body().into_inner(),
+                    ))
+                }
+            }),
+        ),
     )
     .unwrap();
     let filter = warp::path("rust").and(warp::path("hello")).map(|| "warp");
@@ -371,7 +377,10 @@ async fn a_site_stands_in_front_of_what_takes_a_connection_over() {
         request
     };
 
-    let taken = application(Owner::new(answers(200)).upgrades(answers(202)));
+    let taken = application(
+        Owner::new(claviron_runtime::ExecutorSpec::Inherit, answers(200))
+            .upgrades(answers(202)),
+    );
     assert_eq!(
         taken.call(upgrade("/old")).await.status(),
         StatusCode::TEMPORARY_REDIRECT
@@ -381,7 +390,10 @@ async fn a_site_stands_in_front_of_what_takes_a_connection_over() {
         StatusCode::ACCEPTED
     );
 
-    let unclaimed = application(Owner::new(answers(200)));
+    let unclaimed = application(Owner::new(
+        claviron_runtime::ExecutorSpec::Inherit,
+        answers(200),
+    ));
     assert_eq!(
         unclaimed.call(upgrade("/old")).await.status(),
         StatusCode::TEMPORARY_REDIRECT

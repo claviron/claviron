@@ -80,6 +80,7 @@ impl UpstreamStage {
 impl BackendHandler for UpstreamStage {
     fn contract(&self) -> BackendContract {
         BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: BackendIdentity::None,
             reply: BackendReply::ExternalEventStream(self.shutdown.clone()),
         }

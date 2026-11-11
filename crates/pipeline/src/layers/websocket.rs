@@ -80,6 +80,7 @@ impl DispatchStep for WebSocketStage {
 impl crate::BackendHandler for WebSocketStage {
     fn contract(&self) -> crate::BackendContract {
         crate::BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: crate::BackendIdentity::Request,
             reply: crate::BackendReply::Owner,
         }
@@ -132,6 +133,7 @@ impl crate::BackendHandler for WebTransportStage {
         match &self.next {
             Some(next) => next.contract(),
             None => crate::BackendContract {
+                execution: claviron_runtime::ExecutorSpec::Inherit,
                 identity: crate::BackendIdentity::None,
                 reply: crate::BackendReply::Owner,
             },

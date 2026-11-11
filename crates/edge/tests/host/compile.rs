@@ -60,6 +60,7 @@ fn unregistered_backend_directives_fail_during_host_preparation() {
 impl claviron_pipeline::BackendHandler for RegisteredBackend {
     fn contract(&self) -> claviron_pipeline::BackendContract {
         claviron_pipeline::BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: claviron_pipeline::BackendIdentity::None,
             reply: claviron_pipeline::BackendReply::Owner,
         }

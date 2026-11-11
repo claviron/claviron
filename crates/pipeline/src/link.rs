@@ -119,6 +119,7 @@ impl LinkBackend {
 impl crate::BackendHandler for LinkBackend {
     fn contract(&self) -> crate::BackendContract {
         crate::BackendContract {
+            execution: claviron_runtime::ExecutorSpec::Inherit,
             identity: crate::BackendIdentity::None,
             reply: crate::BackendReply::ExternalEventStream(
                 self.shutdown.clone(),
