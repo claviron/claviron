@@ -476,6 +476,13 @@ pub(crate) async fn reconcile_presence(
     }
 }
 
+/// Record a slot this master could not claim, with the presence that
+/// occupies it and the reason.
+///
+/// [WORKER_ADOPTION: ADOPTION_REFUSAL][worker-adoption]: the slot is kept as
+/// it was found. Nothing is spawned into it and its process is not ended.
+///
+/// [worker-adoption]: https://github.com/claviron/claviron/blob/main/docs/design/WORKER_ADOPTION.md#refusing-an-adoption
 pub(crate) async fn block_reconciliation(
     control: &WorkerControl,
     worker_id: WorkerId,

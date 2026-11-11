@@ -250,6 +250,13 @@ enum RefusalReason {
     MasterGenerationNotOlder,
 }
 
+/// Why this master may not adopt the worker whose presence it found.
+///
+/// [WORKER_ADOPTION: ADOPTION_REFUSAL][worker-adoption]: the refusal stops
+/// this master's boot. It ends nothing: the worker keeps its work and its
+/// slot, reported as unowned with the process that blocks it.
+///
+/// [worker-adoption]: https://github.com/claviron/claviron/blob/main/docs/design/WORKER_ADOPTION.md#refusing-an-adoption
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ReconciliationRefusal {
     presence: WorkerPresence,

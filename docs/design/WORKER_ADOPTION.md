@@ -44,6 +44,36 @@ replacement.
 Newly spawned workers likewise need their matching boot acknowledgement;
 fresh metrics or a recently touched lane are not substitutes for readiness.
 
+## Refusing an adoption
+
+Tagged `ADOPTION_REFUSAL` in the code.
+
+A refused adoption is a serious fault, not a routine condition: a process
+that should have been either adoptable or gone is neither. A successor that
+finds a live worker it may not adopt does not start. It does
+not spawn into the slot, and it does not end the process that occupies it.
+The reasons are the conditions above, turned around: presence too old, a
+worker that is not running, a worker in the middle of an operation, an
+original master that is unknown, still alive or not older.
+
+A worker that is draining is the case that matters most. Its one remaining
+job is to finish what it accepted and leave. If it has not left, something it
+accepted has not ended, and that is a fault to look at, not a hung process to
+clear away. Ending it would end the work and remove the evidence together.
+The worker owns its work; the master owns the count and the lifecycle, and
+neither grants the authority to cut the other short. Only a declared shutdown
+bound does, as [Graceful ownership](GRACEFUL_OWNERSHIP.md) states.
+
+So the refusal is fatal for the successor and silent for the survivor. The
+master reports its decision and the reason, keeps the slot as unowned with
+the exact process that blocks it, and leaves the next step to whoever has the
+authority to take it. It does not guess what that step is: the worker may
+finish on its own.
+
+Stopping here is the same judgement as a master whose workers are all gone
+and cannot be rebuilt: it fails its own service instead of standing over a
+fleet it cannot account for.
+
 ## Keep the exit proof
 
 The supervisor retains an exact process handle and observes its exit before
