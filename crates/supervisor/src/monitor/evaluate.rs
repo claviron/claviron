@@ -47,7 +47,8 @@ pub(crate) async fn monitor_workers(
             break Ok(());
         }
         if control.is_shutting_down() {
-            info!("🔸 WorkerMonitor stopped: worker fleet is shutting down");
+            // The process's shutdown line covers it.
+            debug!("🔸 WorkerMonitor stopped: worker fleet is shutting down");
             break Ok(());
         }
 

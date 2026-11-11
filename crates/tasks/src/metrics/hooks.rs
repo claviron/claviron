@@ -286,11 +286,20 @@ async fn run_sampler_loop(
 ) -> claviron_runtime::registry::Result<()> {
     let role = role_label_from_run_mode(state.run_mode());
 
-    tracing::info!(
-        "📡 RSS sampler started (initial interval={:?}, role={})",
-        current_sample_interval(&state),
-        role
-    );
+    // Each worker samples as its siblings do.
+    if state.is_worker() {
+        tracing::debug!(
+            "📡 RSS sampler started (initial interval={:?}, role={})",
+            current_sample_interval(&state),
+            role
+        );
+    } else {
+        tracing::info!(
+            "📡 RSS sampler started (initial interval={:?}, role={})",
+            current_sample_interval(&state),
+            role
+        );
+    }
 
     // Track which task names we published last tick so we can
     // clear the gauge when a task no longer has any live children.

@@ -255,7 +255,8 @@ pub async fn start_services(
     execution_finalization?;
     if finalization.failures().is_empty() {
         if is_worker {
-            tracing::info!(
+            // The master's summary states it for the fleet.
+            tracing::debug!(
                 "✅ worker #{} shutdown gracefully",
                 state.worker_id().unwrap_or(0)
             );

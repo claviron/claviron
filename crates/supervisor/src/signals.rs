@@ -59,7 +59,7 @@ async fn listen_reload_for_main_process(
                     warn!("⚠️ reload signal stream closed; exiting reload listener");
                     break;
                 }
-                warn!("🔄 Starting 'reload' (signal received)");
+                info!("🔄 Starting 'reload' (signal received)");
                 let res = state.registry_ref().reload_all(&state).await;
                 match &res {
                     Ok(outcome) if outcome.is_complete() => {

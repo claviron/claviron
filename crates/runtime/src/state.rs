@@ -763,9 +763,16 @@ impl State {
 
     pub fn initiate_shutdown(&self) {
         self.0.events.initiate_shutdown(&self.0.shutdown_token);
-        tracing::info!(
-            "💥 Shutdown initiated. Graceful shutdown in progress..."
-        );
+        // The master states the fleet's shutdown; a worker follows it.
+        if self.is_worker() {
+            tracing::debug!(
+                "💥 Shutdown initiated. Graceful shutdown in progress..."
+            );
+        } else {
+            tracing::info!(
+                "💥 Shutdown initiated. Graceful shutdown in progress..."
+            );
+        }
     }
 
     /// Process-local events. Register callbacks with `listen` during setup;

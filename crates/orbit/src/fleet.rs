@@ -74,10 +74,18 @@ impl Bootable<AppState> for FleetProvider {
 
         let role = state.run_mode().as_env_value();
         let node = fleet.node_id();
-        tracing::debug!(
-            "🛰  Orbit fleet joined (SHM) — name={} role={role} {node} fleet_capacity={fleet_capacity}",
-            fleet.name()
-        );
+        // The master states the fleet; each worker joins it as its siblings do.
+        if state.is_worker() {
+            tracing::debug!(
+                "🛰  Orbit fleet joined (SHM) — name={} role={role} {node} fleet_capacity={fleet_capacity}",
+                fleet.name()
+            );
+        } else {
+            tracing::info!(
+                "🛰  Orbit fleet joined (SHM) — name={} role={role} {node} fleet_capacity={fleet_capacity}",
+                fleet.name()
+            );
+        }
 
         self.fleet.store(Some(Arc::new(fleet)));
         Ok(())
