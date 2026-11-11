@@ -232,10 +232,8 @@ pub(super) fn decode_link_rows(
         }
         if count == 0 {
             if row.id.is_some() || index != 0 {
-                return Err(
-                    "empty Link application snapshot has an identity"
-                        .to_owned(),
-                );
+                return Err("empty Link application snapshot has an identity"
+                    .to_owned());
             }
         } else {
             let id = row.id.clone().ok_or_else(|| {
