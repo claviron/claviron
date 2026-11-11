@@ -438,8 +438,10 @@ only after stopping it: it does not take the controller lock.
 A `link:` entry runs the processes of one Link fleet. It is worker policy for
 applications that have no supervisor of their own: bindings, and a runner
 built without the supervisor feature. It gives them what
-`orbit.link.workers` gives a runner. A fixed count needs no Link task; an
-ordinary `each` or `pool` command task runs it.
+`orbit.link.workers` gives a runner: a fixed count with `static`, or one that
+grows on pressure with `dynamic`. A process that serves a Link fleet is run
+by a Link task either way; an ordinary command task runs commands that serve
+no fleet.
 
 ```yaml
 tasks:

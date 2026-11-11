@@ -132,8 +132,10 @@ tasks:
 | `worker` | one worker of the fleet | the task |
 | `runner` | a runner that owns its workers | the runner |
 
-A fixed number of processes needs no Link task; an ordinary `each` or `pool`
-task runs it.
+`workers` is `static` for a fixed count or `dynamic` for one that grows on
+pressure. A process that serves a Link fleet is run by a Link task either
+way, so the fleet has one owner of its count; an ordinary task runs commands
+that serve no fleet.
 
 ## Bindings
 

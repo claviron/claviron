@@ -446,8 +446,8 @@ fn removed_orbit<'de, D: Deserializer<'de>>(_: D) -> Result<(), D::Error> {
 }
 
 /// The processes of one Link fleet, run by TaskService: worker policy for
-/// applications that have no supervisor of their own. A fixed count needs no
-/// Link task; an ordinary `each` or `pool` task runs it.
+/// applications that have no supervisor of their own: a fixed count with
+/// `static`, or one that grows on pressure with `dynamic`.
 ///
 /// The processes create and join their fleet themselves and declare its
 /// geometry; TaskService never does. It starts and stops them on the master

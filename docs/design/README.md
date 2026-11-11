@@ -17,6 +17,8 @@ contracts, not protocol standards or chronological decision records.
 - [EXECUTION_AND_ADMISSION](EXECUTION_AND_ADMISSION.md): where work runs, how
   much runs and waits, and who owns a Link fleet's process count; one name and
   one owner for each.
+- [OPERATIONAL_LOG](OPERATIONAL_LOG.md): what the server says at each level;
+  one owner states a fact once, and waiting is a state, not a warning.
 - [EARLY_DATA_POLICY](EARLY_DATA_POLICY.md): transport acceptance of 0-RTT
   does not grant application permission to execute replayable work.
 - [CONNECTION_HIJACK](CONNECTION_HIJACK.md): PHP and native Rust borrow the same
