@@ -78,6 +78,11 @@ the exact process that blocks it, and leaves the next step to whoever has the
 authority to take it. It does not guess what that step is: the worker may
 finish on its own.
 
+An exception of this kind is not only something to unwind inside a process.
+It cannot be settled from within the fleet that produced it: neither the
+worker that is stuck nor the master that found it can judge the other. It is
+settled from outside, by someone who looks.
+
 Stopping here is the same judgement as a master whose workers are all gone
 and cannot be rebuilt: it fails its own service instead of standing over a
 fleet it cannot account for.
