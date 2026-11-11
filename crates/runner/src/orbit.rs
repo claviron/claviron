@@ -63,6 +63,7 @@ impl OrbitIngress {
         mut self,
         execution: Execution,
     ) -> Self {
+        self.door = self.door.execution(execution);
         self.execution = execution;
         self
     }

@@ -11,7 +11,7 @@ mod link;
 mod runtime;
 pub use link::{
     GrowthPolicy, LinkCapacity, LinkConfig, LinkGeometry, RetireIdle,
-    WorkerMax, Workers,
+    WorkerMax, WorkerPolicy, Workers,
 };
 pub use runtime::OrbitConfiguration;
 

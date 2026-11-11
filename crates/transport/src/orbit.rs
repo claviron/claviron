@@ -204,6 +204,8 @@ pub struct OrbitDoor {
     application: String,
     runtime: &'static str,
     capacity: Arc<claviron_orbit::config::LinkCapacity>,
+    /// Where the door runs, as its owner placed it; stated, not applied here.
+    execution: claviron_runtime::Execution,
 }
 
 /// A Link command delivered to the application. This door does not execute
@@ -322,7 +324,48 @@ impl OrbitDoor {
                 max_in_flight,
                 None,
             )),
+            execution: claviron_runtime::Execution::default(),
         }
+    }
+
+    /// The placement the door's owner gave it, for the line that states what
+    /// this door serves.
+    pub fn execution(
+        mut self,
+        execution: claviron_runtime::Execution,
+    ) -> Self {
+        self.execution = execution;
+        self
+    }
+
+    /// What this door serves over Link, stated once by the process that owns
+    /// the fact: a supervised master, or a standalone process. A worker joins
+    /// as each of its siblings does and says only which lane it took.
+    fn state_serving(
+        &self,
+        state: &AppState,
+    ) -> registry::Result<()> {
+        let shape = self.capacity.geometry()?;
+        let max_in_flight = Bound(self.capacity.max_in_flight()?);
+        let max_queued = Bound(self.capacity.max_queued()?);
+        let workers = Count {
+            declared: self.capacity.workers()?.map(|workers| {
+                workers.describe(u16::from(state.worker_capacity()))
+            }),
+            master: state.is_master().then(|| state.worker_count()),
+        };
+        tracing::info!(
+            fleet_name = state.fleet_name(),
+            runtime = self.runtime,
+            %shape,
+            %max_in_flight,
+            %max_queued,
+            %workers,
+            execution = self.execution.as_str(),
+            "🛰 serving '{}' over Link",
+            self.application
+        );
+        Ok(())
     }
 
     /// Share the configuration owner's live admission control.
@@ -392,11 +435,15 @@ impl OrbitDoor {
             );
         }
         bodies.reclaimed(&joined.reclaimed);
-        tracing::info!(
-            fleet_name = state.fleet_name(),
-            "🛰 serving '{}' on lane {lane}",
-            self.application
-        );
+        if state.is_worker() {
+            tracing::debug!(
+                fleet_name = state.fleet_name(),
+                "🛰 serving '{}' on lane {lane}",
+                self.application
+            );
+        } else {
+            self.state_serving(&state)?;
+        }
 
         let mut receiver = segment
             .application_receiver(lane)
@@ -591,6 +638,7 @@ impl OrbitDoor {
         let mut watcher = segment
             .watch(self.runtime)
             .map_err(|error| registry::Error::msg(error.to_string()))?;
+        self.state_serving(state)?;
         // The owner publishes its growth policy in the fleet it owns; static
         // (no `workers` block) publishes nothing and senders report nothing.
         let policy = match self.capacity.workers()? {
@@ -713,13 +761,56 @@ impl OrbitDoor {
     }
 }
 
+/// A declared bound, or none.
+struct Bound(Option<usize>);
+
+impl std::fmt::Display for Bound {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match self.0 {
+            Some(bound) => bound.fmt(f),
+            None => f.write_str("unbounded"),
+        }
+    }
+}
+
+/// The worker policy a door serves under: the one `orbit.link.workers`
+/// declares, or else the supervisor's own count, which nothing grows.
+struct Count {
+    declared: Option<claviron_orbit::config::WorkerPolicy>,
+    master: Option<u8>,
+}
+
+impl std::fmt::Display for Count {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match (self.declared, self.master) {
+            (Some(policy), _) => policy.fmt(f),
+            (None, Some(count)) => write!(f, "static {count}"),
+            (None, None) => f.write_str("standalone"),
+        }
+    }
+}
+
 fn edge_peers(state: &AppState) -> Peers {
     Peers::new(FleetName::new(state.fleet_name()), |role| role == EDGE_RUNTIME)
 }
 
 /// Diff the directory and say what changed: in the log, and as a local event.
 /// A departure before an arrival, because an edge that restarted left before
-/// it came back. Every connect and disconnect is reported, reconnects too.
+/// it came back. Every connect and disconnect is an event, reconnects too.
+///
+/// The log states an edge by its name, in the process that owns the fact:
+/// the master, or a standalone process. Its first lane arriving is the edge
+/// reaching the application, its last one leaving the edge leaving it; each
+/// lane is `debug`, and a worker, which sees what each sibling sees, states
+/// everything at `debug`. The edge master's shutdown notice reaches only the
+/// lanes of the workers, never this master's watcher, so a departure here
+/// cannot be told from a lost edge and stays a warning.
 fn observe_edges(
     state: &AppState,
     edges: &mut Peers,
@@ -727,8 +818,25 @@ fn observe_edges(
     application: &str,
 ) {
     let (came, went) = edges.update(inbox);
+    if !state.is_worker() {
+        let (reached, left) = edges.names_changed(&came, &went);
+        for edge in left {
+            tracing::warn!(
+                fleet_name = %edge.fleet,
+                "🛰 edge '{}' left '{application}'",
+                edge.name
+            );
+        }
+        for edge in reached {
+            tracing::info!(
+                fleet_name = %edge.fleet,
+                "🛰 edge '{}' reached '{application}'",
+                edge.name
+            );
+        }
+    }
     for edge in went {
-        tracing::warn!(
+        tracing::debug!(
             fleet_name = %edge.fleet,
             "🛰 edge '{}' left '{application}' (lane {}, pid {})",
             edge.name,
@@ -743,7 +851,7 @@ fn observe_edges(
         });
     }
     for edge in &came {
-        tracing::info!(
+        tracing::debug!(
             fleet_name = %edge.fleet,
             "🛰 edge '{}' reached '{application}' (lane {}, pid {})",
             edge.name,

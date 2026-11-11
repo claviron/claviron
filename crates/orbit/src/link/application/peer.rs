@@ -80,6 +80,40 @@ impl Peers {
         self.seen.iter().any(|peer| peer.name == name)
     }
 
+    /// What the last [`Self::update`] did to each name rather than to each
+    /// lane, each name once by its first lane in the list: those that became
+    /// reachable, because no lane serving them now was there before, and
+    /// those that stopped being reachable, because none of the lanes that
+    /// served them is left. A name whose every lane was replaced between two
+    /// looks is in both.
+    ///
+    /// A fact about a name is stated for the name: its first lane arriving
+    /// and its last one leaving. Each lane in between is a detail.
+    pub fn names_changed<'a>(
+        &self,
+        came: &'a [Peer],
+        went: &'a [Peer],
+    ) -> (Vec<&'a Peer>, Vec<&'a Peer>) {
+        let replaced = |name: &str| {
+            self.seen
+                .iter()
+                .filter(|peer| peer.name == name)
+                .all(|peer| came.contains(peer))
+        };
+        let once = |peers: &'a [Peer]| {
+            let mut named: Vec<&'a Peer> = Vec::new();
+            for peer in peers {
+                if !named.iter().any(|seen| seen.name == peer.name)
+                    && replaced(&peer.name)
+                {
+                    named.push(peer);
+                }
+            }
+            named
+        };
+        (once(came), once(went))
+    }
+
     fn read(
         &self,
         inbox: &Inbox,

@@ -74,3 +74,48 @@ fn a_lane_retaken_between_two_looks_is_a_departure_and_an_arrival() {
 
     let _ = segment.unlink();
 }
+
+/// A name is stated by its first lane arriving and its last one leaving,
+/// once each; the lanes in between change nothing about the name. A name
+/// whose only lane was replaced between two looks left and came back.
+#[test]
+fn a_name_changes_with_its_first_and_last_lane_only() {
+    let fleet = fleet_name(std::process::id() ^ 0x5a5a_5a5a);
+    let segment = ApplicationSegment::open(&fleet, 4).unwrap();
+    let inbox = segment.inbox();
+    let mut peers = Peers::new(FleetName::new(&fleet), |role| role == "edge");
+    let names = |peers: &[&Peer]| {
+        peers.iter().map(|peer| peer.name.clone()).collect::<Vec<_>>()
+    };
+
+    inbox.claim_lane(0, "web", "edge", 1).unwrap();
+    inbox.claim_lane(1, "web", "edge", 1).unwrap();
+    let (came, went) = peers.update(inbox);
+    let (reached, left) = peers.names_changed(&came, &went);
+    assert_eq!(names(&reached), ["web"]);
+    assert!(left.is_empty());
+
+    inbox.claim_lane(2, "web", "edge", 1).unwrap();
+    inbox.release_lane(0).unwrap();
+    let (came, went) = peers.update(inbox);
+    let (reached, left) = peers.names_changed(&came, &went);
+    assert!(reached.is_empty() && left.is_empty());
+
+    inbox.release_lane(1).unwrap();
+    inbox.release_lane(2).unwrap();
+    inbox.claim_lane(3, "web", "edge", 2).unwrap();
+    let (came, went) = peers.update(inbox);
+    let (reached, left) = peers.names_changed(&came, &went);
+    assert_eq!(
+        (names(&reached), names(&left)),
+        (vec!["web".to_owned()], vec!["web".to_owned()])
+    );
+
+    inbox.release_lane(3).unwrap();
+    let (came, went) = peers.update(inbox);
+    let (reached, left) = peers.names_changed(&came, &went);
+    assert!(reached.is_empty());
+    assert_eq!(names(&left), ["web"]);
+
+    let _ = segment.unlink();
+}

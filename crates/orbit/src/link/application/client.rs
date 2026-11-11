@@ -1317,8 +1317,13 @@ async fn watch_application(
 
 /// Diff the directory and say what changed: in the log, and as a local event.
 /// A departure before an arrival, because a process that restarted left
-/// before it came back. Every connect and disconnect is reported, reconnects
+/// before it came back. Every connect and disconnect is an event, reconnects
 /// too. Returns who arrived.
+///
+/// The log states an application by its name: reachable from this process
+/// when its first receiver is, gone when its last one left. Each receiver is
+/// `debug`. An application announces no shutdown to its callers, so a
+/// departure cannot be told from a lost process and stays a warning.
 fn observe_applications(
     applications: &mut Peers,
     segment: &ApplicationSegment,
@@ -1329,12 +1334,29 @@ fn observe_applications(
     states: &Mutex<HashMap<usize, ApplicationBatch>>,
 ) -> Vec<super::Peer> {
     let (came, went) = applications.update(segment.inbox());
+    let (reached, left) = applications.names_changed(&came, &went);
+    for application in left {
+        tracing::warn!(
+            fleet_name = %application.fleet,
+            "🛰 application '{}' ({}) left '{edge}'",
+            application.name,
+            application.role
+        );
+    }
+    for application in reached {
+        tracing::info!(
+            fleet_name = %application.fleet,
+            "🛰 application '{}' ({}) reachable from '{edge}'",
+            application.name,
+            application.role
+        );
+    }
     for application in went {
         states
             .lock()
             .expect("application state lock")
             .remove(&application.lane);
-        tracing::warn!(
+        tracing::debug!(
             fleet_name = %application.fleet,
             "🛰 application '{}' ({}) left '{edge}' (lane {}, pid {})",
             application.name,
@@ -1358,7 +1380,7 @@ fn observe_applications(
             .lock()
             .expect("last seen Link peers")
             .insert(application.name.clone(), application.role.clone());
-        tracing::info!(
+        tracing::debug!(
             fleet_name = %application.fleet,
             "🛰 application '{}' ({}) reachable from '{edge}' (lane {}, pid {})",
             application.name,

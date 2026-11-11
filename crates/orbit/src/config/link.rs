@@ -215,6 +215,15 @@ impl Workers {
             Self::Dynamic(policy) => policy.max.resolve(capacity),
         }
     }
+    /// The policy as the log states it: `static N` or `dynamic min..=max`,
+    /// the maximum resolved against `capacity` as [`Self::maximum`] does.
+    pub fn describe(
+        self,
+        capacity: u16,
+    ) -> WorkerPolicy {
+        WorkerPolicy { workers: self, capacity }
+    }
+
     pub fn retire_idle(self) -> RetireIdle {
         match self {
             Self::Static { .. } => RetireIdle::Off,
@@ -287,6 +296,30 @@ impl Workers {
     }
 }
 
+/// A [`Workers`] policy written for the log, without allocating.
+#[derive(Clone, Copy, Debug)]
+pub struct WorkerPolicy {
+    workers: Workers,
+    capacity: u16,
+}
+
+impl std::fmt::Display for WorkerPolicy {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        match self.workers {
+            Workers::Static { count } => write!(f, "static {count}"),
+            Workers::Dynamic(policy) => write!(
+                f,
+                "dynamic {}..={}",
+                policy.min,
+                policy.max.resolve(self.capacity)
+            ),
+        }
+    }
+}
+
 /// Actual physical shape, bounded by the binary's compiled profile.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(default, deny_unknown_fields)]
@@ -310,7 +343,36 @@ impl Default for LinkGeometry {
     }
 }
 
+/// The shape as the log states it, every field by its configuration name.
+impl std::fmt::Display for LinkGeometry {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        write!(
+            f,
+            "fleet_capacity {}, inbox_capacity {}, inbox_payload_capacity {}, lane_capacity {}, buffer_bytes {}",
+            self.fleet_capacity,
+            self.inbox_capacity,
+            self.inbox_payload_capacity,
+            self.lane_capacity,
+            self.buffer_bytes
+        )
+    }
+}
+
 impl LinkGeometry {
+    /// The shape an existing fleet was created with, as its owner declared it.
+    pub fn of(spec: orbitive::link::LinkSpec) -> Self {
+        Self {
+            fleet_capacity: usize::from(spec.fleet_capacity),
+            inbox_capacity: spec.inbox.capacity,
+            inbox_payload_capacity: spec.inbox.payload_capacity,
+            lane_capacity: spec.streams.lane_capacity,
+            buffer_bytes: spec.streams.buffer_bytes,
+        }
+    }
+
     pub fn validate(self) -> registry::Result<()> {
         for (name, value, ceiling) in [
             ("fleet_capacity", self.fleet_capacity, LINK_FLEET_CAPACITY),
@@ -584,6 +646,11 @@ impl LinkCapacity {
             .lock()
             .map(|state| state.max_queued)
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))
+    }
+
+    /// The exchanges the receiver runs at once; `None` is no bound.
+    pub fn max_in_flight(&self) -> registry::Result<Option<usize>> {
+        self.limit()
     }
 
     pub(super) fn limit(&self) -> registry::Result<Option<usize>> {
