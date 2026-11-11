@@ -60,9 +60,14 @@ A worker that is draining is the case that matters most. Its one remaining
 job is to finish what it accepted and leave. If it has not left, something it
 accepted has not ended, and that is a fault to look at, not a hung process to
 clear away. Ending it would end the work and remove the evidence together.
+What that work is attached to, a transaction, a file, a session with another
+system, is the application's, and whether it is safe to cut is a question
+outside Claviron's scope.
 The worker owns its work; the master owns the count and the lifecycle, and
 neither grants the authority to cut the other short. Only a declared shutdown
-bound does, as [Graceful ownership](GRACEFUL_OWNERSHIP.md) states.
+bound does, as [Graceful ownership](GRACEFUL_OWNERSHIP.md) states. An
+operator who writes no bound (`graceful_timeout: null`) has asked for exactly
+this: that accepted work is never ended on Claviron's own judgement.
 
 So the refusal is fatal for the successor and silent for the survivor. The
 master reports its decision and the reason, keeps the slot as unowned with
