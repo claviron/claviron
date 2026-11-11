@@ -13,7 +13,9 @@ use claviron_runtime::registry::{
 };
 use claviron_runtime::{AppState, ComponentOrder};
 use orbitive::OrbitTyped;
-pub use orbitive::shm::{ShmRegion, ShmValidation, ring_segment_name};
+pub use orbitive::shm::{
+    ShmRegion, ShmValidation, ring_segment_name, ring_segment_name_for_uid,
+};
 use tracing::{error, trace};
 
 use crate::{FleetProvider, OrbitStateExt};

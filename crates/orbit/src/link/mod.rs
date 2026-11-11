@@ -28,7 +28,8 @@ pub use events::{EventConnection, Incoming};
 pub use interest::{InterestGuard, LinkInterest};
 pub use orbitive::events::{DefaultEventLayout, EventLayout};
 pub use orbitive::link::{
-    Admission, Error, GroupAccess, InboxGeometry, LinkSegment, LinkSpec,
-    Received, Reclaimed, Result, Routing,
+    Admission, Error, GroupAccess, InboxGeometry, Joined, LANE_NAME_MAX,
+    LinkEvents, LinkSegment, LinkSpec, Received, Reclaimed, Result, Routing,
+    check_name,
 };
 pub use orbitive::stream::StreamSpec;
