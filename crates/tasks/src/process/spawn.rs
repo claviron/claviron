@@ -1,3 +1,4 @@
+use std::ffi::CString;
 use std::path::PathBuf;
 
 use tokio::process::Command;
@@ -100,8 +101,17 @@ async fn spawn(
     if !spec.args.is_empty() {
         command.args(&spec.args);
     }
+    let identity =
+        spec.identity.as_ref().filter(|identity| identity.switches()).cloned();
+    let mut child_cwd = None;
     if let Some(cwd) = &spec.cwd {
-        command.current_dir(PathBuf::from(cwd));
+        if identity.is_some() {
+            child_cwd = Some(CString::new(cwd.as_str()).map_err(|error| {
+                classify_start_failure(spec, runtime, error.into())
+            })?);
+        } else {
+            command.current_dir(PathBuf::from(cwd));
+        }
     }
 
     // A command receives only the explicit allowlist and Claviron task
@@ -153,6 +163,17 @@ async fn spawn(
         command.pre_exec(move || {
             if let Some(raw_fd) = instance_lock_fd {
                 instance::inherit_lock(raw_fd)?;
+            }
+
+            if let Some(identity) = &identity {
+                identity.apply()?;
+                // Command::current_dir runs before pre_exec. Enter the directory
+                // here so its permissions are checked against the child.
+                if let Some(cwd) = &child_cwd
+                    && nix::libc::chdir(cwd.as_ptr()) == -1
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
             }
 
             #[cfg(target_os = "linux")]

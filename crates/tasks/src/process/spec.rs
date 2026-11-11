@@ -1,10 +1,12 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::de::{self, MapAccess, Visitor};
 use serde::{Deserialize, Deserializer};
 
+use super::identity::{CommandIdentity, IdentitySelector};
 use crate::output::LogConfig;
 
 #[derive(Deserialize, Clone, PartialEq, Eq)]
@@ -25,6 +27,12 @@ pub struct CommandSpec {
 
     #[serde(default, alias = "dir")]
     pub(crate) cwd: Option<String>,
+
+    pub(crate) user: Option<IdentitySelector>,
+    pub(crate) group: Option<IdentitySelector>,
+
+    #[serde(skip)]
+    pub(super) identity: Option<Arc<CommandIdentity>>,
 
     /// Which natural process completions enter the task runner's retry loop.
     #[serde(default)]

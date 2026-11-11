@@ -43,7 +43,7 @@ blake3.workspace = true
 fastrand.workspace = true
 
 # ── System / OS bindings ────────────────────────────────────────────────
-nix = { workspace = true, features = ["process", "signal"] }
+nix = { workspace = true, features = ["process", "signal", "user"] }
 
 # ── Time / identifiers ──────────────────────────────────────────────────
 chrono.workspace = true

@@ -359,6 +359,26 @@ fn fingerprint(spec: &CommandSpec) -> [u8; 32] {
         hash_field(&mut hasher, key.as_bytes());
         hash_field(&mut hasher, value.as_bytes());
     }
+    if let Some(identity) = &spec.identity {
+        hash_field(&mut hasher, b"command-identity");
+        for selector in [&spec.user, &spec.group] {
+            use super::identity::IdentitySelector;
+            match selector {
+                None => {
+                    hasher.update(&[0]);
+                }
+                Some(IdentitySelector::Id(id)) => {
+                    hasher.update(&[1]);
+                    hasher.update(&id.to_be_bytes());
+                }
+                Some(IdentitySelector::Name(name)) => {
+                    hasher.update(&[2]);
+                    hash_field(&mut hasher, name.as_bytes());
+                }
+            }
+        }
+        identity.hash(&mut hasher);
+    }
     *hasher.finalize().as_bytes()
 }
 

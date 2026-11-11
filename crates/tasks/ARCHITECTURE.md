@@ -340,6 +340,19 @@ durable command store.
 `register_commands` turns every `command:` entry into a runner whose body is
 `process::run_command`.
 
+**Identity.** The optional `command.user` and `command.group` accept account
+names or numeric IDs. TaskService resolves them while preparing the task table
+for boot, reload or configuration checks. An omitted group uses the declared
+user's primary GID. A command without either field inherits the caller's
+identity. A declaration that matches the effective UID and GID needs no switch.
+Other changes require root.
+
+The child applies the declared user's supplementary groups, then GID and UID,
+before installing Linux's parent-death signal. A group-only declaration
+preserves supplementary groups. With a switch, the child enters `cwd` under the
+new identity. Identity takes part in reload comparison and persistent instance
+matching. The process start log records the fields the command declares.
+
 **Environment.** The child starts from a cleared environment:
 
 1. `PATH` from the service's `command.path`, unless the task's own `env` sets
@@ -467,6 +480,11 @@ written. One task runs each fleet, and never the fleet hosting the service.
 `workers.max: available` is refused: it counts a supervisor's seats, and a
 Link task has none. The earlier `orbit:` block and `kind: task` are refused
 with messages naming `link:` and `kind: worker`.
+
+A Link runner command may declare a different identity. A worker command must
+keep the controller's effective identity because the controller observes an
+owner-only fleet. Cross-user workers require fleet group access, which Link
+tasks do not declare.
 
 The processes create and join their fleet and declare its geometry; the
 service never does. A `kind: worker` task takes a host-wide lock on the fleet

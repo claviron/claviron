@@ -487,7 +487,7 @@ impl TaskService {
                 })?;
             }
         }
-        Self::apply_command_defaults(&mut cfg);
+        Self::prepare_commands(&mut cfg)?;
 
         // Validate the candidate before publishing any of its snapshots. A
         // failed boot/reload must never expose a partially accepted config.
@@ -508,24 +508,26 @@ impl TaskService {
         Ok(cfg)
     }
 
-    /// Stamp the service-level `command.path` onto every command spec.
-    ///
-    /// Resolved once here, against the candidate config, so the spawn path
-    /// reads a single field rather than reaching back for service config it
-    /// otherwise has no use for. It also means a published snapshot carries
-    /// the path it was loaded under instead of picking one up later from
-    /// whatever the service happens to hold by then — the same reason the
-    /// rest of this config is validated before it is published.
-    fn apply_command_defaults(cfg: &mut TaskServiceConfig) {
+    /// Stamp the candidate's PATH and resolve identities before publication.
+    fn prepare_commands(
+        cfg: &mut TaskServiceConfig
+    ) -> claviron_runtime::registry::Result<()> {
         let path = cfg.command.path.clone();
-        for task in cfg.tasks.values_mut() {
+        for (name, task) in cfg.tasks.iter_mut() {
             if task.command.is_none() {
                 continue;
             }
+            let link_worker = task.link.as_ref().is_some_and(|link| {
+                link.kind == crate::config::LinkTaskKind::Worker
+            });
             if let Some(command) = Arc::make_mut(task).command.as_mut() {
                 command.default_path.clone_from(&path);
+                command
+                    .prepare_identity(name, link_worker)
+                    .map_err(claviron_runtime::registry::Error::msg)?;
             }
         }
+        Ok(())
     }
 
     /// Publish all snapshots belonging to one validated config.

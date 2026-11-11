@@ -16,6 +16,7 @@ use crate::runner::{StopCause, StopContext, TaskRuntime};
 use crate::{Error, Reason, TaskResult};
 
 mod child;
+mod identity;
 mod instance;
 pub(crate) mod presence;
 pub use presence::{
@@ -89,6 +90,13 @@ pub(crate) async fn run_command(
     persistent_instance: bool,
     silent: bool,
 ) -> TaskResult<()> {
+    if (spec.user.is_some() || spec.group.is_some()) && spec.identity.is_none()
+    {
+        return Err(Error::other(format!(
+            "task '{}': command identity was not prepared",
+            runtime.task_name
+        )));
+    }
     let mut environment = ExecutionEnvironment::prepare(
         &state,
         spec.env_file.as_deref(),
@@ -119,7 +127,7 @@ pub(crate) async fn run_command(
     };
 
     let mut running = start(&spec, &runtime, instance).await?;
-    started(&running, &runtime, silent);
+    started(&running, &spec, &runtime, silent);
     let _process =
         ProcessGuard { stop: &stop, slot: runtime.task_worker_number };
 
@@ -230,7 +238,7 @@ pub(crate) async fn run_command(
                     "task environment changed; replacing drained command in the same slot"
                 );
                 running = start(&spec, &runtime, Some(next)).await?;
-                started(&running, &runtime, silent);
+                started(&running, &spec, &runtime, silent);
             }
             Some(Completion::Attached) => {
                 if spec.restart == RestartPolicy::Never {
@@ -252,7 +260,7 @@ pub(crate) async fn run_command(
                     return Err(Error::stopped(Reason::Shutdown));
                 }
                 running = start(&spec, &runtime, Some(next)).await?;
-                started(&running, &runtime, silent);
+                started(&running, &spec, &runtime, silent);
             }
         }
     }
@@ -263,6 +271,7 @@ pub(crate) async fn run_command(
 /// `silent` keeps a chatty task's start lines out of the log.
 fn started(
     running: &child::Running,
+    spec: &CommandSpec,
     runtime: &TaskRuntime,
     silent: bool,
 ) {
@@ -271,6 +280,8 @@ fn started(
             task = runtime.task_name.as_ref(),
             slot = runtime.slot(),
             pid = running.pid(),
+            user = spec.user.as_ref().map(tracing::field::display),
+            group = spec.group.as_ref().map(tracing::field::display),
             "🚀 task command started"
         );
     }
