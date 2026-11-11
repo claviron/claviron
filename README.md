@@ -625,7 +625,7 @@ composition.
 These notes explain the choices behind Claviron's behavior, not new protocol
 standards. Their identifiers are stable search keys across code and documentation.
 
-- [FIHI_MAFIH](docs/design/FIHI_MAFIH.md) — compose the same runtime libraries into different application roles and explicit deployment boundaries.
+- [ROLE_COMPOSITION](docs/design/ROLE_COMPOSITION.md) — compose the same runtime libraries into different application roles and explicit deployment boundaries.
 - [HOST_PIPELINE](docs/design/HOST_PIPELINE.md) — connection binding, prepared host policy and native application dispatch.
 - [EARLY_DATA_POLICY](docs/design/EARLY_DATA_POLICY.md) — separate 0-RTT support from permission to execute early requests.
 - [CONNECTION_HIJACK](docs/design/CONNECTION_HIJACK.md) — let PHP and Rust use the same request-owned PostgreSQL session.

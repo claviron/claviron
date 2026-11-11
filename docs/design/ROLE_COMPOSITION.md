@@ -1,13 +1,17 @@
-# Fihi Ma Fihi
+# Role composition
 
-*In it is what is in it.*
+*Fihi ma fihi: in it is what is in it.*
 
-Design identifier: `FIHI_MAFIH`.
+Design identifier: `ROLE_COMPOSITION`.
 
 Claviron is a composable runtime architecture. An application gives it a role
 by selecting libraries, capabilities and service owners. The same foundation
 can host an Edge, an application runner, a client tool, a task service or a VPN
 service. It can also bring several of those roles into one managed process.
+
+In the literature this is a software product line: the roles are the products,
+Cargo features and registrations are the points where they vary, and the
+crates are the shared assets. A role is derived, not written.
 
 ## Composition defines the role
 
@@ -50,6 +54,32 @@ component out of process requires the appropriate adapter and deployment work.
 These boundaries preserve the application's meaning while changing how its
 parts are hosted.
 
+## The same part in several roles
+
+Composition has a cost. A part that serves several roles appears in each of
+them, and every appearance is real: a listener in an Edge and a listener in a
+runner are the same machinery under two owners. None is a copy of another,
+so the question is never which one is the real one. It is whose it is.
+
+A reader who cannot tell that from a name will take one for the other. So
+every name that mentions a shared part, in an API, a configuration key or a
+log line, says which role's ownership it speaks of.
+
+- One word has one meaning in every role. A key that means the executor's
+  owner in one composition and its thread count in another is two keys.
+- A key that exists in two layers names its layer's owner, or belongs to only
+  one of them. A receiver's waiting room and an engine's waiting room are not
+  the same limit under one name.
+- A word for a process says which family it belongs to: a server's own
+  worker, a runner's worker, a process a task runs.
+- A verb used for one kind of ownership is not reused for another. Taking
+  over a surviving worker, accepting a fleet's declared shape and running
+  another application's processes are three acts.
+
+The rule is checked where the parts meet: an example that configures an Edge,
+a runner and a binding side by side shows a word that changed meaning between
+them.
+
 ## Design obligations
 
 - **Compose existing owners.** A new role should reuse the relevant lifecycle,
@@ -83,5 +113,5 @@ The detailed contracts remain with their owners:
 [HOST_PIPELINE](HOST_PIPELINE.md), [EDGE_BACKENDS](EDGE_BACKENDS.md),
 [ORBIT_LINK](ORBIT_LINK.md) and [GRACEFUL_OWNERSHIP](GRACEFUL_OWNERSHIP.md).
 
-Title reference: [Fihi Ma Fihi](https://en.wikipedia.org/wiki/Fihi_Ma_Fihi).
-The architectural interpretation above is Claviron's own.
+Epigraph: [Fihi Ma Fihi](https://en.wikipedia.org/wiki/Fihi_Ma_Fihi). The
+architectural interpretation above is Claviron's own.

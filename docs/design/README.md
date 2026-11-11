@@ -5,7 +5,7 @@ contracts, not protocol standards or chronological decision records.
 
 ## Composition
 
-- [FIHI_MAFIH](FIHI_MAFIH.md): compose runtime capabilities into different
+- [ROLE_COMPOSITION](ROLE_COMPOSITION.md): compose runtime capabilities into different
   application roles and deployments while preserving their ownership contracts.
 
 ## Application and transport
