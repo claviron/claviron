@@ -132,6 +132,14 @@ tasks:
 | `worker` | one worker of the fleet | the task |
 | `runner` | a runner that owns its workers | the runner |
 
+A server's master and its workers are siblings: one family, one version,
+interchangeable. A process that carries the Link library but belongs to
+another application is a relative: it speaks the same contract and is never
+part of the family. A Link task fosters such processes. It starts them, keeps
+their count and stops them; it does not create their fleet, choose its shape
+or take a lane in it. It recognizes one of its processes by what the process
+does, claiming a lane, not by its origin.
+
 `workers` is `static` for a fixed count or `dynamic` for one that grows on
 pressure. A process that serves a Link fleet is run by a Link task either
 way, so the fleet has one owner of its count; an ordinary task runs commands
