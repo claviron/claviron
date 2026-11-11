@@ -603,12 +603,11 @@ impl LinkDestination {
                 Some(target.clone())
             }
             Err(Error::DestinationAbsent(_)) => {
+                // Stated by the service that owns the waiting adoption, once
+                // per destination rather than once per route build.
                 if boot {
-                    tracing::info!(
-                        fleet_name = %self.fleet_name,
-                        application = %self.application,
-                        "the Link route's destination has no owner yet; it is adopted once the owner creates it"
-                    );
+                    service
+                        .destination_absent(self.fleet_name, &self.application);
                 }
                 None
             }

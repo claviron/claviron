@@ -50,6 +50,10 @@ pub struct ApplicationService {
     link: Mutex<Option<ApplicationLinkSetup>>,
     clients: Mutex<HashMap<FleetName, Arc<ApplicationClient>>>,
     targets: Mutex<BTreeSet<(FleetName, String)>>,
+    /// Route destinations stated as waiting for their owner, until the first
+    /// join of their fleet adopts them. One process builds a route once per
+    /// listener pipeline; the destination is stated once.
+    waiting: Mutex<BTreeSet<(FleetName, Arc<str>)>>,
     /// Explicit access only for selected destination Links, never the host fleet.
     access: Mutex<BTreeMap<FleetName, Access>>,
 }
@@ -145,6 +149,29 @@ impl ApplicationService {
             .lock()
             .expect("application target lock")
             .insert((fleet, application.to_owned()));
+    }
+
+    /// A route's destination has no owner yet: say so once per destination,
+    /// as a fact rather than a warning, and again when the owner arrives. A
+    /// misspelled name looks exactly like an owner that has not started, and
+    /// this line is where the operator reads the name being waited for.
+    pub fn destination_absent(
+        &self,
+        fleet: FleetName,
+        application: &Arc<str>,
+    ) {
+        let first = self
+            .waiting
+            .lock()
+            .expect("application waiting lock")
+            .insert((fleet, Arc::clone(application)));
+        if first {
+            tracing::info!(
+                fleet_name = %fleet,
+                application = %application,
+                "the Link route's destination has no owner yet; it is adopted once the owner creates it"
+            );
+        }
     }
 
     /// Read the current Link directories of every destination fleet this
@@ -310,6 +337,20 @@ impl ApplicationService {
             "🛰 edge caller lane joined Link fleet"
         );
         held.insert(fleet_name, Arc::clone(&client));
+        // The destinations stated as waiting on this fleet have their owner.
+        self.waiting.lock().expect("application waiting lock").retain(
+            |(fleet, application)| {
+                if *fleet != fleet_name {
+                    return true;
+                }
+                tracing::info!(
+                    fleet_name = %fleet,
+                    application = %application,
+                    "the Link route's destination has its owner; adopted"
+                );
+                false
+            },
+        );
         Ok(client)
     }
 }
