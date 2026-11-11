@@ -140,7 +140,7 @@ impl Exchange {
         &self,
         next: u8,
     ) -> bool {
-        match self.progress.fetch_update(
+        match self.progress.try_update(
             Ordering::AcqRel,
             Ordering::Acquire,
             |state| matches!(state, READY | QUEUED).then_some(next),

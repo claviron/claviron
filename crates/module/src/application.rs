@@ -110,7 +110,7 @@ impl ModuleApplication {
 
     pub(crate) fn enter_queue(&self) -> bool {
         self.waiting
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |waiting| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |waiting| {
                 (waiting < self.settings.max_queued).then(|| waiting + 1)
             })
             .is_ok()
