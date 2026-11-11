@@ -67,7 +67,10 @@ The worker owns its work; the master owns the count and the lifecycle, and
 neither grants the authority to cut the other short. Only a declared shutdown
 bound does, as [Graceful ownership](GRACEFUL_OWNERSHIP.md) states. An
 operator who writes no bound (`graceful_timeout: null`) has asked for exactly
-this: that accepted work is never ended on Claviron's own judgement.
+this: that accepted work is never ended on Claviron's own judgement. That is
+a trust placed in the worker, and a worker that has not finished is not read
+as having abused it. It is read as a sign that something important went
+wrong, and the trust is kept: the worker is left to finish.
 
 So the refusal is fatal for the successor and silent for the survivor. The
 master reports its decision and the reason, keeps the slot as unowned with
