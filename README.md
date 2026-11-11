@@ -269,7 +269,7 @@ Inside your Go application, with `ctx` as its shutdown context and the
 ```go
 app, err := orbit.Open(orbit.Options{
     Fleet: "apps", Name: "hello", Incarnation: 1,
-    NativeThreads: 1, MaxExchanges: 128, IOBufferBytes: 8192,
+    NativeThreads: 1, MaxInFlight: 128, IOBufferBytes: 8192,
 }, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintln(w, "Hello from Go")
 }))
