@@ -73,11 +73,14 @@ fn compose(
     claviron_orbit::cache::register_shm(state)?;
     registry.register(orbit.service())?;
 
+    // No `cache.yaml` is the default and says nothing.
     if from_file {
-        if state.is_worker() {
-            tracing::debug!(path = %cache_path.display(), "📦 cache registry composed; stores follow the prepared configuration");
-        } else {
-            info!(path = %cache_path.display(), "📦 cache registry composed; stores follow the prepared configuration");
+        if cache_path.exists() {
+            if state.is_worker() {
+                tracing::debug!(path = %cache_path.display(), "📦 cache registry composed; stores follow the prepared configuration");
+            } else {
+                info!(path = %cache_path.display(), "📦 cache registry composed; stores follow the prepared configuration");
+            }
         }
     } else if state.is_worker() {
         tracing::debug!(

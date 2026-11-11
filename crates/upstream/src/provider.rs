@@ -206,10 +206,7 @@ impl UpstreamProvider {
             if let Ok(mut metrics) = self.metrics.write() {
                 *metrics = config.metrics.clone();
             }
-            tracing::debug!(
-                path = %self.config_path.display(),
-                "no upstreams declared; HTTP upstream disabled"
-            );
+            // No upstream declared is the default and says nothing.
             return Ok(());
         }
         self.rebuild_dns(state, deps, &config, &validation).await

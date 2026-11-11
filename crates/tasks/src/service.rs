@@ -1092,7 +1092,6 @@ impl TaskService {
         let mut commands = self.inner.command_runners.write_unpoisoned();
         commands.clear();
         if tasks.is_empty() {
-            debug!("TaskService: no tasks in config to register");
             return self;
         }
 
@@ -1731,10 +1730,6 @@ impl TaskService {
         }
         drop(explicit_runs);
 
-        if count == 0 {
-            debug!("TaskService stop: no registered tasks");
-        }
-
         count
     }
 
@@ -2055,16 +2050,16 @@ impl TaskService {
     ) -> claviron_runtime::registry::Result<()> {
         let count = self.start_tasks(&state);
 
-        if let Some(count) = count
-            && count > 0
-        {
-            tracing::debug!(
-                "TaskService: spawned {count} supervisor(s) — starting -"
-            );
-        } else {
-            tracing::info!(
+        // No task table is the default and says nothing; a table with no
+        // task for this process is a detail.
+        match count {
+            Some(0) => tracing::debug!(
                 "⚪ No background tasks active — task management remains available"
-            );
+            ),
+            Some(count) => tracing::debug!(
+                "TaskService: spawned {count} supervisor(s) — starting -"
+            ),
+            None => {}
         }
 
         let mut interval = self.snapshot_config().publish_interval;

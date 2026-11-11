@@ -504,9 +504,9 @@ impl Bootable<AppState, HostingDeps> for CertificateProvider {
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
         crate::resolver::install_aws_crypto_provider();
+        // No `tls.yaml` is the default and says nothing.
         let Some(config) = crate::provider::load_tls_config(state).await?
         else {
-            tracing::debug!("tls.yaml is absent; no certificate source");
             return Ok(());
         };
         let store = Arc::new(CertificateStore::with_dependencies(
