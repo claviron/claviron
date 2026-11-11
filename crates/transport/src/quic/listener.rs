@@ -31,7 +31,7 @@ use quinn::{Connection as QuinnConnection, Endpoint, Incoming, VarInt};
 use rustls::ProtocolVersion;
 use rustls::pki_types::CertificateDer;
 use tokio::task::JoinSet;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use super::drain;
 use super::request::{check_early_data, send_status_response};
@@ -182,13 +182,17 @@ pub async fn serve<S: Quic>(
                 listener.id
             ))
         })?;
-        if matches!(run_mode, RunMode::Worker(_)) {
-            debug!(listener = %listener.id, address = %endpoint.local_addr()?, "🌐 QUIC listener bound");
-        } else {
-            info!(listener = %listener.id, address = %endpoint.local_addr()?, "🌐 QUIC listener bound");
-        }
         endpoints.push(endpoint);
     }
+    let bound = endpoints
+        .iter()
+        .map(Endpoint::local_addr)
+        .collect::<std::io::Result<Vec<_>>>()?;
+    crate::listener::state_accepting(
+        listener,
+        &bound,
+        !matches!(run_mode, RunMode::Worker(_)),
+    );
     serve_endpoints(snapshots, initial, endpoints, context).await;
     Ok(())
 }
@@ -276,7 +280,7 @@ pub async fn serve_endpoints<S: Quic>(
         endpoint.close(VarInt::from_u32(0), b"listener stopped");
         endpoint.wait_idle().await;
     }
-    info!(listener = %listener.id, "🔸 QUIC listener stopped");
+    debug!(listener = %listener.id, "🔸 QUIC listener stopped");
 }
 
 /// Complete one handshake under the publication it was admitted by, then own

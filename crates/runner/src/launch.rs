@@ -209,7 +209,10 @@ pub fn register_doors(
             );
             #[cfg(feature = "tls")]
             let ingress = ingress.tls(runner.tls());
-            state.registry_ref().register(Arc::new(ingress))?;
+            let ingress = Arc::new(ingress);
+            state.registry_ref().register(ingress.clone())?;
+            let owner = Arc::downgrade(&ingress);
+            claviron_transport::listener::ListenerOwners::add(state, owner)?;
         }
     }
     if runner.link_enabled() {

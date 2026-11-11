@@ -59,6 +59,14 @@ impl SocketIngress {
     }
 }
 
+/// What the master states once its workers booted: the sockets each of them
+/// accepts on.
+impl claviron_transport::listener::DeclaresListeners for SocketIngress {
+    fn declared_listeners(&self) -> Vec<Arc<ListenerConfig>> {
+        self.listeners.iter().map(|listener| listener.config.clone()).collect()
+    }
+}
+
 impl Component<AppState> for SocketIngress {
     type Deps = (Arc<Application>, Option<Arc<Trust>>);
 

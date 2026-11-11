@@ -237,7 +237,11 @@ where
         files.extend(file);
         sockets.push(poll_fn(move |cx| socket.poll_accept(cx).map(Some)));
     }
-    tracing::info!(listener = %listener.id, "Unix listener accepting");
+    crate::listener::state_accepting(
+        listener,
+        &listener.listen,
+        !state.is_worker(),
+    );
     let gate = Gate::new(
         listener.limits.max_connections.map(|value| value.get()),
         listener.limits.acquire_timeout,

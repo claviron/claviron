@@ -129,6 +129,17 @@ impl ConfigObserver for HttpConfigProvider {
     }
 }
 
+/// What the master states once its workers booted: every listener declared
+/// in the snapshot it holds.
+#[cfg(any(feature = "tcp", feature = "quic"))]
+impl claviron_transport::listener::DeclaresListeners for HttpConfigProvider {
+    fn declared_listeners(
+        &self
+    ) -> Vec<Arc<claviron_http::config::ListenerConfig>> {
+        self.snapshot.load().listeners.values().cloned().collect()
+    }
+}
+
 impl Register<AppState> for HttpConfigProvider {
     fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
         register_http_config_with_capabilities(state, ListenerCapabilities::ALL)
@@ -189,6 +200,11 @@ pub fn register_http_config_with_capabilities(
     );
     let config = Arc::new(config);
     state.registry_ref().register(config.clone())?;
+    #[cfg(any(feature = "tcp", feature = "quic"))]
+    {
+        let owner = Arc::downgrade(&config);
+        claviron_transport::listener::ListenerOwners::add(state, owner)?;
+    }
     #[cfg(feature = "metrics")]
     claviron_http::metrics::register(state, move || config.metrics())?;
     Ok(())

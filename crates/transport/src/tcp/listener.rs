@@ -14,7 +14,7 @@ use claviron_sys::net::{PortSharing, create_tcp_listener};
 use futures_util::stream::{SelectAll, StreamExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::task::JoinSet;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 mod accept;
 use accept::{AcceptSource, SocketAccept};
@@ -87,13 +87,17 @@ where
                 config.id
             ))
         })?;
-        if matches!(run_mode, RunMode::Worker(_)) {
-            debug!(listener = %config.id, address = %socket.local_addr()?, "🌐 TCP listener bound");
-        } else {
-            info!(listener = %config.id, address = %socket.local_addr()?, "🌐 TCP listener bound");
-        }
         sockets.push(socket);
     }
+    let bound = sockets
+        .iter()
+        .map(TcpListener::local_addr)
+        .collect::<std::io::Result<Vec<_>>>()?;
+    crate::listener::state_accepting(
+        config,
+        &bound,
+        !matches!(run_mode, RunMode::Worker(_)),
+    );
     let owned = context.child();
     serve_group(current, initial, sockets, &owned, handle).await
 }

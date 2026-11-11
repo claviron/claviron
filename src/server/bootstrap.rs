@@ -298,11 +298,25 @@ pub fn register(state: &AppState) -> Result<()> {
         state
             .events()
             .listen::<claviron_supervisor::WorkersBootConfirmed, _>(
-                |_, event| async move {
+                |state, event| async move {
                     tracing::debug!(
                         workers = event.count,
                         "✅ Worker fleet boot completed"
                     );
+                    // The workers bound what the master declares; the master
+                    // states it once, now that they are up.
+                    #[cfg(any(
+                        feature = "edge",
+                        feature = "runner",
+                        feature = "http3"
+                    ))]
+                    claviron_transport::listener::state_declared(&state);
+                    #[cfg(not(any(
+                        feature = "edge",
+                        feature = "runner",
+                        feature = "http3"
+                    )))]
+                    let _ = state;
                     Ok(())
                 },
             )
