@@ -156,6 +156,7 @@ async fn unhandled_reload_hup_is_a_natural_failure_not_owner_cancellation() {
             task_runtime,
             Some(Duration::from_secs(1)),
             true,
+            false,
         )
         .await
     });
@@ -229,6 +230,7 @@ async fn execution_timeout_kills_and_reaps_even_a_persistent_command() {
             task_runtime,
             Some(Duration::from_secs(1)),
             true,
+            false,
         )
         .await
     });
@@ -283,6 +285,7 @@ async fn exit_can_keep_daemon_running_for_later_reattachment() {
             task_runtime,
             Some(Duration::from_secs(1)),
             true,
+            false,
         )
         .await
     });
@@ -320,6 +323,7 @@ async fn exit_can_keep_daemon_running_for_later_reattachment() {
             task_runtime,
             Some(Duration::from_secs(1)),
             true,
+            false,
         )
         .await
     });
@@ -390,6 +394,7 @@ async fn coordinated_command_is_reattached_by_the_next_worker_owner(
             task_runtime,
             Some(Duration::from_secs(1)),
             true,
+            false,
         )
         .await
     });
@@ -436,6 +441,7 @@ async fn coordinated_command_is_reattached_by_the_next_worker_owner(
             task_runtime,
             Some(Duration::from_secs(1)),
             true,
+            false,
         )
         .await
     });

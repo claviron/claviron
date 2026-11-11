@@ -266,7 +266,8 @@ pub(super) async fn run(
     active.clear();
     task.runner.set_owned_slots(0);
     update_metrics(task.runner.name(), state.run_mode(), 0);
-    info!(task = task.runner.name(), "task pool controller stopped");
+    // Every eligible process runs a controller; the shutdown line covers it.
+    debug!(task = task.runner.name(), "task pool controller stopped");
 }
 
 fn renew_owned(
@@ -416,7 +417,8 @@ fn acquire_missing(
             slot_number,
             ActiveSlot { ownership, token, retiring: false },
         );
-        debug!(
+        // One process holds a slot: the fact of the task starting here.
+        info!(
             task = task.runner.name(),
             slot = slot_number,
             "task pool slot locked"

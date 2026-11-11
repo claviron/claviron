@@ -1103,6 +1103,7 @@ impl TaskService {
                 let graceful_timeout = cfg.graceful_timeout;
                 let dispatch = cfg.dispatch.unwrap_or_default();
                 let persistent_instance = cfg.timing.is_daemon();
+                let silent = cfg.silent;
 
                 let mut runner: TaskRunner = TaskRunner::from_with_stop_context(
                     move |state, token, runtime, stop| {
@@ -1116,6 +1117,7 @@ impl TaskService {
                                 runtime,
                                 graceful_timeout,
                                 persistent_instance,
+                                silent,
                             )
                             .await
                         }
@@ -1615,6 +1617,7 @@ impl TaskService {
                     st,
                     self.inner.pool.load().lease_ttl,
                 ) {
+                    state_task_start(state, name, cfg, scope, dispatch);
                     spawned += 1;
                 }
             } else {
@@ -1688,6 +1691,7 @@ impl TaskService {
                         handle,
                     },
                 );
+                state_task_start(state, name, cfg, scope, dispatch);
                 spawned += 1;
             }
         }
@@ -2119,7 +2123,8 @@ impl TaskService {
             error!(%error, "failed to publish the final task management snapshot");
         }
 
-        info!("❎ TaskService stopped successfully");
+        // The process's shutdown line covers it.
+        debug!("❎ TaskService stopped successfully");
         Ok(())
     }
 }
@@ -2356,6 +2361,31 @@ impl Runnable<AppState> for TaskService {
         context: RunContext,
     ) -> claviron_runtime::registry::Result<()> {
         self.serve(state, context).await
+    }
+}
+
+/// One line when a task starts in this process: its name, slots, scope,
+/// dispatch and timing. A worker starts what each of its siblings starts and
+/// says it at `debug`; a process start of a command, and a pool slot this
+/// process took, are stated where they happen.
+fn state_task_start(
+    state: &AppState,
+    name: &str,
+    cfg: &TaskConfig,
+    scope: TaskScope,
+    dispatch: TaskDispatch,
+) {
+    let slots = if dispatch == TaskDispatch::One { 1 } else { cfg.concurrency };
+    if state.is_worker() {
+        debug!(
+            "🧩 Task '{}' starting with {} worker(s) (scope {:?} dispatch {:?} timing {:?})",
+            name, slots, scope, dispatch, &cfg.timing
+        );
+    } else {
+        info!(
+            "🧩 Task '{}' starting with {} worker(s) (scope {:?} dispatch {:?} timing {:?})",
+            name, slots, scope, dispatch, &cfg.timing
+        );
     }
 }
 

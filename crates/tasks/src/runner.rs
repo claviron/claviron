@@ -671,15 +671,8 @@ impl TaskRunner {
             return;
         }
 
+        // TaskService states the start; this is how it is carried out.
         let concurrency = cfg.concurrency;
-        debug!(
-            "🧩 Task '{}' starting with {} worker(s) (scope {:?} dispatch {:?} timing {:?})",
-            self.name(),
-            concurrency,
-            scope,
-            dispatch,
-            &cfg.timing
-        );
 
         // Snapshot the worker-health gauges. `workers_total` is fixed
         // for the lifetime of this supervisor; `workers_healthy` starts
@@ -767,7 +760,8 @@ impl TaskRunner {
             }
         }
 
-        info!("🧩 Supervisor finished for '{}'", self.name())
+        // Each of its runs states its own exit and reason.
+        debug!("🧩 Supervisor finished for '{}'", self.name())
     }
 
     /// Worker: periodic (interval) or service mode.
@@ -1186,6 +1180,8 @@ impl TaskRunner {
         crate::metrics::record_run(self.name());
 
         let mut attempt: u32 = 1;
+        // Counted apart from `attempt`, which a long-lived attempt resets.
+        let mut restart = false;
 
         let graceful_timeout = cfg.graceful_timeout;
         // The executor, not the runner, owns the drain for anything that is
@@ -1195,7 +1191,17 @@ impl TaskRunner {
         let backoff = cfg.backoff;
 
         loop {
-            if !cfg.silent {
+            // The first attempt is the start TaskService stated; another one
+            // is a restart.
+            // `silent` quiets start lines, never a retry.
+            if restart {
+                warn!(
+                    "🚀 Task '{}' #{} attempt {}",
+                    self.name(),
+                    worker_number,
+                    attempt
+                );
+            } else if !cfg.silent {
                 debug!(
                     "🚀 Task '{}' #{} attempt {}",
                     self.name(),
@@ -1203,6 +1209,7 @@ impl TaskRunner {
                     attempt
                 );
             }
+            restart = true;
 
             let started_at = Instant::now();
             let token = parent.child_token();

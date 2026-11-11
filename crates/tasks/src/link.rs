@@ -140,6 +140,12 @@ impl Execution {
                 "{retained} retained processes exceed workers.max {max}; stop them before lowering it"
             )));
         }
+        tracing::info!(
+            task,
+            fleet = %link.fleet,
+            workers = %workers.describe(SLOT_CAPACITY),
+            "🛰 Link task takes its fleet"
+        );
         // Each slot runs the plain command; only this controller is Link's.
         let instance =
             Arc::new(TaskConfig { link: None, ..(*self.config).clone() });
@@ -193,6 +199,12 @@ impl Execution {
             }
         };
         let segment = Arc::new(segment);
+        tracing::info!(
+            task,
+            fleet = %link.fleet,
+            shape = %claviron_orbit::config::LinkGeometry::of(segment.spec()),
+            "🛰 Link task adopted its fleet's shape"
+        );
         let policy = workers.for_owner(
             SLOT_CAPACITY,
             usize::from(segment.spec().fleet_capacity),

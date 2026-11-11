@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use claviron_runtime::AppState;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use self::child::{Action, Completion};
 use self::spawn::start;
@@ -75,6 +75,10 @@ mod tests;
 ///     external signals; exit code zero completes successfully.
 ///   - `restart: always` retries every natural completion and is valid with
 ///     daemon or manual timing.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The command runner takes its task's settings as the registration captured them; `silent` is the task's own choice for its start lines, not process state to bundle."
+)]
 pub(crate) async fn run_command(
     state: AppState,
     token: CancellationToken,
@@ -83,6 +87,7 @@ pub(crate) async fn run_command(
     runtime: TaskRuntime,
     graceful_timeout: Option<Duration>,
     persistent_instance: bool,
+    silent: bool,
 ) -> TaskResult<()> {
     let mut environment = ExecutionEnvironment::prepare(
         &state,
@@ -114,6 +119,7 @@ pub(crate) async fn run_command(
     };
 
     let mut running = start(&spec, &runtime, instance).await?;
+    started(&running, &runtime, silent);
     let _process =
         ProcessGuard { stop: &stop, slot: runtime.task_worker_number };
 
@@ -224,6 +230,7 @@ pub(crate) async fn run_command(
                     "task environment changed; replacing drained command in the same slot"
                 );
                 running = start(&spec, &runtime, Some(next)).await?;
+                started(&running, &runtime, silent);
             }
             Some(Completion::Attached) => {
                 if spec.restart == RestartPolicy::Never {
@@ -245,8 +252,27 @@ pub(crate) async fn run_command(
                     return Err(Error::stopped(Reason::Shutdown));
                 }
                 running = start(&spec, &runtime, Some(next)).await?;
+                started(&running, &runtime, silent);
             }
         }
+    }
+}
+
+/// A command process started: a fact of this process alone, with its pid.
+/// One attached from an earlier incarnation was started then, not now.
+/// `silent` keeps a chatty task's start lines out of the log.
+fn started(
+    running: &child::Running,
+    runtime: &TaskRuntime,
+    silent: bool,
+) {
+    if !silent && matches!(running, child::Running::Spawned(_)) {
+        info!(
+            task = runtime.task_name.as_ref(),
+            slot = runtime.slot(),
+            pid = running.pid(),
+            "🚀 task command started"
+        );
     }
 }
 
