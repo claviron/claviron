@@ -6,6 +6,22 @@ pub use claviron_orbit::placement::{
     Dispatch as TaskDispatch, Scope as TaskScope,
 };
 
+pub(crate) const fn scope_label(scope: TaskScope) -> &'static str {
+    match scope {
+        TaskScope::Master => "master",
+        TaskScope::Workers => "workers",
+        TaskScope::Fleet => "fleet",
+    }
+}
+
+pub(crate) const fn dispatch_label(dispatch: TaskDispatch) -> &'static str {
+    match dispatch {
+        TaskDispatch::Each => "each",
+        TaskDispatch::One => "one",
+        TaskDispatch::Pool => "pool",
+    }
+}
+
 use super::runner::TaskRunner;
 /// Compile-time registration entry collected by the [`inventory`] crate.
 ///

@@ -14,7 +14,7 @@ use futures_util::FutureExt;
 use tokio::task::JoinSet;
 use tokio::time::{Instant, MissedTickBehavior, interval_at};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::config::TaskConfig;
 use crate::registry::{TaskDispatch, TaskScope};
@@ -417,8 +417,7 @@ fn acquire_missing(
             slot_number,
             ActiveSlot { ownership, token, retiring: false },
         );
-        // One process holds a slot: the fact of the task starting here.
-        info!(
+        debug!(
             task = task.runner.name(),
             slot = slot_number,
             "task pool slot locked"

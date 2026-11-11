@@ -121,7 +121,7 @@ pub fn register(state: &AppState) -> claviron_runtime::Result<()> {
         .is_none()
     {
         state.registry_ref().register(Arc::new(
-            crate::link::application::ApplicationService::default(),
+            crate::link::application::ApplicationService::for_state(state),
         ))?;
     }
     Ok(())

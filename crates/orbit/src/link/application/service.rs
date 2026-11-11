@@ -18,7 +18,7 @@ use claviron_runtime::{
 use super::client::ApplicationClient;
 use super::{
     Access, ApplicationLinkSetup, ApplicationSegment, ControlCommand,
-    ControlTarget, Error, Peer, Result,
+    ControlTarget, EDGE_RUNTIME, Error, Peer, Peers, Result,
 };
 
 /// One live or configured Link target. Link reachability says nothing about
@@ -37,6 +37,7 @@ pub struct LinkApplication {
 /// worker lives.
 #[derive(Default)]
 pub struct ApplicationService {
+    worker: bool,
     /// What this worker's own lane advertises. Read from the instance at
     /// boot, because a lane an operator reads should say which process it
     /// belongs to.
@@ -59,6 +60,10 @@ pub struct ApplicationService {
 }
 
 impl ApplicationService {
+    pub(crate) fn for_state(state: &AppState) -> Self {
+        Self { worker: state.is_worker(), ..Self::default() }
+    }
+
     /// Register immutable access before this destination's first client opens.
     /// This maps no SHM and changes no credentials or resource permissions.
     pub fn register_access(
@@ -151,10 +156,7 @@ impl ApplicationService {
             .insert((fleet, application.to_owned()));
     }
 
-    /// A route's destination has no owner yet: say so once per destination,
-    /// as a fact rather than a warning, and again when the owner arrives. A
-    /// misspelled name looks exactly like an owner that has not started, and
-    /// this line is where the operator reads the name being waited for.
+    /// State a missing destination once per serving process.
     pub fn destination_absent(
         &self,
         fleet: FleetName,
@@ -166,12 +168,31 @@ impl ApplicationService {
             .expect("application waiting lock")
             .insert((fleet, Arc::clone(application)));
         if first {
-            tracing::info!(
-                fleet_name = %fleet,
-                application = %application,
-                "the Link route's destination has no owner yet; it is adopted once the owner creates it"
-            );
+            log_destination_absent(self.worker, fleet, application);
         }
+    }
+
+    /// State configured names missing from one fleet at master startup.
+    /// Read the current directory without joining a lane or keeping a watch.
+    pub fn state_absent_destinations<'a>(
+        &self,
+        fleet: FleetName,
+        applications: impl IntoIterator<Item = &'a str>,
+    ) -> Result<()> {
+        let peers = ApplicationSegment::adopt(
+            fleet.as_str(),
+            &self.access_for(fleet)?,
+        )?
+        .map(|segment| {
+            Peers::new(fleet, |role| role != EDGE_RUNTIME).read(segment.inbox())
+        })
+        .unwrap_or_default();
+        for application in applications {
+            if !peers.iter().any(|peer| peer.name == application) {
+                log_destination_absent(false, fleet, application);
+            }
+        }
+        Ok(())
     }
 
     /// Read the current Link directories of every destination fleet this
@@ -343,7 +364,7 @@ impl ApplicationService {
                 if *fleet != fleet_name {
                     return true;
                 }
-                tracing::info!(
+                tracing::debug!(
                     fleet_name = %fleet,
                     application = %application,
                     "the Link route's destination has its owner; adopted"
@@ -352,6 +373,19 @@ impl ApplicationService {
             },
         );
         Ok(client)
+    }
+}
+
+fn log_destination_absent(
+    worker: bool,
+    fleet: FleetName,
+    application: &str,
+) {
+    const MESSAGE: &str = "the Link route's destination has no owner yet; it is adopted once the owner creates it";
+    if worker {
+        tracing::debug!(fleet_name = %fleet, %application, "{MESSAGE}");
+    } else {
+        tracing::info!(fleet_name = %fleet, %application, "{MESSAGE}");
     }
 }
 

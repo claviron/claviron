@@ -57,6 +57,38 @@ pub fn register_quota<K: claviron_http::rate_limit::KeyProvider + 'static>(
     hosts.register_quota(host, prefix, limiter)
 }
 
+#[cfg(feature = "orbit")]
+fn state_link_destinations(state: &AppState) {
+    use std::collections::{BTreeMap, BTreeSet};
+
+    use claviron_orbit::link::application::ApplicationService;
+
+    let registry = state.registry_ref();
+    let Some(vhosts) = registry.resolve::<VhostResolver>() else {
+        return;
+    };
+    let Some(service) = registry.resolve::<ApplicationService>() else {
+        return;
+    };
+    let snapshot = vhosts.snapshot();
+    let mut destinations = BTreeMap::<_, BTreeSet<_>>::new();
+    for (_, record) in snapshot.canonical_entries() {
+        for (_, route) in record.config.link_routes() {
+            destinations
+                .entry(route.fleet_name)
+                .or_default()
+                .insert(route.application.as_str());
+        }
+    }
+    for (fleet, applications) in destinations {
+        if let Err(error) =
+            service.state_absent_destinations(fleet, applications)
+        {
+            tracing::debug!(fleet_name = %fleet, %error, "could not inspect Link destinations at startup");
+        }
+    }
+}
+
 pub fn register(state: &AppState) -> RegistryResult<()> {
     use claviron_runtime::Register;
     let registry = state.registry_ref();
@@ -82,6 +114,13 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
     // Only serving processes compile application plans; the master keeps
     // host declarations and lifecycle coordination.
     if state.is_master() {
+        #[cfg(feature = "orbit")]
+        state.events().listen::<claviron_runtime::ProcessStarted, _>(
+            |state, _| async move {
+                state_link_destinations(&state);
+                Ok(())
+            },
+        )?;
         #[cfg(feature = "orbit")]
         state.events().listen::<claviron_runtime::ShutdownInitiated, _>(|state, _| async move {
             use std::collections::BTreeSet;

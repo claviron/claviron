@@ -45,7 +45,11 @@ impl BenchService {
         let service =
             Arc::new(Self { config_path, hosts: ConfigStore::new(Vec::new()) });
         claviron_pipeline::routing::register_host_routable(state, service)?;
-        tracing::info!("native bench routes registered");
+        if state.is_worker() {
+            tracing::debug!("native bench routes registered");
+        } else {
+            tracing::info!("native bench routes registered");
+        }
         Ok(())
     }
 

@@ -752,7 +752,6 @@ impl TaskTiming {
         }
     }
 
-    #[cfg(feature = "metrics")]
     pub(crate) fn label(&self) -> &'static str {
         match self {
             Self::Manual { .. } => "manual",

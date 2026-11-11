@@ -114,7 +114,7 @@ impl Peers {
         (once(came), once(went))
     }
 
-    fn read(
+    pub(super) fn read(
         &self,
         inbox: &Inbox,
     ) -> Vec<Peer> {

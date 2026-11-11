@@ -320,21 +320,11 @@ impl TaskRuntime {
             ("CLAVIRON_TASK_ATTEMPT", self.attempt.to_string()),
             (
                 "CLAVIRON_TASK_SCOPE",
-                match self.task_scope {
-                    TaskScope::Master => "master",
-                    TaskScope::Workers => "workers",
-                    TaskScope::Fleet => "fleet",
-                }
-                .to_owned(),
+                crate::registry::scope_label(self.task_scope).to_owned(),
             ),
             (
                 "CLAVIRON_TASK_DISPATCH",
-                match self.task_dispatch {
-                    TaskDispatch::Each => "each",
-                    TaskDispatch::One => "one",
-                    TaskDispatch::Pool => "pool",
-                }
-                .to_owned(),
+                crate::registry::dispatch_label(self.task_dispatch).to_owned(),
             ),
             ("CLAVIRON_RUN_MODE", self.run_mode.as_env_value().to_owned()),
             ("CLAVIRON_PROCESS_ID", self.process_id.to_string()),

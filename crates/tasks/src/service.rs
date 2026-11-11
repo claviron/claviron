@@ -2363,8 +2363,7 @@ impl Runnable<AppState> for TaskService {
 
 /// One line when a task starts in this process: its name, slots, scope,
 /// dispatch and timing. A worker starts what each of its siblings starts and
-/// says it at `debug`; a process start of a command, and a pool slot this
-/// process took, are stated where they happen.
+/// says it at `debug`. A command process start is stated where it happens.
 fn state_task_start(
     state: &AppState,
     name: &str,
@@ -2373,16 +2372,13 @@ fn state_task_start(
     dispatch: TaskDispatch,
 ) {
     let slots = if dispatch == TaskDispatch::One { 1 } else { cfg.concurrency };
+    let scope = crate::registry::scope_label(scope);
+    let dispatch = crate::registry::dispatch_label(dispatch);
+    let timing = cfg.timing.label();
     if state.is_worker() {
-        debug!(
-            "🧩 Task '{}' starting with {} worker(s) (scope {:?} dispatch {:?} timing {:?})",
-            name, slots, scope, dispatch, &cfg.timing
-        );
+        debug!(task = name, slots, scope, dispatch, timing, "🧩 task starting");
     } else {
-        info!(
-            "🧩 Task '{}' starting with {} worker(s) (scope {:?} dispatch {:?} timing {:?})",
-            name, slots, scope, dispatch, &cfg.timing
-        );
+        info!(task = name, slots, scope, dispatch, timing, "🧩 task starting");
     }
 }
 
