@@ -1,3 +1,5 @@
+use std::os::unix::process::CommandExt;
+use std::process::Command;
 use std::sync::Arc;
 
 use claviron_runtime::{AppState, WorkerCount, WorkerId};
@@ -5,10 +7,9 @@ use tracing::debug;
 
 use crate::control::{WorkerControl, WorkerProcess};
 use crate::lifecycle::{OwnedProcess, WorkerIntent, WorkerPhase};
-use crate::{Error, Result, WorkerBootstrap, WorkerLauncher};
+use crate::{Error, Result, WorkerBootstrap};
 
-/// Spawn a worker through the registered launcher and private bootstrap.
-/// The default launcher does not forward the embedding application's CLI.
+/// Re-execute the current binary with the private worker bootstrap.
 /// Caller MUST hold the fleet table write lock from before this call until
 /// installing the returned row: a fast child's acknowledgement must not race
 /// ahead of its authoritative process identity.
@@ -38,9 +39,8 @@ pub(crate) fn spawn_worker(
         state.name(),
         state.fleet_name(),
         config_dir,
-        // What the launch decided, carried verbatim. The default launcher
-        // re-executes without CLI arguments, so workers need this to retain
-        // the options the operator chose.
+        // Workers re-execute without CLI arguments. Carry the options
+        // the operator chose in the bootstrap.
         state
             .registry_ref()
             .resolve::<claviron_runtime::LaunchBlob>()
@@ -58,9 +58,16 @@ pub(crate) fn spawn_worker(
         Error::service(format!("prepare worker descriptors: {error}"))
     })?;
     let bootstrap = bootstrap.with_descriptors(descriptors.manifest());
-    let launcher = state.registry_ref().resolve_dyn::<dyn WorkerLauncher>();
-    let mut cmd =
-        super::launcher::prepare_command(launcher.as_deref(), &bootstrap)?;
+    let executable = std::env::current_exe().map_err(|error| {
+        Error::worker(id, format!("failed to prepare worker command: {error}"))
+    })?;
+    let name = executable
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("claviron");
+    let mut cmd = Command::new(&executable);
+    cmd.arg0(format!("{name} [worker #{id}]"));
+    bootstrap.apply_to(&mut cmd)?;
     descriptors.attach(&mut cmd);
 
     let child = cmd.spawn().map_err(|e| {

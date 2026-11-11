@@ -2,8 +2,8 @@
 //!
 //! Worker identity is not part of an embedding application's CLI. The master
 //! resolves the process-family options once, serializes this envelope into the
-//! child environment, and starts the worker command. The default launcher
-//! re-executes the current binary. Every downstream binary can own an arbitrary
+//! child environment, and re-executes the current binary. Every downstream
+//! binary can own an arbitrary
 //! CLI without the supervisor assuming flags such as `--worker-id` or
 //! `--config-dir` exist.
 
@@ -97,8 +97,8 @@ pub struct WorkerBootstrap {
     config_dir: PathBuf,
     /// What the launch decided, exactly as the embedding application encoded
     /// it. Carried, never read: the supervisor has no business parsing an
-    /// application's options. The default worker launcher re-executes without
-    /// inheriting the command line.
+    /// application's options. Workers re-execute without inheriting the
+    /// command line.
     launch: LaunchBlob,
     descriptors: Vec<(Box<str>, i32)>,
 }

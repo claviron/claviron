@@ -511,42 +511,6 @@ Native Orbit notification drives the common event
 registry on Linux and FreeBSD, so reload adds no supervisor polling interval or
 private SHM kinds.
 
-## Worker Launcher
-
-`WorkerLauncher::prepare(&WorkerBootstrap)` returns a `std::process::Command`.
-Bind it in code before starting the runtime to choose an executable, arguments,
-working directory and environment. Without a binding, `CurrentExecutable`
-keeps the current-binary re-exec and worker `argv[0]`; CLI arguments are not
-forwarded. There is no corresponding Edge or YAML setting.
-
-```rust
-use std::{io, process::Command, sync::Arc};
-use claviron::supervisor::{WorkerBootstrap, WorkerLauncher};
-
-struct ApplicationWorker;
-
-impl WorkerLauncher for ApplicationWorker {
-    fn prepare(&self, worker: &WorkerBootstrap) -> io::Result<Command> {
-        let mut command = Command::new("application-worker");
-        command.arg("--slot").arg(worker.worker_id().to_string());
-        Ok(command)
-    }
-}
-
-// In the application's registration callback:
-state.registry_ref().insert(Arc::new(ApplicationWorker))?;
-state.registry_ref()
-    .bind_dyn::<dyn WorkerLauncher, ApplicationWorker>(|launcher| launcher)?;
-```
-
-The hook only prepares the command and runs under the worker table lock; it
-must not spawn or wait for readiness. A preparation failure fails that launch.
-The supervisor applies its authoritative bootstrap after the hook, attaches
-owned descriptor duplicates, spawns, captures exact process identity and retains
-the child in the fleet table. Readiness, heartbeat, exit observation, drain and
-reap follow the same contracts for every launcher. A different executable must
-implement those worker protocols; this hook does not define a foreign ABI.
-
 ## Worker Bootstrap
 
 Event-listener and bridge registration errors map to `Error::Bootstrap`, which

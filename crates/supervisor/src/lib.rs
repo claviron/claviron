@@ -47,7 +47,6 @@ pub use manager::{
     WorkerManager, WorkerManagerError, WorkerManagerResult, WorkerResizePlan,
 };
 pub use presence::{PresencePhase, WorkerPresence, latest_worker_presence};
-pub use process::launcher::{CurrentExecutable, WorkerLauncher};
 pub use registry::register;
 pub use server::{
     ServerManager, ServerManagerError, ServerManagerResult, ServerReloaded,
