@@ -62,6 +62,11 @@ async fn retained_capacity_requires_the_child_lock_not_an_old_record() {
         retained_pool_slots(&state, runtime.task_name.as_ref()).unwrap(),
         3
     );
+    // A neighbouring test's fork can temporarily inherit this descriptor.
+    // Unlock the shared open file description before dropping our copy.
+    let unlocked =
+        unsafe { nix::libc::flock(child_lock.as_raw_fd(), nix::libc::LOCK_UN) };
+    assert_eq!(unlocked, 0, "{}", io::Error::last_os_error());
     drop(child_lock);
     // Even a still-live PID in the old record cannot retain a released slot.
     assert_eq!(
