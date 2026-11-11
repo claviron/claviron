@@ -348,11 +348,10 @@ struct Unanswered(Option<Arc<Exchange>>);
 impl Drop for Unanswered {
     fn drop(&mut self) {
         let Some(exchange) = self.0.take() else { return };
-        if exchange.abandon() {
-            exchange.close(abi::CLOSED);
-        } else {
-            exchange.close(abi::CLOSED);
-        }
+        // A wait that had not started leaves the queue; either way the
+        // exchange ends here.
+        exchange.abandon();
+        exchange.close(abi::CLOSED);
     }
 }
 
