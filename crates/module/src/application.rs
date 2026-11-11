@@ -98,6 +98,24 @@ impl ModuleApplication {
         self.pool.get().is_some_and(|pool| pool.submit(task))
     }
 
+    fn submit_exchange(
+        &self,
+        exchange: &Arc<Exchange>,
+    ) -> Option<bool> {
+        let turn = Arc::clone(exchange);
+        self.pool
+            .get()?
+            .submit_exchange(move || turn.run(), || exchange.enter_queue())
+    }
+
+    pub(crate) fn enter_queue(&self) -> bool {
+        self.waiting
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |waiting| {
+                (waiting < self.settings.max_queued).then(|| waiting + 1)
+            })
+            .is_ok()
+    }
+
     pub(crate) fn left_queue(&self) {
         self.waiting.fetch_sub(1, Ordering::AcqRel);
     }
@@ -279,13 +297,6 @@ impl DispatchStep for ModuleBackend {
                 return answered(StatusCode::FORBIDDEN);
             }
         }
-        let waiting = application.waiting.fetch_add(1, Ordering::AcqRel);
-        if waiting >= application.settings.max_queued {
-            application.left_queue();
-            return DispatchCall::ready(ServiceResult::Handled(err_status(
-                StatusCode::SERVICE_UNAVAILABLE,
-            )));
-        }
         let queue_timeout = request
             .extensions()
             .get::<HttpPolicy>()
@@ -294,24 +305,22 @@ impl DispatchStep for ModuleBackend {
         application.open.send_modify(|open| *open += 1);
         let exchange =
             Exchange::new(request, head, offer, Arc::clone(application));
-        let turn = Arc::clone(&exchange);
-        if !application.submit(move || turn.run()) {
+        let Some(waiting) = application.submit_exchange(&exchange) else {
             exchange.abandon();
-            application.left_queue();
             exchange.close(abi::CLOSED);
             return DispatchCall::ready(ServiceResult::Handled(err_status(
                 StatusCode::SERVICE_UNAVAILABLE,
             )));
-        }
+        };
         DispatchCall::response(Box::pin(async move {
             let mut guard = Unanswered(Some(exchange));
             tokio::pin!(answered);
-            if let Some(limit) = queue_timeout {
+            if let Some(limit) = queue_timeout.filter(|_| waiting) {
                 tokio::select! {
                     answer = &mut answered => return Ok(reply(answer, &mut guard)),
                     () = tokio::time::sleep(limit) => {
                         if let Some(exchange) = guard.0.as_ref().filter(|e| e.abandon()) {
-                            exchange.close_abandoned();
+                            exchange.close(abi::CLOSED);
                             guard.0 = None;
                             return Ok(err_status(StatusCode::SERVICE_UNAVAILABLE));
                         }
@@ -340,7 +349,7 @@ impl Drop for Unanswered {
     fn drop(&mut self) {
         let Some(exchange) = self.0.take() else { return };
         if exchange.abandon() {
-            exchange.close_abandoned();
+            exchange.close(abi::CLOSED);
         } else {
             exchange.close(abi::CLOSED);
         }

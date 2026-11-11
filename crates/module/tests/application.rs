@@ -103,11 +103,9 @@ async fn a_body_echoed_from_its_callback_arrives_whole() {
     let request = Request::new(Frames(pieces).boxed_unsync());
 
     let (head, answered) = oneshot::channel();
-    application.waiting.fetch_add(1, Ordering::AcqRel);
     application.open.send_modify(|open| *open += 1);
     let exchange = Exchange::new(request, head, None, Arc::clone(&application));
-    let turn = Arc::clone(&exchange);
-    assert!(application.submit(move || turn.run()));
+    assert_eq!(application.submit_exchange(&exchange), Some(false));
 
     let reply = answered.await.unwrap();
     let echoed = reply.into_body().collect().await.unwrap().to_bytes();
@@ -122,4 +120,94 @@ async fn a_body_echoed_from_its_callback_arrives_whole() {
     tokio::task::spawn_blocking(move || application.shutdown_threads())
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn zero_queue_serves_an_idle_thread_and_refuses_while_busy() {
+    struct Gate {
+        entered: Mutex<Option<oneshot::Sender<()>>>,
+        release: Mutex<std::sync::mpsc::Receiver<()>>,
+    }
+
+    unsafe extern "C" fn hold_request(
+        request: *mut abi::Request,
+        context: *mut c_void,
+    ) -> u32 {
+        // The test keeps the gate alive until it joins the worker thread.
+        let gate = unsafe { &*context.cast::<Gate>() };
+        if let Some(entered) = gate.entered.lock().unwrap().take() {
+            let _ = entered.send(());
+        }
+        if gate.release.lock().unwrap().recv().is_err() {
+            return abi::CLOSED;
+        }
+        unsafe {
+            response_begin(request, 200);
+            response_finish(request)
+        }
+    }
+
+    let (entered, started) = oneshot::channel();
+    let (release, released) = std::sync::mpsc::channel();
+    let gate = Arc::into_raw(Arc::new(Gate {
+        entered: Mutex::new(Some(entered)),
+        release: Mutex::new(released),
+    }));
+    let table = abi::HttpHandler {
+        struct_size: size_of::<abi::HttpHandler>() as u32,
+        request: Some(hold_request),
+        body: None,
+        writable: None,
+        closed: None,
+    };
+    let description = abi::Application {
+        struct_size: size_of::<abi::Application>() as u32,
+        context: gate.cast_mut().cast(),
+        start: None,
+        stop: None,
+        http: &table,
+        websocket: std::ptr::null(),
+    };
+    let application = Arc::new(ModuleApplication::new(
+        "no-queue".into(),
+        description,
+        table,
+        None,
+        ApplicationConfig {
+            instances: NonZeroU16::MIN,
+            max_queued: 0,
+            frameworks: Vec::new(),
+            icon: None,
+        },
+    ));
+    application.serve().unwrap();
+    application.begin().await.unwrap();
+    let backend = ModuleBackend {
+        application: Arc::clone(&application),
+        h1_upgrade: false,
+    };
+    let request = || Request::new(claviron_http::bytes_body(Bytes::new()));
+
+    let DispatchCall::Pending(first) = backend.call(request(), None) else {
+        panic!("the idle thread should accept work");
+    };
+    started.await.unwrap();
+    let DispatchCall::Ready(ServiceResult::Handled(refused)) =
+        backend.call(request(), None)
+    else {
+        panic!("the occupied thread should refuse a new request immediately");
+    };
+    assert_eq!(refused.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    release.send(()).unwrap();
+    let ServiceResult::Handled(reply) = first.await else {
+        panic!("the first exchange should be served");
+    };
+    assert_eq!(reply.status(), StatusCode::OK);
+    drop(reply);
+    tokio::task::spawn_blocking(move || application.shutdown_threads())
+        .await
+        .unwrap();
+    // No callbacks can use the context after the worker is joined.
+    drop(unsafe { Arc::from_raw(gate) });
 }

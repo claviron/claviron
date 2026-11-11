@@ -24,6 +24,7 @@ use crate::application::ModuleApplication;
 use crate::registrar::contained;
 use crate::service::SendPtr;
 
+const READY: u8 = 3;
 const QUEUED: u8 = 0;
 const STARTED: u8 = 1;
 const ABANDONED: u8 = 2;
@@ -111,7 +112,7 @@ impl Exchange {
             aborted: AtomicBool::new(false),
             closed: AtomicBool::new(false),
             closing: watch::Sender::new(false),
-            progress: AtomicU8::new(QUEUED),
+            progress: AtomicU8::new(READY),
             data: AtomicPtr::new(std::ptr::null_mut()),
             table,
             context,
@@ -126,21 +127,38 @@ impl Exchange {
         Arc::as_ptr(self).cast_mut().cast()
     }
 
+    /// Take a waiting place before the pool makes this exchange visible.
+    pub(crate) fn enter_queue(&self) -> bool {
+        if !self.application.enter_queue() {
+            return false;
+        }
+        self.progress.store(QUEUED, Ordering::Release);
+        true
+    }
+
+    fn leave_admission(
+        &self,
+        next: u8,
+    ) -> bool {
+        match self.progress.fetch_update(
+            Ordering::AcqRel,
+            Ordering::Acquire,
+            |state| matches!(state, READY | QUEUED).then_some(next),
+        ) {
+            Ok(QUEUED) => {
+                self.application.left_queue();
+                true
+            }
+            Ok(_) => true,
+            Err(_) => false,
+        }
+    }
+
     /// The request's turn on a thread. It runs unless the wait was given up.
     pub(crate) fn run(self: &Arc<Self>) {
-        if self
-            .progress
-            .compare_exchange(
-                QUEUED,
-                STARTED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_err()
-        {
+        if !self.leave_admission(STARTED) {
             return;
         }
-        self.application.left_queue();
         let callback = match &self.session {
             Some((_, session)) => session.open,
             None => self.table.request,
@@ -155,20 +173,7 @@ impl Exchange {
 
     /// Give up a wait that has not started. `false` when it already has.
     pub(crate) fn abandon(&self) -> bool {
-        self.progress
-            .compare_exchange(
-                QUEUED,
-                ABANDONED,
-                Ordering::AcqRel,
-                Ordering::Acquire,
-            )
-            .is_ok()
-    }
-
-    /// End an exchange whose wait was given up, by whoever gave it up.
-    pub(crate) fn close_abandoned(self: &Arc<Self>) {
-        self.application.left_queue();
-        self.close(abi::CLOSED);
+        self.leave_admission(ABANDONED)
     }
 
     /// A module's call ended this exchange with a failure: 500 if nothing has

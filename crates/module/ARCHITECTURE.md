@@ -56,6 +56,10 @@ thread  a handler (one of `instances`)
 Tokio   the response
 ```
 
+An exchange reserves an idle thread directly when one is available.
+`max_queued` bounds exchanges waiting for a thread. At zero, all occupied
+threads means immediate refusal.
+
 Native code never runs on a Tokio worker: `boot`, `run`, `start`, `stop` and handlers all have
 threads. A body stays on Tokio and each frame is handed over, the next after the last callback
 returns and the reply has room, as over Orbit; its end is a call of its own, with no bytes. A handler may answer later from any thread; `instances` bounds only the callbacks running
