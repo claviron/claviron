@@ -56,7 +56,7 @@ orbitive = { workspace = true, features = ["arena", "cache", "cell", "events", "
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────
-tokio = { workspace = true, features = ["io-util", "macros", "rt", "sync", "time"] }
+tokio = { workspace = true, features = ["io-util", "macros", "rt", "rt-multi-thread", "sync", "time"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 
