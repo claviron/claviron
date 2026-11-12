@@ -19,7 +19,9 @@ The Axum harness at `6a56a13` used Claviron `0.2.0-alpha.26` from crates.io
 and a native release build with fat LTO and mimalloc. Standalone used the
 inherited Tokio executor with 32 worker threads. The other configuration
 used 32 serving processes, each with a dedicated current-thread listener.
-Both served plain HTTP/1.1 with access logs off.
+Both modes used the same executable, built with `CLAVIRON_FLEET_CAPACITY=33`
+for the supervisor and 32 workers. Both served plain HTTP/1.1 with access
+logs off.
 
 [`break` 0.2.3](https://crates.io/crates/break/0.2.3) used eight client
 threads and 60-second phases. Pipeline depth started at one and rose by one
@@ -42,9 +44,11 @@ At 128 connections, depth six was the highest phase all three passed. At
 | 1,024 | 1 | Claviron Axum standalone | 32.171 | 464,837.79 | 99.892% | 0 | Pass |
 | 1,024 | 1 | Claviron Axum, 32 dedicated workers | 32.328 | 468,011.31 | 99.883% | 0 | Pass |
 
-At 128 connections Caddy first missed the SLA at depth seven. Both Claviron
-configurations passed depth seven. At 1,024 connections Caddy missed the
-SLA at depth one with 3,953 timeouts. Claviron stopped at Caddy's last
-attempted depth at each connection count, so the series leaves its own SLA
-boundary unmeasured. The [earlier 128-connection report](http1-plain-128.md)
-used different hardware, builds and load generation.
+Caddy's ramp had a depth ceiling of ten. At 128 connections it first missed
+the SLA at depth seven, with 1,015 timeouts and 624 abandoned requests in
+16,220,645 attempts. At 1,024 connections it missed the SLA at depth one,
+with 3,953 timeouts in 13,216,320 attempts. Both Claviron configurations
+passed through Caddy's last attempted depth at each connection count. The
+planned ceilings ended those ramps at depths seven and one, respectively.
+The [earlier 128-connection report](http1-plain-128.md) used different
+hardware, builds and load generation.

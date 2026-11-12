@@ -13,8 +13,9 @@ Intel Xeon E5-2650 v2 processors and 32 logical CPUs. Each frontend and
 application ran in one process. Caddy reused the
 [2.11.9 source build from the direct-server series](http1-plain-caddy.md).
 Both Edge paths used the same native release `0.2.0-alpha.26` executable with
-mimalloc. Both HTTP upstreams allowed 128 live connections and retained up
-to 128 idle. Orbit Link allowed 128 in-flight exchanges and 64 waiting.
+mimalloc. Both HTTP upstreams allowed 128 live connections, retained up to
+128 idle and used a one-second connect timeout. Orbit Link allowed 128
+in-flight exchanges and 64 waiting.
 TCP listener backlog was 2,048 for both the frontend and application.
 
 [`break` 0.2.3](https://crates.io/crates/break/0.2.3) used eight client
@@ -22,7 +23,8 @@ threads, 128 fixed HTTP/1.1 connections and pipeline depth six for one
 60-second phase per path. The SLA required at least 99.99% complete, correct
 responses within 100 ms. CPU sums user and system time per successful
 response, measured by PID for the frontend and application in the same
-phase. Coverage measures mean outstanding requests against the target of 768.
+phase. The combined CPU column uses the two unrounded process times.
+Coverage measures mean outstanding requests against the target of 768.
 
 | Path | Frontend CPU µs/response | Axum CPU µs/response | Combined CPU µs/response | Responses/s | Coverage |
 | --- | ---: | ---: | ---: | ---: | ---: |

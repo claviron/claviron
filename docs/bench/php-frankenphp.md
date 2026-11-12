@@ -32,8 +32,10 @@ kernel and controller on both sides in production mode. Claviron uses
 Skene's buffered Symfony adapter.
 
 [`wrk` 4.2.0](https://github.com/wg/wrk/releases/tag/4.2.0) ran for five
-minutes per row with at least 30 seconds between runs. Each 128-instance
-process stayed up across the 128-, 256- and 1,024-connection rows. Before
+minutes per row with at least 30 seconds between runs. The order was
+Claviron plain PHP, Claviron Symfony, FrankenPHP plain PHP, then FrankenPHP
+Symfony. Each 128-instance process kept the same PID and process birth time
+across the 128-, 256- and 1,024-connection rows. Before
 timing, the harness verified the PHP library, checked the response and sent
 four requests per instance. Serving CPU is the serving PID's user plus
 system time per successful response. All sixteen runs recorded zero HTTP,

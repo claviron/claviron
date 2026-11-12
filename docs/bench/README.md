@@ -70,13 +70,18 @@ policy. Keep benchmark exposure an explicit deployment decision.
 Measurements of complete serving paths on Linux, with client and server
 sharing a machine in each series.
 
+Claviron `0.2.0-alpha.26` comparisons on 32 logical CPUs:
+
+- [Caddy and Claviron serving plain HTTP/1.1](http1-plain-caddy.md)
+- [Persistent PHP and Symfony on Claviron and FrankenPHP](php-frankenphp.md)
+- [Three frontend paths to one Axum application](http1-proxy-axum.md)
+
+Earlier measurements:
+
 - [Where a response's serving CPU goes](response-cpu.md): the budget of one
   plain response, row by row, and where each row is decided.
 - [HTTP/1.1 plain text with 128 connections](http1-plain-128.md)
 - [HTTP/1.1 plain text with 1,024 connections](http1-plain-1024.md)
-- [Caddy and Claviron serving plain HTTP/1.1](http1-plain-caddy.md)
-- [Persistent PHP and Symfony on Claviron and FrankenPHP](php-frankenphp.md)
-- [Three frontend paths to one Axum application](http1-proxy-axum.md)
 - [HTTP/1.1 over TLS with 1,024 connections](http1-tls-1024.md)
 - [TLS connections: what establishing one costs](tls-connections-1024.md)
 - [HTTP/2 over TLS with 1,024 connections](http2-tls-1024.md)
