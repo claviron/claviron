@@ -5,7 +5,10 @@ use std::sync::Arc;
 use arc_swap::{ArcSwap, Guard};
 
 use super::selection::Selection;
-use super::{ApplicationClient, Exchange, Inbox, LinkBalance, Pending, Result};
+use super::{
+    ApplicationClient, Exchange, ExchangeBody, HttpPending, Inbox, LinkBalance,
+    Pending, Result,
+};
 
 /// One application in an already joined destination fleet.
 ///
@@ -108,12 +111,16 @@ impl ApplicationTarget {
             &self.0.application,
             self.0.client.lane(),
         );
-        self.0.client.send_to(
-            &self.0.application,
-            &lanes.lanes,
-            &mut request,
-            Some(&self.0.selection),
-        )
+        self.0
+            .client
+            .send_to(
+                &self.0.application,
+                &lanes.lanes,
+                &mut request,
+                Some(&self.0.selection),
+                false,
+            )
+            .map(HttpPending::byte_stream)
     }
 
     /// Send, waiting only for this worker's own creator stream capacity. A
@@ -124,12 +131,33 @@ impl ApplicationTarget {
     /// method adds no timer or retry interval.
     pub async fn send_wait(
         &self,
-        mut request: Exchange,
+        request: Exchange,
     ) -> Result<Pending> {
-        let mut creator_pressure = false;
+        self.dispatch_wait(request, false).await.map(HttpPending::byte_stream)
+    }
+
+    /// Native HTTP callers may use the response transport advertised by
+    /// the selected runner. Streamed requests still use the byte ring.
+    pub async fn send_http_wait(
+        &self,
+        request: Exchange,
+    ) -> Result<HttpPending> {
+        let eligible =
+            !request.upgrade && !matches!(request.body, ExchangeBody::Stream);
+        self.dispatch_wait(request, eligible).await
+    }
+
+    async fn dispatch_wait(
+        &self,
+        mut request: Exchange,
+        allow_shared_response: bool,
+    ) -> Result<HttpPending> {
+        let mut creator_pressure = None;
         loop {
-            let result = if creator_pressure {
-                let turn = self.wait_creator_turn().await?;
+            let result = if let Some(shared_response) = creator_pressure {
+                let turn = self
+                    .wait_creator_turn(shared_response, allow_shared_response)
+                    .await?;
                 let lanes = self.0.lanes.load(
                     self.0.client.inbox(),
                     &self.0.application,
@@ -141,6 +169,7 @@ impl ApplicationTarget {
                     &mut request,
                     turn,
                     &self.0.selection,
+                    allow_shared_response,
                 )
             } else {
                 let lanes = self.0.lanes.load(
@@ -153,13 +182,35 @@ impl ApplicationTarget {
                     &lanes.lanes,
                     &mut request,
                     Some(&self.0.selection),
+                    allow_shared_response,
                 )
             };
             match result {
+                Err(super::Error::Stream(orbitive::stream::Error::Full {
+                    ..
+                })) => creator_pressure = Some(Some(false)),
                 Err(super::Error::Stream(
-                    orbitive::stream::Error::Full { .. }
-                    | orbitive::stream::Error::WouldBlock,
-                )) => creator_pressure = true,
+                    orbitive::stream::Error::WouldBlock,
+                )) => {
+                    let lanes = self.0.lanes.load(
+                        self.0.client.inbox(),
+                        &self.0.application,
+                        self.0.client.lane(),
+                    );
+                    let mixed = allow_shared_response
+                        && lanes.lanes.iter().any(|&lane| {
+                            self.0
+                                .client
+                                .inbox()
+                                .paired_bodies_epoch(lane)
+                                .is_some()
+                        });
+                    creator_pressure =
+                        Some(if mixed { None } else { Some(false) });
+                }
+                Err(super::Error::SharedResponseFull) => {
+                    creator_pressure = Some(Some(true))
+                }
                 // Sent, refused because every window is full, or gone: a
                 // sender never waits for receiver capacity. A full window is
                 // answered at once; a receiver's queue is where waiting
@@ -185,7 +236,9 @@ impl ApplicationTarget {
     }
 
     async fn wait_creator_turn(
-        &self
+        &self,
+        shared_response: Option<bool>,
+        allow_shared_response: bool,
     ) -> Result<super::creator::CreatorTurn<'_>> {
         // Keep the same mutex future across membership wakes to retain FIFO
         // position. Queued destinations can still withdraw or close promptly.
@@ -201,9 +254,12 @@ impl ApplicationTarget {
                 _ = changed => {},
             }
         };
+        let Some(shared_response) = shared_response else {
+            return Ok(turn);
+        };
         loop {
             self.check_destination()?;
-            if self.0.client.creator_available() {
+            if self.0.client.creator_available(shared_response) {
                 return Ok(turn);
             }
             // Local return alone cannot prove remote release. Observe both,
@@ -213,14 +269,19 @@ impl ApplicationTarget {
             tokio::pin!(returned, changed);
             returned.as_mut().enable();
             changed.as_mut().enable();
-            let released = self.0.client.stream_capacity_changed();
+            let released =
+                self.0.client.stream_capacity_changed(shared_response);
             self.check_destination()?;
-            if self.0.client.creator_available() {
+            if self.0.client.creator_available(shared_response) {
                 return Ok(turn);
             }
             tokio::select! {
                 _ = returned => {},
-                _ = changed => {},
+                _ = changed => {
+                    if allow_shared_response {
+                        return Ok(turn);
+                    }
+                },
                 result = released => result.map_err(super::Error::Stream)?,
             }
         }

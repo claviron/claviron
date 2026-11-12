@@ -240,7 +240,7 @@ impl CreatorPressure {
         tag: &str,
         capacity: usize,
     ) -> Self {
-        let name = format!("cs{tag}{:x}", std::process::id());
+        let name = format!("z{tag}{:x}", std::process::id());
         let spec = orbitive::link::LinkSpec::new(
             4,
             super::super::LINK_SPEC.inbox_kind,
@@ -848,4 +848,117 @@ fn a_refusal_episode_is_stated_once_per_directory_generation() {
     let episode = Episode::default();
     assert!(episode.opens(0));
     assert!(!episode.opens(0));
+}
+
+#[tokio::test]
+async fn shared_response_creator_capacity_waits_without_holding_receiver_work()
+{
+    let mut case = CreatorPressure::new("m");
+    case.bodies
+        .advertise_shared_response(&case.segment, case.worker.lane, 1)
+        .unwrap();
+    let target = case.client.target("example");
+    let pending = target.send_http_wait(Exchange::default()).await.unwrap();
+    assert!(matches!(pending, HttpPending::SharedResponse { .. }));
+    let mut frame = Vec::new();
+    let received = loop {
+        let received = case.receiver.next(&mut frame).await.unwrap();
+        if matches!(received, Received::Work(_)) {
+            break received;
+        }
+    };
+    drop(
+        case.segment.accept_frame(case.worker.lane, received, &frame).unwrap(),
+    );
+
+    let mut next = std::pin::pin!(target.send_http_wait(Exchange::default()));
+    let mut cx = Context::from_waker(std::task::Waker::noop());
+    assert!(next.as_mut().poll(&mut cx).is_pending());
+    case.assert_receiver_is_free();
+    drop(pending);
+    let next = tokio::time::timeout(std::time::Duration::from_secs(5), next)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(next, HttpPending::SharedResponse { .. }));
+}
+
+#[tokio::test]
+async fn http_dispatch_uses_the_byte_ring_for_old_peers_and_streamed_uploads() {
+    for (tag, advertise, request) in [
+        ("n", false, Exchange::default()),
+        (
+            "o",
+            true,
+            Exchange { body: ExchangeBody::Stream, ..Exchange::default() },
+        ),
+        (
+            "p",
+            true,
+            Exchange {
+                body: ExchangeBody::Inline(Bytes::from(vec![0; 1024])),
+                ..Exchange::default()
+            },
+        ),
+        ("q", true, Exchange { upgrade: true, ..Exchange::default() }),
+    ] {
+        let mut case = CreatorPressure::new(tag);
+        if advertise {
+            case.bodies
+                .advertise_shared_response(&case.segment, case.worker.lane, 1)
+                .unwrap();
+        }
+        let target = case.client.target("example");
+        let pending = target.send_http_wait(request).await.unwrap();
+        assert!(matches!(pending, HttpPending::ByteStream(_)));
+    }
+}
+
+#[tokio::test]
+async fn shared_body_reset_after_publication_keeps_the_reply_head() {
+    use super::super::body::{RESPONSE_BODY_RESET, ResetCode};
+
+    let mut case = CreatorPressure::new("r");
+    case.bodies
+        .advertise_shared_response(&case.segment, case.worker.lane, 1)
+        .unwrap();
+    let target = case.client.target("example");
+    let HttpPending::SharedResponse { correlation, mut body, reply } =
+        target.send_http_wait(Exchange::default()).await.unwrap()
+    else {
+        panic!("expected shared response");
+    };
+    let mut frame = Vec::new();
+    loop {
+        if matches!(
+            case.receiver.next(&mut frame).await.unwrap(),
+            Received::Work(_)
+        ) {
+            break;
+        }
+    }
+    let ticket = Exchange::decode(Bytes::from(frame)).unwrap().stream.unwrap();
+    let (mut sender, _) =
+        case.bodies.accept_shared_response(ticket).unwrap().split();
+    let head = ExchangeReply {
+        correlation,
+        status: 200,
+        headers: Vec::new(),
+        body: ExchangeBody::Stream,
+    }
+    .encode()
+    .unwrap();
+    case.segment.publish_reply(case.client.lane, &[&head]).unwrap();
+    sender.reset(ResetCode::new(RESPONSE_BODY_RESET)).unwrap();
+
+    let received =
+        tokio::time::timeout(std::time::Duration::from_secs(5), reply.head())
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(received.status, 200);
+    assert!(matches!(
+        body.try_next(),
+        Ok(super::super::body::FlowEvent::Reset(code)) if code.get() == RESPONSE_BODY_RESET
+    ));
 }

@@ -323,3 +323,133 @@ fn orbit_preserves_authority_and_repeated_headers() {
         assert_eq!(repeated, [b"one".as_slice(), b"two".as_slice()]);
     }
 }
+
+#[tokio::test]
+async fn shared_response_frames_hold_credit_and_cancel_without_invalidating_bytes()
+ {
+    use bytes::Bytes;
+    use claviron_orbit::config::LinkGeometry;
+    use claviron_orbit::link::application::body::{
+        SHARED_RESPONSE_CONTROL_KIND, StreamError,
+    };
+    use claviron_orbit::link::application::{
+        Access, ApplicationBodies, ApplicationClient, ApplicationSegment,
+        Exchange, ExchangeBody, ExchangeReply, FrameKind, Received, frame_kind,
+    };
+    use http_body_util::BodyExt;
+
+    let name = format!("pb{:x}", std::process::id());
+    let geometry = LinkGeometry {
+        fleet_capacity: 4,
+        inbox_capacity: 8,
+        inbox_payload_capacity: 1024,
+        lane_capacity: 2,
+        buffer_bytes: 8192,
+    };
+    let segment = Arc::new(
+        ApplicationSegment::for_fleet_with_spec(
+            &name,
+            geometry.spec(),
+            &Access::OwnerOnly,
+        )
+        .unwrap(),
+    );
+    let runner = segment.join("runner", "rust", 11).unwrap();
+    let mut tables =
+        ApplicationBodies::for_segment(&segment, runner.lane, 11).unwrap();
+    tables.advertise_shared_response(&segment, runner.lane, 11).unwrap();
+    let client = ApplicationClient::join_segment(
+        Arc::clone(&segment),
+        "edge",
+        12,
+        None,
+        None,
+    )
+    .unwrap();
+    let target = client.target("runner");
+    let mut inbox = segment.receiver(runner.lane).unwrap();
+
+    let test = async {
+        let request = http::Request::builder()
+            .method("POST")
+            .uri("/")
+            .body(claviron_http::bytes_body(Bytes::from_static(b"inline")))
+            .unwrap();
+        let policy = super::RequestPolicy {
+            buffer_size: Some(64),
+            ..super::RequestPolicy::unlimited()
+        };
+        let serving = async {
+            let mut frame = Vec::new();
+            loop {
+                if matches!(
+                    inbox.next(&mut frame).await.unwrap(),
+                    Received::Frame
+                ) && matches!(frame_kind(&frame), Ok(FrameKind::Request))
+                {
+                    break;
+                }
+            }
+            let request = Exchange::decode(Bytes::from(frame)).unwrap();
+            assert_eq!(
+                request.body,
+                ExchangeBody::Inline(Bytes::from_static(b"inline"))
+            );
+            let ticket = request.stream.unwrap();
+            assert_eq!(ticket.id.kind(), SHARED_RESPONSE_CONTROL_KIND);
+            let (mut sender, _) =
+                tables.accept_shared_response(ticket).unwrap().split();
+            let reply = ExchangeReply {
+                correlation: request.correlation,
+                status: 200,
+                headers: Vec::new(),
+                body: ExchangeBody::Stream,
+            }
+            .encode()
+            .unwrap();
+            segment
+                .publish_reply(usize::from(request.origin), &[&reply])
+                .unwrap();
+            sender.start(None).unwrap();
+            sender.data(&[7; 4096]).unwrap();
+            sender.data(&[8; 4096]).unwrap();
+            sender
+        };
+        let (mut response, mut sender) = tokio::join!(
+            super::dispatch(target, policy, None, request),
+            serving,
+        );
+        assert_eq!(response.status(), 200);
+        let frame = response.body_mut().frame().await.unwrap().unwrap();
+        let first = frame.into_data().unwrap();
+        let slice = first.slice(..64);
+        drop(first);
+        assert!(matches!(
+            sender.data(b"more"),
+            Err(StreamError::PayloadFull { .. })
+        ));
+        drop(slice);
+        std::future::poll_fn(|cx| sender.poll_ready(1, cx)).await.unwrap();
+        sender.data(b"more").unwrap();
+        let held = response
+            .body_mut()
+            .frame()
+            .await
+            .unwrap()
+            .unwrap()
+            .into_data()
+            .unwrap();
+        drop(response);
+        sender.peer_closed().await.unwrap();
+        assert_eq!(&held[..], &[8; 4096]);
+        assert!(matches!(sender.data(b"closed"), Err(StreamError::PeerGone)));
+    };
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(5), test).await;
+    client.leave();
+    segment.inbox().release_lane(runner.lane).unwrap();
+    drop(runner);
+    tables.unlink().unwrap();
+    segment.unlink().unwrap();
+    result.expect("shared response transfer must complete");
+}

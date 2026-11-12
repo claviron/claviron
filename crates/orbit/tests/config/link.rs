@@ -105,6 +105,7 @@ async fn live_control_preserves_existing_work_and_owns_no_join() {
             buffer_bytes: 1024,
         },
         workers: None,
+        shared_response: false,
     };
     control.prepare(&config, None).unwrap();
     let fleet = format!("lc{:x}", std::process::id());

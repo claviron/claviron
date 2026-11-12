@@ -32,6 +32,21 @@ The geometry and frame formats are shared declarations. Peers that map the
 same namespace must agree on them. A change in physical shape is a compatibility
 change, not something one side can deploy by silently resizing a live segment.
 
+## Shared HTTP response streams
+
+A cooperating native Runner can enable `orbit.link.shared_response: true` at
+startup. The serving lane advertises the capability once its tables are ready.
+For empty requests and request bodies that fit inline, the Edge can send a
+paired exchange ticket to that lane. It uses the existing byte ring for peers
+without the capability, group Links, streamed uploads, and message sessions.
+
+Response headers still go through the inbox. Streamed response chunks live in
+a directional arena whose per-flow credit is the destination's stream window.
+The Edge hands out SHM-backed bytes and returns credit when their last view is
+dropped. Dropping the HTTP body cancels the direction and reclaims unread
+chunks. The paired table and its arenas have separate SHM kinds and keep their
+startup geometry across reloads.
+
 ## Selecting application workers
 
 Each Orbit destination declares its receiver selection, `balance`,

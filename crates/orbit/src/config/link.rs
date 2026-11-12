@@ -19,6 +19,8 @@ pub struct LinkConfig {
     /// The exchanges that can wait at the receiver. Zero disables the queue.
     pub max_queued: Option<usize>,
     pub geometry: LinkGeometry,
+    /// Opt into SHM-backed streaming HTTP responses for cooperating callers.
+    pub shared_response: bool,
     /// The owner's exact count or growth bounds. Absent leaves process counts
     /// to the external owner and publishes no growth policy.
     pub workers: Option<Workers>,
@@ -30,6 +32,7 @@ struct LinkFields {
     max_in_flight: Option<usize>,
     max_queued: Option<usize>,
     geometry: LinkGeometry,
+    shared_response: bool,
     workers: Option<Workers>,
     #[serde(rename = "max_waiting", deserialize_with = "reject_max_waiting")]
     _retired: (),
@@ -49,6 +52,7 @@ impl From<LinkFields> for LinkConfig {
             max_in_flight: fields.max_in_flight,
             max_queued: fields.max_queued,
             geometry: fields.geometry,
+            shared_response: fields.shared_response,
             workers: fields.workers,
         }
     }
@@ -528,6 +532,7 @@ struct State {
     max_queued: Option<usize>,
     engine_key: Option<&'static str>,
     geometry: LinkGeometry,
+    shared_response: bool,
     workers: Option<Workers>,
     active: Option<Active>,
 }
@@ -550,6 +555,7 @@ impl LinkCapacity {
                 max_queued,
                 engine_key: None,
                 geometry: LinkGeometry::default(),
+                shared_response: false,
                 workers: None,
                 active: None,
             }),
@@ -628,6 +634,7 @@ impl LinkCapacity {
         state.max_queued = config.max_queued;
         state.engine_key = engine.map(|(_, key)| key);
         state.geometry = config.geometry;
+        state.shared_response = config.shared_response;
         state.workers = config.workers;
         Ok(())
     }
@@ -664,6 +671,13 @@ impl LinkCapacity {
         self.state
             .lock()
             .map(|state| state.geometry)
+            .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))
+    }
+
+    pub fn shared_response(&self) -> registry::Result<bool> {
+        self.state
+            .lock()
+            .map(|state| state.shared_response)
             .map_err(|_| registry::Error::msg("Link capacity lock poisoned"))
     }
 

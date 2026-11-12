@@ -172,6 +172,28 @@ impl ApplicationSegment {
         Self::adopt(fleet_name, access)
     }
 
+    pub(super) fn open_shared_response(
+        &self,
+        lane: usize,
+        incarnation: u64,
+    ) -> Result<orbitive::stream::exchange::Exchanges> {
+        if !self.allows_shared_response() {
+            return Err(Error::Malformed(
+                "shared responses require an owner-only Link",
+            ));
+        }
+        super::body::open_shared_response(
+            &self.fleet_name,
+            self.spec,
+            orbitive::NodeId::new(lane as u16),
+            incarnation,
+        )
+    }
+
+    pub(super) fn allows_shared_response(&self) -> bool {
+        matches!(self.access, Access::OwnerOnly)
+    }
+
     pub fn spec(&self) -> LinkSpec {
         self.spec
     }
@@ -183,9 +205,12 @@ impl ApplicationSegment {
         incarnation: u64,
     ) -> Result<Joined> {
         check_application_name(application)?;
-        self.link
+        let joined = self
+            .link
             .join(application, runtime, incarnation)
-            .map_err(map_link_error)
+            .map_err(map_link_error)?;
+        self.recover_paired_lanes(&joined);
+        Ok(joined)
     }
 
     pub fn join_with_capacity(
@@ -199,9 +224,25 @@ impl ApplicationSegment {
         if let Some(limit) = capacity {
             self.check_admission(limit)?;
         }
-        self.link
+        let joined = self
+            .link
             .join_with_capacity(application, runtime, incarnation, capacity)
-            .map_err(map_link_error)
+            .map_err(map_link_error)?;
+        self.recover_paired_lanes(&joined);
+        Ok(joined)
+    }
+
+    fn recover_paired_lanes(
+        &self,
+        joined: &Joined,
+    ) {
+        if self.allows_shared_response() {
+            for gone in &joined.reclaimed {
+                if let Err(error) = self.end_shared_responses(gone) {
+                    tracing::error!(lane = gone.lane, %error, "could not recover shared responses");
+                }
+            }
+        }
     }
 
     /// Publish how many of this receiver's window slots run at once; the rest
@@ -481,7 +522,23 @@ impl ApplicationSegment {
     ) -> Result<()> {
         self.access
             .recover(&self.fleet_name, self.spec, gone.lane, gone.incarnation)
-            .map_err(map_link_error)
+            .map_err(map_link_error)?;
+        if self.allows_shared_response() {
+            self.end_shared_responses(gone)?;
+        }
+        Ok(())
+    }
+
+    fn end_shared_responses(
+        &self,
+        gone: &orbitive::link::Reclaimed,
+    ) -> Result<()> {
+        super::body::recover_shared_response(
+            &self.fleet_name,
+            self.spec,
+            orbitive::NodeId::new(gone.lane as u16),
+            gone.incarnation,
+        )
     }
 
     /// Publish one complete application snapshot batch from this runner lane

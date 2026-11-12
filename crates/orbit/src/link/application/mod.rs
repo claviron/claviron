@@ -25,7 +25,9 @@ mod target;
 pub use app::{ApplicationLink, ApplicationLinkSetup, LinkEventRouting};
 pub use body::ApplicationBodies;
 pub use claviron_types::link::LinkBalance;
-pub use client::{ApplicationClient, EDGE_RUNTIME, Pending, ReplyWait};
+pub use client::{
+    ApplicationClient, EDGE_RUNTIME, HttpPending, Pending, ReplyWait,
+};
 pub(crate) use error::map_link_error;
 pub use error::{Error, Result};
 pub use frame::{

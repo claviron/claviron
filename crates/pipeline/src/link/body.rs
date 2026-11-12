@@ -5,13 +5,78 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use claviron_http::{RouteBody, RouteBodyError};
-use claviron_orbit::link::application::client::LentWrite;
+use claviron_orbit::link::application::body::{
+    FlowEvent, Receiver, StreamError,
+};
+use claviron_orbit::link::application::client::{LentRead, LentWrite};
 use http_body::{Body, Frame, SizeHint};
 use http_body_util::BodyExt;
 use tokio::io::AsyncWriteExt;
 use tokio_util::task::AbortOnDropHandle;
 
 use super::websocket::Input;
+
+pub(super) enum ResponseBody {
+    ByteStream(LentRead),
+    Shared(Receiver),
+}
+
+/// Each frame keeps its payload arena extent pinned for as long as the HTTP
+/// writer owns any view of its bytes.
+pub(super) struct SharedBody {
+    receiver: Receiver,
+    done: bool,
+}
+
+impl SharedBody {
+    pub(super) fn new(receiver: Receiver) -> Self {
+        Self { receiver, done: false }
+    }
+}
+
+impl Body for SharedBody {
+    type Data = Bytes;
+    type Error = RouteBodyError;
+
+    fn poll_frame(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, RouteBodyError>>> {
+        if self.done {
+            return Poll::Ready(None);
+        }
+        loop {
+            let error = match self.receiver.try_next() {
+                Ok(FlowEvent::Start { .. }) => continue,
+                Ok(FlowEvent::Data(chunk)) => {
+                    return Poll::Ready(Some(Ok(Frame::data(
+                        Bytes::from_owner(chunk),
+                    ))));
+                }
+                Ok(FlowEvent::Fin) => {
+                    self.done = true;
+                    return Poll::Ready(None);
+                }
+                Ok(FlowEvent::Reset(_)) => StreamError::Reset,
+                Err(StreamError::WouldBlock) => {
+                    match self.receiver.poll_readable(cx) {
+                        Poll::Ready(Ok(())) => continue,
+                        Poll::Ready(Err(error)) => error,
+                        Poll::Pending => return Poll::Pending,
+                    }
+                }
+                Err(error) => error,
+            };
+            self.done = true;
+            self.receiver.cancel();
+            return Poll::Ready(Some(Err(Box::new(error))));
+        }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.done
+    }
+}
 
 /// Keep both directions independently driven, as on the original Link path.
 /// Dropping the owner aborts only this upload. Input resets an unfinished

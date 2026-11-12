@@ -575,6 +575,22 @@ impl Exchange {
         self.body.inline()
     }
 
+    pub(super) fn fits_paired_response(
+        &self,
+        capacity: usize,
+    ) -> Result<bool> {
+        if self.upgrade || matches!(self.body, ExchangeBody::Stream) {
+            return Ok(false);
+        }
+        if matches!(self.body, ExchangeBody::Empty) {
+            return Ok(true);
+        }
+        // A stream ticket is 17 bytes. An already assigned ticket is
+        // included in encode_head, so do not count it again on a retry.
+        let ticket = if self.stream.is_none() { 17 } else { 0 };
+        Ok(self.encode_head()?.len() + ticket + self.inline().len() <= capacity)
+    }
+
     /// Everything but the inline body.
     pub fn encode_head(&self) -> Result<Vec<u8>> {
         let mut out = Vec::with_capacity(512);

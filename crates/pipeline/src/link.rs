@@ -37,7 +37,7 @@ use claviron_http::policy::{BodyNeed, RequestPolicy, RequestPolicyOverride};
 use claviron_http::socket::Offer;
 use claviron_orbit::link::application::{
     ApplicationService, ApplicationTarget, Error, Exchange, ExchangeBody,
-    HttpVersion, LinkBalance,
+    HttpPending, HttpVersion, LinkBalance,
 };
 use claviron_runtime::{AppState, FleetName};
 use http::StatusCode;
@@ -263,7 +263,7 @@ async fn dispatch(
     let deadline = policy
         .queue_timeout
         .map(|timeout| tokio::time::Instant::now() + timeout);
-    let sending = target.send_wait(exchange);
+    let sending = target.send_http_wait(exchange);
     let admitted = match deadline {
         Some(deadline) => {
             match tokio::time::timeout_at(deadline, sending).await {
@@ -294,23 +294,40 @@ async fn dispatch(
     // The request body travels while the reply is being waited for. A reply
     // that starts before the body finishes is a feature of the slot, not a
     // case to handle.
-    let correlation = pending.correlation;
-    let (request_body, response_body, reply, unsent) = pending.split();
-    let (to_application, upload) = if websocket {
-        (Some(websocket::Input::new(request_body)), None)
-    } else if let Some(body) = streamed {
-        // The task retains independent upload backpressure. Its abort-on-drop
-        // owner stays with this head wait, then with the response body.
-        (None, Some(body::upload(body, request_body)))
-    } else if let Some(rest) = unsent {
-        // Held whole but larger than the frame and the stream's window: the
-        // rest follows the head on the stream.
-        (None, Some(body::upload_rest(rest, request_body)))
-    } else {
-        // Already ended by send; return the unused half immediately.
-        drop(request_body);
-        (None, None)
-    };
+    let (correlation, response_body, reply, to_application, upload) =
+        match pending {
+            HttpPending::ByteStream(pending) => {
+                let correlation = pending.correlation;
+                let (request_body, response_body, reply, unsent) =
+                    pending.split();
+                let (to_application, upload) = if websocket {
+                    (Some(websocket::Input::new(request_body)), None)
+                } else if let Some(body) = streamed {
+                    // Its abort-on-drop owner stays with the head wait, then
+                    // with the response body.
+                    (None, Some(body::upload(body, request_body)))
+                } else if let Some(rest) = unsent {
+                    (None, Some(body::upload_rest(rest, request_body)))
+                } else {
+                    drop(request_body);
+                    (None, None)
+                };
+                (
+                    correlation,
+                    body::ResponseBody::ByteStream(response_body),
+                    reply,
+                    to_application,
+                    upload,
+                )
+            }
+            HttpPending::SharedResponse { correlation, body, reply } => (
+                correlation,
+                body::ResponseBody::Shared(body),
+                reply,
+                None,
+                None,
+            ),
+        };
 
     // A bounded receiver may hold the exchange in its queue. If the budget
     // ends first, take it back: when that wins it never ran, so this is a
@@ -350,6 +367,10 @@ async fn dispatch(
         && head.status == StatusCode::SWITCHING_PROTOCOLS.as_u16()
         && let Some(to_application) = to_application
     {
+        let body::ResponseBody::ByteStream(response_body) = response_body
+        else {
+            return gateway_failure();
+        };
         return websocket::accept_websocket(
             correlation,
             &head,
@@ -388,6 +409,17 @@ async fn dispatch(
             let body =
                 body::with_upload(claviron_http::bytes_body(bytes), upload);
             return finish(response, body, correlation);
+        }
+    };
+
+    let response_body = match response_body {
+        body::ResponseBody::ByteStream(reader) => reader,
+        body::ResponseBody::Shared(receiver) => {
+            return finish(
+                response,
+                RouteBody::new(body::SharedBody::new(receiver)),
+                correlation,
+            );
         }
     };
 

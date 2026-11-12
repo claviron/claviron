@@ -41,12 +41,13 @@ use std::collections::{HashMap, VecDeque};
 use std::future::{Future, poll_fn};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use claviron_runtime::{FleetName, ProcessEventBus};
 use orbitive::link::Received;
+use orbitive::stream::exchange::{ExchangeEndpoint, Exchanges, Receiver};
 use orbitive::stream::{Endpoint, ReadHalf, ResetSignal, Ticket, WriteHalf};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::oneshot;
@@ -100,6 +101,37 @@ impl Pending {
     }
 }
 
+/// The two body transports supported by the native HTTP dispatch path.
+pub enum HttpPending {
+    ByteStream(Pending),
+    SharedResponse { correlation: u64, body: Receiver, reply: ReplyWait },
+}
+
+impl HttpPending {
+    pub(super) fn byte_stream(self) -> Pending {
+        match self {
+            Self::ByteStream(pending) => pending,
+            Self::SharedResponse { .. } => {
+                unreachable!("byte-stream dispatch requested")
+            }
+        }
+    }
+}
+
+enum BodySlot {
+    ByteStream(Endpoint, Ticket),
+    SharedResponse(ExchangeEndpoint, Ticket, u64),
+}
+
+impl BodySlot {
+    fn ticket(&self) -> Ticket {
+        match self {
+            Self::ByteStream(_, ticket)
+            | Self::SharedResponse(_, ticket, _) => *ticket,
+        }
+    }
+}
+
 /// The head of a reply, once the application has one.
 pub struct ReplyWait {
     reply: oneshot::Receiver<ExchangeReply>,
@@ -148,9 +180,13 @@ impl ReplyWait {
                 }));
             }
             match self.reset.poll_reset(cx) {
-                Poll::Ready(Ok(())) => Poll::Ready(Err(Error::Stream(
-                    orbitive::stream::Error::Reset,
-                ))),
+                Poll::Ready(Ok(())) => match self.reset.exchange_reset_code() {
+                    Ok(Some(super::body::RESPONSE_BODY_RESET)) => Poll::Pending,
+                    Ok(_) => Poll::Ready(Err(Error::Stream(
+                        orbitive::stream::Error::Reset,
+                    ))),
+                    Err(error) => Poll::Ready(Err(Error::Stream(error))),
+                },
                 Poll::Ready(Err(error)) => {
                     Poll::Ready(Err(Error::Stream(error)))
                 }
@@ -394,6 +430,8 @@ pub struct ApplicationClient {
     fleet: FleetName,
     segment: Arc<ApplicationSegment>,
     bodies: Arc<ApplicationBodies>,
+    shared_response: OnceLock<Exchanges>,
+    incarnation: u64,
     lane: usize,
     /// The lane's lock, let go in [`ApplicationClient::leave`] after the lane.
     hold: Mutex<Option<orbitive::shm::LaneHold>>,
@@ -736,6 +774,8 @@ impl ApplicationClient {
             fleet: FleetName::new(&fleet_name),
             segment,
             bodies,
+            shared_response: OnceLock::new(),
+            incarnation,
             lane,
             hold: Mutex::new(Some(joined.hold)),
             correlation: AtomicU64::new(1),
@@ -808,7 +848,8 @@ impl ApplicationClient {
             application,
             self.lane,
         );
-        self.send_to(application, &lanes, &mut request, None)
+        self.send_to(application, &lanes, &mut request, None, false)
+            .map(HttpPending::byte_stream)
     }
 
     pub(super) fn send_to(
@@ -817,12 +858,20 @@ impl ApplicationClient {
         lanes: &[usize],
         request: &mut Exchange,
         selection: Option<&Selection>,
-    ) -> Result<Pending> {
+        allow_shared_response: bool,
+    ) -> Result<HttpPending> {
         self.check_open(application)?;
         if self.creator.contended() {
             return Err(Error::Stream(orbitive::stream::Error::WouldBlock));
         }
-        self.send_acquiring(application, lanes, request, (), selection)
+        self.send_acquiring(
+            application,
+            lanes,
+            request,
+            (),
+            selection,
+            allow_shared_response,
+        )
     }
 
     pub(super) fn send_with_creator_turn(
@@ -832,9 +881,17 @@ impl ApplicationClient {
         request: &mut Exchange,
         turn: CreatorTurn<'_>,
         selection: &Selection,
-    ) -> Result<Pending> {
+        allow_shared_response: bool,
+    ) -> Result<HttpPending> {
         self.check_open(application)?;
-        self.send_acquiring(application, lanes, request, turn, Some(selection))
+        self.send_acquiring(
+            application,
+            lanes,
+            request,
+            turn,
+            Some(selection),
+            allow_shared_response,
+        )
     }
 
     pub(super) fn check_open(
@@ -851,8 +908,57 @@ impl ApplicationClient {
         self.creator.acquire().await
     }
 
-    pub(super) fn creator_available(&self) -> bool {
+    pub(super) fn creator_available(
+        &self,
+        shared_response: bool,
+    ) -> bool {
+        if shared_response {
+            return self
+                .shared_response
+                .get()
+                .is_some_and(|body| body.control().can_create());
+        }
         self.hot.available(&self.bodies) || self.bodies.streams().can_create()
+    }
+
+    fn take_body_slot(
+        &self,
+        target: usize,
+        request: &Exchange,
+        allow_shared_response: bool,
+    ) -> Result<BodySlot> {
+        if allow_shared_response
+            && self.segment.allows_shared_response()
+            && let Some(epoch) = self.inbox().paired_bodies_epoch(target)
+            && request.fits_paired_response(
+                self.inbox().geometry().payload_capacity,
+            )?
+        {
+            if self.shared_response.get().is_none() {
+                let bodies = self
+                    .segment
+                    .open_shared_response(self.lane, self.incarnation)?;
+                let _ = self.shared_response.set(bodies);
+            }
+            let shared = self
+                .shared_response
+                .get()
+                .expect("opened shared response bodies");
+            let (endpoint, ticket) =
+                shared.create().map_err(|error| match error {
+                    orbitive::stream::Error::Full { .. } => {
+                        Error::SharedResponseFull
+                    }
+                    other => Error::Stream(other),
+                })?;
+            return Ok(BodySlot::SharedResponse(
+                endpoint,
+                ticket.stream_ticket(),
+                epoch,
+            ));
+        }
+        let (endpoint, ticket) = self.take_hot()?;
+        Ok(BodySlot::ByteStream(endpoint, ticket))
     }
 
     /// Whether a lane can take work at all, and its depth if so.
@@ -1023,7 +1129,8 @@ impl ApplicationClient {
         request: &mut Exchange,
         acquisition: G,
         selection: Option<&Selection>,
-    ) -> Result<Pending> {
+        allow_shared_response: bool,
+    ) -> Result<HttpPending> {
         let (selected, full) = match selection {
             Some(selection) if selection.balance == LinkBalance::RoundRobin => {
                 let mut full = false;
@@ -1064,18 +1171,19 @@ impl ApplicationClient {
         // here rather than after the write, because the frame below is what
         // tells the far side a new exchange has begun and it must not carry a
         // slot that still holds the last one's state.
-        let (mut endpoint, ticket) = match self.take_hot() {
-            Ok(slot) => slot,
-            Err(error) => {
-                if let Error::Stream(orbitive::stream::Error::Full {
-                    capacity,
-                }) = &error
-                {
-                    self.lane_full(application, *capacity);
+        let mut slot =
+            match self.take_body_slot(target, request, allow_shared_response) {
+                Ok(slot) => slot,
+                Err(error) => {
+                    if let Error::Stream(orbitive::stream::Error::Full {
+                        capacity,
+                    }) = &error
+                    {
+                        self.lane_full(application, *capacity);
+                    }
+                    return Err(error);
                 }
-                return Err(error);
-            }
-        };
+            };
         // Only acquisition is serialized. Encoding, publication and the whole
         // exchange lifetime run after the next queued creator can proceed.
         drop(acquisition);
@@ -1083,7 +1191,7 @@ impl ApplicationClient {
         let correlation = self.correlation.fetch_add(1, Ordering::Relaxed);
         request.correlation = correlation;
         request.origin = self.lane as u16;
-        request.stream = Some(ticket);
+        request.stream = Some(slot.ticket());
 
         let mut head = request.encode_head()?;
         let (body, spill) = fit_inline(
@@ -1092,23 +1200,30 @@ impl ApplicationClient {
             self.segment.inbox().geometry().payload_capacity,
         );
         let mut unsent = None;
-        match (&body, spill) {
-            (ExchangeBody::Stream, Some(bytes)) => {
-                let written = match endpoint.try_write(&bytes) {
-                    Ok(written) => written,
-                    Err(orbitive::stream::Error::WouldBlock) => 0,
-                    Err(error) => return Err(Error::Stream(error)),
-                };
-                if written == bytes.len() {
+        if let BodySlot::ByteStream(endpoint, _) = &mut slot {
+            match (&body, spill) {
+                (ExchangeBody::Stream, Some(bytes)) => {
+                    let written = match endpoint.try_write(&bytes) {
+                        Ok(written) => written,
+                        Err(orbitive::stream::Error::WouldBlock) => 0,
+                        Err(error) => return Err(Error::Stream(error)),
+                    };
+                    if written == bytes.len() {
+                        let _ = endpoint.finish();
+                    } else {
+                        unsent = Some(bytes.slice(written..));
+                    }
+                }
+                (ExchangeBody::Stream, None) => {}
+                (ExchangeBody::Empty | ExchangeBody::Inline(_), _) => {
                     let _ = endpoint.finish();
-                } else {
-                    unsent = Some(bytes.slice(written..));
                 }
             }
-            (ExchangeBody::Stream, None) => {}
-            (ExchangeBody::Empty | ExchangeBody::Inline(_), _) => {
-                let _ = endpoint.finish();
-            }
+        } else {
+            debug_assert!(
+                spill.is_none(),
+                "typed requests are empty or fit inline"
+            );
         }
         let (sender, receiver) = oneshot::channel();
         // Registered before the write, because the application may answer
@@ -1128,12 +1243,20 @@ impl ApplicationClient {
             segment: Arc::clone(&self.segment),
             ticket: admission.ticket(),
         });
-        let published = match admission {
-            Some(admission) => admission.publish(&[&head, body.inline()]),
-            None => self
-                .segment
-                .inbox()
-                .write_vectored(target, &[&head, body.inline()]),
+        let parts = [&head[..], body.inline()];
+        let published = match (admission, &slot) {
+            (Some(admission), BodySlot::SharedResponse(_, _, epoch))
+                if admission.ticket().epoch != *epoch =>
+            {
+                Err(orbitive::link::Error::NoConsumer)
+            }
+            (Some(admission), _) => admission.publish(&parts),
+            (None, BodySlot::SharedResponse(_, _, epoch)) => {
+                self.inbox().write_vectored_at_epoch(target, *epoch, &parts)
+            }
+            (None, BodySlot::ByteStream(..)) => {
+                self.inbox().write_vectored(target, &parts)
+            }
         };
         if let Err(error) = published {
             self.waiting.take(correlation);
@@ -1149,30 +1272,41 @@ impl ApplicationClient {
             return Err(super::map_link_error(error));
         }
 
-        let (read, write) = endpoint.split();
-        let reset = read.reset_signal();
-        let loan = Arc::new(Loan {
-            hot: Arc::clone(&self.hot),
-            ticket,
-            halves: Mutex::new((None, None)),
-        });
-        Ok(Pending {
+        let reply = |reset| ReplyWait {
+            reply: receiver,
+            reset,
+            waiting: Arc::clone(&self.waiting),
             correlation,
-            request_body: LentWrite {
-                half: Some(write),
-                loan: Arc::clone(&loan),
-            },
-            response_body: LentRead { half: Some(read), loan },
-            unsent,
-            reply: ReplyWait {
-                reply: receiver,
-                reset,
-                waiting: Arc::clone(&self.waiting),
-                correlation,
-                completed: false,
-                withdrawal,
-            },
-        })
+            completed: false,
+            withdrawal,
+        };
+        match slot {
+            BodySlot::ByteStream(endpoint, ticket) => {
+                let (read, write) = endpoint.split();
+                let reset = read.reset_signal();
+                let loan = Arc::new(Loan {
+                    hot: Arc::clone(&self.hot),
+                    ticket,
+                    halves: Mutex::new((None, None)),
+                });
+                Ok(HttpPending::ByteStream(Pending {
+                    correlation,
+                    request_body: LentWrite {
+                        half: Some(write),
+                        loan: Arc::clone(&loan),
+                    },
+                    response_body: LentRead { half: Some(read), loan },
+                    unsent,
+                    reply: reply(reset),
+                }))
+            }
+            BodySlot::SharedResponse(endpoint, _, _) => {
+                let (mut input, body) = endpoint.split();
+                input.finish_empty().expect("fresh paired request direction");
+                let reply = reply(body.reset_signal());
+                Ok(HttpPending::SharedResponse { correlation, body, reply })
+            }
+        }
     }
 
     pub(super) fn streams_returned(&self) -> &tokio::sync::Notify {
@@ -1184,8 +1318,17 @@ impl ApplicationClient {
     }
 
     pub(super) fn stream_capacity_changed(
-        &self
+        &self,
+        shared_response: bool,
     ) -> orbitive::stream::CapacityChanged {
+        if shared_response {
+            return self
+                .shared_response
+                .get()
+                .expect("opened shared response bodies")
+                .control()
+                .capacity_changed();
+        }
         self.bodies.streams().capacity_changed()
     }
 

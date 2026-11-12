@@ -36,6 +36,10 @@ use claviron_http::socket::{
 };
 use claviron_http::trust::Forwarded;
 pub use claviron_orbit::link::application::Endpoint;
+use claviron_orbit::link::application::body::{
+    RESPONSE_BODY_RESET, ResetCode, SHARED_RESPONSE_CONTROL_KIND,
+    Sender as SharedSender, StreamError,
+};
 use claviron_orbit::link::application::{
     ApplicationBodies, ApplicationLinkSetup, ApplicationSegment,
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
@@ -414,10 +418,17 @@ impl OrbitDoor {
             incarnation,
         )?;
         let lane = joined.lane;
-        let bodies = Arc::new(
+        let mut bodies =
             ApplicationBodies::for_segment(&segment, lane, incarnation)
-                .map_err(|error| registry::Error::msg(error.to_string()))?,
-        );
+                .map_err(|error| registry::Error::msg(error.to_string()))?;
+        if self.capacity.shared_response()?
+            && let Err(error) =
+                bodies.advertise_shared_response(&segment, lane, incarnation)
+        {
+            let _ = segment.inbox().release_lane(lane);
+            return Err(registry::Error::msg(error.to_string()));
+        }
+        let bodies = Arc::new(bodies);
         if let Err(error) = publish_application_snapshot(
             &state,
             &segment,
@@ -873,6 +884,27 @@ fn refuse_exchange(
     let Ok(exchange) = Exchange::decode(Bytes::copy_from_slice(frame)) else {
         return;
     };
+    if let Some(ticket) = exchange.stream
+        && ticket.id.kind() == SHARED_RESPONSE_CONTROL_KIND
+    {
+        if let Ok(endpoint) = bodies.accept_shared_response(ticket) {
+            let (mut response, _) = endpoint.split();
+            let reply = ExchangeReply {
+                correlation: exchange.correlation,
+                status: 503,
+                headers: Vec::new(),
+                body: ExchangeBody::Empty,
+            };
+            if reply.encode().is_ok_and(|frame| {
+                segment.inbox().write(exchange.origin as usize, &frame).is_ok()
+            }) {
+                let _ = response.finish_empty();
+            } else {
+                let _ = response.reset(ResetCode::new(0));
+            }
+        }
+        return;
+    }
     let mut endpoint =
         exchange.stream.and_then(|ticket| bodies.accept(ticket).ok());
     let reply = ExchangeReply {
@@ -989,9 +1021,28 @@ async fn serve<O: Owner>(
     // arrives on one direction and the reply leaves on the other. Opened even
     // when neither does, because its far side going away is how this side
     // learns the edge stopped waiting.
-    let body = match exchange.stream {
+    let (body, shared_response) = match exchange.stream {
+        Some(ticket) if ticket.id.kind() == SHARED_RESPONSE_CONTROL_KIND => {
+            if usize::from(ticket.id.node()) != origin {
+                return;
+            }
+            let endpoint = match bodies.accept_shared_response(ticket) {
+                Ok(endpoint) => endpoint,
+                Err(error) => {
+                    tracing::debug!(correlation, %error, "could not open shared response");
+                    return;
+                }
+            };
+            let (mut response, _) = endpoint.split();
+            if exchange.upgrade || matches!(exchange.body, ExchangeBody::Stream)
+            {
+                let _ = response.reset(ResetCode::new(0));
+                return;
+            }
+            (None, Some(response))
+        }
         Some(ticket) => match bodies.accept(ticket) {
-            Ok(endpoint) => Some(endpoint),
+            Ok(endpoint) => (Some(endpoint), None),
             Err(error) => {
                 tracing::debug!(
                     "exchange {correlation} has no readable body: {error}"
@@ -999,7 +1050,7 @@ async fn serve<O: Owner>(
                 return;
             }
         },
-        None => None,
+        None => (None, None),
     };
 
     if exchange.upgrade {
@@ -1028,9 +1079,9 @@ async fn serve<O: Owner>(
     let (incoming, mut reply_body) = match body {
         Some(endpoint) => {
             let (incoming, outgoing) = endpoint.split();
-            (Some(incoming), Some(outgoing))
+            (Some(incoming), Some(ResponseWriter::ByteStream(outgoing)))
         }
-        None => (None, None),
+        None => (None, shared_response.map(ResponseWriter::Shared)),
     };
     let request_body = match (std::mem::take(&mut exchange.body), incoming) {
         (ExchangeBody::Stream, Some(incoming)) => {
@@ -1133,16 +1184,26 @@ async fn serve<O: Owner>(
         std::mem::take(&mut reply.body),
         segment.inbox().geometry().payload_capacity,
     );
+    let streamed_reply = matches!(body, ExchangeBody::Stream);
+    let mut shared_spill = None;
     match (&body, spill, reply_body.as_mut()) {
         // Whole and in the frame: the stream's reply direction carries
         // nothing, and the frame says so, so it ends without waking anyone.
-        (ExchangeBody::Empty | ExchangeBody::Inline(_), _, Some(outgoing)) => {
+        (
+            ExchangeBody::Empty | ExchangeBody::Inline(_),
+            _,
+            Some(ResponseWriter::ByteStream(outgoing)),
+        ) => {
             outgoing.finish_quietly();
         }
         // Whole but larger than the frame. It goes first when it fits the
         // stream's window: ended before the head, it is waiting when the head
         // wakes the edge, which then never parks on an empty slot.
-        (ExchangeBody::Stream, Some(bytes), Some(outgoing)) => {
+        (
+            ExchangeBody::Stream,
+            Some(bytes),
+            Some(ResponseWriter::ByteStream(outgoing)),
+        ) => {
             if let Err(error) = outgoing.write_all(&bytes).await {
                 tracing::debug!(
                     correlation,
@@ -1156,6 +1217,13 @@ async fn serve<O: Owner>(
                     "🛰 ✗ reply body did not close: {error}"
                 );
             }
+        }
+        (
+            ExchangeBody::Stream,
+            Some(bytes),
+            Some(ResponseWriter::Shared(_)),
+        ) => {
+            shared_spill = Some(bytes);
         }
         (ExchangeBody::Stream, Some(_), None) => {
             tracing::debug!(
@@ -1182,19 +1250,41 @@ async fn serve<O: Owner>(
     let answered = arrived.elapsed();
 
     let mut sent = bytes.len();
-    if let (false, Some(outgoing), Some(response_body)) =
-        (whole, reply_body.as_mut(), streaming)
-    {
-        let Some(streamed) =
-            stream_reply(outgoing, response_body, correlation).await
-        else {
-            tracing::debug!(
-                correlation,
-                "🛰 reply stream ended before completion"
-            );
-            return;
-        };
-        sent += streamed;
+    match (reply_body.as_mut(), streaming) {
+        (Some(ResponseWriter::Shared(outgoing)), streaming) => {
+            if streamed_reply {
+                match stream_shared_reply(outgoing, shared_spill, streaming)
+                    .await
+                {
+                    Ok(streamed) => {
+                        if !whole {
+                            sent += streamed;
+                        }
+                    }
+                    Err(error) => {
+                        let _ =
+                            outgoing.reset(ResetCode::new(RESPONSE_BODY_RESET));
+                        tracing::debug!(correlation, %error, "shared reply stream ended before completion");
+                        return;
+                    }
+                }
+            } else {
+                let _ = outgoing.finish_empty();
+            }
+        }
+        (Some(ResponseWriter::ByteStream(outgoing)), Some(response_body)) => {
+            let Some(streamed) =
+                stream_reply(outgoing, response_body, correlation).await
+            else {
+                tracing::debug!(
+                    correlation,
+                    "🛰 reply stream ended before completion"
+                );
+                return;
+            };
+            sent += streamed;
+        }
+        _ => {}
     }
     tracing::debug!(
         correlation,
@@ -1247,10 +1337,94 @@ where
     Some(sent)
 }
 
+enum ResponseWriter {
+    ByteStream(WriteHalf),
+    Shared(SharedSender),
+}
+
+impl ResponseWriter {
+    async fn peer_closed(&mut self) -> Result<(), StreamError> {
+        match self {
+            Self::ByteStream(writer) => writer.peer_closed().await,
+            Self::Shared(writer) => writer.peer_closed().await,
+        }
+    }
+
+    fn reset(&mut self) {
+        match self {
+            Self::ByteStream(writer) => writer.reset(),
+            Self::Shared(writer) => {
+                let _ = writer.reset(ResetCode::new(0));
+            }
+        }
+    }
+}
+
+async fn stream_shared_reply<B>(
+    outgoing: &mut SharedSender,
+    spill: Option<Bytes>,
+    body: Option<B>,
+) -> Result<usize, claviron_http::RouteBodyError>
+where
+    B: http_body::Body<Data = Bytes> + Unpin,
+    B::Error: Into<claviron_http::RouteBodyError>,
+{
+    outgoing.start(None)?;
+    let mut sent = 0;
+    if let Some(spill) = spill {
+        send_shared_bytes(outgoing, &spill).await?;
+        sent += spill.len();
+    }
+    if let Some(mut body) = body {
+        loop {
+            let frame = tokio::select! {
+                biased;
+                _ = outgoing.peer_closed() => return Err(Box::new(StreamError::PeerGone)),
+                frame = body.frame() => frame,
+            };
+            let Some(frame) = frame else { break };
+            if let Ok(bytes) = frame.map_err(Into::into)?.into_data() {
+                send_shared_bytes(outgoing, &bytes).await?;
+                sent += bytes.len();
+            }
+        }
+    }
+    poll_fn(|cx| outgoing.poll_ready(0, cx)).await?;
+    outgoing.finish()?;
+    Ok(sent)
+}
+
+async fn send_shared_bytes(
+    outgoing: &mut SharedSender,
+    bytes: &[u8],
+) -> Result<(), StreamError> {
+    let geometry = outgoing.chunk_geometry();
+    let chunk_bytes = geometry
+        .chunk_bytes_for_target(
+            claviron_orbit::link::application::body::DEFAULT_CHUNK_BYTES,
+        )
+        .expect("shared response has payload credit");
+    for chunk in bytes.chunks(chunk_bytes) {
+        loop {
+            poll_fn(|cx| outgoing.poll_ready(chunk.len(), cx)).await?;
+            match outgoing.data(chunk) {
+                Ok(_) => break,
+                // Another response on this producer lane may have spent
+                // arena credit between readiness and the reservation.
+                Err(
+                    StreamError::PayloadFull { .. } | StreamError::WouldBlock,
+                ) => {}
+                Err(error) => return Err(error),
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Before publishing a head, no response read can otherwise observe caller
 /// cancellation. Drop only this exchange's future when its reader goes away.
 async fn before_head<T>(
-    outgoing: Option<&mut claviron_orbit::stream::WriteHalf>,
+    outgoing: Option<&mut ResponseWriter>,
     work: impl Future<Output = T>,
 ) -> Option<T> {
     match outgoing {
@@ -1325,7 +1499,7 @@ async fn publish_reply_head(
     segment: &ApplicationSegment,
     origin: usize,
     frame: &[&[u8]],
-    mut outgoing: Option<&mut claviron_orbit::stream::WriteHalf>,
+    mut outgoing: Option<&mut ResponseWriter>,
 ) -> Result<(), String> {
     let error = loop {
         match segment.publish_reply(origin, frame) {

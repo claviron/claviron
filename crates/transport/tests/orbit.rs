@@ -1,7 +1,6 @@
 use super::*;
 
-fn cancellation_stream()
--> (claviron_orbit::stream::ReadHalf, claviron_orbit::stream::WriteHalf) {
+fn cancellation_stream() -> (claviron_orbit::stream::ReadHalf, ResponseWriter) {
     use claviron_orbit::Fleet;
     use claviron_orbit::stream::{Incarnation, Streams};
 
@@ -16,7 +15,7 @@ fn cancellation_stream()
     // An empty/completed request upload must not cancel a pending reply.
     upload.finish().unwrap();
     let (_incoming, outgoing) = runner.split();
-    (reader, outgoing)
+    (reader, ResponseWriter::ByteStream(outgoing))
 }
 
 #[tokio::test]
@@ -135,9 +134,14 @@ async fn refused_reply_publication_resets_even_a_finished_response_direction() {
     // A lane with no consumer deterministically refuses publication. This
     // exercises the same terminal path as full-capacity/contended admission.
     assert!(
-        publish_reply_head(&held.0, 0, &[b"head"], Some(&mut outgoing))
-            .await
-            .is_err()
+        publish_reply_head(
+            &held.0,
+            0,
+            &[b"head"],
+            Some(&mut ResponseWriter::ByteStream(outgoing))
+        )
+        .await
+        .is_err()
     );
     assert!(read.try_read(&mut [0; 1]).is_err());
 }
@@ -202,7 +206,11 @@ async fn idle_stream_releases_its_body_when_the_response_reader_leaves() {
             }
         }
     }
-    let (reader, mut outgoing) = cancellation_stream();
+    let (reader, ResponseWriter::ByteStream(mut outgoing)) =
+        cancellation_stream()
+    else {
+        unreachable!()
+    };
     let (entered, ready) = tokio::sync::oneshot::channel();
     let (dropped, released) = tokio::sync::oneshot::channel();
     let body = Idle { entered: Some(entered), dropped: Some(dropped) };
@@ -217,7 +225,11 @@ async fn idle_stream_releases_its_body_when_the_response_reader_leaves() {
 
 #[tokio::test]
 async fn completed_upload_does_not_cancel_a_streaming_response() {
-    let (mut reader, mut outgoing) = cancellation_stream();
+    let (mut reader, ResponseWriter::ByteStream(mut outgoing)) =
+        cancellation_stream()
+    else {
+        unreachable!()
+    };
     let bytes = Bytes::from_static(b"one event");
     let body = http_body_util::Full::new(bytes.clone());
     assert_eq!(stream_reply(&mut outgoing, body, 1).await, Some(bytes.len()));
@@ -341,4 +353,188 @@ async fn admission_stays_owned_after_the_head_until_the_streamed_body_ends() {
     drop((worker.hold, caller.hold));
     let _ = origin.unlink();
     segment.unlink().unwrap();
+}
+
+#[tokio::test]
+async fn native_runner_publishes_the_head_before_a_shared_response_exceeds_its_window()
+ {
+    use claviron_orbit::config::LinkGeometry;
+    use claviron_orbit::link::application::body::{
+        FlowEvent, SHARED_RESPONSE_CONTROL_KIND,
+    };
+    use claviron_orbit::link::application::{
+        Access, ApplicationClient, HttpPending,
+    };
+    use http_body::{Body, Frame};
+
+    struct TwoFrames(usize);
+
+    impl Body for TwoFrames {
+        type Data = Bytes;
+        type Error = std::convert::Infallible;
+
+        fn poll_frame(
+            mut self: Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+        ) -> std::task::Poll<Option<Result<Frame<Bytes>, Self::Error>>>
+        {
+            let frame = match self.0 {
+                0 => Some(Ok(Frame::data(Bytes::from(vec![5; 768])))),
+                1 => Some(Ok(Frame::data(Bytes::from_static(b"end")))),
+                _ => None,
+            };
+            self.0 += 1;
+            std::task::Poll::Ready(frame)
+        }
+    }
+
+    struct StreamingOwner;
+
+    impl Owner for StreamingOwner {
+        fn execution(&self) -> claviron_runtime::ExecutorSpec {
+            claviron_runtime::ExecutorSpec::Inherit
+        }
+
+        fn call(
+            &self,
+            request: http::Request<claviron_http::RouteBody>,
+            _: Option<&Arc<claviron_http::ext::ConnCtx>>,
+            _: RequestArrival,
+        ) -> impl Future<Output = claviron_http::RouteResponse> + Send + use<>
+        {
+            assert!(request.into_body().is_end_stream());
+            async {
+                http::Response::new(claviron_http::boxed_body(TwoFrames(0)))
+            }
+        }
+    }
+
+    let name = format!("ps{:x}", std::process::id());
+    let geometry = LinkGeometry {
+        fleet_capacity: 4,
+        inbox_capacity: 8,
+        inbox_payload_capacity: 1024,
+        lane_capacity: 2,
+        buffer_bytes: 256,
+    };
+    let segment = Arc::new(
+        ApplicationSegment::for_fleet_with_spec(
+            &name,
+            geometry.spec(),
+            &Access::OwnerOnly,
+        )
+        .unwrap(),
+    );
+    let worker =
+        segment.join_with_capacity("worker", "rust", 11, Some(1)).unwrap();
+    let mut tables =
+        ApplicationBodies::for_segment(&segment, worker.lane, 11).unwrap();
+    tables.advertise_shared_response(&segment, worker.lane, 11).unwrap();
+    let tables = Arc::new(tables);
+    let client = ApplicationClient::join_segment(
+        Arc::clone(&segment),
+        "edge",
+        12,
+        None,
+        None,
+    )
+    .unwrap();
+    let target = client.target("worker");
+    let mut inbox = segment.receiver(worker.lane).unwrap();
+
+    let test = async {
+        let pending = target
+            .send_http_wait(Exchange {
+                method: "GET".into(),
+                path: "/".into(),
+                raw_path: b"/".to_vec(),
+                scheme: "http".into(),
+                ..Exchange::default()
+            })
+            .await
+            .unwrap();
+        let HttpPending::SharedResponse { mut body, reply, .. } = pending
+        else {
+            panic!("empty request must use the advertised shared response");
+        };
+        let mut frame = Vec::new();
+        let received = loop {
+            let received = inbox.next(&mut frame).await.unwrap();
+            if matches!(received, Received::Work(_)) {
+                break received;
+            }
+        };
+        let request = Exchange::decode(Bytes::copy_from_slice(&frame)).unwrap();
+        assert_eq!(
+            request.stream.unwrap().id.kind(),
+            SHARED_RESPONSE_CONTROL_KIND
+        );
+        let admission =
+            segment.accept_frame(worker.lane, received, &frame).unwrap();
+        let serving = tokio::spawn(serve(
+            frame,
+            worker.lane,
+            Arc::new(StreamingOwner),
+            Arc::clone(&segment),
+            Arc::clone(&tables),
+            SessionShutdown { token: CancellationToken::new() },
+            admission,
+        ));
+        assert!(matches!(
+            reply.head().await.unwrap().body,
+            ExchangeBody::Stream
+        ));
+        assert!(matches!(
+            segment.reserve_work(worker.lane, client.lane()),
+            Err(LinkError::CapacityFull)
+        ));
+
+        let mut data = Vec::new();
+        let mut chunks = 0;
+        loop {
+            let event = poll_fn(|cx| {
+                loop {
+                    match body.try_next() {
+                        Err(StreamError::WouldBlock) => {
+                            match body.poll_readable(cx) {
+                                std::task::Poll::Ready(Ok(())) => continue,
+                                std::task::Poll::Ready(Err(error)) => {
+                                    return std::task::Poll::Ready(Err(error));
+                                }
+                                std::task::Poll::Pending => {
+                                    return std::task::Poll::Pending;
+                                }
+                            }
+                        }
+                        result => return std::task::Poll::Ready(result),
+                    }
+                }
+            })
+            .await
+            .unwrap();
+            match event {
+                FlowEvent::Start { .. } => {}
+                FlowEvent::Data(chunk) => {
+                    assert!(chunk.len() <= 256);
+                    data.extend_from_slice(&chunk);
+                    chunks += 1;
+                }
+                FlowEvent::Fin => break,
+                FlowEvent::Reset(_) => panic!("unexpected reset"),
+            }
+        }
+        assert_eq!(&data[..768], &[5; 768]);
+        assert_eq!(&data[768..], b"end");
+        assert_eq!(chunks, 4);
+        serving.await.unwrap();
+        assert!(segment.reserve_work(worker.lane, client.lane()).is_ok());
+    };
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(5), test).await;
+    client.leave();
+    segment.inbox().release_lane(worker.lane).unwrap();
+    drop(worker);
+    tables.unlink().unwrap();
+    segment.unlink().unwrap();
+    result.expect("native runner must finish the shared response");
 }

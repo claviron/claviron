@@ -17,6 +17,8 @@ pub enum Error {
     ProducerBusy,
     #[error("this node holds no free stream slot")]
     LaneFull,
+    #[error("this node holds no free shared response slot")]
+    SharedResponseFull,
     #[error("no live consumer serves application '{0}'")]
     NoConsumer(String),
     #[error("every lane in the destination link fleet is taken")]
