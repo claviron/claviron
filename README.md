@@ -45,11 +45,12 @@ See the [Edge guide](crates/edge/README.md) for configuration and host registrat
 
 ## Write your own application server
 
-Select `rust`, `axum` and `runner-socket`. Bring your router; Runner supplies
+Use `claviron-runner` with `axum` and `socket`. Bring your router. Runner supplies
 application lifecycle and the shared listener/pipeline implementation.
 
 ```rust
-use claviron::{axum::{routing::get, Router}, runner::Runner};
+use claviron::axum::{routing::get, Router};
+use claviron_runner::Runner;
 
 #[tokio::main]
 async fn main() -> claviron::Result<()> {
@@ -69,10 +70,10 @@ listeners:
     protocols: [h1]
 ```
 
-For an Orbit-only application, select `runner-orbit` instead of `runner-socket`
-and replace `listeners` with `fleet_name: apps` and `orbit: { link: {} }`.
+For an Orbit-only application, select Runner features `orbit` and `axum` and replace
+`listeners` with `fleet_name: apps` and `orbit: { link: {} }`.
 An Edge on the same host can then reach this application by fleet and name.
-Warp and other Rust HTTP services use the same [Runner API](crates/runner/README.md).
+Warp and other Rust HTTP services use the same [Runner API](https://github.com/claviron/runner).
 The Rust entry points above use Tokio's `macros` and `rt-multi-thread` features.
 
 ## Write reusable extensions
@@ -372,7 +373,7 @@ path.
 | --- | --- | --- |
 | [runtime](crates/runtime/README.md) | Claviron-owned `AppState`, registry integration, process context, configuration, local events, and lifecycle bindings. | `runtime` |
 | [app](crates/app/README.md) | Runtime-qualified application identity, controllers, status, and application events. | `application` |
-| [runner](crates/runner/README.md) | Launch options, HTTP and Orbit ingress, and routing around one application owner. | `runner` |
+| [runner](https://github.com/claviron/runner) | Launch options, HTTP and Orbit ingress, and routing around one application owner. | Separate crate |
 | [supervisor](crates/supervisor/README.md) | Ownership and control of a master/worker process family. | `supervisor` |
 | [orbit](crates/orbit/README.md) | Shared-memory resources, fleet event bridges, placement, and same-host transport bound to Claviron's lifecycle. | `orbit` |
 | [tasks](crates/tasks/README.md) | Managed Rust, command, and hosted-language work with explicit triggers, placement, and cancellation. | `tasks` |
@@ -383,8 +384,8 @@ path.
 | --- | --- | --- |
 | [edge](crates/edge/README.md) | Virtual-host publication, admission, response-owner selection, and consumer-defined route extensions. Also documents the `edge_config` alias. | `edge` |
 | [http](crates/http/README.md) | Transport-neutral bodies, HTTP policies, listener declarations, and shared routing contracts. | `http`; Axum integration: `axum` |
-| [pipeline](crates/pipeline/README.md) | Prepared request plans, backend contracts and route extensions shared by Edge and Runner. | Through `edge` or `runner` |
-| [transport](crates/transport/README.md) | Named listener runnables and socket/HTTP connection driving shared by Edge and Runner. | `transport` through `edge`; Runner sockets through `runner-socket` |
+| [pipeline](crates/pipeline/README.md) | Prepared request plans, backend contracts and route extensions shared by Edge and Runner. | `pipeline` |
+| [transport](crates/transport/README.md) | Named listener runnables and socket/HTTP connection driving shared by Edge and Runner. | `transport` |
 | [tls](crates/tls/README.md) | TLS handshakes, shared certificate resolution, and mTLS client-auth policy. | `tls` (includes `ssl`) |
 | [files](crates/files/README.md) | Static-file serving, caching, and response construction. | `files`; included by `edge`, usable without it |
 | [upstream](crates/upstream/README.md) | HTTP origin selection, pools, forwarding, and reload. | `upstream`; selecting `edge` also enables its Edge adapter |
@@ -454,7 +455,7 @@ multiple application instances can join while retaining their own runtime.
 | --- | --- | --- |
 | [logging](crates/logging/README.md) | Tracing setup and optional declared, fleet-written log channels. | `logging`; channels: `log-pipeline`; OTLP adapter: `log-otlp` |
 | [runtime::metrics](crates/runtime/docs/metrics/README.md) | Runtime-owned metric-family composition; also exposed as `claviron::metrics`. | `metrics` |
-| [bench](docs/bench/README.md) | Façade module with shared native HTTP workloads and explicit Edge or runner registration. | `bench`; combine with `edge` or `runner` for its adapter |
+| [bench](docs/bench/README.md) | Façade module with shared native HTTP workloads and explicit Edge or runner registration. | `bench`; combine with Edge or the separate Runner crate |
 
 ### Shared primitives and code generation
 
@@ -470,8 +471,6 @@ multiple application instances can join while retaining their own runtime.
 
 Features combine at the facade:
 
-- `tls`, `files`, and `websocket` extend an already-selected runner
-  where supported; they do not select `runner` themselves.
 - `metrics` and `log-pipeline` add instrumentation to selected subsystems.
 - `postgres`, `mysql`, and `sqlite` each select `db`, exposing the shared database
   API and its standard server registration as well as the chosen backend.
@@ -603,11 +602,8 @@ actually needs:
   bootstrap.
 - `server` adds the standalone server lifecycle, application contracts, logging,
   and Orbit integration. It does not select HTTP listeners or worker supervision.
-- `runner` adds the single-application launch and ingress shell; the integration
-  registers its engine and routing.
-- `rust` adds `runner::Runner` for a native Rust HTTP service. `with_router`
-  accepts the shared `RustRouter`: select `axum` or `warp` for a framework, or
-  provide an `OtherService`. `with_service` accepts a compatible Tower service.
+- [`claviron-runner`](https://github.com/claviron/runner) adds a single-application
+  launch and ingress shell. Its native builder accepts a router or Tower service.
 - `supervisor` adds managed worker processes to the server lifecycle.
 - `edge` composes the supervised HTTP edge with native host routing, static-file
   support, and native cleartext HTTP/1 and HTTP/2 ingress.

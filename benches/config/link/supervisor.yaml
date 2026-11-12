@@ -1,5 +1,0 @@
-# These are production SupervisorConfig fields, not harness timers.
-# No worker rotation, restart/recovery or implicit forced shutdown during a run.
-recovery: { max_attempts: 0 }
-rotation: { max_age: null, rss_threshold: null }
-shutdown: { timeout: null }

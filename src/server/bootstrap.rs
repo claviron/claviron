@@ -1,6 +1,5 @@
 #[cfg(any(
-    feature = "edge",
-    feature = "runner",
+    feature = "transport",
     all(
         feature = "postgres",
         feature = "hosting",
@@ -40,8 +39,8 @@ pub async fn start_services(
     // Fleet dispatch is shared server infrastructure, including for extensions.
     claviron_orbit::placement::OrbitDispatcher::register(&state)?;
     let mut runtime = Runtime::default();
-    // Listeners may run on their own thread, on an edge and on a runner alike.
-    #[cfg(any(feature = "edge", feature = "runner"))]
+    // Transports can place a listener or Orbit ingress on a dedicated thread.
+    #[cfg(feature = "transport")]
     {
         runtime = runtime.with_execution_driver(Arc::new(
             claviron_runtime::execution::CurrentThreadDriver::default(),
@@ -306,17 +305,9 @@ pub fn register(state: &AppState) -> Result<()> {
                     );
                     // The workers bound what the master declares; the master
                     // states it once, now that they are up.
-                    #[cfg(any(
-                        feature = "edge",
-                        feature = "runner",
-                        feature = "http3"
-                    ))]
+                    #[cfg(feature = "transport")]
                     claviron_transport::listener::state_declared(&state);
-                    #[cfg(not(any(
-                        feature = "edge",
-                        feature = "runner",
-                        feature = "http3"
-                    )))]
+                    #[cfg(not(feature = "transport"))]
                     let _ = state;
                     Ok(())
                 },

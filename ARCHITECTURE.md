@@ -148,22 +148,13 @@ connections. `clients-fleet` continues to expose the separate fleet-pool API;
 no manager, runnable, file path or deployment policy is added by this config.
 
 Facade features are the public API contract for optional subsystems.
-The files dependency selects no Axum feature by itself. The explicit facade
-axum feature weakly forwards to selected Edge, Files and Runner adapters. In
-particular, Edge's TCP driver no longer supplies the Axum application feature
-implicitly. The edge preset selects http, not axum; consumers opt into the
-Axum application API separately. Files without that choice retains its native
-HTTP boundary, while files + axum preserves the public router/mount adapters.
-`runner-cli` adds command-line parsing to an already-selected `runner` through
-weak forwarding. It does not select a serving composition by itself; a CLI-only
-consumer can use it without pulling in the runner shell.
-`rust` selects the shared runner and its native service preparation module.
-The HTTP crate owns the host-free `RustRouter` contract; Edge and runner adapt
-it after their own preparation. `axum` and `warp` select the typed frameworks.
-`src/runner.rs` re-exports that crate; `src/runner/rust.rs` supplies the optional
-`Runner` facade builder over `Server`. `with_router` accepts the shared router
-variants; `with_service` accepts a compatible Tower service. Both use the existing
-launch, configuration, ingress and lifecycle contracts without Edge.
+The files dependency selects no Axum feature by itself. The facade's `axum`
+feature extends selected Edge, Files, Pipeline and Transport subsystems.
+`pipeline` exposes request plans and `transport` exposes listener drivers.
+The server installs the dedicated execution driver and listener boot reporting
+when transport is selected. `orbit` extends an already-selected transport with
+Orbit ingress. The separate [claviron-runner](https://github.com/claviron/runner)
+crate builds its launch and application composition on these public APIs.
 When an external crate needs DB-backed vhost import, TLS certificate
 management, runtime providers, HTTP route bodies, or hosting operations, add
 or reuse a `claviron` feature that enables and re-exports the required
@@ -202,7 +193,7 @@ configuration, not in a library build script or per-command environment.
 Runnables need no Edge listener. The facade's `upstream` feature enables outbound
 services without Edge; `edge` + `upstream` adds the backend adapter automatically.
 The supervised transport harness exercises this composition (see
-[bench architecture](benches/ARCHITECTURE.md#supervised-link-transports)).
+[Runner benchmark architecture](https://github.com/claviron/runner/blob/main/benches/ARCHITECTURE.md)).
 
 `edge` preserves the former `server` composition and boots cleartext H1 without
 certificate configuration. TLS termination is an explicit `tls` facade

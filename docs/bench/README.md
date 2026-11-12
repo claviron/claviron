@@ -99,7 +99,7 @@ Three things hold for all of them:
 ## Related crates
 
 - [Edge](../../crates/edge/README.md): virtual-host routing and common admission.
-- [Runner](../../crates/runner/README.md): single-application ingress and composition.
+- [Runner](https://github.com/claviron/runner): single-application ingress and composition.
 - [HTTP](../../crates/http/README.md): request/response policy and body contracts.
 - [Runtime](../../crates/runtime/README.md): registration and process-local activity.
 

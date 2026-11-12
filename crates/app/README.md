@@ -102,7 +102,7 @@ lost delivery would affect financial correctness or other persistent outcomes.
 ## Related crates
 
 - [claviron-runtime](https://github.com/claviron/claviron/tree/main/crates/runtime): component lifecycle and process state.
-- [claviron-runner](https://github.com/claviron/claviron/tree/main/crates/runner): ingress and routing around one application owner.
+- [claviron-runner](https://github.com/claviron/runner): ingress and routing around one application owner.
 - [claviron-orbit](https://github.com/claviron/claviron/tree/main/crates/orbit): same-host transport and shared coordination.
 
 ## Status and license

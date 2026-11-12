@@ -42,11 +42,8 @@ pub use claviron_module as module;
 pub use claviron_orbit as orbit;
 #[cfg(feature = "resolver")]
 pub use claviron_resolver as resolver;
-#[cfg(feature = "runner")]
-pub mod runner;
-/// Socket acceptance and HTTP connection driving. Its `edge` module holds the
-/// listeners that serve Edge's virtual hosts.
-#[cfg(any(feature = "edge", feature = "runner"))]
+/// Compile application and host routing plans.
+#[cfg(feature = "pipeline")]
 pub use claviron_pipeline as pipeline;
 #[cfg(feature = "runtime")]
 pub use claviron_runtime as runtime;
@@ -62,7 +59,8 @@ pub use claviron_sys as sys;
 pub use claviron_tasks as tasks;
 #[cfg(feature = "tls")]
 pub use claviron_tls as tls;
-#[cfg(feature = "edge")]
+/// Named listeners and HTTP connection drivers.
+#[cfg(feature = "transport")]
 pub use claviron_transport as transport;
 #[cfg(feature = "ssl")]
 pub use claviron_types::ssl;

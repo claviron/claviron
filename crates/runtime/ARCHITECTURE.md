@@ -159,7 +159,7 @@ watcher after provider registration and before initial configuration, in both
 edge and application-server compositions. Without that feature, configuration
 preparation and manual reload remain available, but bootstrap creates no native
 configuration watcher. The feature forwards `claviron-runtime/config-watch` to
-Continuo's existing capability; it is independent of `runner-watch`, which
+Continuo's existing capability; it is independent of Runner's `watch` feature, which
 observes application source code. AppState still owns one reader and one event
 bus; HTTP providers add source declarations, not per-provider watcher tasks.
 

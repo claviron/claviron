@@ -28,7 +28,7 @@ can coexist under its host-aware routing and admission policy. It can also serve
 a single host with a rich mix of those capabilities.
 
 For one framework or application that does not need a virtual-host table, use
-[claviron-runner](../runner/README.md). A runner surrounds one application owner
+[claviron-runner](https://github.com/claviron/runner). A runner surrounds one application owner
 with shared routing and ingress. It can serve HTTP directly, act as an HTTP
 upstream behind an edge or another proxy, or receive same-host requests over
 Orbit Link. The edge can therefore host applications directly or route to
@@ -422,7 +422,7 @@ existing single-bidi message loops.
 ## Related crates
 
 - [claviron-runtime](https://github.com/claviron/claviron/tree/main/crates/runtime): composition, events, and drain.
-- [claviron-runner](https://github.com/claviron/claviron/tree/main/crates/runner): a host-free shell around one application owner.
+- [claviron-runner](https://github.com/claviron/runner): a host-free shell around one application owner.
 - [claviron-app](https://github.com/claviron/claviron/tree/main/crates/app): hosted application identity and control.
 - [claviron-supervisor](https://github.com/claviron/claviron/tree/main/crates/supervisor): process-family lifecycle.
 

@@ -1,4 +1,0 @@
-transport: unix
-listen: unix:application.sock
-protocols: [h2]
-uds: { backlog: 2048, mode: "0600" }

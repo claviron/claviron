@@ -29,12 +29,14 @@ application = ["runtime", "dep:claviron-app"]
 clients = ["orbitive/client-pool", "dep:serde", "dep:humantime-serde"]
 clients-fleet = ["clients", "orbitive/client-pool-fleet"]
 http = ["runtime", "dep:claviron-http"]
+pipeline = ["http", "dep:claviron-pipeline"]
+transport = ["http", "dep:claviron-transport"]
 # Bounded request-rate admission, independent of Axum and application engines.
 rate-limit = ["http", "dep:claviron-orbit", "claviron-orbit/quota", "claviron-http/rate-limit", "claviron-edge?/rate-limit"]
-axum = ["http", "claviron-http/axum", "dep:axum", "claviron-edge?/axum", "claviron-files?/axum", "claviron-pipeline?/axum", "claviron-runner?/axum", "claviron-transport?/axum"]
-warp = ["http", "dep:warp", "claviron-http/warp", "claviron-runner?/warp", "claviron-edge?/warp"]
+axum = ["http", "claviron-http/axum", "dep:axum", "claviron-edge?/axum", "claviron-files?/axum", "claviron-pipeline?/axum", "claviron-transport?/axum"]
+warp = ["http", "dep:warp", "claviron-http/warp", "claviron-edge?/warp"]
 # Native benchmark handlers. Adapt existing compositions without selecting one.
-bench = ["axum", "dep:serde", "dep:async-trait", "dep:claviron-pipeline", "dep:claviron-types", "tokio/time"]
+bench = ["axum", "dep:serde", "dep:async-trait", "pipeline", "dep:claviron-types", "tokio/time"]
 logging = ["dep:claviron-logging"]
 # Declared log channels (logging.yaml): records buffered in an Orbit ring and
 # written by one writer per fleet. See crates/logging/ARCHITECTURE.md.
@@ -47,22 +49,6 @@ log-pipeline = [
 ]
 # The OTLP channel adapter (OpenTelemetry logs over OTLP/HTTP).
 log-otlp = ["log-pipeline", "claviron-logging/otlp"]
-# The shared shell of a language runner: one application, its owner last.
-# See crates/runner/ARCHITECTURE.md.
-runner = ["server", "http", "dep:serde", "dep:claviron-pipeline", "dep:claviron-runner", "dep:claviron-transport"]
-# The application's TCP and Unix sockets on the runner.
-runner-socket = ["runner", "claviron-runner/socket"]
-# The door with no socket: an edge reaches the runner over Orbit shared memory.
-runner-orbit = ["runner", "config-watch", "claviron-runner/orbit"]
-# A native Rust application on the runner; select `axum` separately.
-rust = ["runner", "claviron-runner/rust", "dep:serde", "dep:bytes", "dep:http", "dep:http-body", "dep:tower"]
-
-# Development's reload for a runner: native source notifications.
-runner-watch = ["runner", "claviron-runner/watch"]
-
-# Add command-line options to an already-selected runner.
-runner-cli = ["claviron-runner?/cli"]
-
 runtime = ["dep:claviron-runtime"]
 # Native configuration notifications for opt-in ConfigObserver owners.
 # Independent of the runner's application-source watching.
@@ -77,6 +63,7 @@ orbit = [
     "claviron-files?/orbit",
     "claviron-edge?/orbit",
     "claviron-pipeline?/orbit",
+    "claviron-transport?/orbit",
 ]
 # Transport-neutral standalone application-server lifecycle. This deliberately
 # excludes process supervision, HTTP listeners, edge dispatch, and static files.
@@ -95,7 +82,7 @@ server = [
 ]
 # Optional managed multi-process lifecycle. A supervised application can run
 # standalone with zero workers or as a master/worker fleet.
-supervisor = ["server", "dep:claviron-supervisor", "claviron-runner?/supervisor"]
+supervisor = ["server", "dep:claviron-supervisor"]
 
 # The supervised HTTP edge with native host routing and file serving.
 # Select `axum` separately for Rust Axum applications.
@@ -105,16 +92,16 @@ edge = [
     "files",
     "claviron-http/server",
     "dep:claviron-edge",
-    "dep:claviron-pipeline",
+    "pipeline",
     "claviron-edge/tcp",
     "claviron-upstream?/edge",
     # Socket driving and named listener Runnables are transport-owned.
-    "dep:claviron-transport",
+    "transport",
     "claviron-transport/tcp",
 ]
 
 # Static assets can be served by an application without virtual hosts or edge dispatch.
-files = ["dep:claviron-files", "claviron-runner?/files"]
+files = ["dep:claviron-files"]
 
 # ── Metrics extras
 metrics = [
@@ -135,7 +122,7 @@ module = ["application", "server", "dep:claviron-module"]
 # ── Protocols ────────────────────────────────────────────────────────
 http3 = [
     "tls", "claviron-edge/quic", "dep:quinn",
-    "dep:claviron-transport", "claviron-transport/quic",
+    "transport", "claviron-transport/quic",
 ]
 # DNS origins are always available; the application binds the resolver
 # (`dyn ResolverFactory`, e.g. `resolver-hickory`). A hostname origin with no
@@ -144,13 +131,14 @@ upstream = ["http", "dep:claviron-upstream", "resolver"]
 resolver = ["dep:claviron-resolver"]
 resolver-hickory = ["resolver", "claviron-resolver/hickory"]
 # http connect extensions
-websocket = ["claviron-http/websocket", "claviron-edge?/websocket", "claviron-transport?/websocket", "claviron-runner?/websocket", "http"]
+websocket = ["claviron-http/websocket", "claviron-edge?/websocket", "claviron-transport?/websocket", "http"]
+websocket-session = ["transport", "websocket", "claviron-transport/websocket-session"]
 webtransport = ["edge", "http3", "claviron-edge/webtransport", "claviron-transport/webtransport"]
 
 # ── TLS / SSL ────────────────────────────────────────────────────────
 mtls = ["ssl"]
 ssl = ["dep:claviron-types", "claviron-types/ssl"]
-tls = ["ssl", "dep:claviron-tls", "claviron-edge?/tls", "claviron-transport?/tls", "claviron-runner?/tls"]
+tls = ["ssl", "dep:claviron-tls", "claviron-edge?/tls", "claviron-transport?/tls"]
 
 # ── Data ─────────────────────────────────────────────────────────────
 cache = ["dep:claviron-cache", "claviron-cache/axum", "claviron-http?/cache", "claviron-files?/cache"]
@@ -187,7 +175,6 @@ claviron-http = { workspace = true, optional = true }
 claviron-logging = { workspace = true, optional = true }
 claviron-orbit = { workspace = true, optional = true }
 claviron-resolver = { workspace = true, optional = true }
-claviron-runner = { workspace = true, optional = true }
 claviron-runtime = { workspace = true, optional = true }
 claviron-supervisor = { workspace = true, optional = true }
 claviron-sys = { workspace = true, optional = true }
@@ -202,7 +189,6 @@ claviron-upstream = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 tokio.workspace = true
 tokio-util = { workspace = true, optional = true, features = ["rt"] }
-bytes = { workspace = true, optional = true }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde = { workspace = true, optional = true, features = ["derive"] }
@@ -214,9 +200,6 @@ serde_yaml.workspace = true
 # this workspace resolves, instead of negotiating a version with it.
 axum = { workspace = true, optional = true }
 warp = { workspace = true, optional = true }
-tower = { workspace = true, optional = true }
-http = { workspace = true, optional = true }
-http-body = { workspace = true, optional = true }
 
 # ── Database / cache backends ───────────────────────────────────────────
 redis = { workspace = true, optional = true }
@@ -350,32 +333,11 @@ test = false
 required-features = ["edge", "axum", "tls"]
 
 [[bench]]
-name = "link-concurrent"
-path = "benches/transport/link/concurrent.rs"
-harness = false
-test = false
-required-features = ["supervisor", "rust", "bench", "runner-orbit", "runner-socket", "upstream"]
-
-[[bench]]
 name = "link-selection"
 path = "benches/transport/link/selection.rs"
 harness = false
 test = false
 required-features = ["orbit"]
-
-[[bench]]
-name = "h2-concurrent"
-path = "benches/transport/h2/concurrent.rs"
-harness = false
-test = false
-required-features = ["supervisor", "rust", "bench", "runner-orbit", "runner-socket", "upstream"]
-
-[[bench]]
-name = "uds-h2-concurrent"
-path = "benches/transport/h2/unix.rs"
-harness = false
-test = false
-required-features = ["supervisor", "rust", "bench", "runner-orbit", "runner-socket", "upstream"]
 
 [[bench]]
 name = "geoip-cache"
@@ -402,7 +364,6 @@ members = [
     "crates/orbit",
     "crates/pipeline",
     "crates/resolver",
-    "crates/runner",
     "crates/runtime",
     "crates/supervisor",
     "crates/sys",
@@ -451,7 +412,6 @@ claviron-macros = { version = "0.2.0-alpha.26.1", path = "crates/macros" }
 claviron-orbit = { version = "0.2.0-alpha.26.1", path = "crates/orbit" }
 claviron-pipeline = { version = "0.2.0-alpha.26.1", path = "crates/pipeline" }
 claviron-resolver = { version = "0.2.0-alpha.26.1", path = "crates/resolver", default-features = false }
-claviron-runner = { version = "0.2.0-alpha.26.1", path = "crates/runner" }
 claviron-runtime = { version = "0.2.0-alpha.26.1", path = "crates/runtime" }
 claviron-supervisor = { version = "0.2.0-alpha.26.1", path = "crates/supervisor" }
 claviron-sys = { version = "0.2.0-alpha.26.1", path = "crates/sys" }

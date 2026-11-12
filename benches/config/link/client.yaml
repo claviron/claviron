@@ -1,3 +1,0 @@
-execution: dedicated
-request_timeout: 100ms
-accept: 99.99
