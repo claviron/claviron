@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -333,13 +334,13 @@ impl CacheStore for RedisCacheStore {
     async fn put(
         &self,
         key: &str,
-        value: &[u8],
+        value: Cow<'_, [u8]>,
         ttl: Option<Duration>,
     ) -> crate::Result<()> {
         let mut manager = self.connection_manager().await?;
         let scoped_key = self.scoped_key(key);
         let mut cmd = redis::cmd("SET");
-        cmd.arg(&scoped_key).arg(value);
+        cmd.arg(&scoped_key).arg(value.as_ref());
 
         if let Some(ttl) = ttl {
             let ttl_ms =

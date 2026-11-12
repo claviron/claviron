@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -42,6 +43,31 @@ async fn cache_defaults_to_memory_at_boot_and_reload() {
     assert_eq!(provider.default_store().unwrap().driver_name(), "memory");
     assert_eq!(provider.store("scratch").unwrap().driver_name(), "memory");
     assert_eq!(provider.store("disk").unwrap().driver_name(), "file");
+    // Reload changes the catalog, never what a memory store holds.
+    assert_eq!(
+        provider.get("key").await.unwrap(),
+        Some(Bytes::from_static(b"value"))
+    );
+
+    let scratch = provider.store("scratch").unwrap();
+    scratch.put("ttl", b"kept", Some(Duration::from_secs(3600))).await.unwrap();
+    let rebound = serde_yaml::from_str(
+        "stores:\n  scratch: { max_bytes: 1 MiB }\n  disk: { driver: file, path: cache }",
+    )
+    .unwrap();
+    provider.config_changed(&rebound).await.unwrap();
+    let rebound = provider.store("scratch").unwrap();
+    assert!(Arc::ptr_eq(&scratch.store(), &rebound.store()));
+    assert_eq!(
+        rebound.get("ttl").await.unwrap(),
+        Some(Bytes::from_static(b"kept"))
+    );
+
+    let both = serde_yaml::from_str(
+        "stores:\n  scratch: { capacity: 1, max_bytes: 1 MiB }",
+    )
+    .unwrap();
+    assert!(provider.config_changed(&both).await.is_err());
 }
 
 struct MemoryStore {
@@ -94,13 +120,13 @@ impl CacheStore for MemoryStore {
     async fn put(
         &self,
         key: &str,
-        value: &[u8],
+        value: Cow<'_, [u8]>,
         _ttl: Option<Duration>,
     ) -> Result<()> {
         self.values
             .lock()
             .expect("memory store poisoned")
-            .insert(key.to_string(), Bytes::copy_from_slice(value));
+            .insert(key.to_string(), Bytes::from(value.into_owned()));
         Ok(())
     }
 
@@ -205,7 +231,7 @@ async fn reload_catalog_swap_keeps_resolved_repositories_alive() {
     );
     let candidate =
         registry.build_reload_catalog(next).expect("reload catalog");
-    provider.publish(candidate);
+    provider.publish(candidate.commit());
 
     assert_eq!(
         old.get("key").await.expect("old get"),

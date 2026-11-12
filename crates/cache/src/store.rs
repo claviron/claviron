@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -25,10 +26,12 @@ pub trait CacheStore: Any + Send + Sync + 'static {
         &self,
         key: &str,
     ) -> crate::Result<Option<Bytes>>;
+    /// Store `value` under `key`. An owned buffer lets a backend that retains
+    /// bytes in process keep the allocation; others borrow it.
     async fn put(
         &self,
         key: &str,
-        value: &[u8],
+        value: Cow<'_, [u8]>,
         ttl: Option<Duration>,
     ) -> crate::Result<()>;
     async fn forget(
@@ -148,13 +151,13 @@ impl CacheRepository {
         self.store.get(key).await
     }
 
-    pub async fn put(
+    pub async fn put<'v>(
         &self,
         key: &str,
-        value: &[u8],
+        value: impl Into<Cow<'v, [u8]>>,
         ttl: Option<Duration>,
     ) -> crate::Result<()> {
-        self.store.put(key, value, ttl).await
+        self.store.put(key, value.into(), ttl).await
     }
 
     pub async fn get_value(
@@ -174,7 +177,7 @@ impl CacheRepository {
         ttl: Option<Duration>,
     ) -> crate::Result<()> {
         let encoded = value.encode().map_err(Error::from)?;
-        self.put(key, &encoded, ttl).await
+        self.put(key, encoded, ttl).await
     }
 
     pub async fn forget(

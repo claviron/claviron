@@ -62,7 +62,8 @@ lives in `claviron-orbit::cache`.
   `orbit` and `redis` features, respectively.
 
 The memory driver adapts `memory::MemoryCache` to the byte store contract with
-per-entry TTL. Rust components such as GeoIP use the same Moka type with
+per-entry TTL, bounded by entry count (`capacity`) or by key and value bytes
+(`max_bytes`). A store given an owned buffer keeps that allocation. Rust components such as GeoIP use the same Moka type with
 typed keys and fixed TTL. Neither construction needs a fleet handle.
 Orbitive's fleet primitives remain available through `orbitive::cache`.
 
@@ -147,7 +148,7 @@ drivers fail composition instead of being silently skipped.
 
 ## Reload Generations
 
-Reload takes the prepared `cache.yaml`, constructs every configured non-Orbit store,
+Reload takes the prepared `cache.yaml`, constructs every new or changed store,
 resolves cross-store links against that candidate graph, and validates its
 default before publishing anything. A failure leaves the current catalog
 untouched. Publication is one `ArcSwap` operation, so new resolutions see the
@@ -161,6 +162,17 @@ only removes it from new resolution; reload never clears its file data, Redis
 keys, or other backing state. Ready stores registered directly by the
 application are reused across generations because their construction belongs
 to their owning provider.
+
+A memory store's contents are process state, not configuration, so reload
+never empties one. Every memory store still declared under the same name,
+including the implicit `memory` default, carries over to the new generation as
+the same instance, so handles resolved earlier keep seeing it. A changed bound
+is staged while the candidate builds and applied only once the whole candidate
+is valid: Moka fixes a bound at construction, so the store builds a cache with
+the new bound and moves its live entries in with their remaining TTL, holding
+writes off for the move. A lower bound then evicts the excess under the usual
+policy. Removing a memory store from config drops it from new resolution, and
+its contents go with the last handle.
 
 Orbit's listener, physical rings, logical L1, and optional backing binding are
 long-lived process state. Reload therefore reuses existing Orbit stores. A new
@@ -374,6 +386,7 @@ idle rather than failing boot.
 - A usable `CacheProvider` always contains a default repository. The catalog
   creates a 10,000-entry memory store when the selected default is `memory`
   and no store with that name is declared.
+- Reload never empties a memory store that stays declared under its name.
 - Every store declared in `cache.yaml` must be supplied by a registered driver
   or registered directly; unsupported drivers are never silently ignored.
 - An Orbit store may reference only an existing non-Orbit L2 store.

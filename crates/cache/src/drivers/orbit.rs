@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::borrow::Cow;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 use std::time::Duration;
@@ -76,7 +77,10 @@ impl CacheBacking for CacheStoreBacking {
         value: &[u8],
         ttl: Option<Duration>,
     ) -> std::result::Result<(), String> {
-        self.store.put(key, value, ttl).await.map_err(|error| error.to_string())
+        self.store
+            .put(key, Cow::Borrowed(value), ttl)
+            .await
+            .map_err(|error| error.to_string())
     }
 
     async fn forget(
@@ -267,10 +271,10 @@ impl CacheStore for OrbitCacheStore {
     async fn put(
         &self,
         key: &str,
-        value: &[u8],
+        value: Cow<'_, [u8]>,
         ttl: Option<Duration>,
     ) -> Result<()> {
-        self.cache.put(key, value, ttl).await.map_err(Error::from)
+        self.cache.put(key, &value, ttl).await.map_err(Error::from)
     }
 
     async fn forget(

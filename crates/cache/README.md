@@ -23,7 +23,7 @@ it alone does not enable the cache subsystem.
 
 The built-in drivers are:
 
-- `memory`: process-local Moka storage with a configured entry limit and
+- `memory`: process-local Moka storage bounded by entry count or bytes, with
   per-entry TTL.
 - `orbit`: replicated worker-local values or a shared current-state table,
   with optional named L2 backing. Requires the `orbit` feature.
@@ -70,8 +70,11 @@ File stores declare `driver: file`, `path`, and an optional `prefix`.
 Relative paths are resolved against the application's working directory.
 Redis stores refer to a connection declared in `redis.yaml`.
 
-Each memory store starts empty in every process. A zero capacity disables
-retention. Rust callers can also build a typed, synchronous Moka cache with
+A memory store is bounded either by `capacity`, its entry count, or by
+`max_bytes`, the key and value bytes it keeps (a count or a size such as
+`64 MiB`); declaring both is an error. Each memory store starts empty in every
+process and keeps its contents across reload, including when its bound
+changes. A zero bound disables retention. Rust callers can also build a typed, synchronous Moka cache with
 `claviron::cache::memory::new` for fixed-TTL workloads.
 
 An enclosing runner can call `register_with_config(state, CacheConfig)` with

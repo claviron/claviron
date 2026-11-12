@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::borrow::Cow;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -85,7 +86,7 @@ impl CacheStore for FileCacheStore {
     async fn put(
         &self,
         key: &str,
-        value: &[u8],
+        value: Cow<'_, [u8]>,
         ttl: Option<Duration>,
     ) -> crate::Result<()> {
         if ttl.is_some() {
@@ -95,7 +96,7 @@ impl CacheStore for FileCacheStore {
             )));
         }
 
-        cacache::write(self.path(), self.scoped_key(key), value)
+        cacache::write(self.path(), self.scoped_key(key), value.as_ref())
             .await
             .map_err(|err| {
                 Error::wrap(

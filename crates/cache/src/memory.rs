@@ -5,7 +5,7 @@ use std::time::Duration;
 
 pub use moka::sync::Cache as MemoryCache;
 
-/// Maximum TTL accepted by the memory cache.
+/// Longest fixed TTL [`new`] accepts; Moka's builder rejects a longer one.
 pub const MAX_TTL: Duration = Duration::from_secs(1_000 * 365 * 24 * 3600);
 
 /// Construct a bounded cache with a fixed time to live.

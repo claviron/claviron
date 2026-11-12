@@ -55,8 +55,8 @@ async fn prefixed_clear_keeps_other_store_keys() {
         path.clone(),
         Some("second:".to_string()),
     );
-    first.put("key", b"one", None).await.expect("put first");
-    second.put("key", b"two", None).await.expect("put second");
+    first.put("key", b"one"[..].into(), None).await.expect("put first");
+    second.put("key", b"two"[..].into(), None).await.expect("put second");
 
     first.clear().await.expect("clear first");
 

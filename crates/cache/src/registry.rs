@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
@@ -5,7 +6,7 @@ use std::sync::{Arc, RwLock};
 use arc_swap::ArcSwapOption;
 
 use crate::config::CacheConfig;
-use crate::drivers::memory::{self, MemoryCacheStore};
+use crate::drivers::memory::{self, MemoryCacheStore, MemoryLimit};
 use crate::provider::CacheCatalog;
 use crate::{CacheDriver, CacheProvider, CacheStore, Error};
 
@@ -182,7 +183,7 @@ impl CacheRegistry {
     pub(crate) fn build_reload_catalog(
         &self,
         mut config: CacheConfig,
-    ) -> crate::Result<CacheCatalog> {
+    ) -> crate::Result<ReloadCatalog> {
         if !self.is_sealed() {
             return Err(Error::Rejected(
                 "cache registry is not sealed".to_string(),
@@ -190,12 +191,9 @@ impl CacheRegistry {
         }
         validate_config(&config)?;
 
+        let current = self.provider.catalog()?;
         #[cfg(feature = "orbit")]
-        let current = {
-            let current = self.provider.catalog()?;
-            validate_orbit_reload(&current.config, &config)?;
-            current
-        };
+        validate_orbit_reload(&current.config, &config)?;
 
         let drivers =
             self.drivers.read().expect("cache drivers lock poisoned").clone();
@@ -205,6 +203,7 @@ impl CacheRegistry {
             .expect("cache ready stores lock poisoned")
             .clone();
         let mut unfinished = Vec::new();
+        let mut memory_limits = Vec::new();
 
         let mut configured = config.stores.iter().collect::<Vec<_>>();
         configured.sort_unstable_by_key(|(name, _)| *name);
@@ -218,6 +217,17 @@ impl CacheRegistry {
                 && current.config.stores.get(store_name) == Some(store_config)
             {
                 stores.insert(store_name.clone(), current.store(store_name)?);
+                continue;
+            }
+
+            // A memory store's contents are process state, not configuration:
+            // keep the store and stage its bound for commit.
+            if store_config.driver_key() == memory::NAME
+                && let Some(store) = current_memory_store(&current, store_name)
+            {
+                let limit = MemoryLimit::from_config(store_name, store_config)?;
+                stores.insert(store_name.clone(), store.clone());
+                memory_limits.push((store, limit));
                 continue;
             }
 
@@ -235,13 +245,58 @@ impl CacheRegistry {
             unfinished.push((driver, store));
         }
 
+        if selects_implicit_memory(&config)
+            && !stores.contains_key(memory::NAME)
+            && let Some(store) = current_memory_store(&current, memory::NAME)
+        {
+            stores.insert(memory::NAME.to_owned(), store.clone());
+            memory_limits.push((store, MemoryLimit::DEFAULT));
+        }
+
         complete_catalog(&mut config, &mut stores)?;
         for (driver, store) in unfinished {
             driver.finish_store(&store, &stores)?;
         }
 
-        Ok(CacheCatalog::new(config, stores))
+        Ok(ReloadCatalog {
+            catalog: CacheCatalog::new(config, stores),
+            memory_limits,
+        })
     }
+}
+
+/// A validated reload candidate.
+///
+/// Memory stores carried over from the current generation keep their
+/// contents; their new bounds apply only once the whole candidate has been
+/// built, so a rejected reload leaves every live store as it was.
+pub(crate) struct ReloadCatalog {
+    catalog: CacheCatalog,
+    memory_limits: Vec<(Arc<MemoryCacheStore>, MemoryLimit)>,
+}
+
+impl ReloadCatalog {
+    /// Apply the staged bounds and hand over the catalog to publish.
+    pub(crate) fn commit(self) -> CacheCatalog {
+        for (store, limit) in self.memory_limits {
+            store.set_limit(limit);
+        }
+        self.catalog
+    }
+}
+
+fn current_memory_store(
+    current: &CacheCatalog,
+    name: &str,
+) -> Option<Arc<MemoryCacheStore>> {
+    let store: Arc<dyn Any + Send + Sync> = current.store(name).ok()?;
+    store.downcast::<MemoryCacheStore>().ok()
+}
+
+/// Whether the catalog will supply the built-in `memory` default itself.
+fn selects_implicit_memory(config: &CacheConfig) -> bool {
+    (config.default.trim().is_empty() || config.default == memory::NAME)
+        && !config.stores.contains_key(memory::NAME)
 }
 
 /// Validate an explicit default name. An omitted name selects memory.
@@ -277,10 +332,7 @@ fn complete_catalog(
     }
     if config.default == memory::NAME {
         stores.entry(config.default.clone()).or_insert_with(|| {
-            Arc::new(MemoryCacheStore::new(
-                memory::NAME,
-                memory::DEFAULT_CAPACITY,
-            ))
+            Arc::new(MemoryCacheStore::new(memory::NAME, MemoryLimit::DEFAULT))
         });
     }
     if !stores.contains_key(&config.default) {

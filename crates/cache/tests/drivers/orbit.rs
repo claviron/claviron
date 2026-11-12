@@ -1,4 +1,5 @@
 use std::any::Any;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -49,13 +50,13 @@ impl CacheStore for MemoryStore {
     async fn put(
         &self,
         key: &str,
-        value: &[u8],
+        value: Cow<'_, [u8]>,
         _ttl: Option<Duration>,
     ) -> Result<()> {
         self.values
             .lock()
             .expect("memory store poisoned")
-            .insert(key.to_string(), Bytes::copy_from_slice(value));
+            .insert(key.to_string(), Bytes::from(value.into_owned()));
         Ok(())
     }
 
@@ -105,7 +106,7 @@ fn driver_registers_multiple_logical_orbit_stores() {
 #[tokio::test]
 async fn l2_is_a_fallback_and_writes_through_before_l1_publication() {
     let (store, l2) = l2_backed_store();
-    l2.put("cold", b"from-l2", None).await.expect("seed L2");
+    l2.put("cold", b"from-l2"[..].into(), None).await.expect("seed L2");
 
     assert_eq!(
         CacheStore::get(&store, "cold").await.expect("get"),
@@ -116,7 +117,9 @@ async fn l2_is_a_fallback_and_writes_through_before_l1_publication() {
         CacheRead::Miss
     );
 
-    CacheStore::put(&store, "hot", b"fresh", None).await.expect("put");
+    CacheStore::put(&store, "hot", b"fresh"[..].into(), None)
+        .await
+        .expect("put");
     assert_eq!(
         l2.get("hot").await.expect("L2 get"),
         Some(Bytes::from_static(b"fresh"))
@@ -140,7 +143,9 @@ async fn orbit_validation_runs_before_l2_write() {
     let oversized_key = "k".repeat(2_000);
 
     assert!(
-        CacheStore::put(&store, &oversized_key, b"value", None).await.is_err()
+        CacheStore::put(&store, &oversized_key, b"value"[..].into(), None)
+            .await
+            .is_err()
     );
     assert_eq!(l2.get(&oversized_key).await.expect("L2 get"), None);
 }
@@ -153,7 +158,7 @@ async fn ttl_write_is_rejected_before_a_non_ttl_l2_is_changed() {
         CacheStore::put(
             &store,
             "expiring",
-            b"value",
+            b"value"[..].into(),
             Some(Duration::from_secs(1))
         )
         .await
@@ -169,7 +174,9 @@ async fn ttl_write_is_rejected_before_a_non_ttl_l2_is_changed() {
 #[tokio::test]
 async fn reset_clears_l2_before_publishing_the_reset() {
     let (store, l2) = l2_backed_store();
-    CacheStore::put(&store, "value", b"cached", None).await.expect("put");
+    CacheStore::put(&store, "value", b"cached"[..].into(), None)
+        .await
+        .expect("put");
 
     CacheStore::clear(&store).await.expect("clear");
 
@@ -193,8 +200,8 @@ async fn shm_store_reads_before_l2_and_keeps_existing_miss_behavior() {
     orbit.attach_l2(l2.clone()).unwrap();
 
     orbit.cache().put("hot", b"orbit", None).await.unwrap();
-    l2.put("hot", b"backing", None).await.unwrap();
-    l2.put("cold", b"backing", None).await.unwrap();
+    l2.put("hot", b"backing"[..].into(), None).await.unwrap();
+    l2.put("cold", b"backing"[..].into(), None).await.unwrap();
     assert_eq!(
         store.get("hot").await.unwrap(),
         Some(Bytes::from_static(b"orbit"))

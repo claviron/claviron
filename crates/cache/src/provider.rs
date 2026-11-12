@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock, Weak};
@@ -179,13 +180,13 @@ impl CacheProvider {
         registry: &CacheRegistry,
         config: CacheConfig,
     ) -> claviron_runtime::registry::Result<()> {
-        let catalog =
+        let candidate =
             registry.build_reload_catalog(config).map_err(|error| {
                 claviron_runtime::registry::Error::msg(format!(
                     "cache catalog reload failed: {error}"
                 ))
             })?;
-        self.publish(catalog);
+        self.publish(candidate.commit());
         Ok(())
     }
 
@@ -196,10 +197,10 @@ impl CacheProvider {
         self.default_store()?.get(key).await
     }
 
-    pub async fn put(
+    pub async fn put<'v>(
         &self,
         key: &str,
-        value: &[u8],
+        value: impl Into<Cow<'v, [u8]>>,
         ttl: Option<Duration>,
     ) -> crate::Result<()> {
         self.default_store()?.put(key, value, ttl).await
