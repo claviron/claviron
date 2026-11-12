@@ -430,8 +430,10 @@ async fn lock_changed(
         return std::future::pending().await;
     };
     let mut ready = readiness.readable().await?;
-    readiness.get_ref().drain()?;
+    // Clear before draining: a signal that lands after the drain is the
+    // only one until the next drain, and clearing after would erase it.
     ready.clear_ready();
+    readiness.get_ref().drain()?;
     let Coordinator::Fleet { locks, .. } = coordinator else {
         return Ok(false);
     };

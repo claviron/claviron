@@ -668,10 +668,13 @@ impl<L: EventRing> Runnable<AppState, (Arc<FleetProvider>,)>
                             Ok(ready) => ready,
                             Err(error) => break Err(registry::Error::msg(format!("Orbit eventfd readiness failed: {error}")))
                         };
+                        // Clear before draining: a signal that lands after
+                        // the drain is the only one until the next drain, and
+                        // clearing after would erase it.
+                        ready.clear_ready();
                         if let Err(error) = event_fd.get_ref().drain() {
                             break Err(registry::Error::msg(format!("Orbit eventfd drain failed: {error}")));
                         }
-                        ready.clear_ready();
                         self.poll_once(&state, &inbound.bus, &mut inbound.cursor);
                     }
                 }
