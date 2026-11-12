@@ -416,7 +416,7 @@ impl CacheService {
 
         // Prepare readiness before the first poll so a mutation committed
         // between startup and the wait cannot be stranded without a wake.
-        self.poll_and_recover().map_err(runtime_error)?;
+        self.poll_mutations().map_err(runtime_error)?;
 
         loop {
             tokio::select! {
@@ -433,7 +433,7 @@ impl CacheService {
                         ))
                     })?;
                     ready.clear_ready();
-                    self.poll_and_recover().map_err(runtime_error)?;
+                    self.poll_mutations().map_err(runtime_error)?;
                 }
             }
         }
@@ -444,7 +444,7 @@ impl CacheService {
         &self,
         context: RunContext,
     ) -> registry::Result<()> {
-        self.poll_and_recover().map_err(runtime_error)?;
+        self.poll_mutations().map_err(runtime_error)?;
 
         let mut interval = tokio::time::interval(FALLBACK_POLL_INTERVAL);
         interval
@@ -453,13 +453,15 @@ impl CacheService {
             tokio::select! {
                 _ = context.cancelled() => return Ok(()),
                 _ = interval.tick() => {
-                    self.poll_and_recover().map_err(runtime_error)?;
+                    self.poll_mutations().map_err(runtime_error)?;
                 }
             }
         }
     }
 
-    fn poll_and_recover(&self) -> Result<CachePoll> {
+    /// Apply pending mutations. Direct users without the managed runnable
+    /// call this from their own driver. Reads never advance this cursor.
+    pub fn poll_mutations(&self) -> Result<CachePoll> {
         let cache = self.cache()?;
         let poll = cache.poll();
         if poll.loss.total() > 0 || poll.malformed > 0 {
@@ -492,12 +494,15 @@ impl CacheService {
                 .map(|state| state.name.clone())
                 .collect::<Vec<_>>();
             if !missing.is_empty() {
-                return Err(Error::Rejected(format!(
-                    "mutation history was lost and stores without backing cannot recover: {}",
-                    missing.join(", ")
-                )));
+                if poll.loss.total() > 0 || poll.malformed > 0 {
+                    warn!(
+                        stores = %missing.join(", "),
+                        "Orbit cache stores without backing require reopening"
+                    );
+                }
+                return Ok(poll);
             }
-            cache.recover_from_backing();
+            cache.recover_from_backing()?;
             warn!("Orbit cache stores recovered as empty L2-backed views");
         }
         Ok(poll)
@@ -746,10 +751,12 @@ impl CacheRuntime {
         &self,
         key: &str,
     ) -> Result<Option<Bytes>> {
-        self.service.poll_and_recover()?;
         match self.state.primitive()?.read(key.as_bytes()) {
             CacheRead::Hit(entry) => Ok(Some(entry.value)),
             CacheRead::Miss => Ok(None),
+            CacheRead::ResyncRequired if self.state.backing().is_some() => {
+                Ok(None)
+            }
             CacheRead::ResyncRequired => Err(Error::Rejected(format!(
                 "Orbit cache store '{}' requires backing-store recovery",
                 self.state.name

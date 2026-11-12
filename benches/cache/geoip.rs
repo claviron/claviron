@@ -40,14 +40,16 @@ impl BenchFleet {
         &self,
         capacity: u16,
         node: u16,
-    ) -> CacheRuntime {
+    ) -> (Arc<CacheService>, CacheRuntime) {
         let fleet =
             Fleet::join_shm_as(self.0.as_str(), capacity, NodeId::new(node))
                 .expect("join benchmark SHM fleet");
-        CacheService::from_fleet(Arc::new(fleet))
-            .expect("open SHM cache")
+        let service =
+            CacheService::from_fleet(Arc::new(fleet)).expect("open SHM cache");
+        let store = service
             .register_store("geoip", NonZeroUsize::new(KEYS).unwrap())
-            .expect("register GeoIP store")
+            .expect("register GeoIP store");
+        (service, store)
     }
 }
 
@@ -108,15 +110,20 @@ fn geoip_cache(c: &mut Criterion) {
         (40, true, "shm-peer-40"),
     ] {
         let fleet = BenchFleet::new();
-        let (reader, writer) = {
+        let ((reader_service, reader), writer) = {
             let _entered = runtime.enter();
             (fleet.store(capacity, 0), peer.then(|| fleet.store(capacity, 1)))
         };
-        let writer = writer.as_ref().unwrap_or(&reader);
+        let writer = writer.as_ref().map_or(&reader, |(_, store)| store);
         runtime.block_on(async {
             for key in &keys {
                 writer.put(key, COUNTRY.as_bytes(), Some(TTL)).await.unwrap();
-                // Consume peer mutations during setup, independent of ring capacity.
+                if peer {
+                    assert_eq!(
+                        reader_service.poll_mutations().unwrap().applied,
+                        1
+                    );
+                }
                 let value = reader.get(key).await.unwrap();
                 assert_eq!(value.as_deref(), Some(COUNTRY.as_bytes()));
             }

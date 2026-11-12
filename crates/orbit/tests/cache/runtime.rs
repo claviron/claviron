@@ -28,6 +28,25 @@ async fn cache_reads_share_bytes_and_survive_replacement_and_removal() {
 }
 
 #[tokio::test]
+async fn reads_do_not_drain_peer_mutations() {
+    let fleet = Arc::new(Fleet::join("cache_direct_driver", 1).unwrap());
+    let writer = CacheService::from_fleet(fleet.clone()).unwrap();
+    let reader = CacheService::from_fleet(fleet).unwrap();
+    let capacity = NonZeroUsize::new(8).unwrap();
+    let writer = writer.register_store("models", capacity).unwrap();
+    let store = reader.register_store("models", capacity).unwrap();
+
+    writer.put("key", b"one", None).await.unwrap();
+    assert_eq!(writer.get("key").await.unwrap().unwrap(), b"one"[..]);
+    assert_eq!(store.get("key").await.unwrap(), None);
+    assert_eq!(reader.poll_mutations().unwrap().applied, 1);
+    writer.put("key", b"two", None).await.unwrap();
+    assert_eq!(store.get("key").await.unwrap().unwrap(), b"one"[..]);
+    assert_eq!(reader.poll_mutations().unwrap().applied, 1);
+    assert_eq!(store.get("key").await.unwrap().unwrap(), b"two"[..]);
+}
+
+#[tokio::test]
 async fn logical_stores_share_transport_but_not_l1_state() {
     let fleet = Arc::new(Fleet::join("cache_runtime", 1).expect("fleet"));
     let service = CacheService::from_fleet(fleet).expect("cache service");

@@ -38,13 +38,13 @@ fleet for each Orbit case and clears it once its members have dropped.
 
 The workload cycles through 1,024 resident IPv4 keys with two-byte country
 codes and a 30-minute TTL. Moka uses GeoIP's `IpAddr → Arc<str>` representation.
-Orbit uses string keys and arena-backed bytes, without L2. `shm-one` reserves
+Orbit uses string keys and worker-local bytes, without L2. `shm-one` reserves
 two lanes and uses one member to write and read. The peer cases use two members
 in one process with separate cache connections and reserve either 2 or 40 lanes.
 One member writes before timing, and the other consumes those mutations and reads.
 
-`l1` measures metadata lookup and an arena pin. `async` also runs the cache
-mutation poll. `sync` includes the synchronous bridge's per-call Tokio
+`l1` measures local value lookup. `async` uses the asynchronous facade.
+Peer mutation delivery happens explicitly during setup. `sync` includes the synchronous bridge's per-call Tokio
 `block_on`, and `sync-ip` includes formatting the IP into a string. Misses
 look up one absent key. Database lookup, writes and concurrent mutation
 traffic are outside the timed workload.

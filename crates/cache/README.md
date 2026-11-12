@@ -23,7 +23,7 @@ it alone does not enable the cache subsystem.
 
 The built-in drivers are:
 
-- `orbit`: bounded fleet-shared cache state with a per-process L1 index and
+- `orbit`: bounded fleet-shared cache state with worker-local L1 values and
   optional named L2 backing store.
 - `file`: content-addressed disk storage through `cacache`; enabled by this
   implementation crate's default feature.
@@ -47,8 +47,9 @@ stores:
 ```
 
 The capacity is an example entry limit per process for this logical store, not
-a global byte budget. Shared arena and notification-ring geometry are separate
-Orbit settings. Ring capacity limits consumer lag, not the number of resident
+a byte budget. An Orbit cache connection also shares a resident payload
+byte budget across its stores. Transport arena and notification-ring geometry
+are separate Orbit settings. Ring capacity limits consumer lag, not the number of resident
 keys.
 
 `default` names a declared store; the driver name is not implicitly the default

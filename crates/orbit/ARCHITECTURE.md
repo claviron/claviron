@@ -510,11 +510,11 @@ clear:  backing clear         -> publish Orbit Reset
 L2 completes before publication, so a peer that receives a mutation cannot fall through to an older value.
 
 If mutation history is lost, the missing mutation's store is unknowable because the cursor is shared, so every L1 is
-disabled. It resumes at the current heads only when every store has a backing, and then with empty L1s.
+disabled. It resumes with empty L1s at a publication-coordinated cut when every store has a backing.
 
-An L1 hit takes an owner-aware pin on the exact arena generation, and the returned `Bytes` owns that pin and the
-mapping. TTL is checked before the pin. Delete and Reset invalidate metadata, while snapshots already returned stay
-valid. An overwritten address is an honest miss.
+The listener copies a Put's arena payload into L1. A hit checks TTL and clones the local `Bytes` handle. Delete
+and Reset invalidate entries, while snapshots already returned stay valid. An unavailable payload installs a
+revision tombstone. Direct users without a managed listener call `CacheService::poll_mutations` explicitly.
 
 `open_store` may reopen a registered name with the same L1 capacity, so a catalog can hide a store and bring it back;
 changing capacity or backing identity is a restart-level change. Lock state never shares keys, reset behavior or

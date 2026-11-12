@@ -175,7 +175,7 @@ state.
 
 Each `OrbitCacheStore` owns one logical
 `claviron_orbit::cache::CacheRuntime` handle per process. Clones share that
-store's metadata L1 and backing binding. All logical runtimes created by the
+store's value-owning L1 and backing binding. All logical runtimes created by the
 driver share the `claviron_orbit::cache::CacheService` mutation cursor and
 mutation ring and byte arena.
 
@@ -189,14 +189,14 @@ models L1       responses L1
 
 The mutation ring is transport, not cache storage. Every mutation carries a
 separate store name and key. `Put` carries an immutable arena address; only
-revision/expiry/address metadata enters L1. Reads pin the exact arena generation
-and return `Bytes` over SHM, without a SHM-to-L1 copy. `Delete` and `Reset`
+the listener copies the referenced bytes into L1 under a short-lived pin.
+Reads clone the local immutable bytes after checking TTL. `Delete` and `Reset`
 update only that store; they never reset the arena's other consumers. A process starts
 with empty L1s and follows future mutations; it does not reconstruct a snapshot
 by scanning retained history.
 
-Linux and FreeBSD wait on the cache mutation ring's native readiness fd. Other
-targets poll every 10 ms. Those mechanics and the long-lived task live in
+Linux, FreeBSD and supported macOS releases wait on the ring's native readiness fd.
+Other targets use the existing timer fallback. Those mechanics and the long-lived task live in
 `claviron-orbit::cache::CacheService`. `CacheProvider` and
 `OrbitCacheDriver` do not implement the inbound runnable.
 
@@ -244,10 +244,10 @@ changing either layer. This prevents an expired L1 entry from reappearing
 indefinitely through a stale L2 value.
 
 If the mutation cursor loses history, `orbitive::cache` disables local hits. With
-L2 configured, `CacheRuntime` discards uncertain state, advances to the current
-ring heads, records the shared revision floor, and resumes as an empty
-L2-backed L1. Without L2, mutation loss is an error; an incomplete local view
-must not be presented as coherent.
+backing configured for all stores, the listener discards uncertain state and
+resumes with empty L1s at a cut coordinated with publication. An unbacked
+store returns a resync error until its connection is reopened. A backed store
+can consult L2 while the connection is incoherent.
 
 Runtime `reset` clears the complete configured L2 namespace before publishing
 the Orbit `Reset` mutation. File stores clear their dedicated cache path or,
@@ -270,23 +270,21 @@ share one codec without rendering the tree as JSON text. `CacheJson` preserves
 separate signed, unsigned, and floating-point number variants and preserves
 object entry order for language adapters such as PHP.
 
-Raw `get` retains the immutable buffer owner. An Orbit hit acquires a short-lived
-arena pin and constructs `Bytes::from_owner` without copying the payload; file
-and Redis readers transfer their received allocation into `Bytes`. Eviction,
-overwrite, reset and catalog replacement cannot invalidate an already returned
-buffer. L1 retains no value bytes or pins. Arena ownership rows use kernel holds
-for death-proven SIGKILL recovery; live pins are never reclaimed by timeout.
+Raw `get` retains the immutable buffer owner. An Orbit hit clones an L1
+`Bytes` handle. File and Redis readers transfer their allocation into `Bytes`.
+Eviction, overwrite, reset and catalog replacement leave already returned
+buffers valid.
 
 `CacheValue::view(&bytes)` validates the envelope and borrows strings, binary
 values, and `ArchivedCacheJson` directly from that buffer. The owner stays with
 the caller, so ordinary Rust lifetimes enforce safety without a self-referential
-wrapper or unchecked archive access; `Bytes` retains the arena pin underneath:
+wrapper or unchecked archive access:
 
 ```rust,ignore
 if let Some(bytes) = repository.get("entry").await? {
     match CacheValue::view(&bytes)? {
         CacheValueRef::Json(ArchivedCacheJson::Array(values)) => {
-            // Traverse archived elements while `bytes` owns the arena pin or driver allocation.
+            // Traverse archived elements while `bytes` owns the buffer.
             println!("{} elements", values.len());
         }
         _ => {}
@@ -380,7 +378,8 @@ idle rather than failing boot.
   in multiple stores, and reset is store-scoped.
 - Ring capacity bounds consumer lag, not resident key count.
 - Every logical store's L1 is independently bounded by its `l1_capacity` and
-  owned through `claviron-orbit::cache::CacheRuntime`.
+  owned through `claviron-orbit::cache::CacheRuntime`. The connection shares
+  one resident payload byte budget across stores.
 - A backing value without revision/expiry metadata is never promoted to L1.
 - An Orbit TTL write never passes through an L2 that cannot preserve TTL.
 - L2 writes/deletes complete before the corresponding Orbit mutation publishes.
