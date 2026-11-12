@@ -5,6 +5,7 @@ use std::sync::{Arc, RwLock};
 use arc_swap::ArcSwapOption;
 
 use crate::config::CacheConfig;
+use crate::drivers::memory::{self, MemoryCacheStore};
 use crate::provider::CacheCatalog;
 use crate::{CacheDriver, CacheProvider, CacheStore, Error};
 
@@ -132,13 +133,12 @@ impl CacheRegistry {
     }
 
     /// Build every configured store from the registered drivers, finish
-    /// their links and publish the catalog. An empty configuration seals an
-    /// empty catalog: no cache, until a reload declares one.
+    /// their links and publish the catalog with its default store.
     pub(crate) fn seal(&self) -> crate::Result<()> {
         if self.is_sealed() {
             return Ok(());
         }
-        let config = self.config()?;
+        let mut config = (*self.config()?).clone();
 
         let drivers =
             self.drivers.read().expect("cache drivers lock poisoned").clone();
@@ -160,7 +160,7 @@ impl CacheRegistry {
             validate_built_store(store_name, &store)?;
             stores.insert(store_name.clone(), store);
         }
-        validate_catalog(&config, &stores)?;
+        complete_catalog(&mut config, &mut stores)?;
 
         for (store_name, store_config) in &config.stores {
             let Some(driver) = drivers.get(&store_config.driver_key()) else {
@@ -174,14 +174,14 @@ impl CacheRegistry {
 
         *self.stores.write().expect("cache stores lock poisoned") =
             stores.clone();
-        self.provider.install(CacheCatalog::new((*config).clone(), stores))?;
+        self.provider.install(CacheCatalog::new(config, stores))?;
         self.sealed.store(true, Ordering::Release);
         Ok(())
     }
 
     pub(crate) fn build_reload_catalog(
         &self,
-        config: CacheConfig,
+        mut config: CacheConfig,
     ) -> crate::Result<CacheCatalog> {
         if !self.is_sealed() {
             return Err(Error::Rejected(
@@ -230,7 +230,7 @@ impl CacheRegistry {
             unfinished.push((driver, store));
         }
 
-        validate_catalog(&config, &stores)?;
+        complete_catalog(&mut config, &mut stores)?;
         for (driver, store) in unfinished {
             driver.finish_store(&store, &stores)?;
         }
@@ -239,23 +239,17 @@ impl CacheRegistry {
     }
 }
 
-/// A document that declares stores must name its default; one that declares
-/// none composes no cache and needs none.
+/// Validate an explicit default name. An omitted name selects memory.
 pub(crate) fn validate_config(config: &CacheConfig) -> crate::Result<()> {
-    if config.is_empty() {
-        return Ok(());
-    }
-    if config.default.trim().is_empty() {
-        return Err(Error::Missing(
-            "cache default store is not configured".to_string(),
-        ));
+    if !config.default.trim().is_empty() {
+        validate_store_name(&config.default)?;
     }
     Ok(())
 }
 
-fn validate_catalog(
-    config: &CacheConfig,
-    stores: &HashMap<String, Arc<dyn CacheStore>>,
+fn complete_catalog(
+    config: &mut CacheConfig,
+    stores: &mut HashMap<String, Arc<dyn CacheStore>>,
 ) -> crate::Result<()> {
     for (store_name, store_config) in &config.stores {
         if !stores.contains_key(store_name) {
@@ -265,8 +259,24 @@ fn validate_catalog(
             )));
         }
     }
-    if config.is_empty() && stores.is_empty() {
-        return Ok(());
+    if config.default.trim().is_empty() {
+        if stores
+            .get(memory::NAME)
+            .is_some_and(|store| store.driver_name() != memory::NAME)
+        {
+            return Err(Error::Rejected(
+                "cache store 'memory' uses another driver; choose a default explicitly".into(),
+            ));
+        }
+        config.default = memory::NAME.to_owned();
+    }
+    if config.default == memory::NAME {
+        stores.entry(config.default.clone()).or_insert_with(|| {
+            Arc::new(MemoryCacheStore::new(
+                memory::NAME,
+                memory::DEFAULT_CAPACITY,
+            ))
+        });
     }
     if !stores.contains_key(&config.default) {
         return Err(Error::Missing(format!(

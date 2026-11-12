@@ -3,6 +3,8 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
+use crate::drivers::memory;
+
 #[derive(Clone, Debug, Deserialize, Default, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct CacheConfig {
@@ -13,19 +15,29 @@ pub struct CacheConfig {
 }
 
 impl CacheConfig {
-    /// A document that composes no cache: what an absent `cache.yaml` says.
+    /// A document with no explicit store declarations or default.
     pub fn is_empty(&self) -> bool {
         self.stores.is_empty() && self.default.trim().is_empty()
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct CacheStoreConfig {
-    #[serde(default, alias = "kind")]
+    #[serde(default = "default_driver", alias = "kind")]
     pub driver: String,
 
     #[serde(flatten)]
     pub options: HashMap<String, serde_yaml::Value>,
+}
+
+fn default_driver() -> String {
+    memory::NAME.to_owned()
+}
+
+impl Default for CacheStoreConfig {
+    fn default() -> Self {
+        Self { driver: default_driver(), options: HashMap::new() }
+    }
 }
 
 impl CacheStoreConfig {

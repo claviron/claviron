@@ -3,8 +3,8 @@ use std::sync::Arc;
 use claviron_runtime::AppState;
 use tracing::info;
 
-#[cfg(feature = "file")]
 use crate::FileCacheDriver;
+use crate::drivers::memory::MemoryCacheDriver;
 use crate::drivers::orbit::OrbitCacheDriver;
 #[cfg(feature = "redis")]
 use crate::drivers::redis::RedisCacheDriver;
@@ -12,10 +12,9 @@ use crate::{CacheConfig, CacheProvider, CacheRegistry};
 
 /// Compose the cache: the registry, the provider that owns `cache.yaml`, and
 /// the built-in drivers. Congif prepares the file before boot; the sealing
-/// `configure` builds the configured stores from the registered drivers. Without the
-/// file there is no store until a reload declares one, and the Orbit cache's
-/// rings and service stand ready for that, as the ring of every fleet-wide
-/// service does.
+/// `configure` builds stores from the registered drivers. Without the file,
+/// the catalog starts with the built-in memory store. The Orbit cache service
+/// can serve Orbit stores declared by a later configuration.
 pub fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
     if state.registry_ref().resolve::<CacheProvider>().is_some() {
         return Ok(());
@@ -57,7 +56,7 @@ fn compose(
     let provider = Arc::new(provider);
     let cache_registry = Arc::new(CacheRegistry::new(provider.clone()));
     provider.attach_registry(Arc::downgrade(&cache_registry))?;
-    #[cfg(feature = "file")]
+    cache_registry.register_driver(Arc::new(MemoryCacheDriver))?;
     cache_registry.register_driver(Arc::new(FileCacheDriver))?;
 
     #[cfg(feature = "redis")]
@@ -73,7 +72,6 @@ fn compose(
     claviron_orbit::cache::register_shm(state)?;
     registry.register(orbit.service())?;
 
-    // No `cache.yaml` is the default and says nothing.
     if from_file {
         if cache_path.exists() {
             if state.is_worker() {

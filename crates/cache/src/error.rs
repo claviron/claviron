@@ -17,7 +17,6 @@ pub enum Error {
     #[error("cache redis error: {0}")]
     Redis(#[from] redis::RedisError),
 
-    #[cfg(feature = "file")]
     #[error("cache file storage error: {0}")]
     Storage(#[from] cacache::Error),
 

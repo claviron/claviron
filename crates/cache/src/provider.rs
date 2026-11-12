@@ -57,7 +57,7 @@ impl CacheCatalog {
 /// change asks the sealed registry to build and validate a complete
 /// replacement, then publishes it atomically. Handles resolved before
 /// publication keep their old repository alive; later resolutions see the new
-/// generation. An absent file composes no cache until one is declared.
+/// generation. An absent file selects the built-in memory store.
 pub struct CacheProvider {
     config_path: PathBuf,
     initial_config: Option<CacheConfig>,
@@ -148,11 +148,6 @@ impl CacheProvider {
 
     pub fn default_store(&self) -> crate::Result<Arc<CacheRepository>> {
         let catalog = self.catalog()?;
-        if catalog.default.is_empty() {
-            return Err(Error::Missing(
-                "no cache store is configured".to_string(),
-            ));
-        }
         catalog.repositories.get(&catalog.default).cloned().ok_or_else(|| {
             Error::Missing(format!(
                 "cache default store '{}' is missing",
@@ -282,7 +277,7 @@ impl Configurable for CacheProvider {
         ConfigFile::yaml(&self.config_path)
     }
 
-    /// No file, no cache: the registry seals an empty catalog.
+    /// An absent file selects the registry's built-in memory store.
     fn absent_source(&self) -> Option<CacheConfig> {
         Some(CacheConfig::default())
     }

@@ -11,6 +11,7 @@ use claviron_orbit::cache::{
 use serde::Deserialize;
 
 use crate::config::CacheStoreConfig;
+use crate::drivers::memory::MemoryCacheStore;
 use crate::error::{Error, Result};
 use crate::{CacheDriver, CacheStore, CacheStoreResolver, CacheValue};
 
@@ -143,6 +144,12 @@ impl OrbitCacheStore {
         {
             return Err(Error::Rejected(format!(
                 "orbit cache store '{}' cannot use another Orbit store as L2",
+                self.store_name
+            )));
+        }
+        if store.as_any().is::<MemoryCacheStore>() {
+            return Err(Error::Rejected(format!(
+                "orbit cache store '{}' requires a backing shared by its workers",
                 self.store_name
             )));
         }

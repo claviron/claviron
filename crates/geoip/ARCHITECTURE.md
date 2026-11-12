@@ -46,6 +46,8 @@ fallback code. This keeps local/dev traffic deterministic and prevents
 `GeoIpConfig.cache` owns the lookup capacity and TTL, with compatibility defaults
 of 100,000 entries and 30 minutes. The process-wide cache is initialized from
 that configuration at boot, including disabled/failed-database initialization.
+The lookup uses the typed synchronous Moka cache from `claviron-cache::memory`.
+Boot initializes it with its own GeoIP defaults when the cache block is omitted.
 Pre-boot lookups do not create a cache. Zero capacity or TTL disables retention;
 parsing rejects values beyond Moka's timestamp arithmetic bound. No new reload
 mechanism is introduced. The fallback code is installed before enabled/database

@@ -2,13 +2,13 @@ mod bootstrap;
 pub mod config;
 mod drivers;
 pub mod error;
+pub mod memory;
 mod provider;
 mod registry;
 mod store;
 mod value;
 
 pub use bootstrap::{register, register_with_config};
-#[cfg(feature = "file")]
 pub use drivers::file::{FileCacheDriver, FileCacheStore};
 pub use drivers::orbit::{
     OrbitCacheDriver, OrbitCacheStore, OrbitCacheStoreConfig,

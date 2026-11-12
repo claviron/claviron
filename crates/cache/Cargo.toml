@@ -14,10 +14,8 @@ keywords = ["cache", "redis", "shared-memory", "async"]
 categories = ["caching", "asynchronous", "concurrency"]
 
 [features]
-default = ["file"]
 axum = ["dep:axum"]
 redis = ["dep:redis", "dep:url"]
-file = ["dep:cacache"]
 
 [lints.rust]
 # Internal parking cfg only. Do not make this a Cargo feature: `--all-features`
@@ -48,7 +46,8 @@ axum = { workspace = true, optional = true }
 
 # ── Database / cache backends ───────────────────────────────────────────
 # Content-addressed disk storage for the file cache driver.
-cacache = { workspace = true, optional = true, features = ["mmap", "tokio-runtime"] }
+cacache = { workspace = true, features = ["mmap", "tokio-runtime"] }
+moka = { workspace = true, features = ["sync"] }
 redis = { workspace = true, optional = true, features = ["connection-manager", "tokio-comp"] }
 
 # ── Networking utilities ────────────────────────────────────────────────

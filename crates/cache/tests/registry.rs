@@ -6,13 +6,41 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use bytes::Bytes;
 use claviron_runtime::AppState;
+use claviron_runtime::congif::{ConfigObserver, Configurable};
 use claviron_runtime::registry::Reloadable;
 
 use super::{CacheRegistry, validate_orbit_reload};
 use crate::config::{CacheConfig, CacheStoreConfig};
+use crate::drivers::memory::MemoryCacheDriver;
 use crate::{CacheDriver, CacheProvider, CacheStore, CacheValue, Result};
 
 struct MemoryDriver;
+
+#[tokio::test]
+async fn cache_defaults_to_memory_at_boot_and_reload() {
+    let provider = Arc::new(CacheProvider::new("cache.yaml".into()));
+    let registry = Arc::new(CacheRegistry::new(provider.clone()));
+    provider.attach_registry(Arc::downgrade(&registry)).unwrap();
+    registry.register_driver(Arc::new(MemoryCacheDriver)).unwrap();
+    registry.register_driver(Arc::new(crate::FileCacheDriver)).unwrap();
+    provider.configure(&provider.absent_source().unwrap()).await.unwrap();
+    assert_eq!(provider.default_store_name().unwrap(), "memory");
+    assert_eq!(provider.default_store().unwrap().driver_name(), "memory");
+    provider.put("key", b"value", None).await.unwrap();
+    assert_eq!(
+        provider.get("key").await.unwrap(),
+        Some(Bytes::from_static(b"value"))
+    );
+
+    let named = serde_yaml::from_str(
+        "stores:\n  scratch: {}\n  disk: { driver: file, path: cache }",
+    )
+    .unwrap();
+    provider.config_changed(&named).await.unwrap();
+    assert_eq!(provider.default_store().unwrap().driver_name(), "memory");
+    assert_eq!(provider.store("scratch").unwrap().driver_name(), "memory");
+    assert_eq!(provider.store("disk").unwrap().driver_name(), "file");
+}
 
 struct MemoryStore {
     name: String,

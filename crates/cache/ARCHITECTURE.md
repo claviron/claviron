@@ -5,7 +5,7 @@ composition from request-time use: drivers build byte stores, repositories add
 common cache behavior, and the final provider resolves named repositories or
 proxies to the default one.
 
-The crate is above file, Redis, and Orbit storage primitives. It is below HTTP
+The crate is above Moka, file, Redis, and Orbit storage primitives. It is below HTTP
 handlers, language bindings, and application services.
 
 ## Role
@@ -58,11 +58,13 @@ lives in `claviron-orbit::cache`.
 - `CacheValueRef`: validated borrowed envelope view. Composite values expose
   the crate-owned `ArchivedCacheJson`; adapters can traverse it without first
   allocating an owned `CacheJson` tree.
-- `FileCacheStore`, optional `RedisCacheStore`, optional `OrbitCacheStore`.
+- Built-in memory, file, and Orbit stores. The Redis store requires the
+  `redis` feature.
 
-Framework-neutral cache primitives are not re-exported from this crate. Rust
-callers that need them depend on the Orbitive facade and use
-`orbitive::cache` directly.
+The memory driver adapts `memory::MemoryCache` to the byte store contract with
+per-entry TTL. Rust components such as GeoIP use the same Moka type with
+typed keys and fixed TTL. Neither construction needs a fleet handle.
+Orbitive's fleet primitives remain available through `orbitive::cache`.
 
 `increment` and `decrement` are deliberately absent. Atomic numbers are shared
 state, not cache mutations, and will use an Orbit state primitive instead of a
@@ -119,8 +121,8 @@ prepared by Congif — variables from the application's frozen configuration
 environment — before boot and in the central reload batch; neither provider
 opens its file. An absent `redis.yaml` declares no connections; a changed one
 drops the cached clients so the next use connects as declared. An absent
-`cache.yaml` composes no cache until a reload or a prepared source change
-declares one.
+`cache.yaml` selects the built-in process-local memory store. The same default
+applies when a document omits `default`, and a store without a driver uses memory.
 
 `cache.yaml` is not a requirement imposed on driver implementations. A
 downstream driver can use its flattened store options:
@@ -209,9 +211,9 @@ not split onto a replacement ring during master adoption.
 
 ## Optional L2
 
-Each Orbit store may name any registered non-Orbit store as L2. File and Redis
-are built-in examples; stores supplied by third-party drivers work through the
-same `CacheStore` contract. `cache` resolves that name and wraps the
+An Orbit store's L2 must be visible to every worker using it. File and Redis
+are built-in examples. Third-party backing stores use the same `CacheStore`
+contract. `cache` resolves that name and wraps the
 selected store as a `CacheBacking`. L2 remains part of that logical store's
 Orbit algorithm rather than a second public cache selected by callers; the
 algorithm itself runs in `orbit`:
@@ -331,7 +333,7 @@ All application driver registrations finish before this facade's boot builds
 and seals its catalog, before ordered cache consumers boot. The supplied intent
 is immutable for that process: it exposes neither Configurable nor Reloadable.
 Changing this enclosing launch requires restart. An empty declaration builds
-an empty catalog and creates no cache stores.
+the default memory store.
 
 `CacheProvider` implements Continuo's `Register<AppState>` via the runtime
 facade, delegating to the same crate-level composition entry, and is the
@@ -364,10 +366,9 @@ idle rather than failing boot.
 
 - Driver names and store names are unique; duplicate registration is an error.
 - `CacheRegistry` accepts registrations only before it is sealed.
-- A usable `CacheProvider` always contains a configured, registered default
-  repository. If `cache.yaml` is absent, neither `CacheRegistry` nor
-  `CacheProvider` is registered; an independently configured `RedisProvider`
-  remains available.
+- A usable `CacheProvider` always contains a default repository. The catalog
+  creates a 10,000-entry memory store when the selected default is `memory`
+  and no store with that name is declared.
 - Every store declared in `cache.yaml` must be supplied by a registered driver
   or registered directly; unsupported drivers are never silently ignored.
 - An Orbit store may reference only an existing non-Orbit L2 store.

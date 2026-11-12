@@ -23,10 +23,11 @@ it alone does not enable the cache subsystem.
 
 The built-in drivers are:
 
+- `memory`: process-local Moka storage with a configured entry limit and
+  per-entry TTL.
 - `orbit`: bounded fleet-shared cache state with worker-local L1 values and
   optional named L2 backing store.
-- `file`: content-addressed disk storage through `cacache`; enabled by this
-  implementation crate's default feature.
+- `file`: content-addressed disk storage through `cacache`.
 - `redis`: named Redis connections and a configurable key prefix; opt-in.
 
 The provider has no cache-maintenance loop of its own. Orbit's shared-memory
@@ -36,32 +37,38 @@ This is a cache API, not a lock service or an atomic-counter API.
 ## Configuration and composition
 
 The file-backed registration reads `cache.yaml` from Claviron's configuration
-directory. This minimal example selects an Orbit store without L2:
+directory. This example configures a local memory store and a fleet store.
 
 ```yaml
 default: shared
 stores:
+  local:
+    driver: memory
+    capacity: 10000
   shared:
     driver: orbit
     l1_capacity: 10000
 ```
 
-The capacity is an example entry limit per process for this logical store, not
-a byte budget. An Orbit cache connection also shares a resident payload
+Both capacity settings are entry limits per process for their logical store.
+An Orbit cache connection also shares a resident payload
 byte budget across its stores. Transport arena and notification-ring geometry
 are separate Orbit settings. Ring capacity limits consumer lag, not the number of resident
 keys.
 
-`default` names a declared store; the driver name is not implicitly the default
-store. Redis stores refer to a connection declared in `redis.yaml`. File stores
-declare `path` and an optional `prefix`. Relative paths are resolved against the
-application process's working directory, not the YAML file.
+`default` selects a named store. An absent `cache.yaml` or omitted `default`
+selects the built-in `memory` store. An omitted store `driver` also selects
+`memory`. Each memory store defaults to 10,000 entries per process.
+File stores declare `driver: file`, `path`, and an optional `prefix`.
+Relative paths are resolved against the application's working directory.
+Redis stores refer to a connection declared in `redis.yaml`.
 
-An absent `cache.yaml` composes no stores; it does not silently select disk or
-Redis. Registration still prepares the registry and Orbit service so later
-configuration can be composed through their lifecycle. An enclosing runner may
-instead call `register_with_config(state, CacheConfig)` with immutable boot
-options, without reading or watching `cache.yaml`.
+Each memory store starts empty in every process. A zero capacity disables
+retention. Rust callers can also build a typed, synchronous Moka cache with
+`claviron::cache::memory::new` for fixed-TTL workloads.
+
+An enclosing runner can call `register_with_config(state, CacheConfig)` with
+immutable boot options. The same store defaults apply.
 
 Custom drivers or ready store instances can be registered with `CacheRegistry`
 before configuration seals it. Driver factories remain available for reload
@@ -99,12 +106,12 @@ can share cache namespaces across codec changes without a compatibility plan.
 
 ## TTL, backing stores, and recovery
 
-TTL is a store capability, not a promise every driver makes. Orbit and Redis
-support expiry; the file driver does not. An expiring Orbit write with a
+Memory, Orbit, and Redis support expiry. The file driver only accepts entries
+without expiry. An expiring Orbit write with a
 non-expiring L2 is rejected before either layer is mutated.
 
-An Orbit store's `l2` names another, non-Orbit store. Writes validate the Orbit
-operation, update L2, then publish the shared mutation. Deletes and clears also
+An Orbit store's `l2` names another store shared by its workers. Writes validate
+the Orbit operation, update L2, then publish the shared mutation. Deletes and clears also
 apply to L2 before shared publication. A read satisfied by L2 is returned
 directly, without promotion: the raw store contract supplies neither a revision nor a
 remaining TTL that would make promotion safe.
@@ -129,8 +136,8 @@ Orbit topology is not freely mutable in place: changing an existing store's
 L1 capacity or L2 relationship can require restart. Reload must respect the
 already-booted Orbit service and reject incompatible changes.
 
-The implementation features are `file`, `redis`, and `axum`; the last adds HTTP
-error conversion, not cache routes. Redis TLS integration is currently parked
+The optional features are `redis` for Redis stores and `axum` for HTTP error
+conversion. Redis TLS integration is currently parked
 behind an internal compatibility configuration and is not an advertised
 capability of the normal `redis` feature.
 

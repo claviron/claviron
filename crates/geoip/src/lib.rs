@@ -6,11 +6,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use claviron_cache::memory::{self, MemoryCache};
 use claviron_runtime::congif::{self, ConfigFile, Configurable};
 use claviron_runtime::registry::{Component, Result};
 use claviron_runtime::{AppState, Register};
 use maxminddb::Reader;
-use moka::sync::Cache;
 use once_cell::sync::OnceCell;
 use serde::Deserialize;
 use tracing::error;
@@ -115,7 +115,7 @@ impl Component<AppState> for GeoIpProvider {
 }
 
 // No pre-boot lookup may freeze a default policy before configuration arrives.
-static GEO_CACHE: OnceCell<Cache<IpAddr, Arc<str>>> = OnceCell::new();
+static GEO_CACHE: OnceCell<MemoryCache<IpAddr, Arc<str>>> = OnceCell::new();
 
 /// The country code for `ip`, or the configured code where GeoIP has none.
 ///
@@ -269,11 +269,8 @@ impl Default for GeoIpCacheConfig {
 }
 
 impl GeoIpCacheConfig {
-    fn build(&self) -> Cache<IpAddr, Arc<str>> {
-        Cache::builder()
-            .max_capacity(self.capacity)
-            .time_to_live(self.ttl)
-            .build()
+    fn build(&self) -> MemoryCache<IpAddr, Arc<str>> {
+        memory::new(self.capacity, self.ttl)
     }
 }
 
@@ -288,10 +285,7 @@ fn deserialize_cache_ttl<'de, D: serde::Deserializer<'de>>(
     deserializer: D
 ) -> std::result::Result<Duration, D::Error> {
     let ttl = claviron_helpers::de::deserialize_duration(deserializer)?;
-    // Moka's cache builder panics beyond 1000 * 365 days to prevent timestamp
-    // overflow. This library limit cannot be enlarged by runtime configuration.
-    let maximum = Duration::from_secs(1_000 * 365 * 24 * 3600);
-    if ttl > maximum {
+    if ttl > memory::MAX_TTL {
         return Err(serde::de::Error::custom(
             "GeoIP cache TTL exceeds Moka's 1000-year limit",
         ));
