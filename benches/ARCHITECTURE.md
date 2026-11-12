@@ -9,6 +9,7 @@ commands and comparison controls. This file indexes the implementation.
 
 | Path | Timed work | Prepared before timing |
 | --- | --- | --- |
+| [`cache/geoip.rs`](cache/geoip.rs) | GeoIP-shaped Moka reads and SHM Orbit L1, async and sync reads. | Fleet join, arena and ring mapping, cache population and peer mutation delivery. |
 | `dispatch/` | Decoded request through response consumption. Plain Edge cases also isolate request binding. | Host plans, application registration, request construction. |
 | `transport/http1/` serial targets | Client/server protocol work, request construction, socket IO and response consumption on one established connection. | Host publication, bind/accept, connection setup and preflight. |
 | `transport/http1/concurrent.rs` | Concurrent requests; server process user and system CPU divided by completed requests, alternating with an optional control. | Separate processes/runtimes, connection setup and preflight. Warmup is untimed and carries the allocation count. |

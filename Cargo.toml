@@ -261,6 +261,9 @@ humantime-serde.workspace = true
 # ── System / OS bindings ────────────────────────────────────────────────
 libc.workspace = true
 
+# ── Cache benchmarks ──────────────────────────────────────────────────
+moka = { workspace = true, features = ["sync"] }
+
 [[bench]]
 name = "dispatch-edge-other"
 path = "benches/dispatch/edge/other.rs"
@@ -372,6 +375,13 @@ path = "benches/transport/h2/unix.rs"
 harness = false
 test = false
 required-features = ["supervisor", "rust", "bench", "runner-orbit", "runner-socket", "upstream"]
+
+[[bench]]
+name = "geoip-cache"
+path = "benches/cache/geoip.rs"
+harness = false
+test = false
+required-features = ["orbit"]
 
 [workspace]
 members = [

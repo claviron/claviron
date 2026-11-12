@@ -1,4 +1,4 @@
-# HTTP benchmarks
+# Benchmarks
 
 Compare native Hyper/Axum with Claviron through decoded dispatch, serial HTTP/1
 round trips and concurrent HTTP/1 server CPU measurements.
@@ -9,6 +9,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the file index and call paths.
 
 | Directory | Measurement |
 | --- | --- |
+| `cache/geoip.rs` | Moka and the SHM-backed Orbit cache with GeoIP-sized values. |
 | `dispatch/native/` | Native Hyper service and Axum router, with a JSON response. |
 | `dispatch/edge/` | Registered Edge owners; paired plain controls and a separate JSON workload. |
 | `transport/http1/native/` | Real Hyper and `axum::serve` over persistent loopback HTTP/1.1. |
@@ -25,6 +26,28 @@ Dispatch excludes HTTP decoding, host selection, sockets and TLS. Serial HTTP/1
 measurements include client/server protocol work and socket IO, with one
 connection and one in-flight request on a current-thread Tokio runtime. Edge
 HTTP/1 targets include the native connection driver and per-request host selection.
+
+## GeoIP cache
+
+```sh
+cargo bench --features orbit --bench geoip-cache
+```
+
+Requires `orbit` from `orbitive-cli` on PATH. The benchmark opens a fresh SHM
+fleet for each Orbit case and clears it once its members have dropped.
+
+The workload cycles through 1,024 resident IPv4 keys with two-byte country
+codes and a 30-minute TTL. Moka uses GeoIP's `IpAddr → Arc<str>` representation.
+Orbit uses string keys and arena-backed bytes, without L2. `shm-one` reserves
+two lanes and uses one member to write and read. The peer cases use two members
+in one process with separate cache connections and reserve either 2 or 40 lanes.
+One member writes before timing, and the other consumes those mutations and reads.
+
+`l1` measures metadata lookup and an arena pin. `async` also runs the cache
+mutation poll. `sync` includes the synchronous bridge's per-call Tokio
+`block_on`, and `sync-ip` includes formatting the IP into a string. Misses
+look up one absent key. Database lookup, writes and concurrent mutation
+traffic are outside the timed workload.
 
 ## Decoded dispatch
 
