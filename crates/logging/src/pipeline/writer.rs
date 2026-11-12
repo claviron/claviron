@@ -143,9 +143,9 @@ async fn wait_loop(
     context: &RunContext,
 ) -> registry::Result<()> {
     let ready = fleet
-        .ring_event_fd_parked::<LogFrame>()
+        .ring_event_fd::<LogFrame>()
         .and_then(|event_fd| {
-            // SAFETY: ParkedRingEventFd owns its stable descriptor until drop;
+            // SAFETY: RingEventFd owns its stable descriptor until drop;
             // the writer only drains it and never replaces the inner value.
             unsafe { tokio::io::unix::AsyncFd::register(event_fd) }
                 .map_err(std::io::Error::from)

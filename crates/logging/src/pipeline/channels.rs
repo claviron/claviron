@@ -179,7 +179,7 @@ impl LogChannels {
             return Err(EmitError::RecordCapacity);
         }
         if encoded.len() <= PAYLOAD_CAPACITY {
-            fleet.publish_notified_parked::<LogFrame>(
+            fleet.publish_notified::<LogFrame>(
                 FRAME_KIND_RECORD,
                 0,
                 Bytes::from(encoded),
@@ -203,11 +203,7 @@ impl LogChannels {
                 Bytes::from(frame)
             })
             .collect();
-        fleet.publish_batch_notified_parked::<LogFrame>(
-            FRAME_KIND_PART,
-            0,
-            parts,
-        )?;
+        fleet.publish_batch_notified::<LogFrame>(FRAME_KIND_PART, 0, parts)?;
         Ok(())
     }
 }
