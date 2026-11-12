@@ -5,6 +5,7 @@ use tracing::info;
 
 use crate::FileCacheDriver;
 use crate::drivers::memory::MemoryCacheDriver;
+#[cfg(feature = "orbit")]
 use crate::drivers::orbit::OrbitCacheDriver;
 #[cfg(feature = "redis")]
 use crate::drivers::redis::RedisCacheDriver;
@@ -63,14 +64,21 @@ fn compose(
     cache_registry
         .register_driver(Arc::new(RedisCacheDriver::new(redis.clone())))?;
 
-    let orbit = Arc::new(OrbitCacheDriver::new());
-    cache_registry.register_driver(orbit.clone())?;
+    #[cfg(feature = "orbit")]
+    let orbit = {
+        let orbit = Arc::new(OrbitCacheDriver::new());
+        cache_registry.register_driver(orbit.clone())?;
+        orbit
+    };
 
     let registry = state.registry_ref();
     registry.insert(cache_registry)?.register(provider)?;
 
-    claviron_orbit::cache::register_shm(state)?;
-    registry.register(orbit.service())?;
+    #[cfg(feature = "orbit")]
+    {
+        claviron_orbit::cache::register_shm(state)?;
+        registry.register(orbit.service())?;
+    }
 
     if from_file {
         if cache_path.exists() {

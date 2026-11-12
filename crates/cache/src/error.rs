@@ -55,6 +55,7 @@ impl From<&str> for Error {
     }
 }
 
+#[cfg(feature = "orbit")]
 impl From<claviron_orbit::cache::Error> for Error {
     fn from(value: claviron_orbit::cache::Error) -> Self {
         Self::wrap("Orbit cache operation failed", value)

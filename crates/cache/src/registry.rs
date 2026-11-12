@@ -190,8 +190,12 @@ impl CacheRegistry {
         }
         validate_config(&config)?;
 
-        let current = self.provider.catalog()?;
-        validate_orbit_reload(&current.config, &config)?;
+        #[cfg(feature = "orbit")]
+        let current = {
+            let current = self.provider.catalog()?;
+            validate_orbit_reload(&current.config, &config)?;
+            current
+        };
 
         let drivers =
             self.drivers.read().expect("cache drivers lock poisoned").clone();
@@ -209,6 +213,7 @@ impl CacheRegistry {
                 continue;
             }
 
+            #[cfg(feature = "orbit")]
             if store_config.driver_key() == "orbit"
                 && current.config.stores.get(store_name) == Some(store_config)
             {
@@ -300,6 +305,7 @@ fn validate_built_store(
     Ok(())
 }
 
+#[cfg(feature = "orbit")]
 fn validate_orbit_reload(
     current: &CacheConfig,
     candidate: &CacheConfig,

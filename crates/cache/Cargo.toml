@@ -15,6 +15,7 @@ categories = ["caching", "asynchronous", "concurrency"]
 
 [features]
 axum = ["dep:axum"]
+orbit = ["dep:claviron-orbit"]
 redis = ["dep:redis", "dep:url"]
 
 [lints.rust]
@@ -26,7 +27,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(claviron_redis_tls_rustls_
 [dependencies]
 # ── Internal workspace crates ───────────────────────────────────────────
 claviron-helpers.workspace = true
-claviron-orbit.workspace = true
+claviron-orbit = { workspace = true, optional = true }
 claviron-runtime.workspace = true
 
 # ── Async runtime & primitives ──────────────────────────────────────────

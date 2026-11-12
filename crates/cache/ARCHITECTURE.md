@@ -58,8 +58,8 @@ lives in `claviron-orbit::cache`.
 - `CacheValueRef`: validated borrowed envelope view. Composite values expose
   the crate-owned `ArchivedCacheJson`; adapters can traverse it without first
   allocating an owned `CacheJson` tree.
-- Built-in memory, file, and Orbit stores. The Redis store requires the
-  `redis` feature.
+- Built-in memory and file stores. Fleet and Redis stores require the
+  `orbit` and `redis` features, respectively.
 
 The memory driver adapts `memory::MemoryCache` to the byte store contract with
 per-entry TTL. Rust components such as GeoIP use the same Moka type with

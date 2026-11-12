@@ -9,7 +9,9 @@ use claviron_runtime::AppState;
 use claviron_runtime::congif::{ConfigObserver, Configurable};
 use claviron_runtime::registry::Reloadable;
 
-use super::{CacheRegistry, validate_orbit_reload};
+use super::CacheRegistry;
+#[cfg(feature = "orbit")]
+use super::validate_orbit_reload;
 use crate::config::{CacheConfig, CacheStoreConfig};
 use crate::drivers::memory::MemoryCacheDriver;
 use crate::{CacheDriver, CacheProvider, CacheStore, CacheValue, Result};
@@ -281,6 +283,7 @@ fn failed_reload_build_does_not_replace_the_active_catalog() {
 }
 
 #[test]
+#[cfg(feature = "orbit")]
 fn orbit_store_and_backing_topology_require_restart() {
     let current: CacheConfig = serde_yaml::from_str(
         r#"

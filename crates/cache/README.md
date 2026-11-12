@@ -26,7 +26,7 @@ The built-in drivers are:
 - `memory`: process-local Moka storage with a configured entry limit and
   per-entry TTL.
 - `orbit`: bounded fleet-shared cache state with worker-local L1 values and
-  optional named L2 backing store.
+  optional named L2 backing store. Requires the `orbit` feature.
 - `file`: content-addressed disk storage through `cacache`.
 - `redis`: named Redis connections and a configurable key prefix; opt-in.
 
@@ -136,8 +136,9 @@ Orbit topology is not freely mutable in place: changing an existing store's
 L1 capacity or L2 relationship can require restart. Reload must respect the
 already-booted Orbit service and reject incompatible changes.
 
-The optional features are `redis` for Redis stores and `axum` for HTTP error
-conversion. Redis TLS integration is currently parked
+The optional features are `orbit` for fleet stores, `redis` for Redis stores,
+and `axum` for HTTP error conversion. The Claviron facade enables fleet stores
+when both `cache` and `orbit` are selected. Redis TLS integration is currently parked
 behind an internal compatibility configuration and is not an advertised
 capability of the normal `redis` feature.
 

@@ -72,6 +72,7 @@ legacy-linux = ["dep:claviron-sys", "claviron-sys/legacy-linux"]
 orbit = [
     "claviron-http?/orbit",
     "claviron-auth?/orbit",
+    "claviron-cache?/orbit",
     "dep:claviron-orbit",
     "claviron-files?/orbit",
     "claviron-edge?/orbit",
