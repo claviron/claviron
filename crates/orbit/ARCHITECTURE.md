@@ -116,6 +116,7 @@ not duplicated as new Claviron constants.
 
 | Kind ID | Physical resource | Shape | Owning definition / Claviron binding |
 |---|---|---|---|
+| `180` | Shared Orbit cache current state | Dedicated arena with key index, reader pins and byte slots | Orbitive `SHARED_CACHE_KIND`; named cache stores share the segment, `Reuse` / `Preserve` |
 | `181` | Application-link bodies: per-node lanes of stream slots, two bounded byte rings per slot. One duplex slot per exchange — request body one way, response body the other. Separate from kind `246` because worker coordination wants many narrow lanes and this wants fewer and wider. In the selected destination fleet beside kind `182`, addressed by the same lane index | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-link` / `orbit-stream` with Claviron `LINK_SPEC`; `ORBIT_LINK_LANE_CAPACITY` / `ORBIT_LINK_BUFFER_BYTES`; [application link](../../docs/design/ORBIT_LINK.md) |
 | `182` | Application-link inbox: one lane per link participant, fixed-size frames carrying an exchange header and its stream ticket. Many writers, the lane's owner reads; a full lane refuses rather than overwrites, and the next process to join takes back lanes whose kernel hold it can take (see Cleanup). Blocking consumers wait on the lane word; Tokio consumers arm the lane's named descriptor bell and await the reactor while frames remain in SHM. One directory-watcher slot per lane follows the lanes: a process that holds no lane (a master) is woken by the same claims and releases through its slot, held like a lane by a kernel lock (`orbitive::shm::try_hold_watcher`), and never appears in the directory. An interest entry per lane and per watcher follows: the routing keys (application-event domain topics) that slot's process subscribes to, read by `orbitive::link::LinkEvents` so an application event crosses the link only to a side that wants it. Lives in the selected destination fleet (`/orbit-<fleet_name>-182-<uid>`), with application names advertised inside it | Ring, watcher slots after the lanes (orbit-link layout 9; receiver-owned work claims and member capacity interests) | Orbitive `orbit-link` layout with Claviron `LINK_SPEC`; `ORBIT_LINK_INBOX_CAPACITY` / `ORBIT_LINK_INBOX_PAYLOAD_CAPACITY` / `ORBIT_LINK_FLEET_CAPACITY`; [application link](../../docs/design/ORBIT_LINK.md) |
 | `183` | Retired body namespace addressed by layout-8 inbox `184` | Duplex streams | Replaced by `181`; retained mappings are never reset or unlinked automatically |
@@ -320,6 +321,7 @@ its index row.
 
 | kind | boot | finalize | successor | what stays, and why it is harmless |
 |---|---|---|---|---|
+| `180` shared cache table | Reuse | Preserve | existing arena pin recovery | indexed values, subject to TTL and eviction |
 | `194` cache mutation transport | Reuse | Preserve | — | old frames; cursors start at the head |
 | `184` application-link inbox (selected link fleet, not managed) | `orbitive::link::LinkSegment` creates once and otherwise attaches; a lane is won under its hold by CAS, then cleared and stamped | Claviron releases the lane, then its hold | **the next joiner takes back every lane whose hold it can take**: the kernel let go of it, so its owner is gone | a dead owner's lane and frames until the next process joins the fleet; the lock files beside the segment (removed with it) |
 | `183` application-link bodies (selected link fleet, not managed) | `orbitive::link::LinkBodies` attaches without reset | nothing | join recovery, refused-write recovery, and exact supervisor exit reset only the dead lane/incarnation's sides | unsupervised peers still need reclaim on a refused write or a join |
@@ -491,33 +493,35 @@ composition, which language adapters use.
 
 ## Cache
 
-`CacheService` wraps one `orbitive::cache::Cache` connection per process: its readiness loop, one mutation cursor
-and the logical stores. Each `CacheRuntime` wraps one named store's L1 and optional L2. Mutations are addressed by
-`(store, key)`, and `Reset` is store-scoped. Readiness is installed before the driver's first poll, so a mutation
-committed at startup is not stranded.
+`CacheRuntime` binds each named store to one Orbit tier and optional L2.
+Replicated stores share one `orbitive::cache::Cache` and one readiness listener per process.
+Mutations address `(store, key)` and Reset is store-scoped. The listener installs readiness before its first poll.
+SHM stores share the dedicated keyed arena. A successful write is visible to later peer reads
+without a mutation or listener. New workers can read retained values.
 
 The ring carries arena addresses, revisions and TTL, never bodies. It is coherence traffic, not a snapshot.
 
 ```text
-get:    L1 hit -> return
-        L1 miss -> backing get
+get:    Orbit hit -> return
+        Orbit miss -> optional backing get
 
-put:    validate Orbit bounds -> backing put -> publish Orbit Put
-forget: validate Orbit key    -> backing forget -> publish Orbit Delete
-clear:  backing clear         -> publish Orbit Reset
+put:    validate Orbit bounds -> optional backing put -> Orbit put
+forget: validate Orbit key    -> optional backing forget -> Orbit delete
+clear:  optional backing clear -> Orbit reset
 ```
 
-L2 completes before publication, so a peer that receives a mutation cannot fall through to an older value.
+An L2 read does not populate either Orbit tier. Explicit writes and invalidations complete L2 first.
 
-If mutation history is lost, the missing mutation's store is unknowable because the cursor is shared, so every L1 is
-disabled. It resumes with empty L1s at a publication-coordinated cut when every store has a backing.
+If mutation history is lost, every replicated L1 is disabled because the missing mutation's store is unknowable.
+The listener resumes with empty L1s at a publication-coordinated cut when every replicated store has a backing.
+SHM reads are independent of mutation history.
 
 The listener copies a Put's arena payload into L1. A hit checks TTL and clones the local `Bytes` handle. Delete
 and Reset invalidate entries, while snapshots already returned stay valid. An unavailable payload installs a
 revision tombstone. Direct users without a managed listener call `CacheService::poll_mutations` explicitly.
 
-`open_store` may reopen a registered name with the same L1 capacity, so a catalog can hide a store and bring it back;
-changing capacity or backing identity is a restart-level change. Lock state never shares keys, reset behavior or
+A catalog can hide and reopen a registered store with the same mode, capacity and backing.
+Changing those options requires restart. Lock state never shares keys, reset behavior or
 storage with cache values.
 
 ## Arena

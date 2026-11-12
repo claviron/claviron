@@ -25,8 +25,8 @@ The built-in drivers are:
 
 - `memory`: process-local Moka storage with a configured entry limit and
   per-entry TTL.
-- `orbit`: bounded fleet-shared cache state with worker-local L1 values and
-  optional named L2 backing store. Requires the `orbit` feature.
+- `orbit`: replicated worker-local values or a shared current-state table,
+  with optional named L2 backing. Requires the `orbit` feature.
 - `file`: content-addressed disk storage through `cacache`.
 - `redis`: named Redis connections and a configurable key prefix; opt-in.
 
@@ -47,14 +47,21 @@ stores:
     capacity: 10000
   shared:
     driver: orbit
+    mode: shm
+  replicated:
+    driver: orbit
+    mode: replicated
     l1_capacity: 10000
 ```
 
-Both capacity settings are entry limits per process for their logical store.
-An Orbit cache connection also shares a resident payload
-byte budget across its stores. Transport arena and notification-ring geometry
-are separate Orbit settings. Ring capacity limits consumer lag, not the number of resident
-keys.
+`replicated` is the default mode. `l1_capacity` limits entries per worker and
+applies only to replicated stores. Each worker starts empty and copies peer
+writes into its local cache as it applies mutations.
+
+`shm` reads directly from the fleet's shared index and value slots. Writes
+are visible to subsequent peer reads immediately. Retained values can be
+read after a worker restart. SHM stores share the table's byte and slot limits
+and do not run a mutation listener.
 
 `default` selects a named store. An absent `cache.yaml` or omitted `default`
 selects the built-in `memory` store. An omitted store `driver` also selects
@@ -111,8 +118,8 @@ without expiry. An expiring Orbit write with a
 non-expiring L2 is rejected before either layer is mutated.
 
 An Orbit store's `l2` names another store shared by its workers. Writes validate
-the Orbit operation, update L2, then publish the shared mutation. Deletes and clears also
-apply to L2 before shared publication. A read satisfied by L2 is returned
+the Orbit operation, update L2, then update the selected Orbit mode. Deletes and clears also apply to L2
+before the Orbit tier. A read satisfied by L2 is returned
 directly, without promotion: the raw store contract supplies neither a revision nor a
 remaining TTL that would make promotion safe.
 

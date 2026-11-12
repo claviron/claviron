@@ -90,6 +90,7 @@ stores:
     prefix: "claviron:"
   fleet:
     driver: orbit
+    mode: replicated
     l1_capacity: 10000
     l2: redis
 ```
@@ -105,11 +106,15 @@ connections:
     max_delay: 5m
 ```
 
-`l1_capacity` is the number of metadata entries retained by each process. It is
-independent of mutation history and the existing shared arena's byte/index budget. `l2` optionally names
-one non-Orbit store in the same configuration. Multiple Orbit stores may be
-configured: they have independent local L1/L2 state but share one physical
-mutation ring and existing fleet arena and one inbound listener per process.
+`mode` selects the Orbit tier. `replicated` is the default and
+`l1_capacity` limits the resident entries in each worker. Replicated stores
+share one mutation ring, payload arena, and listener per process. `shm` stores
+use one separate keyed arena per fleet. They have no per-worker index or
+mutation listener. Mode changes require restart.
+
+`l2` optionally names a non-Orbit backing store. Both modes consult it on
+miss and return the backing result without a fill. Explicit mutations retain
+the existing L2-first ordering.
 
 Relative paths remain process-cwd relative. They are not resolved relative to
 the YAML file.

@@ -6,7 +6,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use claviron_orbit::cache::{
-    CacheBacking, CacheRuntime, CacheService, DEFAULT_L1_CAPACITY,
+    CacheBacking, CacheMode, CacheRuntime, CacheService, DEFAULT_L1_CAPACITY,
 };
 use serde::Deserialize;
 
@@ -110,14 +110,49 @@ impl OrbitCacheStore {
         l1_capacity: usize,
         l2_name: Option<String>,
     ) -> Result<Self> {
+        Self::with_config(
+            store_name,
+            service,
+            OrbitCacheStoreConfig {
+                mode: OrbitCacheMode::Replicated,
+                l1_capacity: Some(l1_capacity),
+                l2: l2_name,
+            },
+        )
+    }
+
+    fn with_config(
+        store_name: impl Into<String>,
+        service: Arc<CacheService>,
+        config: OrbitCacheStoreConfig,
+    ) -> Result<Self> {
         let store_name = store_name.into();
-        let l1_capacity = NonZeroUsize::new(l1_capacity).ok_or_else(|| {
-            Error::Rejected(
-                "orbit cache l1_capacity must be greater than zero".to_string(),
-            )
-        })?;
+        let mode = match config.mode {
+            OrbitCacheMode::Replicated => {
+                let capacity =
+                    config.l1_capacity.unwrap_or(DEFAULT_L1_CAPACITY);
+                let l1_capacity =
+                    NonZeroUsize::new(capacity).ok_or_else(|| {
+                        Error::Rejected(
+                            "orbit cache l1_capacity must be greater than zero"
+                                .to_string(),
+                        )
+                    })?;
+                CacheMode::Replicated { l1_capacity }
+            }
+            OrbitCacheMode::Shm => {
+                if config.l1_capacity.is_some() {
+                    return Err(Error::Rejected(
+                        "orbit cache mode shm does not accept l1_capacity"
+                            .to_string(),
+                    ));
+                }
+                CacheMode::Shm
+            }
+        };
+        let l2_name = config.l2;
         let cache = service
-            .open_store(store_name.clone(), l1_capacity)
+            .open_store_with_mode(store_name.clone(), mode)
             .map_err(Error::from)?;
         if l2_name.is_none() && cache.has_backing() {
             return Err(Error::Rejected(format!(
@@ -261,11 +296,10 @@ impl CacheDriver for OrbitCacheDriver {
         store: &CacheStoreConfig,
     ) -> Result<Arc<dyn CacheStore>> {
         let config: OrbitCacheStoreConfig = store.deserialize_options()?;
-        Ok(Arc::new(OrbitCacheStore::new(
+        Ok(Arc::new(OrbitCacheStore::with_config(
             store_name,
             self.service.clone(),
-            config.l1_capacity,
-            config.l2,
+            config,
         )?))
     }
 
@@ -307,17 +341,22 @@ impl CacheDriver for OrbitCacheDriver {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum OrbitCacheMode {
+    #[default]
+    Replicated,
+    Shm,
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OrbitCacheStoreConfig {
-    #[serde(default = "default_l1_capacity")]
-    pub l1_capacity: usize,
+    #[serde(default)]
+    pub mode: OrbitCacheMode,
+    pub l1_capacity: Option<usize>,
     #[serde(default)]
     pub l2: Option<String>,
-}
-
-fn default_l1_capacity() -> usize {
-    DEFAULT_L1_CAPACITY
 }
 
 #[cfg(test)]

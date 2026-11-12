@@ -7,11 +7,14 @@
 
 mod runtime;
 
+pub(crate) use orbitive::cache::SHARED_CACHE_KIND;
 pub use orbitive::cache::{CachePoll, CacheRead, DEFAULT_L1_CAPACITY};
-pub use runtime::{CacheBacking, CacheRuntime, CacheService, Error, Result};
+pub use runtime::{
+    CacheBacking, CacheMode, CacheRuntime, CacheService, Error, Result,
+};
 
-/// Register the existing arena and managed mutation SHM companion before inserting a
-/// [`CacheService`]. Repeated calls are idempotent.
+/// Register the resources used by configured Orbit stores. Repeated calls
+/// are idempotent.
 pub fn register_shm(
     state: &claviron_runtime::AppState
 ) -> claviron_runtime::registry::Result<()> {

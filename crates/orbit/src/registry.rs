@@ -5,8 +5,8 @@ use orbitive::events::DefaultEventLayout;
 
 use crate::{
     ApplicationEventLayout, ApplicationEventRegistry, ArenaBootPolicy,
-    ArenaProvider, CounterProvider, FleetEventRegistry, FleetProvider,
-    InvocationProvider, StreamsProvider,
+    CounterProvider, FleetEventRegistry, FleetProvider, InvocationProvider,
+    StreamsProvider,
 };
 
 /// Register the fleet and its common typed-cell infrastructure.
@@ -34,9 +34,7 @@ pub fn register_arena_with_policy(
     policy: ArenaBootPolicy,
 ) -> claviron_runtime::Result<()> {
     register_fleet(state)?;
-    if state.registry_ref().resolve::<ArenaProvider>().is_none() {
-        crate::arena::register(state, policy)?;
-    }
+    crate::arena::register(state, policy)?;
     Ok(())
 }
 

@@ -12,7 +12,7 @@ pub use bootstrap::{register, register_with_config};
 pub use drivers::file::{FileCacheDriver, FileCacheStore};
 #[cfg(feature = "orbit")]
 pub use drivers::orbit::{
-    OrbitCacheDriver, OrbitCacheStore, OrbitCacheStoreConfig,
+    OrbitCacheDriver, OrbitCacheMode, OrbitCacheStore, OrbitCacheStoreConfig,
 };
 #[cfg(feature = "redis")]
 pub use drivers::redis::RedisConfig;

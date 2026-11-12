@@ -13,10 +13,12 @@ use claviron_runtime::registry::{
 };
 use claviron_runtime::{AppState, RunContext};
 use orbitive::cache::{
-    Cache, CacheLayout, CachePoll, CacheRead, DefaultCacheLayout, Store,
+    Cache, CacheLayout, CachePoll, CacheRead, DefaultCacheLayout,
+    SHARED_CACHE_KIND, SharedCache, SharedStore, Store,
 };
 use orbitive::{Fleet, OrbitTyped, RingSpec};
 use tokio::runtime::Handle;
+use tokio::sync::Notify;
 use tracing::warn;
 
 use crate::shm::{
@@ -70,13 +72,23 @@ impl ManagedShmResources for CacheShmResources {
         Some(priority::EARLY)
     }
 
+    fn enabled(
+        &self,
+        state: &AppState,
+    ) -> bool {
+        state
+            .registry_ref()
+            .resolve::<CacheService>()
+            .is_some_and(|cache| cache.has_replicated_stores())
+    }
+
     fn shm_resources(&self) -> Vec<&dyn ManagedShmResource> {
         vec![&self.mutation]
     }
 }
 
 pub(crate) fn register_shm(state: &AppState) -> registry::Result<()> {
-    crate::arena::register(state, crate::arena::ArenaBootPolicy::Preserve)?;
+    crate::arena::register_cache_arenas(state)?;
     shm::register(state, CacheShmResources::new())
 }
 
@@ -177,15 +189,100 @@ pub trait CacheBacking: Send + Sync + 'static {
     async fn clear(&self) -> std::result::Result<(), String>;
 }
 
+/// Storage strategy for one logical Orbit store.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CacheMode {
+    Replicated { l1_capacity: NonZeroUsize },
+    Shm,
+}
+
+enum Primitive {
+    Replicated(Store<DefaultCacheLayout>),
+    Shm(SharedStore),
+}
+
+impl Primitive {
+    fn read(
+        &self,
+        key: &[u8],
+    ) -> CacheRead {
+        match self {
+            Self::Replicated(store) => store.read(key),
+            Self::Shm(store) => store.read(key),
+        }
+    }
+
+    fn validate_put(
+        &self,
+        key: &[u8],
+        value: &[u8],
+    ) -> Result<()> {
+        match self {
+            Self::Replicated(store) => store.validate_put(key, value)?,
+            Self::Shm(store) => store.validate_put(key, value)?,
+        }
+        Ok(())
+    }
+
+    fn validate_key(
+        &self,
+        key: &[u8],
+    ) -> Result<()> {
+        match self {
+            Self::Replicated(store) => store.validate_key(key)?,
+            Self::Shm(store) => store.validate_key(key)?,
+        }
+        Ok(())
+    }
+
+    fn put(
+        &self,
+        key: &[u8],
+        value: &[u8],
+        ttl: Option<Duration>,
+    ) -> Result<()> {
+        match self {
+            Self::Replicated(store) => {
+                store.put(key, value, ttl)?;
+            }
+            Self::Shm(store) => store.put(key, value, ttl)?,
+        }
+        Ok(())
+    }
+
+    fn delete(
+        &self,
+        key: &[u8],
+    ) -> Result<()> {
+        match self {
+            Self::Replicated(store) => {
+                store.delete(key)?;
+            }
+            Self::Shm(store) => store.delete(key)?,
+        }
+        Ok(())
+    }
+
+    fn reset(&self) -> Result<()> {
+        match self {
+            Self::Replicated(store) => {
+                store.reset()?;
+            }
+            Self::Shm(store) => store.reset()?,
+        }
+        Ok(())
+    }
+}
+
 struct StoreState {
     name: String,
-    l1_capacity: NonZeroUsize,
-    primitive: OnceLock<Store<DefaultCacheLayout>>,
+    mode: CacheMode,
+    primitive: OnceLock<Primitive>,
     backing: RwLock<Option<Arc<dyn CacheBacking>>>,
 }
 
 impl StoreState {
-    fn primitive(&self) -> Result<&Store<DefaultCacheLayout>> {
+    fn primitive(&self) -> Result<&Primitive> {
         self.primitive.get().ok_or(Error::NotBooted)
     }
 
@@ -194,12 +291,14 @@ impl StoreState {
     }
 }
 
-/// Lifecycle owner for one physical Orbit cache connection.
+/// Lifecycle owner for the fleet cache stores used by this process.
 ///
-/// The service owns one mutation cursor, one notification listener, and the
-/// registry of logical stores. `claviron-cache` registers named stores before
-/// boot; this service opens their independent L1s after `FleetProvider` joins.
+/// Replicated stores share one cursor and listener. SHM stores share a
+/// separate keyed arena. Each connection opens only when a store needs it.
 pub struct CacheService {
+    fleet: OnceLock<Arc<Fleet>>,
+    shared: OnceLock<SharedCache>,
+    replicated_ready: Notify,
     cache: OnceLock<Cache<DefaultCacheLayout>>,
     stores: RwLock<HashMap<String, Arc<StoreState>>>,
     runtime: OnceLock<Handle>,
@@ -208,6 +307,9 @@ pub struct CacheService {
 impl CacheService {
     pub fn new() -> Self {
         Self {
+            fleet: OnceLock::new(),
+            shared: OnceLock::new(),
+            replicated_ready: Notify::new(),
             cache: OnceLock::new(),
             stores: RwLock::new(HashMap::new()),
             runtime: OnceLock::new(),
@@ -230,7 +332,11 @@ impl CacheService {
         name: impl Into<String>,
         l1_capacity: NonZeroUsize,
     ) -> Result<CacheRuntime> {
-        self.open_store_inner(name.into(), l1_capacity, false)
+        self.open_store_inner(
+            name.into(),
+            CacheMode::Replicated { l1_capacity },
+            false,
+        )
     }
 
     /// Open a logical store, reusing a prior registration with the same
@@ -241,13 +347,21 @@ impl CacheService {
         name: impl Into<String>,
         l1_capacity: NonZeroUsize,
     ) -> Result<CacheRuntime> {
-        self.open_store_inner(name.into(), l1_capacity, true)
+        self.open_store_with_mode(name, CacheMode::Replicated { l1_capacity })
+    }
+
+    pub fn open_store_with_mode(
+        self: &Arc<Self>,
+        name: impl Into<String>,
+        mode: CacheMode,
+    ) -> Result<CacheRuntime> {
+        self.open_store_inner(name.into(), mode, true)
     }
 
     fn open_store_inner(
         self: &Arc<Self>,
         name: String,
-        l1_capacity: NonZeroUsize,
+        mode: CacheMode,
         reuse: bool,
     ) -> Result<CacheRuntime> {
         let mut stores = self
@@ -260,10 +374,10 @@ impl CacheService {
                     "Orbit cache store '{name}' is already registered"
                 )));
             }
-            if state.l1_capacity != l1_capacity {
+            if state.mode != mode {
                 return Err(Error::Rejected(format!(
-                    "Orbit cache store '{name}' is already registered with L1 capacity {}, requested {}",
-                    state.l1_capacity, l1_capacity
+                    "Orbit cache store '{name}' already uses {:?}, requested {mode:?}; restart is required",
+                    state.mode
                 )));
             }
             return Ok(CacheRuntime {
@@ -274,26 +388,44 @@ impl CacheService {
 
         let state = Arc::new(StoreState {
             name: name.clone(),
-            l1_capacity,
+            mode,
             primitive: OnceLock::new(),
             backing: RwLock::new(None),
         });
 
-        if let Some(cache) = self.cache.get() {
-            let primitive = cache.open_store(name.as_bytes(), l1_capacity)?;
-            state.primitive.set(primitive).map_err(|_| {
-                Error::Rejected(format!(
-                    "Orbit cache store '{name}' is initialized"
-                ))
-            })?;
+        let start_listener = self.cache.get().is_none();
+        if let Some(fleet) = self.fleet.get() {
+            self.initialize_store(&state, fleet)?;
         }
         stores.insert(name, state.clone());
+        if start_listener && self.cache.get().is_some() {
+            self.replicated_ready.notify_one();
+        }
 
         Ok(CacheRuntime { service: self.clone(), state })
     }
 
     pub fn is_booted(&self) -> bool {
-        self.cache.get().is_some()
+        self.fleet.get().is_some()
+    }
+
+    pub(crate) fn has_replicated_stores(&self) -> bool {
+        self.has_mode(|mode| matches!(mode, CacheMode::Replicated { .. }))
+    }
+
+    pub(crate) fn has_shm_stores(&self) -> bool {
+        self.has_mode(|mode| mode == CacheMode::Shm)
+    }
+
+    fn has_mode(
+        &self,
+        matches: impl Fn(CacheMode) -> bool,
+    ) -> bool {
+        self.stores
+            .read()
+            .expect("Orbit cache store registry lock poisoned")
+            .values()
+            .any(|store| matches(store.mode))
     }
 
     pub fn has_stores(&self) -> bool {
@@ -312,25 +444,53 @@ impl CacheService {
             .stores
             .write()
             .expect("Orbit cache store registry lock poisoned");
-        if self.cache.get().is_some() {
+        if self.fleet.get().is_some() {
             return Ok(());
         }
-
-        let cache = Cache::new(fleet)?;
         for state in stores.values() {
-            let primitive =
-                cache.open_store(state.name.as_bytes(), state.l1_capacity)?;
-            state.primitive.set(primitive).map_err(|_| {
-                Error::Rejected(format!(
-                    "Orbit cache store '{}' is initialized",
-                    state.name
-                ))
-            })?;
+            if state.primitive.get().is_none() {
+                self.initialize_store(state, &fleet)?;
+            }
         }
-        self.cache.set(cache).map_err(|_| {
-            Error::Rejected("Orbit cache connection is initialized".to_string())
-        })?;
+        let _ = self.fleet.set(fleet);
         Ok(())
+    }
+
+    // Both boot and late registration hold the store registry write lock.
+    fn initialize_store(
+        &self,
+        state: &StoreState,
+        fleet: &Arc<Fleet>,
+    ) -> Result<()> {
+        let name = state.name.as_bytes();
+        let primitive = match state.mode {
+            CacheMode::Replicated { l1_capacity } => {
+                let cache = match self.cache.get() {
+                    Some(cache) => cache,
+                    None => {
+                        let cache = Cache::new(fleet.clone())?;
+                        self.cache.get_or_init(|| cache)
+                    }
+                };
+                Primitive::Replicated(cache.open_store(name, l1_capacity)?)
+            }
+            CacheMode::Shm => {
+                let cache = match self.shared.get() {
+                    Some(cache) => cache,
+                    None => {
+                        let cache = SharedCache::new(fleet.clone())?;
+                        self.shared.get_or_init(|| cache)
+                    }
+                };
+                Primitive::Shm(cache.open_store(name)?)
+            }
+        };
+        state.primitive.set(primitive).map_err(|_| {
+            Error::Rejected(format!(
+                "Orbit cache store '{}' is initialized",
+                state.name
+            ))
+        })
     }
 
     fn cache(&self) -> Result<&Cache<DefaultCacheLayout>> {
@@ -462,7 +622,13 @@ impl CacheService {
     /// Apply pending mutations. Direct users without the managed runnable
     /// call this from their own driver. Reads never advance this cursor.
     pub fn poll_mutations(&self) -> Result<CachePoll> {
-        let cache = self.cache()?;
+        let Some(cache) = self.cache.get() else {
+            return if self.is_booted() {
+                Ok(CachePoll::default())
+            } else {
+                Err(Error::NotBooted)
+            };
+        };
         let poll = cache.poll();
         if poll.loss.total() > 0 || poll.malformed > 0 {
             warn!(
@@ -490,7 +656,10 @@ impl CacheService {
                 .read()
                 .expect("Orbit cache store registry lock poisoned")
                 .values()
-                .filter(|state| state.backing().is_none())
+                .filter(|state| {
+                    matches!(state.mode, CacheMode::Replicated { .. })
+                        && state.backing().is_none()
+                })
                 .map(|state| state.name.clone())
                 .collect::<Vec<_>>();
             if !missing.is_empty() {
@@ -532,7 +701,10 @@ impl Component<AppState> for CacheService {
     }
 
     fn order(&self) -> ComponentOrder {
-        ComponentOrder::new().after::<ManagedShmProvider<CacheShmResources>>()
+        ComponentOrder::new()
+            .after::<ManagedShmProvider<CacheShmResources>>()
+            .after::<crate::arena::ArenaProvider>()
+            .after::<ManagedShmProvider<crate::arena::ArenaResources<SHARED_CACHE_KIND>>>()
     }
 
     fn as_runnable(
@@ -578,10 +750,11 @@ impl Runnable<AppState, (Option<Arc<FleetProvider>>,)> for CacheService {
         _state: AppState,
         context: RunContext,
     ) -> registry::Result<()> {
-        if self.cache.get().is_none() {
-            // Nothing to drive without a connection; see `boot`.
-            context.cancelled().await;
-            return Ok(());
+        while self.cache.get().is_none() {
+            tokio::select! {
+                _ = context.cancelled() => return Ok(()),
+                _ = self.replicated_ready.notified() => {}
+            }
         }
         self.drive(context).await
     }
@@ -589,9 +762,7 @@ impl Runnable<AppState, (Option<Arc<FleetProvider>>,)> for CacheService {
 
 /// One logical Orbit cache store and its optional L2 policy.
 ///
-/// Clones share only this store's bounded L1/backing state while the parent
-/// [`CacheService`] shares the physical connection and inbound driver with all
-/// sibling stores.
+/// Clones share this store's selected Orbit tier and backing configuration.
 #[derive(Clone)]
 pub struct CacheRuntime {
     service: Arc<CacheService>,
@@ -634,7 +805,7 @@ impl CacheRuntime {
         self.state.backing().is_none_or(|backing| backing.supports_ttl())
     }
 
-    /// Inspect only this logical store's process-local L1.
+    /// Inspect the configured Orbit tier directly, without consulting L2.
     pub fn read_local(
         &self,
         key: &[u8],
@@ -646,7 +817,7 @@ impl CacheRuntime {
         &self,
         key: &str,
     ) -> Result<Option<Bytes>> {
-        if let Some(value) = self.local_get(key)? {
+        if let Some(value) = self.orbit_get(key)? {
             return Ok(Some(value));
         }
         let Some(backing) = self.state.backing() else {
@@ -659,7 +830,7 @@ impl CacheRuntime {
 
         // A concurrent mutation may have arrived while the backing read was in
         // flight. Prefer that newer local value over the backing result.
-        if let Some(local) = self.local_get(key)? {
+        if let Some(local) = self.orbit_get(key)? {
             return Ok(Some(local));
         }
         Ok(value)
@@ -747,7 +918,7 @@ impl CacheRuntime {
         self.service.runtime_handle()?.block_on(self.clear())
     }
 
-    fn local_get(
+    fn orbit_get(
         &self,
         key: &str,
     ) -> Result<Option<Bytes>> {

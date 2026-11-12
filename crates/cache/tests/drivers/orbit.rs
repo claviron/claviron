@@ -179,3 +179,35 @@ async fn reset_clears_l2_before_publishing_the_reset() {
         CacheRead::Miss
     );
 }
+
+#[tokio::test]
+async fn shm_store_reads_before_l2_and_keeps_existing_miss_behavior() {
+    let fleet = Arc::new(Fleet::join("cache_shm_l2", 1).expect("fleet"));
+    let service = CacheService::from_fleet(fleet).expect("cache service");
+    let driver = Arc::new(OrbitCacheDriver { service: service.clone() });
+    let config =
+        serde_yaml::from_str("driver: orbit\nmode: shm\nl2: saved").unwrap();
+    let store = driver.clone().create_store("shared", &config).unwrap();
+    let orbit = store.as_any().downcast_ref::<OrbitCacheStore>().unwrap();
+    let l2 = Arc::new(MemoryStore::new());
+    orbit.attach_l2(l2.clone()).unwrap();
+
+    orbit.cache().put("hot", b"orbit", None).await.unwrap();
+    l2.put("hot", b"backing", None).await.unwrap();
+    l2.put("cold", b"backing", None).await.unwrap();
+    assert_eq!(
+        store.get("hot").await.unwrap(),
+        Some(Bytes::from_static(b"orbit"))
+    );
+    assert_eq!(
+        store.get("cold").await.unwrap(),
+        Some(Bytes::from_static(b"backing"))
+    );
+    assert_eq!(orbit.cache().read_local(b"cold").unwrap(), CacheRead::Miss);
+    assert!(service.poll_mutations().unwrap().is_empty());
+
+    let invalid =
+        serde_yaml::from_str("driver: orbit\nmode: shm\nl1_capacity: 5")
+            .unwrap();
+    assert!(driver.create_store("invalid", &invalid).is_err());
+}
