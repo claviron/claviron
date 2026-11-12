@@ -168,8 +168,12 @@ async fn attach_preserves_birth_owner_and_unknown_legacy_birth() {
         process: ProcessIdentity::new(123, 99),
     };
     record.spawned_by = Some(birth.into());
-    write_atomic(&path, serde_yaml::to_string(&record).unwrap().as_bytes())
-        .unwrap();
+    write_atomic(
+        &path,
+        std::process::id(),
+        serde_yaml::to_string(&record).unwrap().as_bytes(),
+    )
+    .unwrap();
     controller.publish(process, true, TaskProcessPhase::Stopping).unwrap();
     let status = &inspect(&state).unwrap().processes[0];
     assert_eq!(status.spawned_by, Some(birth));

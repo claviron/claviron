@@ -382,6 +382,7 @@ fn cut(
 /// proof that a call reached Rust and came back.
 pub struct Ping {
     worker: Option<u8>,
+    pid: u32,
 }
 
 #[derive(serde::Deserialize)]
@@ -409,7 +410,7 @@ impl InvocationHandler for Ping {
     ) -> Result<PingResponse, String> {
         Ok(PingResponse {
             worker: self.worker,
-            pid: std::process::id(),
+            pid: self.pid,
             at_ms: OrbitEpoch::now().as_unix_ms(),
             echo: request.echo,
         })
@@ -420,7 +421,7 @@ impl InvocationHandler for Ping {
 /// `InvocationRouter` and `register` theirs at boot.
 pub fn register(state: &AppState) -> registry::Result<()> {
     let router = InvocationRouter::new();
-    router.register(Ping { worker: state.worker_id() })?;
+    router.register(Ping { worker: state.worker_id(), pid: state.pid() })?;
     state.registry_ref().insert(Arc::new(router)).map(|_| ())
 }
 

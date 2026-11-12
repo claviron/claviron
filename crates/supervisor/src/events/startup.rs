@@ -119,7 +119,7 @@ pub(crate) fn install_events(state: &AppState) -> Result<()> {
                         me.mark_started();
                         state.events().emit(WorkerStarted {
                             worker_id,
-                            pid: std::process::id(),
+                            pid: state.pid(),
                         });
                     }
                     Ok(())

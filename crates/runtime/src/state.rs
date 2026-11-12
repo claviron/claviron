@@ -393,6 +393,7 @@ struct Inner {
     /// The registry owns the same dispatcher Arc as its single runnable.
     /// See `crate::events` for the design rationale.
     events: Arc<EventDispatcher>,
+    pid: u32,
     control_pid: u32,
     reload_count: AtomicUsize,
 }
@@ -589,7 +590,8 @@ impl State {
             !fleet_name.contains('/') && !fleet_name.contains('\0'),
             "fleet name must not contain '/' or a NUL byte"
         );
-        let control_pid = control_pid_for_run_mode(run_mode);
+        let pid = std::process::id();
+        let control_pid = control_pid_for_run_mode(run_mode, pid);
         let events = Arc::new(EventDispatcher::default());
         let registry = Arc::new(Registry::<State>::default());
         registry
@@ -623,6 +625,7 @@ impl State {
             config_environment,
             hostname,
             events,
+            pid,
             control_pid,
             reload_count: AtomicUsize::new(0),
         }))
@@ -816,6 +819,11 @@ impl State {
         self.0.fleet_node_id
     }
 
+    /// PID of the process that initialized this state.
+    pub fn pid(&self) -> u32 {
+        self.0.pid
+    }
+
     /// PID to use for process-family control operations such as reload and shutdown.
     ///
     /// Master and standalone processes use their own PID. Workers use their
@@ -938,9 +946,12 @@ impl State {
     }
 }
 
-fn control_pid_for_run_mode(run_mode: RunMode) -> u32 {
+fn control_pid_for_run_mode(
+    run_mode: RunMode,
+    pid: u32,
+) -> u32 {
     match run_mode {
-        RunMode::Master | RunMode::Standalone => std::process::id(),
+        RunMode::Master | RunMode::Standalone => pid,
         RunMode::Worker(_) => {
             let parent = unsafe { libc::getppid() };
             u32::try_from(parent).expect("parent pid should be non-negative")

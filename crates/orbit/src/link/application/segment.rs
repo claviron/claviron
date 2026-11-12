@@ -486,10 +486,12 @@ impl ApplicationSegment {
 
     /// Publish one complete application snapshot batch from this runner lane
     /// to connected edge lanes, or to the one edge lane in `to` that asked for
-    /// it. The lane stays claimed when an app is stopped.
+    /// it. Pass the publishing process's PID captured by runtime state. The
+    /// lane stays claimed when an app is stopped.
     pub fn publish_application_state(
         &self,
         application: &str,
+        pid: u32,
         rows: &[Vec<u8>],
         to: Option<usize>,
     ) -> Result<usize> {
@@ -501,7 +503,7 @@ impl ApplicationSegment {
             u16::try_from(rows.len()).map_err(|_| Error::FrameTooLarge)?;
         let inbox = self.inbox();
         let own_lane = (0..inbox.lanes()).find(|&lane| {
-            inbox.owner(lane).ok().flatten() == Some(std::process::id())
+            inbox.owner(lane).ok().flatten() == Some(pid)
                 && inbox.service(lane).ok().flatten().as_deref() == Some(application)
                 && matches!(inbox.role(lane).ok().flatten(), Some(role) if role != super::EDGE_RUNTIME)
                 && inbox.consumers(lane).ok().is_some_and(|count| count > 0)

@@ -261,7 +261,7 @@ impl Coordinator {
             owner: LockOwner::from(format!(
                 "{}:pid{}:{}:{}",
                 state.run_mode().as_process_label(),
-                std::process::id(),
+                state.pid(),
                 request.name,
                 request.generation
             )),

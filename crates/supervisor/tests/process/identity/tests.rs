@@ -10,13 +10,13 @@ fn generation_counts_master_boots_in_the_shared_ring() {
         Fleet::join_as("master-generation-test", 3, NodeId::ZERO).unwrap();
     assert_eq!(last_master_identity(&fleet), None);
 
-    let first = establish_master_identity(&fleet).unwrap();
+    let first = establish_master_identity(&fleet, std::process::id()).unwrap();
     assert_eq!(first.generation(), 1);
     assert_eq!(first.process().pid(), std::process::id());
     assert!(first.process().is_alive());
     assert_eq!(last_master_identity(&fleet), Some(first));
 
-    let second = establish_master_identity(&fleet).unwrap();
+    let second = establish_master_identity(&fleet, std::process::id()).unwrap();
     assert_eq!(second.generation(), 2);
     assert_eq!(second.process(), first.process());
     assert_eq!(last_master_identity(&fleet), Some(second));

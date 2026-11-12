@@ -42,8 +42,11 @@ impl ProcessOwner {
         }
     }
 
-    fn current(runtime: &TaskRuntime) -> io::Result<Self> {
-        let process = identity(std::process::id())
+    fn current(
+        state: &AppState,
+        runtime: &TaskRuntime,
+    ) -> io::Result<Self> {
+        let process = identity(state.pid())
             .ok_or_else(|| invalid("controller identity unavailable"))?;
         if runtime.process_id != process.pid() {
             return Err(invalid(
@@ -230,7 +233,7 @@ impl Controller {
         state: &AppState,
         runtime: &TaskRuntime,
     ) -> io::Result<Self> {
-        let owner = ProcessOwner::current(runtime)?;
+        let owner = ProcessOwner::current(state, runtime)?;
         let path = instance::instance_path(state, runtime)?;
         let lock =
             instance::open_instance_file(&path.with_extension("controller"))?;
@@ -305,6 +308,7 @@ impl Controller {
         };
         write_atomic(
             &path,
+            self.owner.process().pid(),
             serde_yaml::to_string(&record).map_err(invalid)?.as_bytes(),
         )
     }
@@ -525,14 +529,14 @@ fn read_presence(path: &Path) -> io::Result<Record> {
 
 fn write_atomic(
     path: &Path,
+    pid: u32,
     bytes: &[u8],
 ) -> io::Result<()> {
     if bytes.len() as u64 > MAX_RECORD_BYTES {
         return Err(invalid("task presence record too large"));
     }
     let seq = NEXT_WRITE.fetch_add(1, Ordering::Relaxed);
-    let temporary = path
-        .with_extension(format!("presence-{}-{seq}.tmp", std::process::id()));
+    let temporary = path.with_extension(format!("presence-{pid}-{seq}.tmp"));
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)

@@ -656,7 +656,7 @@ where
 
         debug!(
             role = %run_mode.as_process_label(),
-            pid = std::process::id(),
+            pid = state.pid(),
             instance = state.name(),
             fleet = state.fleet_name(),
             config_dir = %state.config_dir().display(),

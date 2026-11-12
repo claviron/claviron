@@ -271,7 +271,7 @@ pub fn publish_application_snapshot(
         return Ok(());
     };
     segment
-        .publish_application_state(link_name, &rows, to)
+        .publish_application_state(link_name, state.pid(), &rows, to)
         .map_err(|error| registry::Error::msg(error.to_string()))?;
     Ok(())
 }

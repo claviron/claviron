@@ -270,7 +270,12 @@ fn a_status_answer_reaches_only_the_edge_that_asked() {
     let asked = edges[1];
     assert_eq!(
         held.0
-            .publish_application_state("catalog", &rows, Some(asked))
+            .publish_application_state(
+                "catalog",
+                std::process::id(),
+                &rows,
+                Some(asked)
+            )
             .unwrap(),
         1
     );
@@ -281,7 +286,14 @@ fn a_status_answer_reaches_only_the_edge_that_asked() {
     );
 
     assert_eq!(
-        held.0.publish_application_state("catalog", &rows, None).unwrap(),
+        held.0
+            .publish_application_state(
+                "catalog",
+                std::process::id(),
+                &rows,
+                None
+            )
+            .unwrap(),
         3
     );
     assert_eq!(

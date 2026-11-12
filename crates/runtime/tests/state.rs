@@ -38,6 +38,34 @@ fn only_master_can_change_desired_worker_count_within_capacity() {
 }
 
 #[test]
+fn state_captures_own_pid_separately_from_the_control_target() {
+    let pid = std::process::id();
+    // SAFETY: getppid takes no arguments.
+    let parent = unsafe { libc::getppid() } as u32;
+    for (mode, control) in [
+        (RunMode::Master, pid),
+        (RunMode::Standalone, pid),
+        (RunMode::Worker(WorkerId::new(1)), parent),
+    ] {
+        let node = FleetNodeId::new(u16::from(mode.worker_id().unwrap_or(0)));
+        let state = State::initialize(
+            mode,
+            node,
+            if mode == RunMode::Standalone {
+                WorkerCount::ZERO
+            } else {
+                WorkerCount::new(1)
+            },
+            FleetCapacity::new(2).unwrap(),
+            Some("runtime-test".into()),
+            ".",
+        );
+        assert_eq!(state.pid(), pid);
+        assert_eq!(state.control_pid(), control);
+    }
+}
+
+#[test]
 fn explicit_boot_hostname_is_preserved() {
     let state = State::initialize_with_hostname(
         RunMode::Standalone,

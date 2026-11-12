@@ -22,6 +22,7 @@ pub(crate) async fn capture_metrics(
         .min(usize::from(u8::MAX)) as u8;
 
     crate::metrics::ProcessMetricsSnapshot::master(
+        state.pid(),
         control.metrics_started_at,
         control.worker_restarts_total.load(Ordering::Relaxed),
         control.worker_rotations_total.load(Ordering::Relaxed),

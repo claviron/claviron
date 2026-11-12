@@ -202,7 +202,7 @@ async fn stats(state: Option<Extension<AppState>>) -> axum::response::Response {
         application: state.name(),
         runtime: "rust",
         fleet: state.fleet_name(),
-        pid: std::process::id(),
+        pid: state.pid(),
         worker: state.worker_id(),
     });
     (

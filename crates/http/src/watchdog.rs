@@ -278,7 +278,7 @@ impl Runnable<AppState> for HttpWatchdogProvider {
             return Ok(());
         };
 
-        let pid = std::process::id();
+        let pid = state.pid();
         let worker_id = state.worker_id();
 
         debug!(

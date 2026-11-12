@@ -122,6 +122,7 @@ construction; `initialize_with_environment_in_fleet` retains its store/handle.
 variable or hostname. Configless constructors keep a literal inherited snapshot
 with selection `production` and do not discover files.
 
+`AppState::pid()` is the current process PID captured at state initialization.
 `AppState::control_pid()` is process-family control metadata:
 master and standalone processes report their own PID, while workers
 report their parent PID captured at state initialization. It identifies the

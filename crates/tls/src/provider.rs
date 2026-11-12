@@ -284,6 +284,7 @@ pub async fn build_certificates(
             snapshot.cert_map,
             default_cert,
             snapshot.owners,
+            Some(state.pid()),
         )),
         authority,
     }))

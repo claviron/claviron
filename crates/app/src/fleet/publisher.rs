@@ -166,6 +166,7 @@ impl Runnable<AppState, (Arc<ApplicationManager>, Arc<FleetProvider>)>
                             if let Err(error) = segment
                                 .publish_application_state(
                                     state.name(),
+                                    state.pid(),
                                     &rows,
                                     None,
                                 )

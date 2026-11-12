@@ -47,6 +47,7 @@ pub(crate) struct ProcessMetricsSnapshot {
 
 impl ProcessMetricsSnapshot {
     pub(crate) fn master(
+        pid: u32,
         started_at: Instant,
         worker_restarts_total: u64,
         worker_rotations_total: u64,
@@ -54,6 +55,7 @@ impl ProcessMetricsSnapshot {
         workers_alive: u8,
     ) -> Self {
         Self::capture_process(
+            pid,
             0,
             0,
             started_at,
@@ -64,18 +66,23 @@ impl ProcessMetricsSnapshot {
     }
 
     fn worker(
+        pid: u32,
         node_id: u16,
         worker_id: u8,
         started_at: Instant,
     ) -> Self {
-        Self::capture_process(node_id, worker_id, started_at, 0, 0)
+        Self::capture_process(pid, node_id, worker_id, started_at, 0, 0)
     }
 
-    fn standalone(started_at: Instant) -> Self {
-        Self::capture_process(0, 0, started_at, 0, 0)
+    fn standalone(
+        pid: u32,
+        started_at: Instant,
+    ) -> Self {
+        Self::capture_process(pid, 0, 0, started_at, 0, 0)
     }
 
     fn capture_process(
+        pid: u32,
         node_id: u16,
         worker_id: u8,
         started_at: Instant,
@@ -85,9 +92,9 @@ impl ProcessMetricsSnapshot {
         Self {
             node_id,
             worker_id,
-            pid: std::process::id(),
+            pid,
             captured_at: unix_now(),
-            rss_bytes: claviron_sys::rss::read_rss(None).unwrap_or(0),
+            rss_bytes: claviron_sys::rss::read_rss(Some(pid)).unwrap_or(0),
             uptime_seconds: started_at.elapsed().as_secs(),
             worker_restarts_total,
             worker_rotations_total,
@@ -239,6 +246,7 @@ impl SupervisorMetricsPublisher {
             }
             PublisherSource::Worker { started_at } => {
                 ProcessMetricsSnapshot::worker(
+                    state.pid(),
                     state.fleet_node_id().raw(),
                     state
                         .worker_id()
@@ -397,7 +405,10 @@ impl MetricsFamily for SupervisorMetricsFamily {
             write_process_metrics_sample(
                 output,
                 "standalone",
-                &ProcessMetricsSnapshot::standalone(self.standalone_started_at),
+                &ProcessMetricsSnapshot::standalone(
+                    state.pid(),
+                    self.standalone_started_at,
+                ),
             );
             return Ok(());
         }

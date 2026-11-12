@@ -64,6 +64,7 @@ impl Published {
 pub struct CertResolver {
     published: ArcSwap<Published>,
     writers: Mutex<()>,
+    pub(crate) pid: Option<u32>,
 }
 
 impl CertResolver {
@@ -71,13 +72,14 @@ impl CertResolver {
         cert_map: HashMap<String, Arc<CertifiedKey>>,
         default_cert: Arc<CertifiedKey>,
     ) -> Self {
-        Self::new_owned(cert_map, default_cert, HashMap::new())
+        Self::new_owned(cert_map, default_cert, HashMap::new(), None)
     }
 
     pub(crate) fn new_owned(
         cert_map: HashMap<String, Arc<CertifiedKey>>,
         default_cert: Arc<CertifiedKey>,
         owners: HashMap<String, String>,
+        pid: Option<u32>,
     ) -> Self {
         Self {
             published: ArcSwap::from_pointee(Published {
@@ -86,6 +88,7 @@ impl CertResolver {
                 owners,
             }),
             writers: Mutex::new(()),
+            pid,
         }
     }
 
@@ -300,11 +303,11 @@ impl ResolvesServerCert for CertResolver {
     ) -> Option<Arc<CertifiedKey>> {
         if let Some(server_name) = client_hello.server_name() {
             let sni = server_name.to_ascii_lowercase();
-            debug!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), "🔍 handshake: requested sni: {}", sni);
+            debug!(resolver = %format_args!("{:p}", self), process_id = self.pid, "🔍 handshake: requested sni: {}", sni);
             // Use an atomic snapshot for lookup
             let snapshot = self.published.load();
             let map = &snapshot.certs;
-            trace!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), snapshot = %format_args!("{:p}", Arc::as_ptr(&snapshot)), cert_count = map.len(), %sni, "TLS resolver lookup");
+            trace!(resolver = %format_args!("{:p}", self), process_id = self.pid, snapshot = %format_args!("{:p}", Arc::as_ptr(&snapshot)), cert_count = map.len(), %sni, "TLS resolver lookup");
             if let Some(cert) = map.get(&sni) {
                 debug!(resolver = %format_args!("{:p}", self), "📜 handshake: found cert for {}", sni);
                 Some(cert.clone())
@@ -314,13 +317,13 @@ impl ResolvesServerCert for CertResolver {
                     let mut hostnames: Vec<_> =
                         map.keys().map(String::as_str).collect();
                     hostnames.sort_unstable();
-                    trace!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), snapshot = %format_args!("{:p}", Arc::as_ptr(&snapshot)), cert_count = map.len(), %sni, ?hostnames, "TLS resolver SNI miss before rejection");
+                    trace!(resolver = %format_args!("{:p}", self), process_id = self.pid, snapshot = %format_args!("{:p}", Arc::as_ptr(&snapshot)), cert_count = map.len(), %sni, ?hostnames, "TLS resolver SNI miss before rejection");
                 }
                 error!(resolver = %format_args!("{:p}", self), "🚫 handshake: unknown sni '{}': - rejecting", sni);
                 None
             }
         } else {
-            error!(resolver = %format_args!("{:p}", self), process_id = std::process::id(), "🚫 handshake: no-sni provided — rejecting");
+            error!(resolver = %format_args!("{:p}", self), process_id = self.pid, "🚫 handshake: no-sni provided — rejecting");
             None
         }
     }
@@ -411,7 +414,7 @@ impl Bootable<AppState, (Arc<CertificateProvider>,)> for CertResolverProvider {
         };
         prepare_randomness().await?;
         let count = certificates.resolver.count();
-        trace!(resolver = %format_args!("{:p}", Arc::as_ptr(&certificates.resolver)), process_id = std::process::id(), cert_count = count, "Shared TLS resolver registered");
+        trace!(resolver = %format_args!("{:p}", Arc::as_ptr(&certificates.resolver)), process_id = state.pid(), cert_count = count, "Shared TLS resolver registered");
         registry.register(certificates.resolver)?;
         if state.is_worker() {
             tracing::debug!(

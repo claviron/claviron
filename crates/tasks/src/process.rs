@@ -126,7 +126,7 @@ pub(crate) async fn run_command(
         None
     };
 
-    let mut running = start(&spec, &runtime, instance).await?;
+    let mut running = start(&spec, &runtime, instance, state.pid()).await?;
     started(&running, &spec, &runtime, silent);
     let _process =
         ProcessGuard { stop: &stop, slot: runtime.task_worker_number };
@@ -237,7 +237,8 @@ pub(crate) async fn run_command(
                     slot = runtime.slot(),
                     "task environment changed; replacing drained command in the same slot"
                 );
-                running = start(&spec, &runtime, Some(next)).await?;
+                running =
+                    start(&spec, &runtime, Some(next), state.pid()).await?;
                 started(&running, &spec, &runtime, silent);
             }
             Some(Completion::Attached) => {
@@ -259,7 +260,8 @@ pub(crate) async fn run_command(
                 if token.is_cancelled() {
                     return Err(Error::stopped(Reason::Shutdown));
                 }
-                running = start(&spec, &runtime, Some(next)).await?;
+                running =
+                    start(&spec, &runtime, Some(next), state.pid()).await?;
                 started(&running, &spec, &runtime, silent);
             }
         }

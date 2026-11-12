@@ -44,22 +44,32 @@ impl std::fmt::Debug for MemberRef {
             .finish_non_exhaustive()
     }
 }
-#[derive(Debug)]
 struct NativeRef {
     entry: ResolutionEntry,
     index: usize,
     stamp: u64,
     native: usize,
     generation: u64,
-    pid: u32,
+    process: orbitive::core::process::ProcessOwner,
 }
 pub(crate) struct MemberGuard(Arc<NativeRef>);
 pub(crate) struct MemberOwner {
     reference: Arc<NativeRef>,
     joined: AtomicBool,
 }
-#[derive(Debug)]
 pub(crate) struct MemberTraffic(Arc<NativeRef>);
+
+impl std::fmt::Debug for MemberTraffic {
+    fn fmt(
+        &self,
+        f: &mut std::fmt::Formatter<'_>,
+    ) -> std::fmt::Result {
+        f.debug_struct("MemberTraffic")
+            .field("pid", &self.0.process.pid())
+            .field("generation", &self.0.generation)
+            .finish_non_exhaustive()
+    }
+}
 
 impl crate::proxy::service::UpstreamService {
     /// Bind a concrete, prepared origin to an exact current DNS publication.
@@ -225,6 +235,7 @@ impl MemberRef {
         Ok(MemberTraffic(native))
     }
     pub(crate) fn owner(&self) -> Option<MemberOwner> {
+        let owner = orbitive::core::process::ProcessOwner::current().ok()?;
         // Only cold construction takes the process flock. A peer's snapshot
         // commit and registration cannot disagree on which assignment is active.
         self.entry
@@ -244,8 +255,7 @@ impl MemberRef {
                     return Ok(None);
                 };
                 let native = &cell.natives[index];
-                let Some(identity) = process::identity(std::process::id())
-                else {
+                let Some(identity) = process::identity(owner.pid()) else {
                     return Ok(None);
                 };
                 let Some(generation) =
@@ -272,7 +282,7 @@ impl MemberRef {
                     stamp: self.stamp,
                     native: index,
                     generation,
-                    pid: identity.pid(),
+                    process: owner,
                 });
                 self.projection.store(Some(reference.clone()));
                 Ok(Some(MemberOwner {
@@ -309,7 +319,7 @@ impl NativeRef {
     ) -> Option<MemberGuard> {
         // Forked/copied handles cannot reserve another process's scopes or ACK.
         // Only the recorded OS process can leave this native counter outstanding.
-        if std::process::id() != self.pid {
+        if !self.process.is_current() {
             return None;
         }
         let native = self.slot();
@@ -335,7 +345,7 @@ impl NativeRef {
         // The CAS itself fenced native reuse. Retain the counted scope while
         // checking assignment eligibility, then through the entire operation.
         if native.generation.load(Ordering::Acquire) != self.generation
-            || native.pid.load(Ordering::Acquire) != self.pid
+            || native.pid.load(Ordering::Acquire) != self.process.pid()
             || self.cell().stamp.load(Ordering::Acquire) != self.stamp
             || (active && !eligible(self.entry.row(), self.index, self.stamp))
         {
@@ -347,7 +357,7 @@ impl NativeRef {
 impl Drop for MemberGuard {
     fn drop(&mut self) {
         // A scope inherited across fork belongs to the original process only.
-        if std::process::id() != self.0.pid {
+        if !self.0.process.is_current() {
             return;
         }
         let native = self.0.slot();
@@ -369,7 +379,7 @@ impl MemberOwner {
             return;
         }
         let native = self.reference.slot();
-        if std::process::id() != self.reference.pid
+        if !self.reference.process.is_current()
             || native.generation.load(Ordering::Acquire)
                 != self.reference.generation
         {

@@ -13,6 +13,7 @@ pub(super) async fn start(
     spec: &CommandSpec,
     runtime: &TaskRuntime,
     instance: Option<CommandInstance>,
+    pid: u32,
 ) -> TaskResult<Running> {
     match instance {
         Some(CommandInstance::Attach(attached)) => {
@@ -25,9 +26,9 @@ pub(super) async fn start(
             Ok(Running::Attached(attached))
         }
         Some(CommandInstance::Spawn(reservation)) => {
-            spawn(spec, runtime, Some(reservation)).await
+            spawn(spec, runtime, Some(reservation), pid).await
         }
-        None => spawn(spec, runtime, None).await,
+        None => spawn(spec, runtime, None, pid).await,
     }
 }
 
@@ -96,6 +97,7 @@ async fn spawn(
     spec: &CommandSpec,
     runtime: &TaskRuntime,
     reservation: Option<SpawnReservation>,
+    _pid: u32,
 ) -> TaskResult<Running> {
     let mut command = Command::new(&spec.program);
     if !spec.args.is_empty() {
@@ -159,7 +161,7 @@ async fn spawn(
     // Linux's parent-death signal so an abrupt owner death cannot orphan them.
     unsafe {
         #[cfg(target_os = "linux")]
-        let expected_parent = nix::libc::getpid();
+        let expected_parent = _pid as nix::libc::pid_t;
         command.pre_exec(move || {
             if let Some(raw_fd) = instance_lock_fd {
                 instance::inherit_lock(raw_fd)?;

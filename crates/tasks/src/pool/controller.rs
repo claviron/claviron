@@ -115,7 +115,7 @@ impl Coordinator {
             let owner = format!(
                 "{}:pid{}",
                 state.run_mode().as_process_label(),
-                std::process::id()
+                state.pid()
             );
             Ok(Self::Fleet {
                 locks: OrbitLock::new(fleet)

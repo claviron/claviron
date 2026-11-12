@@ -109,7 +109,7 @@ impl UpstreamProvider {
                                     owner: LockOwner::new(format!(
                                         "upstream-resolver:{}:{}",
                                         fleet.node_id().get(),
-                                        std::process::id()
+                                        state.pid()
                                     )),
                                 },
                                 None => ResolutionAuthority::Local {

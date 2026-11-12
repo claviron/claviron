@@ -290,7 +290,7 @@ impl StopContext {
 ///   `RunMode::Worker(2)` process sees both values.
 /// - `worker_count` — this process's bootstrap worker count, not live membership
 ///   captured for this attempt.
-/// - `process_id` — `std::process::id()`. Useful for external-process
+/// - `process_id` — PID captured by `AppState`. Useful for external-process
 ///   tasks (passed through as `CLAVIRON_PROCESS_ID` env var).
 #[derive(Debug, Clone)]
 pub struct TaskRuntime {
@@ -1206,7 +1206,7 @@ impl TaskRunner {
                 task_dispatch: dispatch,
                 run_mode: state.run_mode(),
                 worker_count: state.worker_count(),
-                process_id: std::process::id(),
+                process_id: state.pid(),
             };
             let fut =
                 self.call(state.clone(), token.clone(), runtime, stop.clone());

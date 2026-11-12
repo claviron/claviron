@@ -193,12 +193,16 @@ pub fn derive_resolver_for_hosts(
         )); // or a new Error::NoCertFound variant
     }
     // Use the same default cert as the shared resolver
-    let resolver =
-        Arc::new(CertResolver::new(cert_map, shared_resolver.get_default()));
+    let resolver = Arc::new(CertResolver::new_owned(
+        cert_map,
+        shared_resolver.get_default(),
+        Default::default(),
+        shared_resolver.pid,
+    ));
     tracing::trace!(
         resolver = %format_args!("{:p}", Arc::as_ptr(&resolver)),
         parent_resolver = %format_args!("{:p}", Arc::as_ptr(shared_resolver)),
-        process_id = std::process::id(),
+        process_id = shared_resolver.pid,
         ?cert_names,
         cert_count = resolver.count(),
         "Scoped TLS resolver derived"

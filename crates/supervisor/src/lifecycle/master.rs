@@ -79,7 +79,7 @@ impl Bootable<AppState, (Arc<FleetProvider>,)> for MasterIdentityProvider {
             )
         })?;
         self.control.observer.attach_fleet(fleet.clone())?;
-        let master = establish_master_identity(&fleet)?;
+        let master = establish_master_identity(&fleet, state.pid())?;
         let build = BuildIdentity::current();
         info!(
             server_name = state.name(),

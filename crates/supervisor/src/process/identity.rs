@@ -76,9 +76,9 @@ impl OrbitTyped for MasterGenerationRecord {
 /// counter that frame was given, so two masters racing on the same segment
 /// cannot both claim one number. Called once, at supervisor boot.
 pub(crate) fn establish_master_identity(
-    fleet: &Fleet
+    fleet: &Fleet,
+    pid: u32,
 ) -> Result<MasterIdentity> {
-    let pid = std::process::id();
     let process = process::identity(pid).ok_or_else(|| {
         Error::service(format!(
             "master process {pid} cannot read its own kernel identity"
