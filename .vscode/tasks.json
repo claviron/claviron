@@ -4,10 +4,7 @@
     {
       "label": "Rust: Format and lint",
       "type": "process",
-      "command": "bash",
-      "args": [
-        "${workspaceFolder}/scripts/format.sh"
-      ],
+      "command": "${workspaceFolder}/scripts/format.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -17,9 +14,8 @@
     {
       "label": "Rust: Check formatting and lint",
       "type": "process",
-      "command": "bash",
+      "command": "${workspaceFolder}/scripts/format.sh",
       "args": [
-        "${workspaceFolder}/scripts/format.sh",
         "--check"
       ],
       "options": {
@@ -31,10 +27,7 @@
     {
       "label": "Rust: Test",
       "type": "process",
-      "command": "bash",
-      "args": [
-        "${workspaceFolder}/scripts/test.sh"
-      ],
+      "command": "${workspaceFolder}/scripts/test.sh",
       "options": {
         "cwd": "${workspaceFolder}"
       },
@@ -47,9 +40,8 @@
     {
       "label": "Rust: Test filtered",
       "type": "process",
-      "command": "bash",
+      "command": "${workspaceFolder}/scripts/test.sh",
       "args": [
-        "${workspaceFolder}/scripts/test.sh",
         "${input:rustTestFilter}",
         "--",
         "--nocapture"

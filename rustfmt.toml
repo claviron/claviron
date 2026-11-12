@@ -1,7 +1,7 @@
 # Formatting rules. The same file is kept in every project.
 #
 # Everything here is applied by the stable rustfmt, so `cargo fmt` and
-# `scripts/format.sh -p <crate>` produce the same result and no nightly toolchain
+# `scripts/check.sh -p <crate>` produce the same result and no nightly toolchain
 # is involved.
 
 # Language and style edition

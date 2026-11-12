@@ -92,33 +92,34 @@ unrelated formatting and dependency updates out of a functional change.
 
 ## Checks and tests
 
-Contributors and maintainers use the same repository scripts. They require Bash
-3.2+ and an installed Rust toolchain with rustfmt and Clippy, not personal shell
-helpers. They locate the repository root and preserve PATH, target directory,
-build flags and Cargo configuration.
+Contributors and maintainers use the same repository script, `scripts/check.sh`,
+rather than invoking Cargo directly. It requires Bash 3.2+ and an installed Rust
+toolchain with rustfmt and Clippy, not personal shell helpers. It locates the
+repository root, preserves PATH, target directory, build flags and Cargo
+configuration, and pins the remaining environment, so every run reuses the same
+build artifacts instead of rebuilding them.
 
 ```sh
-# Format sources and lint; use --check for a non-mutating CI check.
-./scripts/format.sh
-./scripts/format.sh --check
+# Format, lint and test the crate you changed.
+./scripts/check.sh -p claviron-http
 
-# Optionally limit formatting; Clippy still checks the entire workspace.
-./scripts/format.sh -p claviron-http
+# Narrow the tests by name, and pass options to the test harness.
+./scripts/check.sh -p claviron-http host_binding -- --nocapture
 
-# Run tests, or select a test-name substring without changing the feature set.
-./scripts/test.sh
-./scripts/test.sh host_binding -- --nocapture
+# The whole workspace, non-mutating, as CI runs it.
+./scripts/check.sh --check
 ```
 
-Formatting uses the repository's stable `rustfmt.toml`. Clippy selects
-`--workspace --all-features --all-targets` and treats warnings as errors. Explicit
-`format.sh --fix` runs `cargo fix` before formatting; it can modify staged and
-unstaged sources, so review its diff. It cannot be combined with `--check`.
-
-Tests select `--workspace --all-features --no-fail-fast`, including the declared
-test targets and doctests, with normal parallelism. A filter narrows test names,
-not compilation scope. Arguments after `--` go to the test harness; ignored
-tests are not enabled automatically. Tests do not run formatting or Clippy.
+`-p` selects the crate for formatting, Clippy and tests alike; without it the
+selection is the workspace. Formatting uses the repository's stable
+`rustfmt.toml`. Clippy lints `--all-features --all-targets` and treats warnings as
+errors. Tests run `--all-features --no-fail-fast`, including the declared test
+targets and doctests, with normal parallelism. A filter narrows test names, not
+the selection; ignored tests are not enabled automatically. `--fix` runs
+`cargo fix` before formatting; it can modify staged and unstaged sources, so
+review its diff. It cannot be combined with `--check`. `--no-test` stops after
+Clippy and `--test-only` skips formatting and Clippy. `scripts/format.sh` and
+`scripts/test.sh` are those two modes for editor tasks.
 
 All-feature runs require the native dependencies described in the crate READMEs,
 including the PHP ZTS embed build; the scripts do not install tools, build those
