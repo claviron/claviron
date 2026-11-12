@@ -14,5 +14,6 @@ async fn local_invocation_uses_the_registered_typed_handler() {
 
     assert_eq!(response["worker"], 3);
     assert_eq!(response["echo"], json!({ "ready": true }));
+    assert!(response.get("pid").is_none());
     assert!(router.invoke("missing", json!(null)).await.is_err());
 }
