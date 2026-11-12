@@ -207,7 +207,7 @@ to Arc. Compare Edge Other and Edge Routable with Hyper, and Edge Axum with Axum
 From the repository root:
 
 ```sh
-python3 scripts/bench-http.py http1-plain-edge-other \
+scripts/bench-http.py http1-plain-edge-other \
   --warmup-seconds 3 --measurement-seconds 5 --samples 100
 ```
 
@@ -220,7 +220,7 @@ For concurrent server CPU, all five targets use the same `http1-concurrent`
 executable with different owners. Name the native owner as the control:
 
 ```sh
-python3 scripts/bench-http.py http1-concurrent-edge-other \
+scripts/bench-http.py http1-concurrent-edge-other \
   --control http1-concurrent-hyper \
   --connections 1024 --server-threads 4 --client-threads 4 \
   --http-config benches/config/http1/dedicated.yaml \
@@ -247,7 +247,7 @@ CPU/request.
 For the narrower decoded-dispatch comparison:
 
 ```sh
-python3 scripts/bench-http.py dispatch-edge-other \
+scripts/bench-http.py dispatch-edge-other \
   --warmup-seconds 3 --measurement-seconds 5 --samples 100
 ```
 

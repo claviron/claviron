@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Prepare once with Cargo, then upload immutable artifacts to crates.io.
 
 No Rust build, packaging, or upload runs unless its subcommand is selected.
