@@ -18,11 +18,25 @@ per request.
 
 ## Fleet awareness
 
-**Taste the power of Orbit.** Let your processes share memory, exchange
-requests, and publish events on the same host. Orbit's shared-memory waits use
-Linux futexes, FreeBSD umtx, and shared address waits on macOS 14.4 and later.
+**Taste the power of Orbit.** Drop the sockets between sibling applications
+on the same host. **No dial. The connection starts with the runtime.**
+As each application boots, it joins its Orbit fleet. Peers exchange requests
+and events directly through shared memory. Orbit uses futexes, umtx, and shared address waits.
 
 [Fleet awareness](docs/design/FLEETAWARE.md) · [Orbit Link](docs/design/ORBIT_LINK.md)
+
+The same Axum app served **2.57× as many responses per second** through
+Orbit Link as through Caddy's HTTP/1.1 reverse proxy, using **63% less CPU
+per response** across the frontend and app. All three paths passed the
+same 128-connection HTTP/1.1 load phase with zero errors.
+
+| Path to Axum | Responses/s | Combined CPU/response |
+| --- | ---: | ---: |
+| Caddy → HTTP/1.1 upstream | 60,058 | 296.23 µs |
+| Claviron Edge → HTTP/1.1 upstream | 118,736 | 128.17 µs |
+| Claviron Edge → Orbit Link | 154,190 | 108.30 µs |
+
+[Axum proxy benchmark and methodology](docs/bench/http1-proxy-axum.md)
 
 ## Move to Rust without a full rewrite
 
@@ -46,22 +60,6 @@ can keep its existing runtime and move on its own schedule.
 
 ## Build your own Edge
 
-Add `claviron` with the `edge` and `supervisor` features and Tokio with
-`macros` and `rt-multi-thread`. Define your listeners and hosts in `config/`.
-
-```rust
-use claviron::{Result, Server, Workers};
-
-#[tokio::main]
-async fn main() -> Result<()> {
-    Server::new()
-        .config_dir("config")
-        .workers(Workers::Available)
-        .serve()
-        .await
-}
-```
-
 Start with the [Edge example](https://github.com/claviron/examples/tree/main/edge-server)
 or the [Edge configuration guide](crates/edge/README.md).
 
@@ -71,11 +69,6 @@ function. Use compatible releases of the three backend crates and enable their
 server features.
 
 ```rust
-use claviron::{Result, Server, Workers};
-use claviron_acme::AcmeProvider as AcmeService;
-use claviron_grpc::server::provider::GrpcServiceProvider as GrpcAdmin;
-
-#[tokio::main]
 async fn main() -> Result<()> {
     Server::new()
         .config_dir("config")
@@ -98,6 +91,20 @@ async fn main() -> Result<()> {
 
 ## Put boundaries where they belong
 
+**TLS first.** Require mutual TLS on the virtual host that needs it.
+On a TLS listener, the Edge verifies client certificates during the
+handshake, before any request reaches your application.
+
+```yaml
+admin.example.test:
+  transport:
+    non_ssl: reject
+  tls:
+    client_auth:
+      mode: required
+      ca_bundle: certs/client-ca.pem
+```
+
 Let your Edge apply CORS and verify CSRF before a request reaches PHP.
 Claviron includes CORS policy. Register a route extension for CSRF and give
 it the application's session and token verifier. The Edge can then enforce
@@ -110,6 +117,45 @@ routes:
 ```
 
 [Register a route extension](crates/edge/README.md#route-extensions)
+
+**This simple or this detailed. Your application decides.**
+
+**Rate-limit early.** Set per-IP quotas and burst limits for a host or route
+with `rate_limit`. Share a quota across workers and return `429 Too Many
+Requests` with `Retry-After` before excess traffic reaches your application.
+
+Here `/login` has one shared quota across Edge workers. Each IP gets five
+requests per minute, with a burst of five.
+
+```yaml
+example.test:
+  root: public
+  routes:
+    /login:
+      rate_limit:
+        namespace: login
+        cost: 1
+        quota:
+          units: 5
+          period: 1m
+          burst: 5
+          table: {slots: 4096, shards: 16, key_bytes: 64, probes: 16}
+          cas_attempts: 64
+          store:
+            mode: fleet_quota
+            resource: {fleet: webquota, kind: 1}
+            owners: 32
+            recovery_attempts: 0
+```
+
+[Configure rate limiting](crates/edge/README.md#rate-admission)
+
+**Watch configuration with Congif.** Enable `config-watch` for native file
+notifications on watched sources. A change to a single setting can trigger
+reload. Claviron validates and prepares the candidate before atomically
+publishing the new snapshot. Invalid edits leave the active snapshot in place.
+
+[Congif](https://crates.io/crates/congif) · [Binding and reload](docs/design/HOT_PIPELINE.md#binding-and-reload)
 
 ## Serve static files at the Edge
 
