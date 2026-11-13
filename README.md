@@ -16,7 +16,7 @@ application controls every layer, from listeners and access rules to handlers
 and response policies. Enable what you need. An omitted layer adds no work
 per request.
 
-## Fleetware
+## Fleet awareness
 
 **Taste the power of Orbit.** Let your processes share memory, exchange
 requests, and publish events on the same host. Orbit's shared-memory waits use
