@@ -10,11 +10,11 @@ Claviron is an application-first toolkit for building and running services.
 Run Rust alongside your existing applications. Keep them together as a modular
 monolith or deploy them as independent services.
 
-Build an Edge that accepts public traffic directly. It handles TLS, routing,
-static files, and application dispatch in one process, so an Nginx proxy hop
-is optional. Your application controls each layer, from listeners and access
-rules to handlers and response policies. Enable what you need. An omitted layer
-adds no work per request.
+Build your own Edge and serve public traffic directly. Terminate TLS, route
+requests, serve files, and dispatch to your applications at the Edge. Your
+application controls every layer, from listeners and access rules to handlers
+and response policies. Enable what you need. An omitted layer adds no work
+per request.
 
 ## Move to Rust without a full rewrite
 
