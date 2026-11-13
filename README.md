@@ -4,7 +4,7 @@
 
 # Claviron
 
-**Retire middlemen. Let the others go!**
+**Move to Rust at your own pace**
 
 Claviron is an application-first toolkit for building and running services.
 Run Rust alongside your existing applications. Keep them together as a modular
@@ -105,10 +105,9 @@ admin.example.test:
       ca_bundle: certs/client-ca.pem
 ```
 
-Let your Edge apply CORS and verify CSRF before a request reaches PHP.
-Claviron includes CORS policy. Register a route extension for CSRF and give
-it the application's session and token verifier. The Edge can then enforce
-the check on the routes you select.
+[Register a route extension](crates/edge/README.md#route-extensions)
+
+Let your Edge apply CORS and verify CSRF before a request reaches embeded scripts.
 
 ```yaml
 routes:
@@ -116,39 +115,6 @@ routes:
     csrf: true
 ```
 
-[Register a route extension](crates/edge/README.md#route-extensions)
-
-**This simple or this detailed. Your application decides.**
-
-**Rate-limit early.** Set per-IP quotas and burst limits for a host or route
-with `rate_limit`. Share a quota across workers and return `429 Too Many
-Requests` with `Retry-After` before excess traffic reaches your application.
-
-Here `/login` has one shared quota across Edge workers. Each IP gets five
-requests per minute, with a burst of five.
-
-```yaml
-example.test:
-  root: public
-  routes:
-    /login:
-      rate_limit:
-        namespace: login
-        cost: 1
-        quota:
-          units: 5
-          period: 1m
-          burst: 5
-          table: {slots: 4096, shards: 16, key_bytes: 64, probes: 16}
-          cas_attempts: 64
-          store:
-            mode: fleet_quota
-            resource: {fleet: webquota, kind: 1}
-            owners: 32
-            recovery_attempts: 0
-```
-
-[Configure rate limiting](crates/edge/README.md#rate-admission)
 
 **Watch configuration with Congif.** Enable `config-watch` for native file
 notifications on watched sources. A change to a single setting can trigger
