@@ -152,6 +152,12 @@ with 68% less server CPU per response.
 A separate run reached **1,045,500 responses/s** with Claviron and Warp.
 [Matched Caddy comparison](docs/bench/http1-plain-caddy.md) · [Warp peak](docs/bench/http1-plain-128.md)
 
+<img src="assets/pentaglot.svg" width="24" height="24" alt=""> <strong>Pentaglot.</strong>
+Embedded libphp served **227k JSON responses/s** and the C module served
+**306k responses/s** in the same benchmark suite. The PHP route uses a
+persistent application with OPcache warmed at startup and runs without
+Composer or a framework. [Pentaglot results and setup](https://github.com/claviron/examples/blob/021e63143fead9423289f7945ce8a24e99fb8663/pentaglot/README.md#benchmark)
+
 **Persistent PHP.** With 128 PHP instances and 1,024 connections, both servers
 completed the five-minute runs without errors. Each cell shows responses per
 second and server CPU per response.

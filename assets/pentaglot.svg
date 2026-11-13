@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 224 224" role="img" aria-labelledby="title desc">
+  <title id="title">Pentaglot</title>
+  <desc id="desc">Five colored rings in a pentagonal arrangement around one shared center.</desc>
+  <g fill="none" stroke-width="11" opacity=".94">
+    <circle cx="112" cy="46" r="42" stroke="#8b5cf6"/>
+    <circle cx="174.8" cy="91.6" r="42" stroke="#3185ef"/>
+    <circle cx="150.8" cy="165.4" r="42" stroke="#14b8a6"/>
+    <circle cx="73.2" cy="165.4" r="42" stroke="#e4a72b"/>
+    <circle cx="49.2" cy="91.6" r="42" stroke="#bd64b2"/>
+  </g>
+</svg>
