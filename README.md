@@ -46,8 +46,8 @@ can keep its existing runtime and move on its own schedule.
 
 ## Build your own Edge
 
-Add `claviron` with the `edge` feature and Tokio with `macros` and
-`rt-multi-thread`. Define your listeners and hosts in `config/`.
+Add `claviron` with the `edge` and `supervisor` features and Tokio with
+`macros` and `rt-multi-thread`. Define your listeners and hosts in `config/`.
 
 ```rust
 use claviron::{Result, Server, Workers};
@@ -64,6 +64,30 @@ async fn main() -> Result<()> {
 
 Start with the [Edge example](https://github.com/claviron/examples/tree/main/edge-server)
 or the [Edge configuration guide](crates/edge/README.md).
+
+Add ACME certificate automation and gRPC administration with typed service
+registration. DNS plugs into the same lifecycle through its registration
+function. Use compatible releases of the three backend crates and enable their
+server features.
+
+```rust
+use claviron::{Result, Server, Workers};
+use claviron_acme::AcmeProvider as AcmeService;
+use claviron_grpc::server::provider::GrpcServiceProvider as GrpcAdmin;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    Server::new()
+        .config_dir("config")
+        .workers(Workers::Available)
+        .with_services::<(AcmeService, GrpcAdmin)>()
+        .register(claviron_dns::register)
+        .serve()
+        .await
+}
+```
+
+[ACME](https://github.com/claviron/acme) · [gRPC administration](https://github.com/claviron/grpc) · [DNS](https://github.com/claviron/dns)
 
 ## Bring your application
 
