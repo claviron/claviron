@@ -10,6 +10,9 @@ pub const LINK_FLEET_CAPACITY: usize = orbitive::core::compile::usize_from_env(
     32,
 );
 
+/// Bounded control records for inline HTTP exchanges.
+pub const LINK_EXCHANGE_CONTROL_KIND: u8 = 176;
+
 /// SHM kind for the inbox layout, including directory watchers and interests.
 pub const LINK_INBOX_KIND: u8 = 182;
 

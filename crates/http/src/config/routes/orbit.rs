@@ -28,6 +28,9 @@ pub struct OrbitRouteConfig {
     /// Per-exchange receiver selection; independent of the worker policy.
     #[serde(default)]
     pub balance: LinkBalance,
+    /// Bodyless GET replies on this mount fit in a single Link frame.
+    #[serde(default)]
+    pub inline_response: bool,
     /// Removed; read only to say so. The route's receiver selection is
     /// `balance`; `policy` now names only the owner's worker policy.
     #[serde(default, rename = "policy", deserialize_with = "removed_policy")]
@@ -45,7 +48,13 @@ impl OrbitRouteConfig {
         application: String,
         balance: LinkBalance,
     ) -> Self {
-        Self { fleet_name, application, balance, removed_policy: () }
+        Self {
+            fleet_name,
+            application,
+            balance,
+            inline_response: false,
+            removed_policy: (),
+        }
     }
 }
 

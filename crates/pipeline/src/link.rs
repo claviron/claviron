@@ -50,6 +50,7 @@ struct LinkRoute {
     path: Option<PathPrefix>,
     destination: Arc<LinkDestination>,
     requests: RequestPolicyOverride,
+    inline_response: bool,
 }
 
 /// Prepared segment-safe application mounts reached through Link.
@@ -86,6 +87,7 @@ impl LinkBackend {
                     route.balance,
                 )),
                 requests,
+                inline_response: route.inline_response,
             })
             .collect();
         // Preserve stable ascending mount insertion followed by LIFO dispatch.
@@ -166,9 +168,11 @@ impl DispatchStep for LinkBackend {
             )));
         };
         let connection = context.map(|context| context.connection.clone());
+        let inline_response = route.inline_response;
         DispatchCall::new(async move {
             ServiceResult::Handled(
-                dispatch(target, policy, connection, request).await,
+                dispatch(target, policy, connection, request, inline_response)
+                    .await,
             )
         })
     }
@@ -179,6 +183,7 @@ async fn dispatch(
     policy: RequestPolicy,
     connection: Option<Arc<ConnCtx>>,
     request: Request<RouteBody>,
+    inline_response: bool,
 ) -> RouteResponse {
     // The destination's declared stream window, not this build's ceiling.
     let window = target.stream_buffer_bytes();
@@ -263,7 +268,7 @@ async fn dispatch(
     let deadline = policy
         .queue_timeout
         .map(|timeout| tokio::time::Instant::now() + timeout);
-    let sending = target.send_http_wait(exchange);
+    let sending = target.send_http_wait_with_inline(exchange, inline_response);
     let admitted = match deadline {
         Some(deadline) => {
             match tokio::time::timeout_at(deadline, sending).await {
@@ -314,7 +319,7 @@ async fn dispatch(
                 };
                 (
                     correlation,
-                    body::ResponseBody::ByteStream(response_body),
+                    Some(body::ResponseBody::ByteStream(response_body)),
                     reply,
                     to_application,
                     upload,
@@ -322,11 +327,14 @@ async fn dispatch(
             }
             HttpPending::SharedResponse { correlation, body, reply } => (
                 correlation,
-                body::ResponseBody::Shared(body),
+                Some(body::ResponseBody::Shared(body)),
                 reply,
                 None,
                 None,
             ),
+            HttpPending::Inline { correlation, reply } => {
+                (correlation, None, reply, None, None)
+            }
         };
 
     // A bounded receiver may hold the exchange in its queue. If the budget
@@ -367,7 +375,7 @@ async fn dispatch(
         && head.status == StatusCode::SWITCHING_PROTOCOLS.as_u16()
         && let Some(to_application) = to_application
     {
-        let body::ResponseBody::ByteStream(response_body) = response_body
+        let Some(body::ResponseBody::ByteStream(response_body)) = response_body
         else {
             return gateway_failure();
         };
@@ -413,8 +421,9 @@ async fn dispatch(
     };
 
     let response_body = match response_body {
-        body::ResponseBody::ByteStream(reader) => reader,
-        body::ResponseBody::Shared(receiver) => {
+        None => return gateway_failure(),
+        Some(body::ResponseBody::ByteStream(reader)) => reader,
+        Some(body::ResponseBody::Shared(receiver)) => {
             return finish(
                 response,
                 RouteBody::new(body::SharedBody::new(receiver)),

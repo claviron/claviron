@@ -40,8 +40,9 @@ pub use geometry::*;
 pub use interest::{InterestGuard, LinkInterest};
 pub use message::{Message, MessageReader, read_message, write_message};
 pub use orbitive::link::{
-    Admission, DirectoryWatcher, Inbox, Joined, LANE_NAME_MAX, Received,
-    Reclaimed, Routing, WorkExecution, WorkReservation, WorkTicket,
+    Admission, DirectoryWatcher, ExchangeControlState, ExchangeControlTicket,
+    ExchangeControls, Inbox, Joined, LANE_NAME_MAX, Received, Reclaimed,
+    Routing, WorkExecution, WorkReservation, WorkTicket,
 };
 // Stream slot ownership types.
 pub use growth::FleetGrowth;

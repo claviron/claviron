@@ -46,7 +46,9 @@ use std::task::{Context, Poll};
 
 use bytes::Bytes;
 use claviron_runtime::{FleetName, ProcessEventBus};
-use orbitive::link::Received;
+use orbitive::link::{
+    ExchangeControl, ExchangeControlState, ExchangeControlTicket, Received,
+};
 use orbitive::stream::exchange::{ExchangeEndpoint, Exchanges, Receiver};
 use orbitive::stream::{Endpoint, ReadHalf, ResetSignal, Ticket, WriteHalf};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -101,9 +103,10 @@ impl Pending {
     }
 }
 
-/// The two body transports supported by the native HTTP dispatch path.
+/// The reply transports supported by native HTTP dispatch.
 pub enum HttpPending {
     ByteStream(Pending),
+    Inline { correlation: u64, reply: ReplyWait },
     SharedResponse { correlation: u64, body: Receiver, reply: ReplyWait },
 }
 
@@ -111,11 +114,18 @@ impl HttpPending {
     pub(super) fn byte_stream(self) -> Pending {
         match self {
             Self::ByteStream(pending) => pending,
-            Self::SharedResponse { .. } => {
+            Self::SharedResponse { .. } | Self::Inline { .. } => {
                 unreachable!("byte-stream dispatch requested")
             }
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ReplyTransport {
+    ByteStream,
+    SharedResponse,
+    Inline,
 }
 
 enum BodySlot {
@@ -135,11 +145,16 @@ impl BodySlot {
 /// The head of a reply, once the application has one.
 pub struct ReplyWait {
     reply: oneshot::Receiver<ExchangeReply>,
-    reset: ResetSignal,
+    signal: Option<ReplySignal>,
     waiting: Arc<Waiting>,
     correlation: u64,
     completed: bool,
     withdrawal: Option<Withdrawal>,
+}
+
+enum ReplySignal {
+    Stream(ResetSignal),
+    Inline(ExchangeControl),
 }
 
 /// Takes back an exchange the receiver holds in its queue but has not
@@ -170,41 +185,64 @@ impl ReplyWait {
     /// No deadline: a failed publication resets the existing response stream,
     /// waking this wait even when no reply head could enter the shared inbox.
     pub async fn head(mut self) -> Result<ExchangeReply> {
-        let result = poll_fn(|cx| {
-            // A successfully delivered head wins over a later body reset.
-            if let Poll::Ready(reply) = Pin::new(&mut self.reply).poll(cx) {
-                return Poll::Ready(reply.map_err(|_| {
-                    Error::Malformed(
-                        "the reply channel closed before an answer arrived",
-                    )
-                }));
+        let result = match self.signal.as_mut().expect("reply signal") {
+            ReplySignal::Inline(control) => {
+                self.waiting.inline_head(&mut self.reply, control).await
             }
-            match self.reset.poll_reset(cx) {
-                Poll::Ready(Ok(())) => match self.reset.exchange_reset_code() {
-                    Ok(Some(super::body::RESPONSE_BODY_RESET)) => Poll::Pending,
-                    Ok(_) => Poll::Ready(Err(Error::Stream(
-                        orbitive::stream::Error::Reset,
-                    ))),
-                    Err(error) => Poll::Ready(Err(Error::Stream(error))),
-                },
-                Poll::Ready(Err(error)) => {
-                    Poll::Ready(Err(Error::Stream(error)))
-                }
-                Poll::Pending => Poll::Pending,
+            ReplySignal::Stream(reset) => {
+                poll_fn(|cx| {
+                    // A successfully delivered head wins over a later body reset.
+                    if let Poll::Ready(reply) =
+                        Pin::new(&mut self.reply).poll(cx)
+                    {
+                        return Poll::Ready(reply.map_err(|_| reply_missing()));
+                    }
+                    match reset.poll_reset(cx) {
+                        Poll::Ready(Ok(())) => {
+                            match reset.exchange_reset_code() {
+                                Ok(Some(super::body::RESPONSE_BODY_RESET)) => {
+                                    Poll::Pending
+                                }
+                                Ok(_) => Poll::Ready(Err(Error::Stream(
+                                    orbitive::stream::Error::Reset,
+                                ))),
+                                Err(error) => {
+                                    Poll::Ready(Err(Error::Stream(error)))
+                                }
+                            }
+                        }
+                        Poll::Ready(Err(error)) => {
+                            Poll::Ready(Err(Error::Stream(error)))
+                        }
+                        Poll::Pending => Poll::Pending,
+                    }
+                })
+                .await
             }
-        })
-        .await;
+        };
         if result.is_err() {
             self.waiting.take(self.correlation);
+        } else if let Some(ReplySignal::Inline(control)) = self.signal.take() {
+            control.complete();
         }
         self.completed = true;
         result
     }
 }
 
+fn reply_missing() -> Error {
+    Error::Malformed("the reply channel closed before an answer arrived")
+}
+
 impl Drop for ReplyWait {
     fn drop(&mut self) {
         if !self.completed {
+            if let Some(ReplySignal::Inline(control)) = &self.signal {
+                let _ = control.cancel();
+                if let Some(withdrawal) = &self.withdrawal {
+                    withdrawal.withdraw();
+                }
+            }
             self.waiting.take(self.correlation);
         }
     }
@@ -434,7 +472,7 @@ pub struct ApplicationClient {
     incarnation: u64,
     lane: usize,
     /// The lane's lock, let go in [`ApplicationClient::leave`] after the lane.
-    hold: Mutex<Option<orbitive::shm::LaneHold>>,
+    hold: Mutex<Option<super::Joined>>,
     correlation: AtomicU64,
     /// Advances the two random choices made for unbounded receivers.
     rotation: AtomicU64,
@@ -559,7 +597,7 @@ struct Waiting {
     capacity_changed: tokio::sync::Notify,
     membership_changed: tokio::sync::Notify,
     closed: AtomicBool,
-    senders: Mutex<HashMap<u64, (LaneOwner, oneshot::Sender<ExchangeReply>)>>,
+    senders: Mutex<HashMap<u64, ReplySender>>,
 }
 
 /// Who a request was written to. A lane is reused, and a standalone process
@@ -572,17 +610,54 @@ struct LaneOwner {
     incarnation: u64,
 }
 
+struct ReplySender {
+    owner: LaneOwner,
+    inline: Option<ExchangeControlTicket>,
+    sender: oneshot::Sender<ExchangeReply>,
+}
+
 impl Waiting {
+    async fn inline_head(
+        &self,
+        reply: &mut oneshot::Receiver<ExchangeReply>,
+        control: &ExchangeControl,
+    ) -> Result<ExchangeReply> {
+        loop {
+            let notified = self.capacity_changed.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.closed.load(Ordering::Acquire)
+                || control.caller_state().ok()
+                    == Some(ExchangeControlState::Failed)
+            {
+                return reply.try_recv().map_err(|_| reply_missing());
+            }
+            tokio::select! {
+                biased;
+                result = &mut *reply => return result.map_err(|_| reply_missing()),
+                () = &mut notified => {}
+            }
+        }
+    }
+
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        self.capacity_changed.notify_waiters();
+        self.membership_changed.notify_waiters();
+        self.senders.lock().expect("waiting exchanges").clear();
+    }
+
     fn insert(
         &self,
         correlation: u64,
         owner: LaneOwner,
         sender: oneshot::Sender<ExchangeReply>,
+        inline: Option<ExchangeControlTicket>,
     ) {
-        self.senders
-            .lock()
-            .expect("waiting exchanges")
-            .insert(correlation, (owner, sender));
+        let mut senders = self.senders.lock().expect("waiting exchanges");
+        if !self.closed.load(Ordering::Acquire) {
+            senders.insert(correlation, ReplySender { owner, inline, sender });
+        }
     }
 
     fn take(
@@ -593,19 +668,32 @@ impl Waiting {
             .lock()
             .expect("waiting exchanges")
             .remove(&correlation)
-            .map(|(_, sender)| sender)
+            .map(|entry| entry.sender)
     }
 
     /// End what this process will never answer. A request it had not read yet
     /// holds no stream side of its own, so ending its streams cannot reach it.
-    fn abandon(
+    fn abandon_streams(
         &self,
         gone: LaneOwner,
     ) {
         self.senders
             .lock()
             .expect("waiting exchanges")
-            .retain(|_, (owner, _)| *owner != gone);
+            .retain(|_, entry| entry.owner != gone || entry.inline.is_some());
+    }
+
+    fn abandon_inline(
+        &self,
+        gone: LaneOwner,
+        epoch: Option<u64>,
+    ) {
+        self.senders.lock().expect("waiting exchanges").retain(|_, entry| {
+            entry.owner != gone
+                || !entry.inline.is_some_and(|ticket| {
+                    epoch.is_none_or(|epoch| epoch == ticket.runner_epoch)
+                })
+        });
     }
 }
 
@@ -777,7 +865,7 @@ impl ApplicationClient {
             shared_response: OnceLock::new(),
             incarnation,
             lane,
-            hold: Mutex::new(Some(joined.hold)),
+            hold: Mutex::new(Some(joined)),
             correlation: AtomicU64::new(1),
             // Seeded with this caller's own lane, not with zero, so callers
             // that start together do not draw the same receivers in lockstep.
@@ -848,8 +936,14 @@ impl ApplicationClient {
             application,
             self.lane,
         );
-        self.send_to(application, &lanes, &mut request, None, false)
-            .map(HttpPending::byte_stream)
+        self.send_to(
+            application,
+            &lanes,
+            &mut request,
+            None,
+            ReplyTransport::ByteStream,
+        )
+        .map(HttpPending::byte_stream)
     }
 
     pub(super) fn send_to(
@@ -858,19 +952,19 @@ impl ApplicationClient {
         lanes: &[usize],
         request: &mut Exchange,
         selection: Option<&Selection>,
-        allow_shared_response: bool,
+        transport: ReplyTransport,
     ) -> Result<HttpPending> {
         self.check_open(application)?;
-        if self.creator.contended() {
+        if transport != ReplyTransport::Inline && self.creator.contended() {
             return Err(Error::Stream(orbitive::stream::Error::WouldBlock));
         }
         self.send_acquiring(
             application,
             lanes,
             request,
-            (),
+            None,
             selection,
-            allow_shared_response,
+            transport,
         )
     }
 
@@ -888,9 +982,13 @@ impl ApplicationClient {
             application,
             lanes,
             request,
-            turn,
+            Some(turn),
             Some(selection),
-            allow_shared_response,
+            if allow_shared_response {
+                ReplyTransport::SharedResponse
+            } else {
+                ReplyTransport::ByteStream
+            },
         )
     }
 
@@ -1122,14 +1220,14 @@ impl ApplicationClient {
         Ok((None, full))
     }
 
-    fn send_acquiring<G>(
+    fn send_acquiring(
         &self,
         application: &str,
         lanes: &[usize],
         request: &mut Exchange,
-        acquisition: G,
+        acquisition: Option<CreatorTurn<'_>>,
         selection: Option<&Selection>,
-        allow_shared_response: bool,
+        transport: ReplyTransport,
     ) -> Result<HttpPending> {
         let (selected, full) = match selection {
             Some(selection) if selection.balance == LinkBalance::RoundRobin => {
@@ -1156,7 +1254,7 @@ impl ApplicationClient {
             }
             _ => self.choose_first(lanes)?,
         };
-        let Some((target, admission)) = selected else {
+        let Some((target, mut admission)) = selected else {
             return Err(if full {
                 // Every receiver refused: unmet demand. One load unless the
                 // owner declared a growth policy and no episode is open.
@@ -1167,23 +1265,39 @@ impl ApplicationClient {
             });
         };
 
+        if transport == ReplyTransport::Inline
+            && let Some(pending) =
+                self.try_inline(target, request, &mut admission)?
+        {
+            return Ok(pending);
+        }
+        if transport == ReplyTransport::Inline
+            && acquisition.is_none()
+            && self.creator.contended()
+        {
+            return Err(Error::Stream(orbitive::stream::Error::WouldBlock));
+        }
+
         // A kept stream, or a new one when none is ready. Re-arming happens
         // here rather than after the write, because the frame below is what
         // tells the far side a new exchange has begun and it must not carry a
         // slot that still holds the last one's state.
-        let mut slot =
-            match self.take_body_slot(target, request, allow_shared_response) {
-                Ok(slot) => slot,
-                Err(error) => {
-                    if let Error::Stream(orbitive::stream::Error::Full {
-                        capacity,
-                    }) = &error
-                    {
-                        self.lane_full(application, *capacity);
-                    }
-                    return Err(error);
+        let mut slot = match self.take_body_slot(
+            target,
+            request,
+            transport != ReplyTransport::ByteStream,
+        ) {
+            Ok(slot) => slot,
+            Err(error) => {
+                if let Error::Stream(orbitive::stream::Error::Full {
+                    capacity,
+                }) = &error
+                {
+                    self.lane_full(application, *capacity);
                 }
-            };
+                return Err(error);
+            }
+        };
         // Only acquisition is serialized. Encoding, publication and the whole
         // exchange lifetime run after the next queued creator can proceed.
         drop(acquisition);
@@ -1237,7 +1351,7 @@ impl ApplicationClient {
                 .incarnation(target)
                 .unwrap_or_default(),
         };
-        self.waiting.insert(correlation, owner, sender);
+        self.waiting.insert(correlation, owner, sender, None);
 
         let withdrawal = admission.as_ref().map(|admission| Withdrawal {
             segment: Arc::clone(&self.segment),
@@ -1274,7 +1388,7 @@ impl ApplicationClient {
 
         let reply = |reset| ReplyWait {
             reply: receiver,
-            reset,
+            signal: Some(ReplySignal::Stream(reset)),
             waiting: Arc::clone(&self.waiting),
             correlation,
             completed: false,
@@ -1307,6 +1421,85 @@ impl ApplicationClient {
                 Ok(HttpPending::SharedResponse { correlation, body, reply })
             }
         }
+    }
+
+    fn try_inline(
+        &self,
+        target: usize,
+        request: &mut Exchange,
+        admission: &mut Option<super::WorkReservation>,
+    ) -> Result<Option<HttpPending>> {
+        let Some(epoch) = self.inbox().inline_exchange_epoch(target) else {
+            return Ok(None);
+        };
+        if admission.as_ref().is_some_and(|work| work.ticket().epoch != epoch) {
+            return Err(Error::ReceiverGone);
+        }
+        // The shutdown path releases this hold only after withdrawing the lane.
+        let hold = self.hold.lock().expect("lane hold");
+        let caller = hold.as_ref().ok_or(Error::ReceiverGone)?;
+        let controls = match self.segment.exchange_controls() {
+            Ok(controls) => controls,
+            Err(error) => {
+                tracing::debug!(target, %error, "could not attach inline Orbit controls");
+                return Ok(None);
+            }
+        };
+        let Some(control) = controls
+            .reserve(caller, target, epoch)
+            .map_err(super::map_link_error)?
+        else {
+            return Ok(None);
+        };
+        let ticket = control.ticket();
+        let correlation = self.correlation.fetch_add(1, Ordering::Relaxed);
+        request.correlation = correlation;
+        request.origin = ticket.origin;
+        request.stream = None;
+        let head = request.encode_inline_head(ticket)?;
+        if head.len() > self.inbox().geometry().payload_capacity {
+            return Ok(None);
+        }
+
+        let owner = LaneOwner {
+            lane: target,
+            pid: self.inbox().owner(target).map_err(super::map_link_error)?,
+            incarnation: self
+                .inbox()
+                .incarnation(target)
+                .map_err(super::map_link_error)?,
+        };
+        if self.inbox().inline_exchange_epoch(target) != Some(epoch) {
+            return Err(Error::ReceiverGone);
+        }
+        let (sender, receiver) = oneshot::channel();
+        self.waiting.insert(correlation, owner, sender, Some(ticket));
+        let withdrawal = admission.as_ref().map(|admission| Withdrawal {
+            segment: Arc::clone(&self.segment),
+            ticket: admission.ticket(),
+        });
+        let result = match admission.take() {
+            Some(admission) => admission.publish(&[&head]),
+            None => {
+                self.inbox().write_vectored_at_epoch(target, epoch, &[&head])
+            }
+        };
+        if let Err(error) = result {
+            self.waiting.take(correlation);
+            self.segment.reclaim_if_gone(target);
+            return Err(super::map_link_error(error));
+        }
+        Ok(Some(HttpPending::Inline {
+            correlation,
+            reply: ReplyWait {
+                reply: receiver,
+                signal: Some(ReplySignal::Inline(control)),
+                waiting: Arc::clone(&self.waiting),
+                correlation,
+                completed: false,
+                withdrawal,
+            },
+        }))
     }
 
     pub(super) fn streams_returned(&self) -> &tokio::sync::Notify {
@@ -1368,11 +1561,11 @@ impl ApplicationClient {
     /// worker is about to stop emptying. Then the reader is *woken* rather
     /// than waited out.
     pub fn leave(&self) {
-        self.waiting.closed.store(true, Ordering::Release);
-        self.waiting.capacity_changed.notify_waiters();
-        self.waiting.membership_changed.notify_waiters();
+        let mut hold = self.hold.lock().expect("lane hold");
+        self.waiting.close();
         let _ = self.segment.inbox().release_lane(self.lane);
-        drop(self.hold.lock().expect("lane hold").take());
+        drop(hold.take());
+        drop(hold);
         if let Some(reader) = self.reader.lock().expect("reader handle").take()
         {
             reader.abort();
@@ -1426,13 +1619,36 @@ impl ApplicationClient {
             for peer in found {
                 watches.spawn(watch_application(
                     Arc::clone(&segment),
-                    Arc::clone(&waiting),
+                    lane,
                     peer,
                 ));
             }
             let mut frame = Vec::new();
+            let mut recovery = ReplyRecovery::default();
             loop {
-                match receiver.next(&mut frame).await {
+                let boundary = recovery.next(segment.inbox(), lane, &waiting);
+                let received = tokio::select! {
+                    biased;
+                    Some(finished) = watches.join_next(), if !watches.is_empty() => {
+                        if let Ok(Some(departure)) = finished {
+                            waiting.abandon_streams(departure.owner);
+                            recovery.pending.push(departure);
+                        }
+                        continue;
+                    }
+                    received = async {
+                        match boundary {
+                            Some(boundary) => receiver.next_until_read(&mut frame, boundary).await,
+                            None => receiver.next(&mut frame).await.map(Some),
+                        }
+                    } => received,
+                };
+                let received = match received {
+                    Ok(Some(received)) => Ok(received),
+                    Ok(None) => continue,
+                    Err(error) => Err(error),
+                };
+                match received {
                     Ok(Received::Frame) => match frame_kind(&frame) {
                         Ok(FrameKind::ApplicationState) => accept_application_state(&application_states, &segment, &frame),
                         // Handed over whole, so an inline body is a slice of
@@ -1455,7 +1671,6 @@ impl ApplicationClient {
                     Ok(Received::Directory(_)) => {
                         waiting.capacity_changed.notify_waiters();
                         waiting.membership_changed.notify_waiters();
-                        while watches.try_join_next().is_some() {}
                         for peer in observe_applications(
                             &mut applications,
                             &segment,
@@ -1467,7 +1682,7 @@ impl ApplicationClient {
                         ) {
                             watches.spawn(watch_application(
                                 Arc::clone(&segment),
-                                Arc::clone(&waiting),
+                                lane,
                                 peer,
                             ));
                         }
@@ -1476,14 +1691,45 @@ impl ApplicationClient {
                         tracing::debug!(
                             "reply lane {lane} could not be read: {error}"
                         );
-                        waiting.closed.store(true, Ordering::Release);
-                        waiting.capacity_changed.notify_waiters();
-                        waiting.membership_changed.notify_waiters();
+                        waiting.close();
                         return;
                     }
                 }
             }
         }))
+    }
+}
+
+#[derive(Default)]
+struct ReplyRecovery {
+    pending: Vec<ReplyBoundary>,
+}
+
+struct ReplyBoundary {
+    owner: LaneOwner,
+    epoch: Option<u64>,
+    reserved_through: u64,
+}
+
+impl ReplyRecovery {
+    fn next(
+        &mut self,
+        inbox: &super::Inbox,
+        lane: usize,
+        waiting: &Waiting,
+    ) -> Option<u64> {
+        if self.pending.is_empty() {
+            return None;
+        }
+        let position = inbox.read_position(lane).expect("owned reply lane");
+        self.pending.retain(|departure| {
+            if position < departure.reserved_through {
+                return true;
+            }
+            waiting.abandon_inline(departure.owner, departure.epoch);
+            false
+        });
+        self.pending.iter().map(|item| item.reserved_through).min()
     }
 }
 
@@ -1493,22 +1739,32 @@ impl ApplicationClient {
 /// alone, because recovery names this exact process.
 async fn watch_application(
     segment: Arc<ApplicationSegment>,
-    waiting: Arc<Waiting>,
+    reply_lane: usize,
     peer: super::Peer,
-) {
-    match segment.recover_on_exit(&peer).await {
+) -> Option<ReplyBoundary> {
+    let inbox = segment.inbox();
+    let epoch = inbox.lane_epoch(peer.lane).ok().filter(|&epoch| {
+        inbox.last_owner(peer.lane).ok().flatten()
+            == peer.pid.map(|pid| (pid, peer.incarnation))
+            && inbox.lane_epoch(peer.lane).ok() == Some(epoch)
+    });
+    match Arc::clone(&segment).recover_on_exit(&peer).await {
         Ok(true) => {}
-        Ok(false) => return,
+        Ok(false) => return None,
         Err(error) => {
             tracing::error!(lane = peer.lane, %error, "could not recover departed Link owner");
-            return;
+            return None;
         }
     }
-    waiting.abandon(LaneOwner {
-        lane: peer.lane,
-        pid: peer.pid,
-        incarnation: peer.incarnation,
-    });
+    Some(ReplyBoundary {
+        owner: LaneOwner {
+            lane: peer.lane,
+            pid: peer.pid,
+            incarnation: peer.incarnation,
+        },
+        epoch,
+        reserved_through: inbox.reserved_through(reply_lane).ok()?,
+    })
 }
 
 /// Diff the directory and say what changed: in the log, and as a local event.

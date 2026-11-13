@@ -1,8 +1,8 @@
 //! Claviron's namespace and application naming over the generic `orbitive::link`
 //! inbox segment.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
 
 use super::{
     Access, ApplicationStateNotice, ControlCommand, Error, LINK_SPEC, Result,
@@ -23,6 +23,7 @@ pub struct ApplicationSegment {
     pub(super) fleet_name: String,
     spec: LinkSpec,
     access: Access,
+    exchange_controls: OnceLock<Arc<super::ExchangeControls>>,
     reply_space: tokio::sync::Notify,
     reply_space_closed: AtomicBool,
 }
@@ -52,6 +53,7 @@ impl ApplicationSegment {
             fleet_name: fleet_name.to_owned(),
             spec,
             access: access.clone(),
+            exchange_controls: OnceLock::new(),
             reply_space: tokio::sync::Notify::new(),
             reply_space_closed: AtomicBool::new(false),
         })
@@ -88,6 +90,7 @@ impl ApplicationSegment {
             fleet_name: fleet_name.to_owned(),
             spec,
             access: access.clone(),
+            exchange_controls: OnceLock::new(),
             reply_space: tokio::sync::Notify::new(),
             reply_space_closed: AtomicBool::new(false),
         })
@@ -132,6 +135,7 @@ impl ApplicationSegment {
             fleet_name: fleet_name.to_owned(),
             spec,
             access: access.clone(),
+            exchange_controls: OnceLock::new(),
             reply_space: tokio::sync::Notify::new(),
             reply_space_closed: AtomicBool::new(false),
         }))
@@ -163,6 +167,7 @@ impl ApplicationSegment {
             fleet_name: fleet_name.to_owned(),
             spec,
             access: Access::OwnerOnly,
+            exchange_controls: OnceLock::new(),
             reply_space: tokio::sync::Notify::new(),
             reply_space_closed: AtomicBool::new(false),
         })
@@ -202,6 +207,26 @@ impl ApplicationSegment {
 
     pub(super) fn allows_shared_response(&self) -> bool {
         matches!(self.access, Access::OwnerOnly)
+    }
+
+    /// The HTTP inline control table follows the destination's Link geometry.
+    pub fn exchange_controls(&self) -> Result<&Arc<super::ExchangeControls>> {
+        if let Some(controls) = self.exchange_controls.get() {
+            return Ok(controls);
+        }
+        let slots =
+            u32::try_from(self.spec.streams.lane_capacity).map_err(|_| {
+                Error::Malformed("inline exchange capacity exceeds u32")
+            })?;
+        let controls = Arc::new(
+            super::ExchangeControls::open(
+                Arc::clone(&self.link),
+                super::LINK_EXCHANGE_CONTROL_KIND,
+                slots,
+            )
+            .map_err(map_link_error)?,
+        );
+        Ok(self.exchange_controls.get_or_init(|| controls))
     }
 
     pub fn spec(&self) -> LinkSpec {
@@ -698,6 +723,31 @@ impl ApplicationSegment {
         self.reply_space.notify_waiters();
     }
 
+    /// Wait for an inline caller to cancel or lose its lane. The sole
+    /// application reader forwards capacity and directory changes here.
+    pub async fn inline_cancelled(
+        &self,
+        ticket: super::ExchangeControlTicket,
+    ) {
+        let Some(controls) = self.exchange_controls.get() else { return };
+        loop {
+            let notified = self.reply_space.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if controls.state(ticket).ok()
+                != Some(super::ExchangeControlState::Pending)
+                || self
+                    .inbox()
+                    .consumers(usize::from(ticket.origin))
+                    .unwrap_or(0)
+                    == 0
+            {
+                return;
+            }
+            notified.await;
+        }
+    }
+
     /// A failed intake cannot drive further inbox-space notifications.
     pub fn close_reply_space(&self) {
         self.reply_space_closed.store(true, Ordering::Release);
@@ -751,6 +801,9 @@ impl ApplicationSegment {
     }
 
     pub fn unlink(&self) -> Result<()> {
+        if let Some(controls) = self.exchange_controls.get() {
+            controls.unlink().map_err(map_link_error)?;
+        }
         self.link.unlink().map_err(map_link_error)
     }
 }

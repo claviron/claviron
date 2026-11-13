@@ -42,11 +42,12 @@ impl ApplicationReceiver {
         lane: usize,
     ) -> Result<Self> {
         let reader = segment.receiver(lane)?;
-        let recovery = if segment
-            .inbox()
-            .work_capacity(lane)
-            .map_err(map_link_error)?
-            .is_some()
+        let recovery = if segment.inbox().inline_exchange_epoch(lane).is_some()
+            || segment
+                .inbox()
+                .work_capacity(lane)
+                .map_err(map_link_error)?
+                .is_some()
         {
             let mut recovery = Recovery {
                 peers: Peers::new(

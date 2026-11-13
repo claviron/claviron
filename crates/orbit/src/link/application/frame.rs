@@ -557,6 +557,7 @@ const FLAG_UPGRADE: u8 = 1 << 3;
 const FLAG_INLINE: u8 = 1 << 4;
 /// The body travels on the stream.
 const FLAG_STREAMED: u8 = 1 << 5;
+const FLAG_CONTROL: u8 = 1 << 6;
 /// Where the flags byte sits in every frame's prologue.
 const FLAGS_AT: usize = 2;
 
@@ -631,6 +632,36 @@ impl Exchange {
 
     /// Taken by value: an inline body is a slice of the frame, not a copy.
     pub fn decode(frame: Bytes) -> Result<Self> {
+        let (exchange, control) = Self::decode_with_control(frame)?;
+        if control.is_some() {
+            return Err(Error::Malformed(
+                "inline exchange requires a capable receiver",
+            ));
+        }
+        Ok(exchange)
+    }
+
+    pub(super) fn encode_inline_head(
+        &self,
+        ticket: super::ExchangeControlTicket,
+    ) -> Result<Vec<u8>> {
+        debug_assert!(
+            self.stream.is_none() && matches!(self.body, ExchangeBody::Empty)
+        );
+        let mut head = self.encode_head()?;
+        head[FLAGS_AT] |= FLAG_CONTROL;
+        head.extend_from_slice(&ticket.origin_epoch.to_le_bytes());
+        head.extend_from_slice(&ticket.runner.to_le_bytes());
+        head.extend_from_slice(&ticket.runner_epoch.to_le_bytes());
+        head.extend_from_slice(&ticket.slot.to_le_bytes());
+        head.extend_from_slice(&ticket.generation.to_le_bytes());
+        Ok(head)
+    }
+
+    /// Decode a request and its optional, negotiated inline control ticket.
+    pub fn decode_with_control(
+        frame: Bytes
+    ) -> Result<(Self, Option<super::ExchangeControlTicket>)> {
         let mut cursor = Cursor::new(&frame);
         if FrameKind::from_byte(cursor.byte()?)? != FrameKind::Request {
             return Err(Error::Malformed(
@@ -653,24 +684,53 @@ impl Exchange {
         let raw_path = cursor.bytes()?.to_vec();
         let query = cursor.bytes()?.to_vec();
         let headers = cursor.headers()?;
+        let control = if flags & FLAG_CONTROL != 0 {
+            if flags
+                & (FLAG_STREAM | FLAG_INLINE | FLAG_STREAMED | FLAG_UPGRADE)
+                != 0
+            {
+                return Err(Error::Malformed(
+                    "inline control requires a bodyless request",
+                ));
+            }
+            let ticket = super::ExchangeControlTicket {
+                origin,
+                origin_epoch: cursor.u64()?,
+                runner: cursor.u16()?,
+                runner_epoch: cursor.u64()?,
+                slot: u32::from_le_bytes(
+                    cursor.take(4)?.try_into().expect("four bytes"),
+                ),
+                generation: cursor.u64()?,
+            };
+            if cursor.at != frame.len() {
+                return Err(Error::Malformed("trailing inline exchange bytes"));
+            }
+            Some(ticket)
+        } else {
+            None
+        };
         let at = cursor.at;
 
-        Ok(Self {
-            correlation,
-            origin,
-            method,
-            scheme,
-            version,
-            path,
-            raw_path,
-            query,
-            headers,
-            client,
-            server,
-            stream,
-            body: ExchangeBody::decode(flags, &frame, at)?,
-            upgrade: flags & FLAG_UPGRADE != 0,
-        })
+        Ok((
+            Self {
+                correlation,
+                origin,
+                method,
+                scheme,
+                version,
+                path,
+                raw_path,
+                query,
+                headers,
+                client,
+                server,
+                stream,
+                body: ExchangeBody::decode(flags, &frame, at)?,
+                upgrade: flags & FLAG_UPGRADE != 0,
+            },
+            control,
+        ))
     }
 }
 
@@ -720,6 +780,11 @@ impl ExchangeReply {
 
         put_headers(&mut out, &self.headers)?;
         Ok(out)
+    }
+
+    /// Mark the encoded reply as carrying a body in the same frame.
+    pub fn mark_inline(head: &mut [u8]) {
+        head[FLAGS_AT] |= FLAG_INLINE;
     }
 
     /// Taken by value: an inline body is a slice of the frame, not a copy.

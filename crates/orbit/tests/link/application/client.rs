@@ -50,10 +50,10 @@ fn reply_wait() -> (ReplyWait, Endpoint, ReadHalf, Arc<Waiting>) {
     let waiting = Arc::new(Waiting::default());
     let (sender, receiver) = oneshot::channel();
     let owner = LaneOwner { lane: 0, pid: None, incarnation: 1 };
-    waiting.insert(1, owner, sender);
+    waiting.insert(1, owner, sender, None);
     let reply = ReplyWait {
         reply: receiver,
-        reset: read.reset_signal(),
+        signal: Some(ReplySignal::Stream(read.reset_signal())),
         waiting: Arc::clone(&waiting),
         correlation: 1,
         completed: false,
@@ -961,4 +961,105 @@ async fn shared_body_reset_after_publication_keeps_the_reply_head() {
         body.try_next(),
         Ok(super::super::body::FlowEvent::Reset(code)) if code.get() == RESPONSE_BODY_RESET
     ));
+}
+
+#[tokio::test]
+async fn inline_uses_no_body_slot_and_terminal_failure_reaches_the_waiter() {
+    let mut case = CreatorPressure::new("z");
+    let (_occupied, _remote) = case.occupy().await;
+    let target = case.client.target("example");
+    case.segment.exchange_controls().unwrap();
+    case.segment
+        .inbox()
+        .advertise_inline_exchanges(case.worker.lane, case.worker.epoch())
+        .unwrap();
+    let pending = target
+        .send_http_wait_with_inline(
+            Exchange { method: "GET".into(), ..Exchange::default() },
+            true,
+        )
+        .await
+        .unwrap();
+    let HttpPending::Inline { reply, correlation } = pending else {
+        panic!("an inline route must be able to bypass occupied body slots");
+    };
+    let mut frame = Vec::new();
+    let control = loop {
+        if let Received::Work(_) = case.receiver.next(&mut frame).await.unwrap()
+        {
+            let (exchange, control) =
+                Exchange::decode_with_control(Bytes::from(frame)).unwrap();
+            assert!(exchange.stream.is_none());
+            assert_eq!(exchange.correlation, correlation);
+            break control.unwrap();
+        }
+    };
+    let table = case.segment.exchange_controls().unwrap();
+    assert!(table.fail(&case.worker, control).unwrap());
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), reply.head())
+            .await
+            .expect("terminal control must wake the caller")
+            .is_err()
+    );
+}
+
+#[test]
+fn inline_reply_reader_delivers_before_abandoning_the_dead_runner() {
+    let name = format!("irb{:x}", std::process::id());
+    let segment = ApplicationSegment::open(&name, 2).unwrap();
+    let caller = segment.join("edge", EDGE_RUNTIME, 1).unwrap();
+    let runner = segment.join("runner", "rust", 1).unwrap();
+    let waiting = Waiting::default();
+    let owner = LaneOwner { lane: runner.lane, pid: None, incarnation: 1 };
+    let ticket = ExchangeControlTicket {
+        origin: caller.lane as u16,
+        origin_epoch: caller.epoch(),
+        runner: runner.lane as u16,
+        runner_epoch: runner.epoch(),
+        slot: 0,
+        generation: 4,
+    };
+    let (answered_tx, mut answered) = oneshot::channel();
+    let (missing_tx, mut missing) = oneshot::channel();
+    waiting.insert(1, owner, answered_tx, Some(ticket));
+    waiting.insert(2, owner, missing_tx, Some(ticket));
+    let reply = ExchangeReply {
+        correlation: 1,
+        status: 200,
+        headers: vec![],
+        body: ExchangeBody::Inline(Bytes::from_static(b"ok")),
+    }
+    .encode()
+    .unwrap();
+    segment.publish_reply(caller.lane, &[&reply]).unwrap();
+    let inbox = segment.inbox();
+    let boundary = inbox.reserved_through(caller.lane).unwrap();
+    segment.publish_reply(caller.lane, &[b"later traffic"]).unwrap();
+
+    let mut recovery = ReplyRecovery {
+        pending: vec![ReplyBoundary {
+            owner,
+            epoch: Some(runner.epoch()),
+            reserved_through: boundary,
+        }],
+    };
+    assert_eq!(recovery.next(inbox, caller.lane, &waiting), Some(boundary));
+    assert!(matches!(
+        missing.try_recv(),
+        Err(oneshot::error::TryRecvError::Empty)
+    ));
+    let mut frame = Vec::new();
+    assert!(inbox.read(caller.lane, &mut frame).unwrap());
+    deliver(&waiting, Bytes::from(frame));
+    assert_eq!(answered.try_recv().unwrap().inline(), b"ok");
+    assert_eq!(recovery.next(inbox, caller.lane, &waiting), None);
+    assert!(matches!(
+        missing.try_recv(),
+        Err(oneshot::error::TryRecvError::Closed)
+    ));
+    assert!(waiting.take(1).is_none());
+    assert_eq!(inbox.depth(caller.lane).unwrap(), 1);
+    drop((caller, runner));
+    segment.unlink().unwrap();
 }

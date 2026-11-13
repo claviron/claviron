@@ -116,6 +116,7 @@ not duplicated as new Claviron constants.
 
 | Kind ID | Physical resource | Shape | Owning definition / Claviron binding |
 |---|---|---|---|
+| `176` | Application-link inline HTTP exchange control | Caller lane × adopted body-lane capacity, 32-byte records fenced by caller/Runner inbox epoch and slot generation | [Link geometry](src/link/application/geometry.rs), Orbitive `ExchangeControls` |
 | `177` | Application-link shared HTTP response payload | Directional payload arena v5. Outstanding slots are bounded per response and retained through the last receiver byte view | [Shared response bodies](src/link/application/body.rs) |
 | `178` | Application-link shared HTTP response control | Duplex descriptor rings. The request ticket distinguishes these exchanges from kind 181 | [Shared response bodies](src/link/application/body.rs) |
 | `179` | Application-link paired request direction | Minimal directional arena. Empty and inline requests use the inbox | [Shared response bodies](src/link/application/body.rs) |
@@ -324,6 +325,7 @@ its index row.
 
 | kind | boot | finalize | successor | what stays, and why it is harmless |
 |---|---|---|---|---|
+| `176` inline exchange control (selected Link fleet) | Open or attach when a Runner advertises inline support | Preserve | A new caller lane epoch reclaims abandoned records | No response bytes or response history |
 | `180` shared cache table | Reuse | Preserve | existing arena pin recovery | indexed values, subject to TTL and eviction |
 | `194` cache mutation transport | Reuse | Preserve | — | old frames; cursors start at the head |
 | `184` application-link inbox (selected link fleet, not managed) | `orbitive::link::LinkSegment` creates once and otherwise attaches; a lane is won under its hold by CAS, then cleared and stamped | Claviron releases the lane, then its hold | **the next joiner takes back every lane whose hold it can take**: the kernel let go of it, so its owner is gone | a dead owner's lane and frames until the next process joins the fleet; the lock files beside the segment (removed with it) |
@@ -450,6 +452,18 @@ Application intake keeps driving notifications while accepted work drains.
 If the head cannot be published, the application resets the response direction, including after a small
 buffered body already published FIN. `ReplyWait` checks its oneshot, then the stream's reset-only
 signal. Data and FIN do not complete a header wait. A refused request remains a pre-execution 503.
+
+A route with `inline_response: true` may send a bodyless GET with a control
+ticket and no body slot. The selected Runner advertises support for its exact
+lane epoch after opening the control table. The reply still commits to the
+ordinary reply inbox. The control record carries cancellation and permanent
+publication failure even when that inbox is full. An oversized or unbuffered
+reply fails with 502. Once the request is published it is never replayed.
+
+After Runner death and producer recovery, the single Edge reader delivers
+through the reply lane's captured reservation boundary before dropping
+unanswered inline exchanges. An earlier live reservation can temporarily hide
+a committed reply; the cursor, rather than an empty read, proves completion.
 
 After an accepted upgrade the same slot carries whole message records: for a WebSocket, and for each
 reliable WebTransport bidi stream, which is its own slot and session. Datagrams and uni streams are not

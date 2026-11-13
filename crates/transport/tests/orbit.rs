@@ -294,8 +294,9 @@ async fn admission_stays_owned_after_the_head_until_the_streamed_body_ends() {
     let name = format!("sb{:x}", std::process::id());
     let segment = Arc::new(ApplicationSegment::open(&name, 4).unwrap());
     let caller = segment.join("caller", "edge", 1).unwrap();
-    let worker =
-        segment.join_with_capacity("worker", "rust", 2, Some(1)).unwrap();
+    let worker = Arc::new(
+        segment.join_with_capacity("worker", "rust", 2, Some(1)).unwrap(),
+    );
     let origin =
         ApplicationBodies::for_segment(&segment, caller.lane, 1).unwrap();
     let bodies = Arc::new(
@@ -332,7 +333,7 @@ async fn admission_stays_owned_after_the_head_until_the_streamed_body_ends() {
     });
     let serving = tokio::spawn(serve(
         frame,
-        worker.lane,
+        Arc::clone(&worker),
         owner,
         Arc::clone(&segment),
         Arc::clone(&bodies),
@@ -351,7 +352,7 @@ async fn admission_stays_owned_after_the_head_until_the_streamed_body_ends() {
     drop(endpoint);
     segment.inbox().release_lane(worker.lane).unwrap();
     segment.inbox().release_lane(caller.lane).unwrap();
-    drop((worker.hold, caller.hold));
+    drop((worker, caller));
     let _ = origin.unlink();
     segment.unlink().unwrap();
 }
@@ -426,8 +427,9 @@ async fn native_runner_publishes_the_head_before_a_shared_response_exceeds_its_w
         )
         .unwrap(),
     );
-    let worker =
-        segment.join_with_capacity("worker", "rust", 11, Some(1)).unwrap();
+    let worker = Arc::new(
+        segment.join_with_capacity("worker", "rust", 11, Some(1)).unwrap(),
+    );
     let mut tables =
         ApplicationBodies::for_segment(&segment, worker.lane, 11).unwrap();
     tables.advertise_shared_response(&segment, worker.lane, 11).unwrap();
@@ -474,7 +476,7 @@ async fn native_runner_publishes_the_head_before_a_shared_response_exceeds_its_w
             segment.accept_frame(worker.lane, received, &frame).unwrap();
         let serving = tokio::spawn(serve(
             frame,
-            worker.lane,
+            Arc::clone(&worker),
             Arc::new(StreamingOwner),
             Arc::clone(&segment),
             Arc::clone(&tables),
@@ -635,4 +637,192 @@ async fn full_reply_inbox_wakes_the_publisher_and_fences_replacement() {
         }
         assert!(!inbox.read(edge.lane, &mut frame).unwrap());
     }
+}
+
+#[tokio::test]
+async fn inline_reply_cancellation_and_permanent_failure_with_full_inbox() {
+    use claviron_orbit::config::LinkGeometry;
+    use claviron_orbit::link::application::Access;
+    use std::task::{Context, Waker};
+
+    struct BufferedOwner(usize);
+    impl Owner for BufferedOwner {
+        fn execution(&self) -> claviron_runtime::ExecutorSpec {
+            claviron_runtime::ExecutorSpec::Inherit
+        }
+
+        fn call(
+            &self,
+            _: Request<claviron_http::RouteBody>,
+            _: Option<&Arc<claviron_http::ext::ConnCtx>>,
+            _: RequestArrival,
+        ) -> impl Future<Output = claviron_http::RouteResponse> + Send + use<>
+        {
+            let body =
+                claviron_http::bytes_body(Bytes::from(vec![b'x'; self.0]));
+            std::future::ready(http::Response::new(body))
+        }
+    }
+
+    let geometry = LinkGeometry {
+        fleet_capacity: 4,
+        inbox_capacity: 4,
+        inbox_payload_capacity: 256,
+        lane_capacity: 2,
+        buffer_bytes: 256,
+    };
+    let name = format!("irc{:x}", std::process::id());
+    let open = || {
+        ApplicationSegment::for_fleet_with_spec(
+            &name,
+            geometry.spec(),
+            &Access::OwnerOnly,
+        )
+        .unwrap()
+    };
+    struct Cleanup(ApplicationSegment);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            self.0.unlink().unwrap();
+        }
+    }
+    let cleanup = Cleanup(open());
+    let edge = Arc::new(open());
+    let runner = Arc::new(open());
+    let caller = edge.join("edge", EDGE_RUNTIME, 1).unwrap();
+    let joined = runner.join("runner", "rust", 1).unwrap();
+    let controls = cleanup.0.exchange_controls().unwrap();
+    runner.exchange_controls().unwrap();
+    let mut edge_rx = edge.receiver(caller.lane).unwrap();
+    let mut runner_rx = runner.application_receiver(joined.lane).unwrap();
+    for _ in 0..geometry.inbox_capacity {
+        cleanup.0.publish_reply(caller.lane, &[b"another producer"]).unwrap();
+    }
+
+    let exchange = Exchange {
+        origin: caller.lane as u16,
+        method: "GET".into(),
+        path: "/".into(),
+        raw_path: b"/".into(),
+        ..Exchange::default()
+    };
+    let lost_wake = std::time::Duration::from_secs(5);
+    let lease = controls
+        .reserve(&caller, joined.lane, joined.epoch())
+        .unwrap()
+        .unwrap();
+    let owner = BufferedOwner(2);
+    let publishing =
+        serve_inline(&exchange, lease.ticket(), &owner, &runner, &joined);
+    let mut publishing = std::pin::pin!(publishing);
+    assert!(
+        publishing
+            .as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
+    lease.cancel().unwrap();
+    tokio::time::timeout(lost_wake, async {
+        loop {
+            let notification = runner_rx.drain_notification();
+            tokio::pin!(notification);
+            tokio::select! {
+                biased;
+                () = &mut publishing => break,
+                result = &mut notification => result.unwrap(),
+            }
+        }
+    })
+    .await
+    .expect("the publisher must observe cancellation without inbox space");
+    assert_eq!(
+        lease.caller_state().unwrap(),
+        claviron_orbit::link::application::ExchangeControlState::Cancelled
+    );
+    drop(lease);
+
+    // The same temporary backpressure may instead clear. Keep the body
+    // prepared while a different producer's frame releases a turn.
+    let lease = controls
+        .reserve(&caller, joined.lane, joined.epoch())
+        .unwrap()
+        .unwrap();
+    let mut frame = Vec::new();
+    {
+        let publishing =
+            serve_inline(&exchange, lease.ticket(), &owner, &runner, &joined);
+        let mut publishing = std::pin::pin!(publishing);
+        assert!(
+            publishing
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+        assert!(edge.inbox().read(caller.lane, &mut frame).unwrap());
+        tokio::time::timeout(lost_wake, async {
+            loop {
+                tokio::select! {
+                    biased;
+                    () = &mut publishing => break,
+                    result = runner_rx.drain_notification() => result.unwrap(),
+                }
+            }
+        })
+        .await
+        .expect("freeing a turn must wake the inline publisher");
+    }
+    for _ in 1..geometry.inbox_capacity {
+        assert!(edge.inbox().read(caller.lane, &mut frame).unwrap());
+        assert_eq!(frame, b"another producer");
+    }
+    assert!(edge.inbox().read(caller.lane, &mut frame).unwrap());
+    assert_eq!(
+        ExchangeReply::decode(Bytes::from(frame)).unwrap().inline(),
+        b"xx"
+    );
+    assert!(!edge.inbox().read(caller.lane, &mut Vec::new()).unwrap());
+    lease.complete();
+    for _ in 0..geometry.inbox_capacity {
+        cleanup.0.publish_reply(caller.lane, &[b"another producer"]).unwrap();
+    }
+
+    let lease = controls
+        .reserve(&caller, joined.lane, joined.epoch())
+        .unwrap()
+        .unwrap();
+    let oversized = BufferedOwner(geometry.inbox_payload_capacity);
+    let failing = async {
+        loop {
+            if matches!(
+                edge_rx.next_notification().await.unwrap(),
+                Received::Capacity(_)
+            ) {
+                break;
+            }
+        }
+    };
+    let ((), ()) = tokio::time::timeout(lost_wake, async {
+        tokio::join!(
+            failing,
+            serve_inline(
+                &exchange,
+                lease.ticket(),
+                &oversized,
+                &runner,
+                &joined
+            )
+        )
+    })
+    .await
+    .expect(
+        "permanent failure must wake Edge while the reply inbox stays full",
+    );
+    assert_eq!(
+        lease.caller_state().unwrap(),
+        claviron_orbit::link::application::ExchangeControlState::Failed
+    );
+    assert_eq!(
+        edge.inbox().depth(caller.lane).unwrap(),
+        geometry.inbox_capacity as u64
+    );
 }

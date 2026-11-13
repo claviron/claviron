@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use arc_swap::{ArcSwap, Guard};
 
+use super::client::ReplyTransport;
 use super::selection::Selection;
 use super::{
     ApplicationClient, Exchange, ExchangeBody, HttpPending, Inbox, LinkBalance,
@@ -118,7 +119,7 @@ impl ApplicationTarget {
                 &lanes.lanes,
                 &mut request,
                 Some(&self.0.selection),
-                false,
+                ReplyTransport::ByteStream,
             )
             .map(HttpPending::byte_stream)
     }
@@ -133,7 +134,9 @@ impl ApplicationTarget {
         &self,
         request: Exchange,
     ) -> Result<Pending> {
-        self.dispatch_wait(request, false).await.map(HttpPending::byte_stream)
+        self.dispatch_wait(request, ReplyTransport::ByteStream)
+            .await
+            .map(HttpPending::byte_stream)
     }
 
     /// Native HTTP callers may use the response transport advertised by
@@ -142,16 +145,37 @@ impl ApplicationTarget {
         &self,
         request: Exchange,
     ) -> Result<HttpPending> {
+        self.send_http_wait_with_inline(request, false).await
+    }
+
+    /// Use inline delivery for a route that guarantees bounded buffered replies.
+    pub async fn send_http_wait_with_inline(
+        &self,
+        request: Exchange,
+        inline_response: bool,
+    ) -> Result<HttpPending> {
+        let inline = inline_response
+            && !request.upgrade
+            && request.method == "GET"
+            && matches!(request.body, ExchangeBody::Empty);
         let eligible =
             !request.upgrade && !matches!(request.body, ExchangeBody::Stream);
-        self.dispatch_wait(request, eligible).await
+        let transport = if inline {
+            ReplyTransport::Inline
+        } else if eligible {
+            ReplyTransport::SharedResponse
+        } else {
+            ReplyTransport::ByteStream
+        };
+        self.dispatch_wait(request, transport).await
     }
 
     async fn dispatch_wait(
         &self,
         mut request: Exchange,
-        allow_shared_response: bool,
+        transport: ReplyTransport,
     ) -> Result<HttpPending> {
+        let allow_shared_response = transport != ReplyTransport::ByteStream;
         let mut creator_pressure = None;
         loop {
             let result = if let Some(shared_response) = creator_pressure {
@@ -182,7 +206,7 @@ impl ApplicationTarget {
                     &lanes.lanes,
                     &mut request,
                     Some(&self.0.selection),
-                    allow_shared_response,
+                    transport,
                 )
             };
             match result {

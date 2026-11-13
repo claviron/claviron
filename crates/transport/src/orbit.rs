@@ -44,10 +44,10 @@ use claviron_orbit::link::application::{
     ApplicationBodies, ApplicationLinkSetup, ApplicationSegment,
     ControlCommand, ControlTarget, EDGE_RUNTIME, EdgeConnected,
     EdgeDisconnected, Error as LinkError, Exchange, ExchangeBody,
-    ExchangeReply, FleetGrowth, FrameKind, HttpVersion, IdleRetirement, Inbox,
-    LinkJoined, LinkPressure, LinkWorkerIdle, Offered, Peers, Received,
-    RetirementSource, ShutdownNotice, Watched, WorkExecution, WorkQueue,
-    fit_inline, frame_kind,
+    ExchangeControlTicket, ExchangeReply, FleetGrowth, FrameKind, HttpVersion,
+    IdleRetirement, Inbox, Joined, LinkJoined, LinkPressure, LinkWorkerIdle,
+    Offered, Peers, Received, RetirementSource, ShutdownNotice, Watched,
+    WorkExecution, WorkQueue, fit_inline, frame_kind,
 };
 pub use claviron_orbit::stream::{ReadHalf, WriteHalf};
 use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
@@ -456,6 +456,17 @@ impl OrbitDoor {
             self.state_serving(&state)?;
         }
 
+        match segment.exchange_controls() {
+            Ok(_) => {
+                segment
+                    .inbox()
+                    .advertise_inline_exchanges(lane, joined.epoch())
+                    .map_err(|error| registry::Error::msg(error.to_string()))?;
+            }
+            Err(error) => {
+                tracing::warn!(%error, "inline Orbit replies unavailable")
+            }
+        }
         let mut receiver = segment
             .application_receiver(lane)
             .map_err(|error| registry::Error::msg(error.to_string()))?;
@@ -472,7 +483,9 @@ impl OrbitDoor {
             lane,
             role: self.runtime.to_owned(),
         });
+        let joined = Arc::new(joined);
         let mut exchanges = JoinSet::new();
+        let mut refusals = JoinSet::new();
         let shutdown = SessionShutdown { token: context.cancellation_token() };
         let mut frame = Vec::new();
         // Up to the published execution runs; the rest of the window waits
@@ -482,12 +495,13 @@ impl OrbitDoor {
             tokio::select! {
                 biased;
                 () = context.cancelled() => break,
+                Some(finished) = refusals.join_next(), if !refusals.is_empty() => report(finished),
                 Some(finished) = exchanges.join_next(), if !exchanges.is_empty() => {
                     report(finished);
                     if let Some((request, admission)) = work.finished(&segment, lane) {
                         exchanges.spawn(serve(
                             request,
-                            lane,
+                            Arc::clone(&joined),
                             Arc::clone(&owner),
                             Arc::clone(&segment),
                             Arc::clone(&bodies),
@@ -500,7 +514,7 @@ impl OrbitDoor {
                     while let Some((request, admission)) = work.start_waiting(&segment, lane) {
                         exchanges.spawn(serve(
                             request,
-                            lane,
+                            Arc::clone(&joined),
                             Arc::clone(&owner),
                             Arc::clone(&segment),
                             Arc::clone(&bodies),
@@ -523,7 +537,7 @@ impl OrbitDoor {
                             Ok(Offered::Start((request, admission))) => {
                                 exchanges.spawn(serve(
                                     request,
-                                    lane,
+                                    Arc::clone(&joined),
                                     Arc::clone(&owner),
                                     Arc::clone(&segment),
                                     Arc::clone(&bodies),
@@ -534,7 +548,17 @@ impl OrbitDoor {
                             Ok(Offered::Held) => {}
                             Err(error) => {
                                 tracing::debug!(lane, %error, "Link exchange refused before execution");
-                                refuse_exchange(&frame, &segment, &bodies);
+                                if let Ok((exchange, Some(ticket))) =
+                                    Exchange::decode_with_control(Bytes::copy_from_slice(&frame))
+                                {
+                                    let segment = Arc::clone(&segment);
+                                    let joined = Arc::clone(&joined);
+                                    refusals.spawn(async move {
+                                        refuse_inline(exchange.correlation, ticket, &segment, &joined).await;
+                                    });
+                                } else {
+                                    refuse_exchange(&frame, &segment, &bodies);
+                                }
                             }
                         }
                     }
@@ -608,10 +632,14 @@ impl OrbitDoor {
         // Exchanges already taken are finished, queued ones included: their
         // callers are still waiting for an answer they can have.
         let mut notifications = true;
-        while !exchanges.is_empty() {
+        while !exchanges.is_empty() || !refusals.is_empty() {
             let finished = tokio::select! {
                 biased;
-                finished = exchanges.join_next() => finished,
+                finished = exchanges.join_next(), if !exchanges.is_empty() => finished,
+                Some(finished) = refusals.join_next(), if !refusals.is_empty() => {
+                    report(finished);
+                    continue;
+                },
                 event = receiver.drain_notification(), if notifications => {
                     if let Err(error) = event {
                         tracing::debug!(lane, %error, "could not receive reply notifications during drain");
@@ -626,7 +654,7 @@ impl OrbitDoor {
             if let Some((request, admission)) = work.finished(&segment, lane) {
                 exchanges.spawn(serve(
                     request,
-                    lane,
+                    Arc::clone(&joined),
                     Arc::clone(&owner),
                     Arc::clone(&segment),
                     Arc::clone(&bodies),
@@ -955,13 +983,14 @@ fn report(finished: Result<(), tokio::task::JoinError>) {
 /// One exchange, from the frame that arrived to the reply that leaves.
 async fn serve<O: Owner>(
     frame: Vec<u8>,
-    lane: usize,
+    membership: Arc<Joined>,
     owner: Arc<O>,
     segment: Arc<ApplicationSegment>,
     bodies: Arc<ApplicationBodies>,
     shutdown: SessionShutdown,
     admission: Option<(usize, WorkExecution)>,
 ) {
+    let lane = membership.lane;
     // Scope owns the admission until the response/session future has ended.
     let _admission = admission;
     match frame_kind(&frame) {
@@ -1000,15 +1029,16 @@ async fn serve<O: Owner>(
             return;
         }
     }
-    let mut exchange = match Exchange::decode(Bytes::from(frame)) {
-        Ok(exchange) => exchange,
-        Err(error) => {
-            tracing::debug!(
-                "lane {lane} received a malformed exchange: {error}"
-            );
-            return;
-        }
-    };
+    let (mut exchange, control) =
+        match Exchange::decode_with_control(Bytes::from(frame)) {
+            Ok(exchange) => exchange,
+            Err(error) => {
+                tracing::debug!(
+                    "lane {lane} received a malformed exchange: {error}"
+                );
+                return;
+            }
+        };
     let origin = exchange.origin as usize;
     if _admission
         .as_ref()
@@ -1019,6 +1049,11 @@ async fn serve<O: Owner>(
             origin,
             "exchange origin differs from its work admission"
         );
+        return;
+    }
+    if let Some(ticket) = control {
+        serve_inline(&exchange, ticket, owner.as_ref(), &segment, &membership)
+            .await;
         return;
     }
     let Ok(origin_epoch) = segment.inbox().lane_epoch(origin) else {
@@ -1512,6 +1547,118 @@ async fn session<O: Owner>(
         }
         _ => outgoing.reset(),
     }
+}
+
+async fn refuse_inline(
+    correlation: u64,
+    ticket: ExchangeControlTicket,
+    segment: &ApplicationSegment,
+    joined: &Joined,
+) {
+    if usize::from(ticket.runner) != joined.lane
+        || ticket.runner_epoch != joined.epoch()
+    {
+        return;
+    }
+    let Ok(controls) = segment.exchange_controls() else { return };
+    let reply = ExchangeReply {
+        correlation,
+        status: 503,
+        headers: Vec::new(),
+        body: ExchangeBody::Empty,
+    };
+    let published = tokio::select! {
+        biased;
+        () = segment.inline_cancelled(ticket) => return,
+        result = async {
+            let head = reply.encode_head().map_err(|error| error.to_string())?;
+            publish_reply_head(segment, (usize::from(ticket.origin), ticket.origin_epoch),
+                joined.lane, &[&head], None).await
+        } => result,
+    };
+    if published.is_err() {
+        let _ = controls.fail(joined, ticket);
+    }
+}
+
+async fn serve_inline<O: Owner>(
+    exchange: &Exchange,
+    ticket: ExchangeControlTicket,
+    owner: &O,
+    segment: &ApplicationSegment,
+    joined: &Joined,
+) {
+    let Ok(controls) = segment.exchange_controls() else { return };
+    if usize::from(ticket.runner) != joined.lane
+        || ticket.runner_epoch != joined.epoch()
+    {
+        return;
+    }
+
+    let answered = tokio::select! {
+        biased;
+        () = segment.inline_cancelled(ticket) => return,
+        result = inline_reply(exchange, ticket, owner, segment) => result,
+    };
+
+    if let Err(error) = answered {
+        tracing::debug!(correlation = exchange.correlation, %error, "inline Orbit reply failed");
+        let _ = controls.fail(joined, ticket);
+    }
+}
+
+async fn inline_reply<O: Owner>(
+    exchange: &Exchange,
+    ticket: ExchangeControlTicket,
+    owner: &O,
+    segment: &ApplicationSegment,
+) -> Result<(), String> {
+    let request = build_request(exchange, RequestBody::empty())?;
+    let response = owner
+        .call(
+            request.map(RequestBody::into_inner),
+            None,
+            RequestArrival::Established,
+        )
+        .await;
+    let reply = ExchangeReply {
+        correlation: exchange.correlation,
+        status: response.status().as_u16(),
+        headers: header_pairs(&response),
+        body: ExchangeBody::Empty,
+    };
+    let capacity = segment.inbox().geometry().payload_capacity;
+    let mut head = reply.encode_head().map_err(|error| error.to_string())?;
+    let remaining = capacity
+        .checked_sub(head.len())
+        .ok_or("inline response headers exceed the frame")?;
+    let body = response.into_body();
+    if !http_body::Body::size_hint(&body)
+        .exact()
+        .is_some_and(|size| size <= remaining as u64)
+    {
+        return Err("response has no bounded inline body".into());
+    }
+    let collected =
+        http_body_util::Limited::new(RequestBody::new(body), remaining)
+            .collect()
+            .await
+            .map_err(|error| error.to_string())?;
+    if collected.trailers().is_some() {
+        return Err("response trailers require a stream".into());
+    }
+    let bytes = collected.to_bytes();
+    if !bytes.is_empty() {
+        ExchangeReply::mark_inline(&mut head);
+    }
+    publish_reply_head(
+        segment,
+        (usize::from(ticket.origin), ticket.origin_epoch),
+        usize::from(ticket.runner),
+        &[&head, &bytes],
+        None,
+    )
+    .await
 }
 
 async fn publish_reply_head(

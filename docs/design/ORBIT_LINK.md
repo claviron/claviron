@@ -32,6 +32,19 @@ The geometry and frame formats are shared declarations. Peers that map the
 same namespace must agree on them. A change in physical shape is a compatibility
 change, not something one side can deploy by silently resizing a live segment.
 
+## Inline HTTP replies
+
+Set `inline_response: true` on an Orbit route whose bodyless GETs always
+return a complete, bounded response that fits one Link inbox frame, including
+the headers. A capable native Runner serves those exchanges without a body
+stream slot. If it cannot publish the whole reply, Edge returns 502. A full
+reply inbox applies backpressure and the exchange can still be cancelled.
+A reply committed before Runner exit is delivered during recovery.
+
+The option defaults to false. Requests with bodies or upgrades, and routes
+whose selected Runner lacks the capability, use the existing body transports.
+Leave the option off on routes serving streams or trailers.
+
 ## Shared HTTP response streams
 
 A cooperating native Runner can enable `orbit.link.shared_response: true` at

@@ -72,6 +72,7 @@ fn a_websocket_upgrade_without_h1_upgrade_is_refused_before_the_application() {
     };
     let backend = LinkBackend {
         routes: vec![LinkRoute {
+            inline_response: false,
             path: None,
             destination: Arc::new(super::LinkDestination::unavailable()),
             requests: RequestPolicyOverride::default(),
@@ -102,6 +103,7 @@ fn native_link_miss_keeps_the_body_and_a_matched_unavailable_route_owns_503() {
     };
     let backend = LinkBackend {
         routes: vec![LinkRoute {
+            inline_response: false,
             path: Some(serde_yaml::from_str("/api").unwrap()),
             destination: Arc::new(super::LinkDestination::unavailable()),
             // Retry-After follows the declared queue wait, rounded up.
@@ -416,7 +418,7 @@ async fn shared_response_frames_hold_credit_and_cancel_without_invalidating_byte
             sender
         };
         let (mut response, mut sender) = tokio::join!(
-            super::dispatch(target, policy, None, request),
+            super::dispatch(target, policy, None, request, false),
             serving,
         );
         assert_eq!(response.status(), 200);
@@ -452,4 +454,117 @@ async fn shared_response_frames_hold_credit_and_cancel_without_invalidating_byte
     tables.unlink().unwrap();
     segment.unlink().unwrap();
     result.expect("shared response transfer must complete");
+}
+
+#[tokio::test]
+async fn inline_orbit_route_returns_the_whole_reply_or_502() {
+    use bytes::Bytes;
+    use claviron_orbit::config::LinkGeometry;
+    use claviron_orbit::link::application::{
+        Access, ApplicationBodies, ApplicationClient, ApplicationSegment,
+        Exchange, ExchangeBody, ExchangeReply, FrameKind, Received, frame_kind,
+    };
+    use http_body_util::BodyExt;
+
+    let name = format!("pir{:x}", std::process::id());
+    let geometry = LinkGeometry {
+        fleet_capacity: 4,
+        inbox_capacity: 8,
+        inbox_payload_capacity: 1024,
+        lane_capacity: 2,
+        buffer_bytes: 8192,
+    };
+    let segment = Arc::new(
+        ApplicationSegment::for_fleet_with_spec(
+            &name,
+            geometry.spec(),
+            &Access::OwnerOnly,
+        )
+        .unwrap(),
+    );
+    let runner = segment.join("runner", "rust", 1).unwrap();
+    let table = segment.exchange_controls().unwrap();
+    segment
+        .inbox()
+        .advertise_inline_exchanges(runner.lane, runner.epoch())
+        .unwrap();
+    let mut intake = segment.application_receiver(runner.lane).unwrap();
+    let client = ApplicationClient::join_segment(
+        Arc::clone(&segment),
+        "edge",
+        1,
+        None,
+        None,
+    )
+    .unwrap();
+    let bodies =
+        ApplicationBodies::for_segment(&segment, client.lane(), 1).unwrap();
+    let test = async {
+        for succeeds in [true, false] {
+            let serving = async {
+                let mut frame = Vec::new();
+                loop {
+                    if matches!(
+                        intake.next(&mut frame).await.unwrap(),
+                        Received::Frame
+                    ) && matches!(frame_kind(&frame), Ok(FrameKind::Request))
+                    {
+                        break;
+                    }
+                }
+                let (request, control) =
+                    Exchange::decode_with_control(Bytes::from(frame)).unwrap();
+                assert!(request.stream.is_none());
+                let ticket = control.unwrap();
+                if succeeds {
+                    let reply = ExchangeReply {
+                        correlation: request.correlation,
+                        status: 200,
+                        headers: Vec::new(),
+                        body: ExchangeBody::Inline(Bytes::from_static(b"ok")),
+                    }
+                    .encode()
+                    .unwrap();
+                    segment
+                        .publish_reply_at_epoch(
+                            usize::from(ticket.origin),
+                            ticket.origin_epoch,
+                            &[&reply],
+                        )
+                        .unwrap();
+                } else {
+                    assert!(table.fail(&runner, ticket).unwrap());
+                }
+            };
+            let request = http::Request::builder()
+                .uri("/")
+                .body(claviron_http::empty_body())
+                .unwrap();
+            let (response, ()) = tokio::join!(
+                super::dispatch(
+                    client.target("runner"),
+                    super::RequestPolicy::unlimited(),
+                    None,
+                    request,
+                    true
+                ),
+                serving,
+            );
+            assert_eq!(response.status(), if succeeds { 200 } else { 502 });
+            if succeeds {
+                assert_eq!(
+                    response.into_body().collect().await.unwrap().to_bytes(),
+                    "ok"
+                );
+            }
+        }
+    };
+    let result =
+        tokio::time::timeout(std::time::Duration::from_secs(5), test).await;
+    client.leave();
+    segment.inbox().release_lane(runner.lane).unwrap();
+    drop(runner);
+    bodies.unlink().unwrap();
+    segment.unlink().unwrap();
+    result.expect("inline request did not complete");
 }
