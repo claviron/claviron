@@ -8,15 +8,21 @@
 
 Claviron is an application-first toolkit for building and running services.
 Run Rust alongside your existing applications. Keep them together as a modular
-monolith or distribute them across independent processes. **Taste the power of
-Orbit.** Let your processes share memory and exchange requests on the same
-host. See [Orbit Link](docs/design/ORBIT_LINK.md).
+monolith or distribute them across independent processes.
 
 Build your own Edge and serve public traffic directly. Terminate TLS, route
 requests, serve files, and dispatch to your applications at the Edge. Your
 application controls every layer, from listeners and access rules to handlers
 and response policies. Enable what you need. An omitted layer adds no work
 per request.
+
+## Fleetware
+
+**Taste the power of Orbit.** Let your processes share memory, exchange
+requests, and publish events on the same host. Orbit's shared-memory waits use
+Linux futexes, FreeBSD umtx, and shared address waits on macOS 14.4 and later.
+
+[Fleet awareness](docs/design/FLEETAWARE.md) · [Orbit Link](docs/design/ORBIT_LINK.md)
 
 ## Move to Rust without a full rewrite
 
@@ -80,6 +86,21 @@ routes:
 ```
 
 [Register a route extension](crates/edge/README.md#route-extensions)
+
+## Serve static files at the Edge
+
+Mount asset directories, serve directory indexes, and configure `try_files`
+or an SPA fallback. Large files stream from disk with backpressure. Small
+files can be cached in memory and shared across workers when the fleet cache
+is enabled.
+
+| Capability | HTTP specification |
+| --- | --- |
+| ETag and Last-Modified, conditional requests, and single byte ranges | [RFC 9110 §§8.8, 13–14](https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8) |
+| Browser freshness via Cache-Control and Expires, with opt-in immutable assets | [RFC 9111 §5](https://www.rfc-editor.org/rfc/rfc9111.html#section-5), [RFC 8246](https://www.rfc-editor.org/rfc/rfc8246.html) |
+| Negotiated Brotli and Zstandard representations | [RFC 9110 §12.5](https://www.rfc-editor.org/rfc/rfc9110.html#section-12.5), [RFC 7932](https://www.rfc-editor.org/rfc/rfc7932.html), [RFC 8878](https://www.rfc-editor.org/rfc/rfc8878.html) |
+
+[Static file configuration and caching](crates/files/README.md)
 
 ## Performance
 
