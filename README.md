@@ -8,7 +8,9 @@
 
 Claviron is an application-first toolkit for building and running services.
 Run Rust alongside your existing applications. Keep them together as a modular
-monolith or deploy them as independent services.
+monolith or distribute them across independent processes. **Taste the power of
+Orbit.** Let your processes share memory and exchange requests on the same
+host. See [Orbit Link](docs/design/ORBIT_LINK.md).
 
 Build your own Edge and serve public traffic directly. Terminate TLS, route
 requests, serve files, and dispatch to your applications at the Edge. Your
