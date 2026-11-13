@@ -19,7 +19,6 @@ use crate::store::CacheRepository;
 use crate::{CacheRegistry, CacheStore, CacheValue, Error};
 
 pub(crate) struct CacheCatalog {
-    #[cfg(feature = "orbit")]
     pub(crate) config: CacheConfig,
     default: String,
     stores: HashMap<String, Arc<dyn CacheStore>>,
@@ -39,7 +38,6 @@ impl CacheCatalog {
             .collect();
         Self {
             default: config.default.clone(),
-            #[cfg(feature = "orbit")]
             config,
             stores,
             repositories,
