@@ -482,7 +482,7 @@ socket2 = "0.6"
 # ── Networking utilities ─────────────────────────────────────────────
 hickory-resolver = { version = "0.26.3", default-features = false }
 ipnet = "2.12"
-maxminddb = "0.32"
+maxminddb = "0.33.0"
 url = "2.5"
 # ── Time / identifiers ───────────────────────────────────────────────
 chrono = { version = "0.4", default-features = true } # used for tasks/cron only
