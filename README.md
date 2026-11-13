@@ -83,17 +83,28 @@ routes:
 
 ## Performance
 
-In this Linux HTTP/1.1 plaintext benchmark, Claviron delivered **2.74× as
-many responses per second** using **66% less CPU per response** than Caddy.
-Both met the same SLA with 128 loopback connections and 1,280 target
-outstanding requests.
+**Plain HTTP.** At the highest load all three configurations passed in the
+same Linux HTTP/1.1 run, Claviron with Axum delivered 3.27× Caddy's throughput
+with 68% less server CPU per response.
 
-| Server | Responses/s | Server CPU/response |
+| Server | Responses/s | CPU/response |
 | --- | ---: | ---: |
-| Caddy 2.11.8 | 287,280 | 75.36 µs |
-| Claviron with Axum | 788,552 | 25.49 µs |
+| Caddy 2.11.9 | 268,817 | 74.76 µs |
+| Claviron + Axum, 32 workers | 879,753 | 24.09 µs |
 
-[Benchmark setup and full results](https://git.claviron.dev/claviron/bench-http/issues/5)
+A separate run reached **1,045,500 responses/s** with Claviron and Warp.
+[Matched Caddy comparison](docs/bench/http1-plain-caddy.md) · [Warp peak](docs/bench/http1-plain-128.md)
+
+**Persistent PHP.** With 128 PHP instances and 1,024 connections, both servers
+completed the five-minute runs without errors. Each cell shows responses per
+second and server CPU per response.
+
+| Workload | Claviron | FrankenPHP 1.13.5 |
+| --- | ---: | ---: |
+| Plain PHP | 299,896 / 64.72 µs | 90,015 / 227.23 µs |
+| Symfony, with Skene on Claviron | 88,139 / 312.43 µs | 41,398 / 565.52 µs |
+
+[FrankenPHP comparison](docs/bench/php-frankenphp.md) · [Laravel/Lumenize results](https://github.com/claviron/examples/blob/main/BENCHMARKS.md)
 
 ## Run and manage your services
 
