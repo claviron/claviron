@@ -4,7 +4,7 @@
 
 # Claviron
 
-**Build around your application. Move to Rust one route at a time.**
+**Retire middlemen!**
 
 Claviron is an application-first toolkit for building and running services.
 Run Rust alongside your existing applications. Keep them together as a modular

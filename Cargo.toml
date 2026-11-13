@@ -2,7 +2,7 @@
 name = "claviron"
 keywords = ["http", "runtime", "edge", "http3", "shared-memory"]
 categories = ["web-programming::http-server", "asynchronous", "network-programming", "concurrency"]
-description = "Embeddable Rust runtime and server fabric for fleet-aware application servers"
+description = "Build around your application. Run existing apps alongside Rust and move one route at a time."
 authors.workspace = true
 edition.workspace = true
 version.workspace = true
