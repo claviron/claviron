@@ -6,9 +6,10 @@
 
 **An application-first web server.**
 
-Build a web server around your application. Serve Rust handlers, existing
-applications, and static files from the same Edge. Keep your framework and
-deployment choices while moving to Rust one route at a time.
+Build a web server around your application. Serve Rust handlers, applications
+in other languages, and static files from the same Edge. Run them together as
+a modular monolith or deploy them as independent services. Start with the
+architecture that fits today and move to Rust one route at a time.
 
 Configure listeners, host routing, and request and response policies from
 your application. Add your own handlers, backends, and layers where you need
@@ -53,6 +54,18 @@ or the [Edge configuration guide](crates/edge/README.md).
 - **PHP** — [Embed PHP or use FastCGI](https://github.com/claviron/php). Run Laravel with [Lumenize](https://github.com/claviron/lumenize) or Symfony with [Skene](https://github.com/claviron/skene).
 - **Python** — Run FastAPI and other ASGI applications with [Gufi](https://github.com/claviron/gufi).
 - **JavaScript, Go, Java, and C/C++** — Use the native bindings to connect an application to Claviron over [Orbit Link](docs/design/ORBIT_LINK.md). [Browse runnable examples](https://github.com/claviron/examples).
+
+## Performance
+
+In a Linux HTTP/1.1 plaintext benchmark with 128 loopback connections and
+1,280 target outstanding requests, both servers met the same SLA.
+
+| Server | Responses/s | Server CPU/response |
+| --- | ---: | ---: |
+| Caddy 2.11.8 | 287,280 | 75.36 µs |
+| Claviron with Axum | 788,552 | 25.49 µs |
+
+[Benchmark setup and full results](https://git.claviron.dev/claviron/bench-http/issues/5)
 
 ## Run and manage your services
 
