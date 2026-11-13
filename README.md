@@ -10,6 +10,10 @@ Build a web server around your application. Serve Rust handlers, existing
 applications, and static files from the same Edge. Keep your framework and
 deployment choices while moving to Rust one route at a time.
 
+Configure listeners, host routing, and request and response policies from
+your application. Add your own handlers, backends, and layers where you need
+them. A layer you leave out adds no work per request.
+
 ## Move to Rust without a full rewrite
 
 Keep your application behind Claviron and add a **Rust intercept** for the first
