@@ -2,7 +2,7 @@
 //! inbox segment.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use super::{
     Access, ApplicationStateNotice, ControlCommand, Error, LINK_SPEC, Result,
@@ -23,6 +23,8 @@ pub struct ApplicationSegment {
     pub(super) fleet_name: String,
     spec: LinkSpec,
     access: Access,
+    reply_space: tokio::sync::Notify,
+    reply_space_closed: AtomicBool,
 }
 
 impl ApplicationSegment {
@@ -50,6 +52,8 @@ impl ApplicationSegment {
             fleet_name: fleet_name.to_owned(),
             spec,
             access: access.clone(),
+            reply_space: tokio::sync::Notify::new(),
+            reply_space_closed: AtomicBool::new(false),
         })
     }
 
@@ -84,6 +88,8 @@ impl ApplicationSegment {
             fleet_name: fleet_name.to_owned(),
             spec,
             access: access.clone(),
+            reply_space: tokio::sync::Notify::new(),
+            reply_space_closed: AtomicBool::new(false),
         })
     }
 
@@ -126,6 +132,8 @@ impl ApplicationSegment {
             fleet_name: fleet_name.to_owned(),
             spec,
             access: access.clone(),
+            reply_space: tokio::sync::Notify::new(),
+            reply_space_closed: AtomicBool::new(false),
         }))
     }
 
@@ -155,6 +163,8 @@ impl ApplicationSegment {
             fleet_name: fleet_name.to_owned(),
             spec,
             access: Access::OwnerOnly,
+            reply_space: tokio::sync::Notify::new(),
+            reply_space_closed: AtomicBool::new(false),
         })
     }
 
@@ -668,6 +678,56 @@ impl ApplicationSegment {
             .write_vectored(origin, frame)
             .map(|_| ())
             .map_err(map_link_error)
+    }
+
+    /// Pin a reply to the lane lifetime captured before its first write.
+    pub fn publish_reply_at_epoch(
+        &self,
+        origin: usize,
+        epoch: u64,
+        frame: &[&[u8]],
+    ) -> Result<()> {
+        self.inbox()
+            .write_reply_at_epoch(origin, epoch, frame)
+            .map(|_| ())
+            .map_err(map_link_error)
+    }
+
+    /// Signal publications waiting for capacity or a destination change.
+    pub(super) fn notify_reply_space(&self) {
+        self.reply_space.notify_waiters();
+    }
+
+    /// A failed intake cannot drive further inbox-space notifications.
+    pub fn close_reply_space(&self) {
+        self.reply_space_closed.store(true, Ordering::Release);
+        self.notify_reply_space();
+    }
+
+    /// Wait for one change after a full inbox, with the publication's receiver
+    /// held to the same epoch. The application lane's intake drives notifications.
+    pub async fn reply_space_available(
+        &self,
+        origin: usize,
+        epoch: u64,
+        publisher: usize,
+    ) -> Result<()> {
+        let notified = self.reply_space.notified();
+        tokio::pin!(notified);
+        notified.as_mut().enable();
+        if self.reply_space_closed.load(Ordering::Acquire) {
+            return Err(Error::Malformed(
+                "the application inbox reader stopped",
+            ));
+        }
+        if self
+            .inbox()
+            .watch_inbox_space(origin, epoch, publisher)
+            .map_err(map_link_error)?
+        {
+            notified.await;
+        }
+        Ok(())
     }
 
     /// Wait until an Edge reads one of this process's frames, after

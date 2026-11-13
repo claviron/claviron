@@ -441,10 +441,15 @@ A lent response reader signals departure as soon as it is dropped, even while th
 Returning both halves to the pool waits for the remote side to release its generation. So a cancelled
 reader does not keep pre-head runner work alive until an unrelated upload ends.
 
-An admitted exchange owns its response stream before publishing its reply head. If the head cannot be
-published, the application resets the response direction, including after a small buffered body already
-published FIN. `ReplyWait` checks its oneshot, then the stream's reset-only signal; data and FIN do not
-complete a header wait. It adds no deadline or poll. A refused request remains a pre-execution 503.
+An admitted exchange owns its response stream before publishing its reply head. A full reply inbox
+that advertises space notifications applies backpressure to the publisher. The application keeps the
+prepared reply and admission while it waits. The reader signals after advancing the inbox cursor,
+regardless of which producer wrote the frame. Each retry is fenced to the same reply-lane epoch.
+Application intake keeps driving notifications while accepted work drains.
+
+If the head cannot be published, the application resets the response direction, including after a small
+buffered body already published FIN. `ReplyWait` checks its oneshot, then the stream's reset-only
+signal. Data and FIN do not complete a header wait. A refused request remains a pre-execution 503.
 
 After an accepted upgrade the same slot carries whole message records: for a WebSocket, and for each
 reliable WebTransport bidi stream, which is its own slot and session. Datagrams and uni streams are not

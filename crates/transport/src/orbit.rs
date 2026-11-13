@@ -594,6 +594,7 @@ impl OrbitDoor {
                     }},
                     Err(error) => {
                         tracing::debug!("lane {lane} could not be read: {error}");
+                        segment.close_reply_space();
                         break;
                     }
                 }
@@ -606,7 +607,21 @@ impl OrbitDoor {
         let _ = segment.inbox().release_lane(lane);
         // Exchanges already taken are finished, queued ones included: their
         // callers are still waiting for an answer they can have.
-        while let Some(finished) = exchanges.join_next().await {
+        let mut notifications = true;
+        while !exchanges.is_empty() {
+            let finished = tokio::select! {
+                biased;
+                finished = exchanges.join_next() => finished,
+                event = receiver.drain_notification(), if notifications => {
+                    if let Err(error) = event {
+                        tracing::debug!(lane, %error, "could not receive reply notifications during drain");
+                        notifications = false;
+                        segment.close_reply_space();
+                    }
+                    continue;
+                }
+            };
+            let Some(finished) = finished else { break };
             report(finished);
             if let Some((request, admission)) = work.finished(&segment, lane) {
                 exchanges.spawn(serve(
@@ -1006,6 +1021,9 @@ async fn serve<O: Owner>(
         );
         return;
     }
+    let Ok(origin_epoch) = segment.inbox().lane_epoch(origin) else {
+        return;
+    };
     let correlation = exchange.correlation;
     // Measured, not budgeted: read so an operator can see what a request cost.
     let arrived = Instant::now();
@@ -1237,7 +1255,8 @@ async fn serve<O: Owner>(
     let status = reply.status;
     if let Err(error) = publish_reply_head(
         &segment,
-        origin,
+        (origin, origin_epoch),
+        lane,
         &[&head, body.inline()],
         reply_body.as_mut(),
     )
@@ -1497,12 +1516,13 @@ async fn session<O: Owner>(
 
 async fn publish_reply_head(
     segment: &ApplicationSegment,
-    origin: usize,
+    (origin, epoch): (usize, u64),
+    publisher: usize,
     frame: &[&[u8]],
     mut outgoing: Option<&mut ResponseWriter>,
 ) -> Result<(), String> {
     let error = loop {
-        match segment.publish_reply(origin, frame) {
+        match segment.publish_reply_at_epoch(origin, epoch, frame) {
             Ok(()) => return Ok(()),
             // The reply exists; Edges have not yet read this worker's earlier
             // ones. Wait for one to, holding this exchange and its admission,
@@ -1512,6 +1532,22 @@ async fn publish_reply_head(
                 match before_head(
                     outgoing.as_deref_mut(),
                     segment.record_released(),
+                )
+                .await
+                {
+                    Some(Ok(())) => {}
+                    Some(Err(error)) => break error.to_string(),
+                    None => {
+                        break "the edge left while the reply waited".into();
+                    }
+                }
+            }
+            Err(LinkError::InboxFull)
+                if segment.inbox().signals_inbox_space(origin, epoch) =>
+            {
+                match before_head(
+                    outgoing.as_deref_mut(),
+                    segment.reply_space_available(origin, epoch, publisher),
                 )
                 .await
                 {

@@ -14,6 +14,7 @@ use claviron_runtime::FleetName;
 /// reservation cannot survive its originating owner. No polling is used.
 pub struct ApplicationReceiver {
     reader: InboxReceiver,
+    segment: Arc<ApplicationSegment>,
     recovery: Option<Recovery>,
 }
 
@@ -52,7 +53,7 @@ impl ApplicationReceiver {
                     FleetName::new(&segment.fleet_name),
                     |role| role == EDGE_RUNTIME,
                 ),
-                segment,
+                segment: Arc::clone(&segment),
                 exits: JoinSet::new(),
             };
             recovery.refresh();
@@ -60,7 +61,13 @@ impl ApplicationReceiver {
         } else {
             None
         };
-        Ok(Self { reader, recovery })
+        Ok(Self { reader, segment, recovery })
+    }
+
+    /// Keep reply-space and peer notifications moving while accepted work
+    /// drains, leaving unread frames to lane recovery.
+    pub async fn drain_notification(&mut self) -> Result<()> {
+        self.receive(None).await.map(|_| ())
     }
 
     /// Copy the next frame or report a directory/capacity notification.
@@ -69,21 +76,45 @@ impl ApplicationReceiver {
         &mut self,
         frame: &mut Vec<u8>,
     ) -> Result<Received> {
-        let Some(recovery) = self.recovery.as_mut() else {
-            return self.reader.next(frame).await.map_err(map_link_error);
-        };
+        self.receive(Some(frame)).await
+    }
+
+    async fn receive(
+        &mut self,
+        mut frame: Option<&mut Vec<u8>>,
+    ) -> Result<Received> {
         loop {
-            tokio::select! {
-                biased;
-                Some(finished) = recovery.exits.join_next(), if !recovery.exits.is_empty() => {
-                    finished.map_err(|_| super::Error::Malformed("Link origin observer failed"))??;
-                },
-                received = self.reader.next(frame) => {
-                    let received = received.map_err(map_link_error)?;
-                    if matches!(received, Received::Directory(_)) { recovery.refresh(); }
-                    return Ok(received);
+            let read = async {
+                match frame.as_deref_mut() {
+                    Some(frame) => self.reader.next(frame).await,
+                    None => self.reader.next_notification().await,
                 }
+                .map_err(map_link_error)
+            };
+            let received = if let Some(recovery) = self.recovery.as_mut() {
+                tokio::select! {
+                    biased;
+                    Some(finished) = recovery.exits.join_next(), if !recovery.exits.is_empty() => {
+                        finished.map_err(|_| super::Error::Malformed("Link origin observer failed"))??;
+                        continue;
+                    },
+                    received = read => received?,
+                }
+            } else {
+                read.await?
+            };
+            if matches!(
+                received,
+                Received::Directory(_) | Received::Capacity(_)
+            ) {
+                self.segment.notify_reply_space();
             }
+            if matches!(received, Received::Directory(_))
+                && let Some(recovery) = self.recovery.as_mut()
+            {
+                recovery.refresh();
+            }
+            return Ok(received);
         }
     }
 }

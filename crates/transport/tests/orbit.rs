@@ -136,9 +136,10 @@ async fn refused_reply_publication_resets_even_a_finished_response_direction() {
     assert!(
         publish_reply_head(
             &held.0,
+            (0, 0),
             0,
             &[b"head"],
-            Some(&mut ResponseWriter::ByteStream(outgoing))
+            Some(&mut ResponseWriter::ByteStream(outgoing)),
         )
         .await
         .is_err()
@@ -537,4 +538,101 @@ async fn native_runner_publishes_the_head_before_a_shared_response_exceeds_its_w
     tables.unlink().unwrap();
     segment.unlink().unwrap();
     result.expect("native runner must finish the shared response");
+}
+
+#[tokio::test]
+async fn full_reply_inbox_wakes_the_publisher_and_fences_replacement() {
+    use claviron_orbit::config::LinkGeometry;
+    use claviron_orbit::link::application::Access;
+    use std::task::{Context, Waker};
+
+    let spec = LinkGeometry {
+        fleet_capacity: 4,
+        inbox_capacity: 4,
+        inbox_payload_capacity: 1024,
+        lane_capacity: 2,
+        buffer_bytes: 1024,
+    }
+    .spec();
+    let name = format!("rw{:x}", std::process::id());
+    let open = || {
+        ApplicationSegment::for_fleet_with_spec(&name, spec, &Access::OwnerOnly)
+            .unwrap()
+    };
+    struct Cleanup(Arc<ApplicationSegment>);
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            self.0.unlink().unwrap();
+        }
+    }
+    let cleanup = Cleanup(Arc::new(open()));
+    let segment = &cleanup.0;
+    let edge = segment.join("edge", EDGE_RUNTIME, 1).unwrap();
+    let worker = segment.join("worker", "rust", 1).unwrap();
+    let mut intake = segment.application_receiver(worker.lane).unwrap();
+    let other = [open(), open()];
+    let inbox = segment.inbox();
+    let epoch = inbox.lane_epoch(edge.lane).unwrap();
+    let lost_wake = std::time::Duration::from_secs(10);
+
+    for replace in [false, true] {
+        for (index, producer) in
+            other.iter().cycle().take(spec.inbox.capacity).enumerate()
+        {
+            producer.publish_reply(edge.lane, &[&[index as u8]]).unwrap();
+        }
+        let publication = publish_reply_head(
+            segment,
+            (edge.lane, epoch),
+            worker.lane,
+            &[b"reply"],
+            None,
+        );
+        let mut publication = std::pin::pin!(publication);
+        assert!(
+            publication
+                .as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+        let mut frame = Vec::new();
+        if replace {
+            inbox.release_lane(edge.lane).unwrap();
+            inbox.claim_lane(edge.lane, "edge", EDGE_RUNTIME, 2).unwrap();
+        } else {
+            assert!(inbox.read(edge.lane, &mut frame).unwrap());
+            assert_eq!(frame, [0]);
+        }
+        if replace {
+            tokio::time::timeout(lost_wake, intake.drain_notification())
+                .await
+                .expect("a draining publisher must observe lane replacement")
+                .unwrap();
+        } else {
+            assert!(matches!(
+                tokio::time::timeout(lost_wake, intake.next(&mut frame))
+                    .await
+                    .expect(
+                        "the other producer's frame must release inbox space"
+                    )
+                    .unwrap(),
+                Received::Capacity(_)
+            ));
+        }
+        let result = tokio::time::timeout(lost_wake, publication)
+            .await
+            .expect("publication must leave its wait");
+        if replace {
+            assert!(result.is_err());
+        } else {
+            result.unwrap();
+            for index in 1..spec.inbox.capacity {
+                assert!(inbox.read(edge.lane, &mut frame).unwrap());
+                assert_eq!(frame, [index as u8]);
+            }
+            assert!(inbox.read(edge.lane, &mut frame).unwrap());
+            assert_eq!(frame, b"reply");
+        }
+        assert!(!inbox.read(edge.lane, &mut frame).unwrap());
+    }
 }
