@@ -110,7 +110,7 @@ This makes a benchmark tool from the same libraries that make a serving system.
 The observation point changes without replacing the measured implementation.
 
 The detailed contracts remain with their owners:
-[HOST_PIPELINE](HOST_PIPELINE.md), [EDGE_BACKENDS](EDGE_BACKENDS.md),
+[HOT_PIPELINE](HOT_PIPELINE.md), [EDGE_BACKENDS](EDGE_BACKENDS.md),
 [ORBIT_LINK](ORBIT_LINK.md) and [GRACEFUL_OWNERSHIP](GRACEFUL_OWNERSHIP.md).
 
 Epigraph: [Fihi Ma Fihi](https://en.wikipedia.org/wiki/Fihi_Ma_Fihi). The

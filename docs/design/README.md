@@ -10,7 +10,7 @@ contracts, not protocol standards or chronological decision records.
 
 ## Application and transport
 
-- [HOST_PIPELINE](HOST_PIPELINE.md): application composition, host admission and
+- [HOT_PIPELINE](HOT_PIPELINE.md): application composition, host admission and
   boot/reload preparation of active policies and request owners.
 - [EDGE_BACKENDS](EDGE_BACKENDS.md): application execution and forwarding owners;
   HTTP policy, body delivery and protocol boundaries at their pipeline handoff.

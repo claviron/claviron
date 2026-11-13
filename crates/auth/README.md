@@ -8,7 +8,7 @@ on your application's concrete types.
 The crate also supplies ready-made fleet-session authentication and CSRF
 mechanisms. You can use these alongside your own providers.
 
-[HostPipeline](../../docs/design/HOST_PIPELINE.md#application-first) describes
+[HostPipeline](../../docs/design/HOT_PIPELINE.md#application-first) describes
 how hosts expose application providers and their shared services.
 
 ## Features

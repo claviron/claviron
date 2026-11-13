@@ -32,7 +32,7 @@ can keep its existing runtime and move on its own schedule.
 
 ## Design contracts
 
-- [Role composition](docs/design/ROLE_COMPOSITION.md) · [Host pipeline](docs/design/HOST_PIPELINE.md) · [Edge backends](docs/design/EDGE_BACKENDS.md)
+- [Role composition](docs/design/ROLE_COMPOSITION.md) · [Hot pipeline](docs/design/HOT_PIPELINE.md) · [Edge backends](docs/design/EDGE_BACKENDS.md)
 - [Early data](docs/design/EARLY_DATA_POLICY.md) · [Connection hijack](docs/design/CONNECTION_HIJACK.md) · [Lifetime policy](docs/design/LIFETIME_POLICY.md)
 - [Graceful ownership](docs/design/GRACEFUL_OWNERSHIP.md) · [Hot client pool](docs/design/HOT_CLIENT_POOL.md) · [Worker adoption](docs/design/WORKER_ADOPTION.md) · [Incarnation masking](docs/design/INCARNATION_MASKING.md)
 - [Fleet awareness](docs/design/FLEETAWARE.md) · [Orbit Cell](docs/design/ORBIT_CELL.md) · [Orbit Link](docs/design/ORBIT_LINK.md) · [Link Invoke](docs/design/LINK_INVOKE.md)
@@ -106,14 +106,28 @@ second and server CPU per response.
 
 [FrankenPHP comparison](docs/bench/php-frankenphp.md) · [Laravel/Lumenize results](https://github.com/claviron/examples/blob/main/BENCHMARKS.md)
 
-## Run and manage your services
+## Near-native throughput with managed workers
 
-Start with one process and add supervised workers as traffic grows. Serve
-HTTP/1.1, HTTP/2, and HTTP/3, and host services with WebSockets or WebTransport.
-Use [Claviron for Apple](https://github.com/claviron/apple) to inspect running
-applications, workers, and tasks.
+On Linux with 1,024 HTTP/1.1 connections, Claviron Other delivered **93% of
+native Hyper's throughput** at the highest load both passed. Its 40 supervised
+worker processes kept meeting the SLA up to 38,912 outstanding requests.
 
-<p><a href="https://github.com/claviron/apple"><img src="assets/gui-overview.png" width="560" alt="Claviron management app showing a fleet overview"></a></p>
+| Server | Responses/s at 16,384 outstanding | Server CPU/response | Last passing outstanding target |
+| --- | ---: | ---: | ---: |
+| Native Hyper, 40 runtime threads | 1,811,355 | 14.50 µs | 16,384 |
+| Claviron Other, 40 worker processes | 1,678,101 | 16.31 µs | 38,912 |
+
+[HTTP/1.1 benchmark and methodology](docs/bench/http1-plain-1024.md)
+
+With [Claviron for Apple](https://github.com/claviron/apple), see embedded and
+linked applications together and add workers from the same app.
+
+<p>
+  <img src="assets/gui-applications.png" width="740" alt="Claviron for Apple showing running embedded and linked applications">
+</p>
+<p>
+  <img src="assets/gui-workers.png" width="740" alt="Add Worker confirmation with eight running workers in Claviron for Apple">
+</p>
 
 [Crates.io](https://crates.io/crates/claviron) · [API documentation](https://docs.rs/claviron) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 

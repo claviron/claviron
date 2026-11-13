@@ -61,4 +61,4 @@ permission to establish every kind of native session in early data.
 - [QUIC TLS configurations](../../crates/edge/src/quic/tls.rs).
 - [Authority checks](../../crates/edge/tests/service/host/authority.rs).
 - [Replay-policy checks](../../crates/edge/tests/quic/request.rs).
-- [Binding and reload](HOST_PIPELINE.md#binding-and-reload).
+- [Binding and reload](HOT_PIPELINE.md#binding-and-reload).

@@ -342,7 +342,7 @@ Static files, native routes, embedded applications, FastCGI, HTTP upstreams, and
 Orbit application links are composable capabilities, not interchangeable
 execution engines. Enabling one does not select or configure all the others.
 
-The [host pipeline](../../docs/design/HOST_PIPELINE.md) covers connection
+The [host pipeline](../../docs/design/HOT_PIPELINE.md) covers connection
 binding and native application composition. [Early-data policy](../../docs/design/EARLY_DATA_POLICY.md)
 defines which replayable requests may reach that composition.
 

@@ -1,5 +1,6 @@
-# HostPipeline
+# Hot Pipeline
 
+`HostPipeline` is the prepared request plan for a host on a listener.
 `HostLayer` prepares request and response actions at boot/reload.
 `HostPipelineBuilder` builds one flat immutable plan from selected actions.
 An omitted or empty layer leaves no runtime entry. Active actions use indirect calls.
