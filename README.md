@@ -152,4 +152,6 @@ linked applications together and add workers from the same app.
 
 [Crates.io](https://crates.io/crates/claviron) · [API documentation](https://docs.rs/claviron) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
 
+[Examples](https://github.com/claviron/examples) · [Bench HTTP](https://github.com/claviron/bench-http) · [Break](https://github.com/iadev09/break)
+
 Licensed under [MIT](LICENSE-MIT) or [Apache 2.0](LICENSE-APACHE).
