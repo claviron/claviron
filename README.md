@@ -4,12 +4,12 @@
 
 # Claviron
 
-**An application-first web server.**
+**Build around your application. Move to Rust one route at a time.**
 
-Build a web server around your application. Serve Rust handlers, applications
-in other languages, and static files from the same Edge. Run them together as
-a modular monolith or deploy them as independent services. Start with the
-architecture that fits today and move to Rust one route at a time.
+Claviron is an application-first toolkit for building and running services.
+Run Rust alongside your existing applications. Keep them together as a modular
+monolith or deploy them as independent services. When you need a web server,
+build your own Edge around the applications it serves.
 
 Configure listeners, host routing, and request and response policies from
 your application. Add your own handlers, backends, and layers where you need
