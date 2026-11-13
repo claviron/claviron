@@ -492,12 +492,33 @@ impl ResponsePolicy {
 /// message to the proxy, not the client: removed before the reply leaves.
 pub const X_ACCEL_BUFFERING: &str = "x-accel-buffering";
 
+pub(crate) fn response_headers_stream(head: &http::HeaderMap) -> bool {
+    head.get(http::header::CONTENT_TYPE).is_some_and(|value| {
+        let content_type = value.as_bytes();
+        is_event_stream(content_type) || is_grpc(content_type)
+    }) || head
+        .get(X_ACCEL_BUFFERING)
+        .is_some_and(|value| value.as_bytes().eq_ignore_ascii_case(b"no"))
+}
+
 /// Whether a `Content-Type` is a server-sent event stream: a reply that
 /// never ends on its own.
 pub fn is_event_stream(content_type: &[u8]) -> bool {
     let mime =
         content_type.split(|byte| *byte == b';').next().unwrap_or(content_type);
     mime.trim_ascii().eq_ignore_ascii_case(b"text/event-stream")
+}
+
+fn is_grpc(content_type: &[u8]) -> bool {
+    let mime = content_type
+        .split(|byte| *byte == b';')
+        .next()
+        .unwrap_or(content_type)
+        .trim_ascii();
+    const GRPC: &[u8] = b"application/grpc";
+    mime.get(..GRPC.len())
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(GRPC))
+        && matches!(mime.get(GRPC.len()), None | Some(b'+'))
 }
 
 /// What a layer declares under `responses:`. Every field optional.

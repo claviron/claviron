@@ -112,9 +112,11 @@ Header hooks and body guards must not collect a stream.
 `BackendContract` also declares reply lifetime. `BackendReply::Owner` leaves
 completion with the execution owner. `ExternalEventStream` supplies that
 owner's shutdown signal; the common dispatch boundary applies
-`EVENT_STREAM_ENDS_AT_SHUTDOWN` only to its actual SSE responses. Normal
-responses create no shutdown future or additional body wrapper. A backend's
-body retains its own lease/exchange cleanup, which runs when the body is dropped.
+`EVENT_STREAM_ENDS_AT_SHUTDOWN` only to its actual SSE responses. `Relay`
+also applies the prepared response policy after reply hooks. A finite relay
+reply can be buffered within the configured limit. Overflow forwards the
+retained bytes and continues polling the original body. SSE, gRPC and explicit
+streams bypass buffering. The original body owns its lease and exchange cleanup.
 
 Propagate request cancellation to the execution owner and release abandoned
 input/output resources. Work already accepted by a runtime remains owned until

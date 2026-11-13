@@ -36,7 +36,7 @@ pub enum BackendIdentity {
     Request,
 }
 
-/// Who completes a streaming response when execution is draining.
+/// How the pipeline delivers a backend's HTTP response.
 #[derive(Clone)]
 pub enum BackendReply {
     /// The execution owner cooperatively completes its own output.
@@ -44,6 +44,9 @@ pub enum BackendReply {
     /// End this edge's external SSE body on the supplied owner's shutdown.
     /// Finite responses retain their normal completion and drain.
     ExternalEventStream(tokio_util::sync::CancellationToken),
+    /// Apply the prepared response delivery policy at the relay boundary.
+    /// External SSE replies end on the supplied shutdown token.
+    Relay(tokio_util::sync::CancellationToken),
 }
 
 /// Mandatory cold declaration of the request and response handoff.

@@ -467,6 +467,60 @@ pub fn ends_at_shutdown<F: Future<Output = ()> + Send + 'static>(
     })
 }
 
+/// The producer has selected streaming. Preserve the body and its frame
+/// ownership through the relay without polling it for buffering.
+#[derive(Clone, Copy)]
+pub struct ExplicitStream;
+
+/// Whether the producer asks to deliver this response as it arrives.
+pub fn is_explicit_stream<B>(response: &http::Response<B>) -> bool {
+    response.extensions().get::<ExplicitStream>().is_some()
+        || crate::policy::response_headers_stream(response.headers())
+}
+
+/// Apply the response policy to a relay reply, preserving HTTP's head-only
+/// and tunnel semantics.
+pub async fn deliver_response(
+    mut response: crate::RouteResponse,
+    method: &http::Method,
+    policy: &crate::policy::ResponsePolicy,
+) -> crate::RouteResponse {
+    let streaming = is_explicit_stream(&response);
+    response.extensions_mut().remove::<ExplicitStream>();
+    let status = response.status();
+    if streaming
+        || *method == http::Method::HEAD
+        || (*method == http::Method::CONNECT && status.is_success())
+        || status.is_informational()
+        || matches!(
+            status,
+            http::StatusCode::NO_CONTENT
+                | http::StatusCode::RESET_CONTENT
+                | http::StatusCode::NOT_MODIFIED
+        )
+    {
+        response.headers_mut().remove(crate::policy::X_ACCEL_BUFFERING);
+        return response;
+    }
+    let (mut head, body) = response.into_parts();
+    let hint = body.size_hint();
+    let declared = hint.exact().or_else(|| declared_reply_length(&head.headers));
+    let delivery = policy.delivery(&head.headers, declared);
+    head.headers.remove(crate::policy::X_ACCEL_BUFFERING);
+    let body = match (delivery, policy.buffer_size) {
+        (crate::policy::Delivery::Whole { .. }, Some(limit))
+            if limit > 0
+                && !body.is_end_stream()
+                && hint.lower() <= limit as u64
+                && declared.is_none_or(|length| length <= limit as u64) =>
+        {
+            buffer_reply(body, Some(limit)).await
+        }
+        _ => body,
+    };
+    http::Response::from_parts(head, body)
+}
+
 /// Hand a reply back as its policy says: held — to be sent whole with its
 /// length known — or passed on as it comes. The reply's own head decides
 /// first ([`ResponsePolicy::delivery`](crate::policy::ResponsePolicy::delivery):
@@ -484,12 +538,7 @@ pub async fn deliver_reply(
     body: crate::RouteBody,
     policy: &crate::policy::ResponsePolicy,
 ) -> crate::RouteBody {
-    use http_body_util::BodyExt;
-
-    let declared = headers
-        .get(CONTENT_LENGTH)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.trim().parse::<u64>().ok());
+    let declared = declared_reply_length(headers);
     let delivery = policy.delivery(headers, declared);
     headers.remove(crate::policy::X_ACCEL_BUFFERING);
     let up_to = match delivery {
@@ -497,18 +546,54 @@ pub async fn deliver_reply(
         crate::policy::Delivery::Whole { up_to } => up_to,
     };
 
-    let mut body = body;
-    let mut held = bytes::BytesMut::new();
+    buffer_reply(body, up_to).await
+}
+
+fn declared_reply_length(headers: &HeaderMap) -> Option<u64> {
+    headers
+        .get(CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse().ok())
+}
+
+async fn buffer_reply(
+    mut body: crate::RouteBody,
+    limit: Option<usize>,
+) -> crate::RouteBody {
+    use http_body_util::BodyExt;
+
+    let mut first = Bytes::new();
+    let mut joined: Option<Vec<u8>> = None;
     loop {
+        let buffered = joined.as_ref().map_or(first.len(), Vec::len);
         let next = match body.frame().await {
-            None => return crate::bytes_body(held.freeze()),
+            None => {
+                return crate::bytes_body(joined.map_or(first, Bytes::from));
+            }
             Some(Ok(frame)) => match frame.into_data() {
+                Ok(data) if data.is_empty() => continue,
                 Ok(data)
-                    if up_to.is_none_or(|limit| {
-                        held.len() + data.len() <= limit
-                    }) =>
+                    if limit.is_none_or(|limit| data.len() <= limit - buffered) =>
                 {
-                    held.extend_from_slice(&data);
+                    if buffered == 0 {
+                        first = data;
+                    } else {
+                        let total = buffered + data.len();
+                        let held = joined.get_or_insert_with(|| {
+                            let mut held = Vec::with_capacity(total);
+                            held.extend_from_slice(&std::mem::take(&mut first));
+                            held
+                        });
+                        if held.capacity() < total {
+                            let capacity = held
+                                .capacity()
+                                .saturating_mul(2)
+                                .min(limit.unwrap_or(usize::MAX))
+                                .max(total);
+                            held.reserve_exact(capacity - held.len());
+                        }
+                        held.extend_from_slice(&data);
+                    }
                     continue;
                 }
                 Ok(data) => Ok(Frame::data(data)),
@@ -519,8 +604,9 @@ pub async fn deliver_reply(
         };
         // Outgrown, or no longer holdable: what was held, then this, then
         // the rest as it arrives.
+        let held = joined.map_or(first, Bytes::from);
         return HeldThenRest {
-            held: (!held.is_empty()).then(|| held.freeze()),
+            held: (!held.is_empty()).then_some(held),
             next: Some(next),
             rest: body,
         }

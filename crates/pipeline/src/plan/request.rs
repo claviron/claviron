@@ -137,6 +137,7 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
         let Self { pipeline, mut head, mut body, mut state, next, context } =
             self;
         let mut reply = ReplyHooks::default();
+        let mut delivery = None;
         let (response, scope) = 'finish: {
             for step in &pipeline.before[next..] {
                 let decision = match &step.action {
@@ -184,7 +185,8 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
                             }
                         }
                     }
-                    Action::ExternalRequest(action, shutdown) => {
+                    Action::ExternalRequest(action, shutdown, policy) => {
+                        let method = policy.map(|_| head.method.clone());
                         let decision = match action(
                             Request::from_parts(head, body),
                             context,
@@ -194,6 +196,7 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
                         };
                         match decision {
                             ServiceResult::Handled(response) => {
+                                delivery = method.zip(*policy);
                                 let response =
                                     claviron_http::body::ends_at_shutdown(
                                         response,
@@ -220,6 +223,15 @@ impl<'p, S: Send + 'p> PreparedRequest<'p, RouteBody, S> {
         };
         let response =
             if EXCHANGE { reply.apply(response).await } else { response };
-        pipeline.finish(response, state, scope)
+        let response = pipeline.finish(response, state, scope);
+        match delivery {
+            Some((method, policy)) => {
+                claviron_http::body::deliver_response(
+                    response, &method, &policy,
+                )
+                .await
+            }
+            None => response,
+        }
     }
 }

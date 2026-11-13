@@ -80,8 +80,13 @@ impl<B: BackendHandler, S> HostLayer<S> for Backend<B> {
         layer.before.push(match self.reply {
             BackendReply::Owner => super::Action::Request(action),
             BackendReply::ExternalEventStream(shutdown) => {
-                super::Action::ExternalRequest(action, shutdown)
+                super::Action::ExternalRequest(action, shutdown, None)
             }
+            BackendReply::Relay(shutdown) => super::Action::ExternalRequest(
+                action,
+                shutdown,
+                Some(policy.responses),
+            ),
         });
         Ok(())
     }

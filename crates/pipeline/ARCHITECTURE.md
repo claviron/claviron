@@ -41,6 +41,9 @@ all depend on this crate, and it depends only on `claviron-http`.
   sessions need Edge, because `quic::Single` does not offer them. A runner takes a
   whole site through its `site:` option, in front of its application on every door.
 - `response`: the replies decided before dispatch.
+- `BackendReply::Relay` applies the prepared response policy after the reply
+  hooks. It buffers finite replies within the configured budget and ends
+  external SSE on the backend's shutdown signal.
 - `routing`: host-free Axum route contributions, `Routable` and
   `RoutableRegistry`, behind the `axum` feature.
 - `log`: access records, behind the `access-log` feature.

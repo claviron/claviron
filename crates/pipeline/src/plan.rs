@@ -5,7 +5,8 @@
 //! use indirect calls; the plan does not discover layers or test config flags.
 //! A consuming action returns `Unhandled` with the same request to continue.
 //! Only reached layers decorate a response. Cancellation drops the current
-//! request/future and caller-owned state; the plan never reads or copies bodies.
+//! request/future and caller-owned state. Relay delivery can buffer a reply
+//! under its prepared response policy.
 
 use std::{num::NonZeroUsize, ops::ControlFlow};
 
@@ -57,7 +58,11 @@ enum Action<S, R> {
     Head(HeadAction<S, R>),
     ContextHead(ContextHeadAction<S, R>),
     Request(RequestAction),
-    ExternalRequest(RequestAction, tokio_util::sync::CancellationToken),
+    ExternalRequest(
+        RequestAction,
+        tokio_util::sync::CancellationToken,
+        Option<claviron_http::policy::ResponsePolicy>,
+    ),
     ContextRequest(Box<dyn ContextHandler>),
     AsyncHead(Box<dyn AsyncHeadAction<S>>),
     Exchange(Box<dyn ExchangeAction>),

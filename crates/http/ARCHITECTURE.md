@@ -30,6 +30,11 @@ The pure CORS/header declarations in `config` have no Axum requirement;
 Edge enforces explicitly configured policies in its shared request/response
 exchange independently of configured, Merged, bypass or Standalone ownership.
 Without a declaration, no optional exchange policy is compiled.
+
+`body::deliver_response` applies a relay's prepared delivery policy. A
+configured buffer can hold finite replies up to its limit, then hand the
+retained bytes and remaining frames to the transport. Explicit streams, SSE,
+gRPC, head-only replies and successful CONNECT bypass buffering.
 Application routing and these edge policies are separate boundaries.
 The
 crate stays deliberately small per surface area — most files are well
