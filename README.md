@@ -28,6 +28,14 @@ where you want to reduce latency or CPU use. Claviron can run the new Rust code
 alongside your PHP, Python, JavaScript, Go, Java, or C/C++ application. Each part
 can keep its existing runtime and move on its own schedule.
 
+## Design contracts
+
+- [Role composition](docs/design/ROLE_COMPOSITION.md) · [Host pipeline](docs/design/HOST_PIPELINE.md) · [Edge backends](docs/design/EDGE_BACKENDS.md)
+- [Early data](docs/design/EARLY_DATA_POLICY.md) · [Connection hijack](docs/design/CONNECTION_HIJACK.md) · [Lifetime policy](docs/design/LIFETIME_POLICY.md)
+- [Graceful ownership](docs/design/GRACEFUL_OWNERSHIP.md) · [Hot client pool](docs/design/HOT_CLIENT_POOL.md) · [Worker adoption](docs/design/WORKER_ADOPTION.md) · [Incarnation masking](docs/design/INCARNATION_MASKING.md)
+- [Fleet awareness](docs/design/FLEETAWARE.md) · [Orbit Cell](docs/design/ORBIT_CELL.md) · [Orbit Link](docs/design/ORBIT_LINK.md) · [Link Invoke](docs/design/LINK_INVOKE.md)
+- [Production environment](docs/design/PRODUCTION_ENVIRONMENT.md) · [All design contracts](docs/design/README.md)
+
 ## Build your own Edge
 
 Add `claviron` with the `edge` feature and Tokio with `macros` and
