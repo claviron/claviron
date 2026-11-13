@@ -56,6 +56,21 @@ or the [Edge configuration guide](crates/edge/README.md).
 - **Python** — Run FastAPI and other ASGI applications with [Gufi](https://github.com/claviron/gufi).
 - **JavaScript, Go, Java, and C/C++** — Use the native bindings to connect an application to Claviron over [Orbit Link](docs/design/ORBIT_LINK.md). [Browse runnable examples](https://github.com/claviron/examples).
 
+## Put boundaries where they belong
+
+Let your Edge apply CORS and verify CSRF before a request reaches PHP.
+Claviron includes CORS policy. Register a route extension for CSRF and give
+it the application's session and token verifier. The Edge can then enforce
+the check on the routes you select.
+
+```yaml
+routes:
+  /account:
+    csrf: true
+```
+
+[Register a route extension](crates/edge/README.md#route-extensions)
+
 ## Performance
 
 In this Linux HTTP/1.1 plaintext benchmark, Claviron delivered **2.74× as
