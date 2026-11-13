@@ -122,7 +122,7 @@ async fn runner_section_is_read_with_the_owners_environment_and_without_boot() {
     let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(
         file.path(),
-        "name: example\norbit:\n  link:\n    max_in_flight: 2\n    max_queued: 0\n    shared_response: true\nengine: {}\n",
+        "name: example\norbit:\n  link:\n    max_in_flight: 2\n    max_queued: 0\nengine: {}\n",
     )
     .unwrap();
     let this = owner(file.path().to_owned(), true);
@@ -133,7 +133,6 @@ async fn runner_section_is_read_with_the_owners_environment_and_without_boot() {
     this.configure(&snapshot).await.unwrap();
     assert_eq!(this.capacity.geometry().unwrap(), LinkGeometry::default());
     assert_eq!(this.capacity.limit().unwrap(), Some(2));
-    assert!(this.capacity.shared_response().unwrap());
 }
 
 #[tokio::test]

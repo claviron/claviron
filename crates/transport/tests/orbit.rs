@@ -207,33 +207,26 @@ async fn idle_stream_releases_its_body_when_the_response_reader_leaves() {
             }
         }
     }
-    let (reader, ResponseWriter::ByteStream(mut outgoing)) =
-        cancellation_stream()
-    else {
-        unreachable!()
-    };
+    let (reader, mut outgoing) = cancellation_stream();
     let (entered, ready) = tokio::sync::oneshot::channel();
     let (dropped, released) = tokio::sync::oneshot::channel();
     let body = Idle { entered: Some(entered), dropped: Some(dropped) };
-    let serving =
-        tokio::spawn(async move { stream_reply(&mut outgoing, body, 1).await });
+    let serving = tokio::spawn(async move {
+        stream_reply(&mut outgoing, claviron_http::boxed_body(body)).await
+    });
     ready.await.unwrap();
     // The caller stays alive; only its response reader is abandoned.
     drop(reader);
-    assert_eq!(serving.await.unwrap(), None);
+    assert!(serving.await.unwrap().is_err());
     released.await.unwrap();
 }
 
 #[tokio::test]
 async fn completed_upload_does_not_cancel_a_streaming_response() {
-    let (mut reader, ResponseWriter::ByteStream(mut outgoing)) =
-        cancellation_stream()
-    else {
-        unreachable!()
-    };
+    let (mut reader, mut outgoing) = cancellation_stream();
     let bytes = Bytes::from_static(b"one event");
-    let body = http_body_util::Full::new(bytes.clone());
-    assert_eq!(stream_reply(&mut outgoing, body, 1).await, Some(bytes.len()));
+    let body = claviron_http::bytes_body(bytes.clone());
+    assert_eq!(stream_reply(&mut outgoing, body).await.unwrap(), bytes.len());
     let mut received = Vec::new();
     tokio::io::AsyncReadExt::read_to_end(&mut reader, &mut received)
         .await
@@ -432,7 +425,7 @@ async fn native_runner_publishes_the_head_before_a_shared_response_exceeds_its_w
     );
     let mut tables =
         ApplicationBodies::for_segment(&segment, worker.lane, 11).unwrap();
-    tables.advertise_shared_response(&segment, worker.lane, 11).unwrap();
+    tables.prepare_http(&segment, worker.lane, 11).unwrap();
     let tables = Arc::new(tables);
     let client = ApplicationClient::join_segment(
         Arc::clone(&segment),

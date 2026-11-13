@@ -359,7 +359,7 @@ async fn shared_response_frames_hold_credit_and_cancel_without_invalidating_byte
     let runner = segment.join("runner", "rust", 11).unwrap();
     let mut tables =
         ApplicationBodies::for_segment(&segment, runner.lane, 11).unwrap();
-    tables.advertise_shared_response(&segment, runner.lane, 11).unwrap();
+    tables.prepare_http(&segment, runner.lane, 11).unwrap();
     let client = ApplicationClient::join_segment(
         Arc::clone(&segment),
         "edge",

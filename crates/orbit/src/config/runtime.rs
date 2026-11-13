@@ -24,7 +24,7 @@ struct Source {
 #[derive(Default)]
 struct Applied {
     startup: Option<OrbitConfig>,
-    warned: Option<(Option<LinkGeometry>, Option<usize>, bool, bool)>,
+    warned: Option<(Option<LinkGeometry>, Option<usize>, bool)>,
 }
 
 /// Geometry is frozen for the process lifetime. Only a positive receiver
@@ -129,19 +129,12 @@ impl OrbitConfiguration {
         let queued = self.capacity.max_queued()?;
         let candidate_queue =
             config.link.as_ref().and_then(|link| link.max_queued);
-        let shared_response =
-            config.link.as_ref().is_some_and(|link| link.shared_response);
-        let pending =
-            (candidate, candidate_queue, limit.is_some(), shared_response);
-        if frozen != candidate
-            || queued != candidate_queue
-            || mode_changed
-            || self.capacity.shared_response()? != shared_response
-        {
+        let pending = (candidate, candidate_queue, limit.is_some());
+        if frozen != candidate || queued != candidate_queue || mode_changed {
             if watched && applied.warned != Some(pending) {
                 if self.report_changes {
                     tracing::warn!(
-                        "Orbit Link geometry, queue, response transport, enablement or admission mode changed; current resources are retained; new settings will apply on the next restart"
+                        "Orbit Link geometry, queue, enablement or admission mode changed; current resources are retained; new settings will apply on the next restart"
                     );
                 }
                 applied.warned = Some(pending);

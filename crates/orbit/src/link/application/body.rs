@@ -4,6 +4,7 @@
 //! duplex slot and its node/incarnation recovery. Claviron owns the kind and
 //! geometry because they are part of this deployment's physical ABI.
 
+use std::future::poll_fn;
 use std::sync::Arc;
 
 use orbitive::link::LinkBodies;
@@ -15,8 +16,9 @@ pub use orbitive::stream::exchange::{
 use orbitive::stream::exchange::{
     ExchangeSpec, ExchangeTicket, Exchanges, PayloadArenaSpec,
 };
-use orbitive::stream::{Endpoint, Incarnation, StreamSpec, Streams, Ticket};
+use orbitive::stream::{Endpoint, Incarnation, StreamSpec, Streams, Ticket, WriteHalf};
 use orbitive::{Fleet, NodeId};
+use tokio::io::AsyncWriteExt;
 
 use super::{LINK_SPEC, Result, link_spec, map_link_error};
 
@@ -137,16 +139,40 @@ impl ApplicationBodies {
         Ok(Self { link, shared_response: None })
     }
 
-    /// Native HTTP receivers advertise only after all body tables are ready.
-    pub fn advertise_shared_response(
+    /// Prepare the HTTP response arena before advertising its ticket format.
+    pub fn prepare_http(
         &mut self,
         segment: &super::ApplicationSegment,
         lane: usize,
         incarnation: u64,
     ) -> Result<()> {
-        self.shared_response =
-            Some(segment.open_shared_response(lane, incarnation)?);
-        segment.inbox().advertise_paired_bodies(lane).map_err(map_link_error)
+        if segment.allows_shared_response() {
+            self.shared_response =
+                Some(segment.open_shared_response(lane, incarnation)?);
+            segment.inbox().advertise_paired_bodies(lane).map_err(map_link_error)?;
+        }
+        Ok(())
+    }
+
+    /// Open the HTTP exchange directions offered by the caller.
+    pub fn accept_http(
+        &self,
+        exchange: &super::Exchange,
+    ) -> Result<(Option<orbitive::stream::ReadHalf>, Option<ResponseWriter>)> {
+        let Some(ticket) = exchange.stream else { return Ok((None, None)) };
+        if ticket.id.kind() == SHARED_RESPONSE_CONTROL_KIND {
+            if usize::from(ticket.id.node()) != usize::from(exchange.origin)
+                || exchange.upgrade
+                || matches!(exchange.body, super::ExchangeBody::Stream)
+            {
+                return Err(super::Error::Malformed("invalid HTTP response ticket"));
+            }
+            let (writer, _) = self.accept_shared_response(ticket)?.split();
+            Ok((None, Some(ResponseWriter::Payload(writer))))
+        } else {
+            let (reader, writer) = self.accept(ticket)?.split();
+            Ok((Some(reader), Some(ResponseWriter::ByteStream(writer))))
+        }
     }
 
     pub fn accept_shared_response(
@@ -220,6 +246,104 @@ impl ApplicationBodies {
             shared.unlink()?;
         }
         self.link.unlink().map_err(map_link_error)
+    }
+}
+
+/// The application side of a Link response. Its backing is chosen by the
+/// caller's ticket and is transparent to the HTTP producer.
+pub enum ResponseWriter {
+    ByteStream(WriteHalf),
+    Payload(Sender),
+}
+
+impl ResponseWriter {
+    pub async fn peer_closed(&mut self) -> std::result::Result<(), StreamError> {
+        match self {
+            Self::ByteStream(writer) => writer.peer_closed().await,
+            Self::Payload(writer) => writer.peer_closed().await,
+        }
+    }
+
+    pub fn start(&mut self) -> std::result::Result<(), StreamError> {
+        match self {
+            Self::ByteStream(_) => Ok(()),
+            Self::Payload(writer) => writer.start(None),
+        }
+    }
+
+    pub async fn write(
+        &mut self,
+        mut bytes: &[u8],
+    ) -> std::result::Result<(), StreamError> {
+        while !bytes.is_empty() {
+            let written = self.write_chunk(bytes).await?;
+            bytes = &bytes[written..];
+        }
+        Ok(())
+    }
+
+    /// Write up to one transport chunk and report the published byte count.
+    pub async fn write_chunk(
+        &mut self,
+        bytes: &[u8],
+    ) -> std::result::Result<usize, StreamError> {
+        if bytes.is_empty() {
+            return Ok(0);
+        }
+        match self {
+            Self::ByteStream(writer) => {
+                let written = writer.write(bytes).await?;
+                if written == 0 {
+                    return Err(StreamError::Io(std::io::ErrorKind::WriteZero.into()));
+                }
+                Ok(written)
+            }
+            Self::Payload(writer) => {
+                let chunk_bytes = writer
+                    .chunk_geometry()
+                    .chunk_bytes_for_target(DEFAULT_CHUNK_BYTES)
+                    .expect("HTTP response has payload credit");
+                let chunk = &bytes[..bytes.len().min(chunk_bytes)];
+                loop {
+                    poll_fn(|cx| writer.poll_ready(chunk.len(), cx)).await?;
+                    match writer.data(chunk) {
+                        Ok(_) => return Ok(chunk.len()),
+                        // Other responses on this lane may reserve the same arena credit.
+                        Err(StreamError::PayloadFull { .. } | StreamError::WouldBlock) => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+        }
+    }
+
+    pub async fn finish(&mut self) -> std::result::Result<(), StreamError> {
+        match self {
+            Self::ByteStream(writer) => writer.shutdown().await.map_err(StreamError::Io),
+            Self::Payload(writer) => {
+                poll_fn(|cx| writer.poll_ready(0, cx)).await?;
+                writer.finish()
+            }
+        }
+    }
+
+    pub fn finish_empty(&mut self) -> std::result::Result<(), StreamError> {
+        match self {
+            Self::ByteStream(writer) => {
+                writer.finish_quietly();
+                Ok(())
+            }
+            Self::Payload(writer) => writer.finish_empty(),
+        }
+    }
+
+    pub fn reset(&mut self) {
+        match self {
+            Self::ByteStream(writer) => writer.reset(),
+            Self::Payload(writer) => {
+                let _ = writer.reset(ResetCode::new(RESPONSE_BODY_RESET));
+            }
+        }
     }
 }
 

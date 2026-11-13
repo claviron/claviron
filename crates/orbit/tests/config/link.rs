@@ -1,6 +1,12 @@
 use super::*;
 
 #[test]
+fn response_transport_is_not_a_link_setting() {
+    let result = serde_yaml::from_str::<super::LinkConfig>("shared_response: true");
+    assert!(result.unwrap_err().to_string().contains("shared_response"));
+}
+
+#[test]
 fn omitted_and_null_bounds_do_not_inherit_the_physical_inbox_capacity() {
     for yaml in ["{}", "max_in_flight: null"] {
         let config: LinkConfig = serde_yaml::from_str(yaml).unwrap();
@@ -105,7 +111,6 @@ async fn live_control_preserves_existing_work_and_owns_no_join() {
             buffer_bytes: 1024,
         },
         workers: None,
-        shared_response: false,
     };
     control.prepare(&config, None).unwrap();
     let fleet = format!("lc{:x}", std::process::id());

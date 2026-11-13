@@ -47,13 +47,13 @@ Leave the option off on routes serving streams or trailers.
 
 ## Shared HTTP response streams
 
-A cooperating native Runner can enable `orbit.link.shared_response: true` at
-startup. The serving lane advertises the capability once its tables are ready.
-For empty requests and request bodies that fit inline, the Edge can send a
-paired exchange ticket to that lane. It uses the existing byte ring for peers
-without the capability, group Links, streamed uploads, and message sessions.
+Native Rust and Java use the same Link response writer. The serving lane
+advertises the payload ticket format when its tables are ready. For empty
+requests and request bodies that fit inline, Edge uses that format when the
+receiver supports it. Group Links, streamed uploads, message sessions, and
+receivers that only understand byte rings continue to use the byte ring.
 
-Response headers still go through the inbox. Streamed response chunks live in
+Response headers go through the inbox. Ready and streamed response bodies live in
 a directional arena whose per-flow credit is the destination's stream window.
 The Edge hands out SHM-backed bytes and returns credit when their last view is
 dropped. Dropping the HTTP body cancels the direction and reclaims unread
