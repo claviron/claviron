@@ -4,12 +4,11 @@
 
 # Claviron
 
-**Run the applications you have. Move to Rust one route at a time.**
+**An application-first web server.**
 
-Claviron is a Rust runtime for building your own web server and running
-applications in multiple languages. Serve Rust handlers, existing applications,
-and static files from the same Edge. Keep your framework and deployment choices
-while bringing new work to Rust.
+Build a web server around your application. Serve Rust handlers, existing
+applications, and static files from the same Edge. Keep your framework and
+deployment choices while moving to Rust one route at a time.
 
 ## Move to Rust without a full rewrite
 
