@@ -4,6 +4,17 @@
 //! suites are [`crate::policy::TlsPolicy`].
 
 use serde::Deserialize;
+use std::{io, sync::Arc};
+
+/// An optional, listener-scoped handshake with no application protocol driver.
+/// Return `None` to continue normal host selection or an error to refuse TLS.
+pub trait HandshakeSelector: Send + Sync {
+    fn select(
+        &self,
+        listener: &str,
+        hello: &rustls::server::ClientHello<'_>,
+    ) -> io::Result<Option<Arc<rustls::ServerConfig>>>;
+}
 
 use crate::auth::ClientAuthPolicy;
 
