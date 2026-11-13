@@ -205,6 +205,33 @@ impl CacheRegistry {
         let mut unfinished = Vec::new();
         let mut memory_limits = Vec::new();
 
+        // Keep the exact backing instances used by retained memory stores
+        // visible through the new catalog as well.
+        for (store_name, store_config) in &config.stores {
+            if store_config.driver_key() == memory::NAME
+                && let Some(store) = current_memory_store(&current, store_name)
+                && let Some(l2_name) = store.l2_name()
+            {
+                if current.config.stores.get(l2_name)
+                    != config.stores.get(l2_name)
+                {
+                    return Err(Error::Rejected(format!(
+                        "cache store '{l2_name}' backs memory store '{store_name}' and cannot be reconfigured during reload; restart is required"
+                    )));
+                }
+                if l2_name == memory::NAME
+                    && !config.stores.contains_key(l2_name)
+                    && !selects_implicit_memory(&config)
+                    && !stores.contains_key(l2_name)
+                {
+                    return Err(Error::Rejected(format!(
+                        "cannot remove the implicit memory store while it backs '{store_name}'"
+                    )));
+                }
+                stores.insert(l2_name.to_owned(), current.store(l2_name)?);
+            }
+        }
+
         let mut configured = config.stores.iter().collect::<Vec<_>>();
         configured.sort_unstable_by_key(|(name, _)| *name);
         for (store_name, store_config) in configured {
@@ -225,7 +252,7 @@ impl CacheRegistry {
             if store_config.driver_key() == memory::NAME
                 && let Some(store) = current_memory_store(&current, store_name)
             {
-                let limit = MemoryLimit::from_config(store_name, store_config)?;
+                let limit = store.reload_limit(store_config)?;
                 stores.insert(store_name.clone(), store.clone());
                 memory_limits.push((store, limit));
                 continue;
@@ -249,6 +276,11 @@ impl CacheRegistry {
             && !stores.contains_key(memory::NAME)
             && let Some(store) = current_memory_store(&current, memory::NAME)
         {
+            if store.l2_name().is_some() {
+                return Err(Error::Rejected(
+                    "the default memory store cannot remove its L2 during reload; restart is required".into(),
+                ));
+            }
             stores.insert(memory::NAME.to_owned(), store.clone());
             memory_limits.push((store, MemoryLimit::DEFAULT));
         }

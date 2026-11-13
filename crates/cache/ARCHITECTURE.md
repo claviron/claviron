@@ -20,7 +20,7 @@ The cache layer owns:
 - rebuilding `cache.yaml` into an atomically published catalog generation on
   reload,
 - selecting the default store,
-- resolving the optional named Orbit L2 and adapting it to `CacheBacking`,
+- resolving optional named L2 stores and adapting Orbit backings to `CacheBacking`,
 - the byte-oriented `CacheStore` contract,
 - the driver-neutral `CacheRepository` behavior,
 - the runtime `CacheProvider` facade,
@@ -227,6 +227,21 @@ claims persistent cache values. Existing peers keep their own cursors and are
 not split onto a replacement ring during master adoption.
 
 ## Optional L2
+
+A memory store can opt in with `l2` and keep the existing Moka cache as L1.
+Only a miss consults L2. `CacheStore::get_entry` supplies the bytes and their
+expiry together. A known, live value fills L1 with the remaining lifetime,
+and an unknown expiry lets the value serve only the current read. The fill
+does not write to L2. An L2 read and its fill share a read guard that excludes
+put, forget and clear on that memory store. Those mutations invalidate L1
+before changing L2, and a successful put then installs the new L1 value.
+The guard covers a single process and store instance. Use Orbit when workers
+need shared cache state.
+
+Memory L2 can reference a single-tier store. It cannot reference itself,
+another layered memory store, or an Orbit store. Reload preserves the
+backing binding of a retained memory store and rejects changes to that
+binding or its backing configuration.
 
 An Orbit store's L2 must be visible to every worker using it. File and Redis
 are built-in examples. Third-party backing stores use the same `CacheStore`

@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 
 use crate::config::{CacheStoreConfig, FileCacheStoreConfig};
-use crate::{CacheDriver, CacheStore, Error};
+use crate::{CacheDriver, CacheEntry, CacheExpiry, CacheStore, Error};
 
 #[derive(Debug, Default)]
 pub struct FileCacheDriver;
@@ -108,6 +108,16 @@ impl CacheStore for FileCacheStore {
                 )
             })?;
         Ok(())
+    }
+
+    async fn get_entry(
+        &self,
+        key: &str,
+    ) -> crate::Result<Option<CacheEntry>> {
+        Ok(self
+            .get(key)
+            .await?
+            .map(|bytes| CacheEntry { bytes, expiry: CacheExpiry::Never }))
     }
 
     async fn forget(

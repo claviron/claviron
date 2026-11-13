@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
@@ -21,7 +21,7 @@ use tracing::error;
 use url::Url;
 
 use crate::config::CacheStoreConfig;
-use crate::{CacheDriver, CacheStore, Error};
+use crate::{CacheDriver, CacheEntry, CacheExpiry, CacheStore, Error};
 
 /// The owner of `redis.yaml`: named connections, opened on first use from
 /// the configuration Congif prepared. An absent file declares none; a
@@ -349,6 +349,33 @@ impl CacheStore for RedisCacheStore {
         }
 
         cmd.query_async::<()>(&mut manager).await.map_err(Error::from)
+    }
+
+    async fn get_entry(
+        &self,
+        key: &str,
+    ) -> crate::Result<Option<CacheEntry>> {
+        let mut manager = self.connection_manager().await?;
+        let key = self.scoped_key(key);
+        let started = Instant::now();
+        let (ttl, value): (i64, Option<Vec<u8>>) = redis::pipe()
+            .atomic()
+            .cmd("PTTL")
+            .arg(&key)
+            .cmd("GET")
+            .arg(&key)
+            .query_async(&mut manager)
+            .await?;
+        Ok(value.map(|value| CacheEntry {
+            bytes: value.into(),
+            expiry: match ttl {
+                -1 => CacheExpiry::Never,
+                ms if ms >= 0 => started
+                    .checked_add(Duration::from_millis(ms as u64))
+                    .map_or(CacheExpiry::Unknown, CacheExpiry::At),
+                _ => CacheExpiry::Unknown,
+            },
+        }))
     }
 
     async fn forget(

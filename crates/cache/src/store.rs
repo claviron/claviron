@@ -2,13 +2,26 @@ use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use bytes::Bytes;
 
 use crate::config::CacheStoreConfig;
 use crate::{CacheValue, Error};
+
+/// Expiry observed with a backing value in the same read.
+#[derive(Clone, Copy, Debug)]
+pub enum CacheExpiry {
+    Unknown,
+    Never,
+    At(Instant),
+}
+
+pub struct CacheEntry {
+    pub bytes: Bytes,
+    pub expiry: CacheExpiry,
+}
 
 /// Raw storage contract implemented by cache backends.
 ///
@@ -26,6 +39,18 @@ pub trait CacheStore: Any + Send + Sync + 'static {
         &self,
         key: &str,
     ) -> crate::Result<Option<Bytes>>;
+
+    /// Read a value and its expiry together for a cache that can retain it.
+    /// Backends without this information can still serve the current miss.
+    async fn get_entry(
+        &self,
+        key: &str,
+    ) -> crate::Result<Option<CacheEntry>> {
+        Ok(self
+            .get(key)
+            .await?
+            .map(|bytes| CacheEntry { bytes, expiry: CacheExpiry::Unknown }))
+    }
     /// Store `value` under `key`. An owned buffer lets a backend that retains
     /// bytes in process keep the allocation; others borrow it.
     async fn put(

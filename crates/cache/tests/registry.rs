@@ -70,6 +70,42 @@ async fn cache_defaults_to_memory_at_boot_and_reload() {
     assert!(provider.config_changed(&both).await.is_err());
 }
 
+#[tokio::test]
+async fn memory_l2_hit_fills_l1_and_forget_removes_both_copies() {
+    let directory = tempfile::tempdir().unwrap();
+    let backing = Arc::new(crate::FileCacheStore::new(
+        "saved",
+        directory.path().to_owned(),
+        None,
+    ));
+    let config: CacheConfig = serde_yaml::from_str(
+        "default: local\nstores:\n  local: { driver: memory, l2: saved }",
+    )
+    .unwrap();
+    let provider = Arc::new(CacheProvider::new("cache.yaml".into()));
+    let registry = Arc::new(CacheRegistry::new(provider.clone()));
+    provider.attach_registry(Arc::downgrade(&registry)).unwrap();
+    registry.register_driver(Arc::new(MemoryCacheDriver)).unwrap();
+    registry.register_store(backing.clone()).unwrap();
+    registry.configure(config.clone()).unwrap();
+    registry.seal().unwrap();
+
+    backing.put("cold", b"saved"[..].into(), None).await.unwrap();
+    let local = provider.default_store().unwrap();
+    let first = local.get("cold").await.unwrap().unwrap();
+    let second = local.get("cold").await.unwrap().unwrap();
+    assert_eq!(first, b"saved"[..]);
+    assert_eq!(first.as_ptr(), second.as_ptr());
+
+    provider.config_changed(&config).await.unwrap();
+    let reloaded = provider.default_store().unwrap();
+    assert!(Arc::ptr_eq(&local.store(), &reloaded.store()));
+
+    local.forget("cold").await.unwrap();
+    assert!(local.get("cold").await.unwrap().is_none());
+    assert!(backing.get("cold").await.unwrap().is_none());
+}
+
 struct MemoryStore {
     name: String,
     values: Mutex<HashMap<String, Bytes>>,

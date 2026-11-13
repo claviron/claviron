@@ -45,6 +45,10 @@ stores:
   local:
     driver: memory
     capacity: 10000
+    l2: disk
+  disk:
+    driver: file
+    path: storage/cache/local
   shared:
     driver: orbit
     mode: shm
@@ -117,8 +121,16 @@ can share cache namespaces across codec changes without a compatibility plan.
 ## TTL, backing stores, and recovery
 
 Memory, Orbit, and Redis support expiry. The file driver only accepts entries
-without expiry. An expiring Orbit write with a
+without expiry. An expiring memory or Orbit write with a
 non-expiring L2 is rejected before either layer is mutated.
+
+Set `l2` on a memory store to name a single-tier backing store. A memory miss
+reads that store and retains a hit with its original expiry before returning.
+File and Redis supply expiry information. A custom store can implement
+`CacheStore::get_entry` to supply it. With unknown expiry, the result serves
+the current read only. Writes, deletes and clears also apply to the backing
+store. The memory tier is process-local, so direct writes to a shared backing
+store do not invalidate warm entries in other processes.
 
 An Orbit store's `l2` names another store shared by its workers. Writes validate
 the Orbit operation, update L2, then update the selected Orbit mode. Deletes and clears also apply to L2
@@ -145,6 +157,8 @@ the new one. Removing a store does not delete its persistent data.
 Orbit topology is not freely mutable in place: changing an existing store's
 L1 capacity or L2 relationship can require restart. Reload must respect the
 already-booted Orbit service and reject incompatible changes.
+Changing an active memory store's L2 binding or backing configuration also
+requires restart. Its capacity can still change during reload.
 
 The optional features are `orbit` for fleet stores, `redis` for Redis stores,
 and `axum` for HTTP error conversion. The Claviron facade enables fleet stores

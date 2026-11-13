@@ -1,6 +1,6 @@
 use std::any::Any;
 use std::borrow::Cow;
-use std::sync::{Arc, PoisonError, RwLock};
+use std::sync::{Arc, OnceLock, PoisonError, RwLock};
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
@@ -11,7 +11,10 @@ use serde::{Deserialize, Deserializer};
 
 use crate::config::CacheStoreConfig;
 use crate::memory::MemoryCache;
-use crate::{CacheDriver, CacheStore, Error, Result};
+use crate::{
+    CacheDriver, CacheEntry, CacheExpiry, CacheStore, CacheStoreResolver,
+    Error, Result,
+};
 
 pub(crate) const NAME: &str = "memory";
 const DEFAULT_CAPACITY: u64 = 10_000;
@@ -25,6 +28,8 @@ struct MemoryCacheStoreConfig {
     capacity: Option<u64>,
     #[serde(default, deserialize_with = "deserialize_byte_size")]
     max_bytes: Option<u64>,
+    #[serde(default)]
+    l2: Option<Box<str>>,
 }
 
 /// What bounds a memory store's residency.
@@ -38,19 +43,20 @@ pub(crate) enum MemoryLimit {
 
 impl MemoryLimit {
     pub(crate) const DEFAULT: Self = Self::Entries(DEFAULT_CAPACITY);
+}
 
-    pub(crate) fn from_config(
+impl MemoryCacheStoreConfig {
+    fn limit(
+        &self,
         store_name: &str,
-        config: &CacheStoreConfig,
-    ) -> Result<Self> {
-        let options: MemoryCacheStoreConfig = config.deserialize_options()?;
-        match (options.capacity, options.max_bytes) {
+    ) -> Result<MemoryLimit> {
+        match (self.capacity, self.max_bytes) {
             (Some(_), Some(_)) => Err(Error::Rejected(format!(
                 "memory cache store '{store_name}' sets both capacity and max_bytes; choose one bound"
             ))),
-            (Some(entries), None) => Ok(Self::Entries(entries)),
-            (None, Some(bytes)) => Ok(Self::Bytes(bytes)),
-            (None, None) => Ok(Self::DEFAULT),
+            (Some(entries), None) => Ok(MemoryLimit::Entries(entries)),
+            (None, Some(bytes)) => Ok(MemoryLimit::Bytes(bytes)),
+            (None, None) => Ok(MemoryLimit::DEFAULT),
         }
     }
 }
@@ -65,6 +71,13 @@ pub(crate) struct MemoryCacheStore {
     /// Mutations hold this shared; a bound change holds it exclusively while
     /// it moves the entries, so no write lands in the cache being replaced.
     mutations: RwLock<()>,
+    l2_name: Option<Box<str>>,
+    backing: OnceLock<Backing>,
+}
+
+struct Backing {
+    store: Arc<dyn CacheStore>,
+    operations: tokio::sync::RwLock<()>,
 }
 
 struct Generation {
@@ -100,7 +113,34 @@ impl MemoryCacheStore {
             name: name.into(),
             generation: ArcSwap::from_pointee(Generation::new(limit)),
             mutations: RwLock::new(()),
+            l2_name: None,
+            backing: OnceLock::new(),
         }
+    }
+
+    pub(crate) fn reload_limit(
+        &self,
+        config: &CacheStoreConfig,
+    ) -> Result<MemoryLimit> {
+        let options: MemoryCacheStoreConfig = config.deserialize_options()?;
+        if self.l2_name != options.l2 {
+            return Err(Error::Rejected(format!(
+                "memory cache store '{}' cannot change its L2 during reload; restart is required",
+                self.name
+            )));
+        }
+        options.limit(&self.name)
+    }
+
+    pub(crate) fn l2_name(&self) -> Option<&str> {
+        self.l2_name.as_deref()
+    }
+
+    fn local_entry(
+        &self,
+        key: &str,
+    ) -> Option<CacheEntry> {
+        self.generation.load().cache.get(key).map(Entry::into_cache_entry)
     }
 
     /// Apply a new residency bound without dropping what the store holds.
@@ -141,23 +181,27 @@ impl MemoryCacheStore {
 #[derive(Clone)]
 struct Entry {
     bytes: Bytes,
-    lifetime: Option<Lifetime>,
+    lifetime: Option<(Instant, Duration)>,
 }
 
-#[derive(Clone, Copy)]
-struct Lifetime {
-    ttl: Duration,
-    written_at: Instant,
-}
-
-impl Lifetime {
-    /// What is left of the TTL at `at`. A fresh write gets its whole TTL; an
-    /// entry moved by [`MemoryCacheStore::set_limit`] keeps only the rest.
+impl Entry {
     fn remaining(
-        self,
+        &self,
         at: Instant,
-    ) -> Duration {
-        self.ttl.saturating_sub(at.saturating_duration_since(self.written_at))
+    ) -> Option<Duration> {
+        self.lifetime.map(|(started, ttl)| {
+            ttl.saturating_sub(at.saturating_duration_since(started))
+        })
+    }
+
+    fn into_cache_entry(self) -> CacheEntry {
+        let expiry =
+            self.lifetime.map_or(CacheExpiry::Never, |(started, ttl)| {
+                started
+                    .checked_add(ttl)
+                    .map_or(CacheExpiry::Unknown, CacheExpiry::At)
+            });
+        CacheEntry { bytes: self.bytes, expiry }
     }
 }
 
@@ -170,7 +214,7 @@ impl Expiry<String, Entry> for EntryExpiry {
         value: &Entry,
         created_at: Instant,
     ) -> Option<Duration> {
-        value.lifetime.map(|lifetime| lifetime.remaining(created_at))
+        value.remaining(created_at)
     }
 
     fn expire_after_update(
@@ -180,7 +224,7 @@ impl Expiry<String, Entry> for EntryExpiry {
         updated_at: Instant,
         _remaining: Option<Duration>,
     ) -> Option<Duration> {
-        value.lifetime.map(|lifetime| lifetime.remaining(updated_at))
+        value.remaining(updated_at)
     }
 }
 
@@ -194,8 +238,51 @@ impl CacheDriver for MemoryCacheDriver {
         store_name: &str,
         config: &CacheStoreConfig,
     ) -> Result<Arc<dyn CacheStore>> {
-        let limit = MemoryLimit::from_config(store_name, config)?;
-        Ok(Arc::new(MemoryCacheStore::new(store_name, limit)))
+        let options: MemoryCacheStoreConfig = config.deserialize_options()?;
+        let mut store =
+            MemoryCacheStore::new(store_name, options.limit(store_name)?);
+        store.l2_name = options.l2;
+        Ok(Arc::new(store))
+    }
+
+    fn finish_store(
+        &self,
+        store: &Arc<dyn CacheStore>,
+        stores: &dyn CacheStoreResolver,
+    ) -> Result<()> {
+        let memory = store
+            .as_any()
+            .downcast_ref::<MemoryCacheStore>()
+            .expect("memory driver creates a memory store");
+        let Some(name) = memory.l2_name() else {
+            return Ok(());
+        };
+        let backing = stores.store(name)?;
+        if Arc::ptr_eq(store, &backing)
+            || backing.driver_name() == "orbit"
+            || backing
+                .as_any()
+                .downcast_ref::<MemoryCacheStore>()
+                .is_some_and(|store| store.l2_name().is_some())
+        {
+            return Err(Error::Rejected(format!(
+                "memory cache store '{}' requires a single-tier L2, got '{name}'",
+                memory.name
+            )));
+        }
+        memory
+            .backing
+            .set(Backing {
+                store: backing,
+                operations: tokio::sync::RwLock::new(()),
+            })
+            .map_err(|_| {
+                Error::Rejected(format!(
+                    "memory cache store '{}' already has an L2",
+                    memory.name
+                ))
+            })?;
+        Ok(())
     }
 }
 
@@ -214,14 +301,27 @@ impl CacheStore for MemoryCacheStore {
     }
 
     fn supports_ttl(&self) -> bool {
-        true
+        self.backing.get().is_none_or(|backing| backing.store.supports_ttl())
     }
 
     async fn get(
         &self,
         key: &str,
     ) -> Result<Option<Bytes>> {
-        Ok(self.generation.load().cache.get(key).map(|entry| entry.bytes))
+        if let Some(entry) = self.generation.load().cache.get(key) {
+            return Ok(Some(entry.bytes));
+        }
+        Ok(self.read_backing(key).await?.map(|entry| entry.bytes))
+    }
+
+    async fn get_entry(
+        &self,
+        key: &str,
+    ) -> Result<Option<CacheEntry>> {
+        if let Some(entry) = self.local_entry(key) {
+            return Ok(Some(entry));
+        }
+        self.read_backing(key).await
     }
 
     async fn put(
@@ -231,16 +331,26 @@ impl CacheStore for MemoryCacheStore {
         ttl: Option<Duration>,
     ) -> Result<()> {
         if ttl == Some(Duration::ZERO) {
-            self.mutate(|cache| cache.invalidate(key));
-            return Ok(());
+            return self.forget(key).await;
         }
-        // Moka saturates a per-entry expiry beyond its clock range, so a TTL
-        // of any length is kept rather than rejected.
-        let entry = Entry {
-            bytes: Bytes::from(value.into_owned()),
-            lifetime: ttl
-                .map(|ttl| Lifetime { ttl, written_at: Instant::now() }),
+        let backing = self.backing.get();
+        let _operation = if let Some(backing) = backing {
+            if ttl.is_some() && !backing.store.supports_ttl() {
+                return Err(Error::Rejected(format!(
+                    "backing store '{}' does not preserve TTL for key '{key}'",
+                    backing.store.store_name()
+                )));
+            }
+            Some(backing.operations.write().await)
+        } else {
+            None
         };
+        let lifetime = ttl.map(|ttl| (Instant::now(), ttl));
+        if let Some(backing) = backing {
+            self.mutate(|cache| cache.invalidate(key));
+            backing.store.put(key, Cow::Borrowed(value.as_ref()), ttl).await?;
+        }
+        let entry = Entry { bytes: Bytes::from(value.into_owned()), lifetime };
         self.mutate(|cache| cache.insert(key.to_owned(), entry));
         Ok(())
     }
@@ -249,13 +359,61 @@ impl CacheStore for MemoryCacheStore {
         &self,
         key: &str,
     ) -> Result<()> {
+        if let Some(backing) = self.backing.get() {
+            let _operation = backing.operations.write().await;
+            self.mutate(|cache| cache.invalidate(key));
+            return backing.store.forget(key).await;
+        }
         self.mutate(|cache| cache.invalidate(key));
         Ok(())
     }
 
     async fn clear(&self) -> Result<()> {
+        if let Some(backing) = self.backing.get() {
+            let _operation = backing.operations.write().await;
+            self.mutate(MemoryCache::invalidate_all);
+            return backing.store.clear().await;
+        }
         self.mutate(MemoryCache::invalidate_all);
         Ok(())
+    }
+}
+
+impl MemoryCacheStore {
+    async fn read_backing(
+        &self,
+        key: &str,
+    ) -> Result<Option<CacheEntry>> {
+        let Some(backing) = self.backing.get() else {
+            return Ok(None);
+        };
+        let _operation = backing.operations.read().await;
+        if let Some(entry) = self.local_entry(key) {
+            return Ok(Some(entry));
+        }
+        let Some(entry) = backing.store.get_entry(key).await? else {
+            return Ok(None);
+        };
+        let lifetime = match entry.expiry {
+            CacheExpiry::At(deadline) => {
+                let now = Instant::now();
+                let ttl = deadline.saturating_duration_since(now);
+                if ttl.is_zero() {
+                    return Ok(None);
+                }
+                Some((now, ttl))
+            }
+            CacheExpiry::Unknown => return Ok(Some(entry)),
+            CacheExpiry::Never => None,
+        };
+        let cached = self.mutate(|cache| {
+            // Another miss can fill the entry while this read is in flight.
+            cache.get_with(key.to_owned(), || Entry {
+                bytes: entry.bytes,
+                lifetime,
+            })
+        });
+        Ok(Some(cached.into_cache_entry()))
     }
 }
 
