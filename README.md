@@ -4,7 +4,7 @@
 
 # Claviron
 
-**Retire middlemen!**
+**Retire middlemen. Let the others go!**
 
 Claviron is an application-first toolkit for building and running services.
 Run Rust alongside your existing applications. Keep them together as a modular
@@ -58,8 +58,10 @@ or the [Edge configuration guide](crates/edge/README.md).
 
 ## Performance
 
-In a Linux HTTP/1.1 plaintext benchmark with 128 loopback connections and
-1,280 target outstanding requests, both servers met the same SLA.
+In this Linux HTTP/1.1 plaintext benchmark, Claviron delivered **2.74× as
+many responses per second** using **66% less CPU per response** than Caddy.
+Both met the same SLA with 128 loopback connections and 1,280 target
+outstanding requests.
 
 | Server | Responses/s | Server CPU/response |
 | --- | ---: | ---: |
