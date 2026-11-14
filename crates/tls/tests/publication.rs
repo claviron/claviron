@@ -178,8 +178,12 @@ fn resolver_publication_retains_ownership_across_authoritative_reload() {
         ("example.test".into(), "example.test".into()),
         ("retired.test".into(), "example.test".into()),
     ]);
-    let resolver =
-        CertResolver::new_owned(certs.clone(), old.clone(), owners.clone());
+    let resolver = CertResolver::new_owned(
+        certs.clone(),
+        old.clone(),
+        owners.clone(),
+        None,
+    );
     for _ in 0..2 {
         resolver.upsert_cert("example.test", &[], new.clone());
         assert!(!resolver.contains("retired.test"));
