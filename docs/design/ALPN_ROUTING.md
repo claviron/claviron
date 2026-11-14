@@ -1,8 +1,9 @@
 # ALPN Routing
 
-Status: the profile registry and handshake-only profiles are implemented
-(`AlpnProfile`, `AlpnProfiles`, `acme-tls/1` on a listener). Session profiles,
-enabled per host, are a proposal.
+Status: handshake-only profiles (`AlpnProfile`, `acme-tls/1`) and session
+profiles with their own handshake and execution (`SessionProfile`) are
+implemented. Session plans, which inherit admission and take per-host
+parameters, are in progress.
 
 A TLS client names the protocol it wants to speak in its ClientHello. That
 choice selects a handshake before any request exists, which makes it the one
@@ -31,10 +32,20 @@ flowchart TD
     Plan -->|ordinary protocol| HostPlan[Host's prepared pipeline]
 ```
 
-Everything after the handshake is the ordinary connection driver and
-[Hot Pipeline](HOT_PIPELINE.md). What ALPN adds is which `ServerConfig` the
-handshake uses and which prepared pipeline the connection is given. Both are
-chosen once, at acceptance; no request checks a protocol id.
+A host is a pair: a `ServerConfig` for its handshake and an application for
+its connections. A session profile gives the same host a second pair, chosen
+by the protocol id the client offers:
+
+```text
+ClientHello -> SNI -> host
+  ordinary ALPN (h2, http/1.1)  -> (host ServerConfig,    host application)
+  a session id the host enables -> (profile ServerConfig, profile application)
+```
+
+ALPN routing chooses the pair, once, at acceptance; no request checks a
+protocol id. How the chosen application is built is the pipeline's, as for
+any host: everything after the handshake is the ordinary connection driver
+and [Hot Pipeline](HOT_PIPELINE.md).
 
 ## Three shapes
 
@@ -57,7 +68,9 @@ its own, documented apart from it; nothing needs one today.
 ## Ownership
 
 Code registers a profile; configuration enables it. Claviron's TLS and Edge
-crates name no protocol id: they provide the registry and the selection.
+crates name no protocol id: they provide the registry and the selection. A
+profile is written against Claviron's public API alone; a package Claviron
+ships, such as gRPC enrollment, gets no hook another package could not use.
 
 - The package that speaks a protocol registers its id, the handshake it
   requires and, for a session profile, the services the connection may reach.
@@ -78,8 +91,16 @@ crates name no protocol id: they provide the registry and the selection.
 grpc.example.com:
   tls:
     client_auth: required          # ordinary h2: client certificates
-    alpn: [example-registration/1] # a session profile registered by its package
+    alpn:
+      example-enroll/1:            # a session profile registered by its package
+        validity_days: 30          # this host's parameters for it
 ```
+
+What sits under an id is the profile's: Edge hands it over undecoded, the
+profile decodes it into its own type and an entry that does not decode
+refuses the host's preparation. A profile without parameters is enabled with
+an empty mapping. The same profile can take different parameters on
+different hosts, and a package's own configuration file needs nothing for it.
 
 A profile can relax what the handshake demands, such as a client
 certificate, only together with narrowing what the connection reaches.
@@ -99,17 +120,36 @@ Certificate rotation reaches both through the same certificate resolver.
 ## Pipelines
 
 Each listener and host already has its own prepared pipeline. A session
-profile adds one per listener, host and profile, built from the services the
-profile registered and the host's admission policy. A connection that
-negotiated the profile is dispatched to that pipeline and can reach nothing
-else on the host; an ordinary connection cannot reach the profile's services.
-The services authenticate their callers themselves; for registration that is
-the application's `RegistrationGuard`.
+profile adds one per listener, host and profile, compiled by the same
+pipeline compiler from a different entry: the session plan.
+
+- The host's admission layers the profile asks for. A profile declares what
+  it inherits, as a component declares its dependencies; each is applied when
+  the host declares it and absent when it does not. Nothing is inherited
+  unless asked for, so no layer is imposed on a profile.
+- Layers the profile adds in code, with the ordinary route layer contract,
+  in place of or beside what it inherits.
+- The profile's backend, its only owner.
+
+The host's site takes no part: no redirect, files, routes, backends or
+router of the host's are in a session plan. A connection that negotiated the
+profile reaches only that plan; an ordinary connection cannot reach it. The
+services authenticate their callers themselves; for mTLS enrollment that is
+the application's `EnrollGuard`.
+
+| Admission, which a profile may inherit | Site, which a session never takes |
+| --- | --- |
+| Trusted proxy identity | Redirect |
+| Deny and ACL | CORS and response headers |
+| Quota | Route selection |
+| Request body and reply bounds | Files, backends, the Rust router |
+| Access log, metrics | |
+
+Only host-level declarations are inherited: a session has no routes, so a
+layer declared for one route prefix does not reach it.
 
 ## Open questions
 
-- How a session profile declares its services: a prepared pipeline of its own
-  from a backend the package registers, or host routes the profile selects.
 - QUIC: HTTP/3 negotiates `h3`; a session profile over QUIC would need its own
   id there and is not proposed.
 - Clients: a session profile is for clients that set ALPN themselves, such as
