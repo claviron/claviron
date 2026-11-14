@@ -38,6 +38,20 @@ same 128-connection HTTP/1.1 load phase with zero errors.
 
 [Axum proxy benchmark and methodology](docs/bench/http1-proxy-axum.md)
 
+## One listener, many protocols
+
+**Route by ALPN, before the first request.** A TLS client names the protocol it
+wants in its ClientHello, and Claviron selects the handshake from that. An ACME
+TLS-ALPN-01 challenge is answered on the same port 443 as your sites. A
+protocol of your own gets its own handshake, client certificates and
+execution on a host you already serve, with no second host or listener. It
+inherits the host's quota, ACL and access log, as you declare.
+
+ALPN selects terms, never trust: a client chooses what it offers, so a protocol
+id decides which handshake a connection gets, not whom the server believes.
+
+[ALPN routing](docs/design/ALPN_ROUTING.md) · [Session profiles](crates/edge/README.md#alpn-session-profiles)
+
 ## Move to Rust without a full rewrite
 
 Keep your application behind Claviron and add a **Rust intercept** for the first
@@ -52,7 +66,7 @@ can keep its existing runtime and move on its own schedule.
 
 ## Design contracts
 
-- [Role composition](docs/design/ROLE_COMPOSITION.md) · [Hot pipeline](docs/design/HOT_PIPELINE.md) · [Edge backends](docs/design/EDGE_BACKENDS.md)
+- [Role composition](docs/design/ROLE_COMPOSITION.md) · [Hot pipeline](docs/design/HOT_PIPELINE.md) · [Edge backends](docs/design/EDGE_BACKENDS.md) · [ALPN routing](docs/design/ALPN_ROUTING.md)
 - [Early data](docs/design/EARLY_DATA_POLICY.md) · [Connection hijack](docs/design/CONNECTION_HIJACK.md) · [Lifetime policy](docs/design/LIFETIME_POLICY.md)
 - [Graceful ownership](docs/design/GRACEFUL_OWNERSHIP.md) · [Hot client pool](docs/design/HOT_CLIENT_POOL.md) · [Worker adoption](docs/design/WORKER_ADOPTION.md) · [Incarnation masking](docs/design/INCARNATION_MASKING.md)
 - [Fleet awareness](docs/design/FLEETAWARE.md) · [Orbit Cell](docs/design/ORBIT_CELL.md) · [Orbit Link](docs/design/ORBIT_LINK.md) · [Link Invoke](docs/design/LINK_INVOKE.md)

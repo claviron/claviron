@@ -1,9 +1,9 @@
 # ALPN Routing
 
-Status: handshake-only profiles (`AlpnProfile`, `acme-tls/1`) and session
-profiles with their own handshake and execution (`SessionProfile`) are
-implemented. Session plans, which inherit admission and take per-host
-parameters, are in progress.
+Status: implemented. Handshake-only profiles (`AlpnProfile`, `acme-tls/1`),
+session profiles with their own handshake and execution (`SessionProfile`),
+and session plans, which inherit the host's named admission and take per-host
+parameters.
 
 A TLS client names the protocol it wants to speak in its ClientHello. That
 choice selects a handshake before any request exists, which makes it the one
