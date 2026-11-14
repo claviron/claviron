@@ -82,15 +82,13 @@ def fingerprint(root):
     }
 
 
-def packages_from(metadata, version):
+def packages_from(metadata):
     members = set(metadata["workspace_members"])
     packages = {
         p["name"]: p for p in metadata["packages"]
         if p["id"] in members and p["publish"] != []
     }
     for name, package in packages.items():
-        if package["version"] != version:
-            raise PublishError(f"{name} does not use workspace version {version}.")
         if package["publish"] is not None and "crates-io" not in package["publish"]:
             raise PublishError(f"{name} does not allow crates.io publication.")
     return packages
@@ -324,13 +322,14 @@ class Publisher:
     def entry(self, name, version):
         return self.state["releases"].setdefault(f"{name}@{version}", {})
 
-    def prepared_selection(self, names, version):
+    def prepared_selection(self, names, versions, workspace_version):
         """Select recorded artifacts, including dependencies retired from the checkout."""
         packages, edges = {}, {}
 
         def include(name):
             if name in packages:
                 return
+            version = versions.get(name, workspace_version)
             entry = self.state["releases"].get(f"{name}@{version}")
             if not entry or not (entry.get("metadata") or entry.get("published")):
                 raise PublishError(f"{name}@{version}: no prepared release receipt. Nothing uploaded.")
@@ -340,8 +339,9 @@ class Publisher:
             edges[name] = set()
             for dependency in entry.get("metadata", {}).get("deps", []):
                 other = dependency["name"]
-                # Recorded members of the same release are ordered even when optional.
-                if f"{other}@{version}" in self.state["releases"]:
+                # Recorded workspace dependencies are ordered even when optional.
+                other_version = versions.get(other, workspace_version)
+                if f"{other}@{other_version}" in self.state["releases"]:
                     include(other)
                     edges[name].add(other)
 
@@ -567,16 +567,18 @@ def main(argv=None):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())
         config = project["tool"]["claviron"]["publish"]
         directory = ROOT / config["state-directory"]
-        version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+        workspace_version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+        metadata = json.loads(run(ROOT, "cargo", "metadata", "--no-deps", "--offline", "--format-version", "1"))
+        packages = packages_from(metadata)
         with exclusive(directory):
             publisher = Publisher(ROOT, directory, Registry(args.request_timeout))
             if args.package:
-                packages, order = publisher.prepared_selection(args.package, version)
+                versions = {name: package["version"] for name, package in packages.items()}
+                packages, order = publisher.prepared_selection(args.package, versions, workspace_version)
             else:
-                metadata = json.loads(run(ROOT, "cargo", "metadata", "--no-deps", "--offline", "--format-version", "1"))
-                packages = packages_from(metadata, version)
                 order = dependency_order(packages)
             for index, name in enumerate(order, 1):
+                version = packages[name]["version"]
                 published = publisher.published(name, version, args.refresh)
                 print(f"{index:02d}. {name}@{version}: {'published — skip' if published else 'pending'}", flush=True)
             if args.command == "prepare":
