@@ -215,39 +215,39 @@ Representative successful output:
 ```text
 🔶 creating test files
 🔷 test files ready: small=4096B big=4194304B
-🔷 test_has_miss_header_on_first_request → https://claviron.home/assets/script_...js
+🔷 test_has_miss_header_on_first_request → https://example.test/assets/script_...js
 ✅ x-cache = MISS
-🔷 test_has_fast_hit_header_on_second_request → https://claviron.home/assets/script_...js
+🔷 test_has_fast_hit_header_on_second_request → https://example.test/assets/script_...js
 ✅ x-cache = HIT+
-🔷 test_has_miss_header_on_first_request → https://claviron.home/file_...bin
+🔷 test_has_miss_header_on_first_request → https://example.test/file_...bin
 ✅ x-cache = MISS
-🔷 test_still_miss_on_second_request → https://claviron.home/file_...bin
+🔷 test_still_miss_on_second_request → https://example.test/file_...bin
 ✅ x-cache = MISS
 ✅ x-cache = MISS
-🔷 Testing If-None-Match → 304 Not Modified for https://claviron.home/file_...bin
+🔷 Testing If-None-Match → 304 Not Modified for https://example.test/file_...bin
 ✅ Got 304 Not Modified with If-None-Match: "400000-..."
 🔷 x-cache header: BYPASS
-🔷 Testing If-None-Match → 304 Not Modified for https://claviron.home/assets/script_...js
+🔷 Testing If-None-Match → 304 Not Modified for https://example.test/assets/script_...js
 ✅ Got 304 Not Modified with If-None-Match: "1000-..."
 🔷 x-cache header: HIT
-🔷 Range 206 on SMALL: https://claviron.home/assets/script_...js
+🔷 Range 206 on SMALL: https://example.test/assets/script_...js
 ✅ status 206
 ✅ Content-Range = bytes 0-15/4096
 ✅ file size = 16
 ✅ range 0-15 ok
-🔷 Range 206 on BIG: https://claviron.home/file_...bin
+🔷 Range 206 on BIG: https://example.test/file_...bin
 ✅ status 206
 ✅ Content-Range = bytes 1024-2047/4194304
 ✅ file size = 1024
 ✅ range 1024-2047 ok
-🔷 Range 416 on: https://claviron.home/assets/script_...js
+🔷 Range 416 on: https://example.test/assets/script_...js
 ✅ status 416
 ✅ Content-Range = bytes */4096
 ✅ invalid range correctly rejected
-🔷 Testing Range 2048-3071 matches local file for https://claviron.home/file_...bin
+🔷 Testing Range 2048-3071 matches local file for https://example.test/file_...bin
 ✅ status 206
 ✅ Range 2048-3071 body matches local slice
-🔷 Testing Range 64-127 matches local file for https://claviron.home/assets/script_...js
+🔷 Testing Range 64-127 matches local file for https://example.test/assets/script_...js
 ✅ status 206
 ✅ Range 64-127 body matches local slice
 ```
