@@ -1129,6 +1129,14 @@ impl HostingStore {
                 "leaf certificates require an issuer".into(),
             ));
         }
+        // Only a client's key may stay with its holder, when its certificate
+        // was issued from a CSR. A CA signs and a server serves with its own.
+        if new.kind != CertificateKind::Client && new.key_der.is_empty() {
+            return Err(HostingError::InvalidInput(
+                "CA and server certificates are stored with their private key"
+                    .into(),
+            ));
+        }
         if server_id.is_some() && !new.kind.is_server() {
             return Err(HostingError::InvalidInput(
                 "client and CA certificates cannot be attached to servers"
@@ -1248,6 +1256,17 @@ impl HostingStore {
         key_der: Vec<u8>,
         expires_at: OffsetDateTime,
     ) -> Result<HostedCertificate> {
+        if key_der.is_empty()
+            && self
+                .certificate_by_id(certificate_id)
+                .await?
+                .is_some_and(|stored| stored.kind != CertificateKind::Client)
+        {
+            return Err(HostingError::InvalidInput(
+                "CA and server certificates are stored with their private key"
+                    .into(),
+            ));
+        }
         let updated = run!(
             self,
             query_as::<CertificateRow>,
@@ -1260,6 +1279,46 @@ impl HostingStore {
             fetch_optional
         )?
         .ok_or_else(|| HostingError::NotFound(format!("certificate id {certificate_id}")))?;
+        self.changed(HostingChanged::Certificates);
+        self.certificate_by_cn(&updated.cn).await?.ok_or_else(|| {
+            HostingError::NotFound(format!("certificate '{}'", updated.cn))
+        })
+    }
+
+    /// Give a CA stored without its signing key the key it was issued with.
+    ///
+    /// Earlier releases recorded a file authority's chain without its key.
+    /// This completes such a row and changes nothing else: the chain must be
+    /// the stored one, the stored key must be empty and the CA unrevoked.
+    /// That the key belongs to the certificate is the caller's to verify.
+    pub async fn complete_ca_signing_key(
+        &self,
+        certificate_id: i32,
+        certs_der: &[u8],
+        key_der: Vec<u8>,
+    ) -> Result<HostedCertificate> {
+        if key_der.is_empty() {
+            return Err(HostingError::InvalidInput(
+                "a CA signing key cannot be empty".into(),
+            ));
+        }
+        let updated = run!(
+            self,
+            query_as::<CertificateRow>,
+            "UPDATE hosting.certificates
+                SET key_der = $3, updated_at = NOW()
+              WHERE id = $1 AND kind::TEXT = 'ca' AND certs_der = $2
+                AND length(key_der) = 0 AND revoked_at IS NULL
+          RETURNING id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at,
+                    issued_at, updated_at, enabled, revoked_at",
+            [certificate_id, certs_der, key_der],
+            fetch_optional
+        )?
+        .ok_or_else(|| {
+            HostingError::Conflict(
+                "CA already has a key, has another chain or is revoked".into(),
+            )
+        })?;
         self.changed(HostingChanged::Certificates);
         self.certificate_by_cn(&updated.cn).await?.ok_or_else(|| {
             HostingError::NotFound(format!("certificate '{}'", updated.cn))

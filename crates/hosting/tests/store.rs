@@ -219,3 +219,78 @@ async fn issuer_relationships_round_trip_without_installing_client_identity() {
         store.attach_certificate_to_server(ca.certificate.id, 1).await.is_err()
     );
 }
+
+#[cfg(feature = "sqlite")]
+#[tokio::test]
+async fn only_a_client_is_stored_without_its_key_and_a_keyless_ca_is_only_completed()
+ {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::raw_sql(include_str!("fixtures/certificates.sql"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    // What an earlier release left behind: a file authority's chain alone.
+    sqlx::query(
+        "INSERT INTO hosting_certificates
+            (id, kind, cn, certs_der, key_der, expires_at, issued_at, enabled)
+         VALUES (1, 'ca', 'legacy.test', x'0102', x'', '1970-01-01T00:00:00Z',
+                 '1970-01-01T00:00:00Z', 1)",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let store = HostingStore::sqlite(pool);
+    let keyless = NewCertificate {
+        kind: CertificateKind::Ca,
+        issuer_id: None,
+        cn: "ca.test".into(),
+        certs_der: vec![1, 2],
+        key_der: Vec::new(),
+        issued_at: OffsetDateTime::UNIX_EPOCH,
+        expires_at: OffsetDateTime::UNIX_EPOCH,
+        enabled: true,
+    };
+    assert!(matches!(
+        store.insert_unassigned_certificate(keyless.clone(), &[]).await,
+        Err(HostingError::InvalidInput(_))
+    ));
+    let server = NewCertificate {
+        kind: CertificateKind::Server,
+        issuer_id: Some(1),
+        cn: "server.test".into(),
+        ..keyless.clone()
+    };
+    assert!(matches!(
+        store.insert_unassigned_certificate(server, &[]).await,
+        Err(HostingError::InvalidInput(_))
+    ));
+
+    // Another chain is not this CA's key to take.
+    assert!(matches!(
+        store.complete_ca_signing_key(1, &[9, 9], vec![3, 4]).await,
+        Err(HostingError::Conflict(_))
+    ));
+    let completed =
+        store.complete_ca_signing_key(1, &[1, 2], vec![3, 4]).await.unwrap();
+    assert_eq!(completed.certificate.key_der, vec![3, 4]);
+    // A key once present is not replaced through this door.
+    assert!(matches!(
+        store.complete_ca_signing_key(1, &[1, 2], vec![5, 6]).await,
+        Err(HostingError::Conflict(_))
+    ));
+    assert!(matches!(
+        store
+            .update_certificate_material(
+                1,
+                vec![1, 2],
+                Vec::new(),
+                OffsetDateTime::UNIX_EPOCH
+            )
+            .await,
+        Err(HostingError::InvalidInput(_))
+    ));
+}
