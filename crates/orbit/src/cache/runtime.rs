@@ -13,8 +13,8 @@ use claviron_runtime::registry::{
 };
 use claviron_runtime::{AppState, RunContext};
 use orbitive::cache::{
-    Cache, CacheLayout, CachePoll, CacheRead, DefaultCacheLayout,
-    SHARED_CACHE_KIND, SharedCache, SharedStore, Store,
+    Cache, CacheLayout, CachePoll, CacheRead, CacheRevision,
+    DefaultCacheLayout, SHARED_CACHE_KIND, SharedCache, SharedStore, Store,
 };
 use orbitive::{Fleet, OrbitTyped, RingSpec};
 use tokio::runtime::Handle;
@@ -160,6 +160,22 @@ impl From<std::io::Error> for Error {
     }
 }
 
+/// What a backing store knows about the expiry of a value it returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackingExpiry {
+    /// The store cannot say: the value answers the current read only.
+    Unknown,
+    Never,
+    /// Unix epoch milliseconds, the clock Orbit's expiry uses.
+    AtUnixMs(u64),
+}
+
+/// A backing value with its expiry, so a replicated miss can keep it.
+pub struct BackingEntry {
+    pub bytes: Bytes,
+    pub expiry: BackingExpiry,
+}
+
 /// Backing storage used by one logical Orbit store after an ordinary L1 miss.
 ///
 /// Concrete File and Redis adapters live in `claviron-cache`; this contract
@@ -173,6 +189,18 @@ pub trait CacheBacking: Send + Sync + 'static {
         &self,
         key: &str,
     ) -> std::result::Result<Option<Bytes>, String>;
+
+    /// The value with what the store knows of its expiry. A backing that
+    /// cannot say returns it as `Unknown`, which a miss serves without keeping.
+    async fn get_entry(
+        &self,
+        key: &str,
+    ) -> std::result::Result<Option<BackingEntry>, String> {
+        Ok(self.get(key).await?.map(|bytes| BackingEntry {
+            bytes,
+            expiry: BackingExpiry::Unknown,
+        }))
+    }
 
     async fn put(
         &self,
@@ -209,6 +237,27 @@ impl Primitive {
         match self {
             Self::Replicated(store) => store.read(key),
             Self::Shm(store) => store.read(key),
+        }
+    }
+
+    /// The revision a backing read started now is current as of. SHM has no
+    /// worker-local view to fill.
+    fn fill_revision(&self) -> Option<CacheRevision> {
+        match self {
+            Self::Replicated(store) => Some(store.fill_revision()),
+            Self::Shm(_) => None,
+        }
+    }
+
+    fn fill(
+        &self,
+        key: &[u8],
+        value: &[u8],
+        revision: CacheRevision,
+        expires_at_ms: Option<u64>,
+    ) {
+        if let Self::Replicated(store) = self {
+            store.fill(key, value, revision, expires_at_ms);
         }
     }
 
@@ -826,8 +875,11 @@ impl CacheRuntime {
         let Some(backing) = self.state.backing() else {
             return Ok(None);
         };
-        let value = backing
-            .get(key)
+        // Taken before the read: what it returns is current as of this
+        // revision, and a mutation published after it is newer.
+        let fill = self.state.primitive()?.fill_revision();
+        let entry = backing
+            .get_entry(key)
             .await
             .map_err(|message| backing_error("get", message))?;
 
@@ -836,7 +888,23 @@ impl CacheRuntime {
         if let Some(local) = self.orbit_get(key)? {
             return Ok(Some(local));
         }
-        Ok(value)
+        let Some(entry) = entry else { return Ok(None) };
+        let expires_at_ms = match entry.expiry {
+            BackingExpiry::Unknown => None,
+            BackingExpiry::Never => Some(None),
+            BackingExpiry::AtUnixMs(at) => Some(Some(at)),
+        };
+        // Keep it in this worker unless its expiry is unknown; the store
+        // refuses it if a mutation applied since is newer.
+        if let (Some(revision), Some(expires_at_ms)) = (fill, expires_at_ms) {
+            self.state.primitive()?.fill(
+                key.as_bytes(),
+                &entry.bytes,
+                revision,
+                expires_at_ms,
+            );
+        }
+        Ok(Some(entry.bytes))
     }
 
     pub async fn put(

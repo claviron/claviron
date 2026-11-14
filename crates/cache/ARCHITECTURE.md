@@ -263,12 +263,15 @@ Writing L2 before publishing prevents a peer that receives the mutation from
 falling back to an older backing value. Orbit validation also runs before the
 L2 write, so an oversized key/value cannot partially update only L2.
 
-An L2 result is returned directly and is not silently promoted into L1. The
-generic `CacheStore::get` contract does not expose the backing entry's revision
-or remaining TTL; installing such a value as an unbounded local entry could
-resurrect an older value or outlive its backing TTL. Live puts and inbound
-mutations populate L1 normally. A future promotable L2 contract must carry
-version and expiry explicitly.
+A replicated store fills its L1 from an L2 result. Before the read it takes
+Orbit's fill revision, the last mutation sequence allocated; every mutation
+up to it wrote L2 first, and any later one is newer than the fill. The read
+uses `CacheBacking::get_entry`, which carries the value's expiry from
+`CacheStore::get_entry` (Redis reports it through `PTTL`). A known expiry is
+kept with the value; an unknown one answers the read only, since keeping it
+could outlive the backing TTL. Orbit refuses the fill when the worker already
+holds a newer revision of the key, a delete included, so it cannot resurrect
+an older value. An SHM store has no per-worker view and is not filled.
 
 An expiring Orbit write requires an L2 whose `supports_ttl` capability is
 true. Redis preserves the millisecond TTL and is accepted. The current file

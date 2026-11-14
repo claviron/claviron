@@ -10,7 +10,8 @@ mod runtime;
 pub(crate) use orbitive::cache::SHARED_CACHE_KIND;
 pub use orbitive::cache::{CachePoll, CacheRead, DEFAULT_L1_CAPACITY};
 pub use runtime::{
-    CacheBacking, CacheMode, CacheRuntime, CacheService, Error, Result,
+    BackingEntry, BackingExpiry, CacheBacking, CacheMode, CacheRuntime,
+    CacheService, Error, Result,
 };
 
 /// Register the resources used by configured Orbit stores. Repeated calls

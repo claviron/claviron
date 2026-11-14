@@ -14,11 +14,18 @@ use crate::{CacheDriver, CacheStore, Result};
 
 struct MemoryStore {
     values: Mutex<HashMap<String, Bytes>>,
+    /// Whether `get_entry` says its values never expire, or leaves the
+    /// expiry unknown as a store without that information does.
+    expiry_known: bool,
 }
 
 impl MemoryStore {
     fn new() -> Self {
-        Self { values: Mutex::new(HashMap::new()) }
+        Self { values: Mutex::new(HashMap::new()), expiry_known: false }
+    }
+
+    fn with_known_expiry() -> Self {
+        Self { expiry_known: true, ..Self::new() }
     }
 }
 
@@ -45,6 +52,21 @@ impl CacheStore for MemoryStore {
         key: &str,
     ) -> Result<Option<Bytes>> {
         Ok(self.values.lock().expect("memory store poisoned").get(key).cloned())
+    }
+
+    async fn get_entry(
+        &self,
+        key: &str,
+    ) -> Result<Option<crate::CacheEntry>> {
+        let expiry = if self.expiry_known {
+            crate::CacheExpiry::Never
+        } else {
+            crate::CacheExpiry::Unknown
+        };
+        Ok(self
+            .get(key)
+            .await?
+            .map(|bytes| crate::CacheEntry { bytes, expiry }))
     }
 
     async fn put(
@@ -75,12 +97,18 @@ impl CacheStore for MemoryStore {
 }
 
 fn l2_backed_store() -> (OrbitCacheStore, Arc<MemoryStore>) {
+    l2_backed_store_with(MemoryStore::new())
+}
+
+fn l2_backed_store_with(
+    l2: MemoryStore
+) -> (OrbitCacheStore, Arc<MemoryStore>) {
     let fleet = Arc::new(Fleet::join("cache_l2", 1).expect("fleet"));
     let service = CacheService::from_fleet(fleet).expect("cache service");
     let store =
         OrbitCacheStore::new("orbit", service, 8, Some("memory".to_string()))
             .expect("orbit store");
-    let l2 = Arc::new(MemoryStore::new());
+    let l2 = Arc::new(l2);
     store.attach_l2(l2.clone()).expect("attach L2");
     (store, l2)
 }
@@ -112,6 +140,7 @@ async fn l2_is_a_fallback_and_writes_through_before_l1_publication() {
         CacheStore::get(&store, "cold").await.expect("get"),
         Some(Bytes::from_static(b"from-l2"))
     );
+    // Its expiry is unknown, so it answers the read and is not kept.
     assert_eq!(
         store.cache().read_local(b"cold").expect("local read"),
         CacheRead::Miss
@@ -135,6 +164,29 @@ async fn l2_is_a_fallback_and_writes_through_before_l1_publication() {
         store.cache().read_local(b"hot").expect("local read"),
         CacheRead::Miss
     );
+}
+
+#[tokio::test]
+async fn an_l2_value_with_a_known_expiry_is_kept_until_a_write_replaces_it() {
+    let (store, l2) = l2_backed_store_with(MemoryStore::with_known_expiry());
+    l2.put("cold", b"from-l2"[..].into(), None).await.expect("seed L2");
+
+    assert_eq!(
+        CacheStore::get(&store, "cold").await.expect("get"),
+        Some(Bytes::from_static(b"from-l2"))
+    );
+    assert!(matches!(
+        store.cache().read_local(b"cold").expect("local read"),
+        CacheRead::Hit(entry) if entry.value == Bytes::from_static(b"from-l2")
+    ));
+
+    CacheStore::put(&store, "cold", b"newer"[..].into(), None)
+        .await
+        .expect("put");
+    assert!(matches!(
+        store.cache().read_local(b"cold").expect("local read"),
+        CacheRead::Hit(entry) if entry.value == Bytes::from_static(b"newer")
+    ));
 }
 
 #[tokio::test]

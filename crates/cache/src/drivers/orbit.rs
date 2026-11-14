@@ -7,14 +7,17 @@ use std::time::Duration;
 use async_trait::async_trait;
 use bytes::Bytes;
 use claviron_orbit::cache::{
-    CacheBacking, CacheMode, CacheRuntime, CacheService, DEFAULT_L1_CAPACITY,
+    BackingEntry, BackingExpiry, CacheBacking, CacheMode, CacheRuntime,
+    CacheService, DEFAULT_L1_CAPACITY,
 };
 use serde::Deserialize;
 
 use crate::config::CacheStoreConfig;
 use crate::drivers::memory::MemoryCacheStore;
 use crate::error::{Error, Result};
-use crate::{CacheDriver, CacheStore, CacheStoreResolver, CacheValue};
+use crate::{
+    CacheDriver, CacheExpiry, CacheStore, CacheStoreResolver, CacheValue,
+};
 
 /// Configured Orbit driver factory.
 ///
@@ -69,6 +72,26 @@ impl CacheBacking for CacheStoreBacking {
         key: &str,
     ) -> std::result::Result<Option<Bytes>, String> {
         self.store.get(key).await.map_err(|error| error.to_string())
+    }
+
+    async fn get_entry(
+        &self,
+        key: &str,
+    ) -> std::result::Result<Option<BackingEntry>, String> {
+        let entry = self
+            .store
+            .get_entry(key)
+            .await
+            .map_err(|error| error.to_string())?;
+        Ok(entry.map(|entry| BackingEntry {
+            bytes: entry.bytes,
+            expiry: match entry.expiry {
+                CacheExpiry::Unknown => BackingExpiry::Unknown,
+                CacheExpiry::Never => BackingExpiry::Never,
+                CacheExpiry::At(at) => unix_ms(at)
+                    .map_or(BackingExpiry::Unknown, BackingExpiry::AtUnixMs),
+            },
+        }))
     }
 
     async fn put(
@@ -361,6 +384,15 @@ pub struct OrbitCacheStoreConfig {
     pub l1_capacity: Option<usize>,
     #[serde(default)]
     pub l2: Option<String>,
+}
+
+/// An `Instant` deadline on the wall clock Orbit's expiry uses. `None` when
+/// the clock cannot express it, which leaves the expiry unknown.
+fn unix_ms(at: std::time::Instant) -> Option<u64> {
+    let remaining = at.saturating_duration_since(std::time::Instant::now());
+    let deadline = std::time::SystemTime::now().checked_add(remaining)?;
+    let since_epoch = deadline.duration_since(std::time::UNIX_EPOCH).ok()?;
+    u64::try_from(since_epoch.as_millis()).ok()
 }
 
 #[cfg(test)]

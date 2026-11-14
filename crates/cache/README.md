@@ -58,6 +58,21 @@ stores:
     l1_capacity: 10000
 ```
 
+### Store options
+
+| Driver | Option | Meaning |
+| --- | --- | --- |
+| `memory` | `capacity` | Entries kept per process; 10,000 when no bound is given. |
+| | `max_bytes` | Key and value bytes kept per process, a count or a size such as `64 MiB`. Excludes `capacity`. |
+| | `l2` | A single-tier store read on a miss; a hit is kept with its expiry. |
+| `orbit` | `mode` | `replicated` (default) or `shm`. |
+| | `l1_capacity` | Entries per worker; `replicated` only. |
+| | `l2` | A store every worker can read, such as file or Redis, read on a miss; a replicated store keeps the hit. |
+| `file` | `path` | Directory, relative to the application's working directory. |
+| | `prefix` | Optional key prefix. |
+| `redis` | `connection` | A connection declared in `redis.yaml`. |
+| | `prefix` | Optional key prefix. |
+
 `replicated` is the default mode. `l1_capacity` limits entries per worker and
 applies only to replicated stores. Each worker starts empty and copies peer
 writes into its local cache as it applies mutations.
@@ -134,9 +149,10 @@ store do not invalidate warm entries in other processes.
 
 An Orbit store's `l2` names another store shared by its workers. Writes validate
 the Orbit operation, update L2, then update the selected Orbit mode. Deletes and clears also apply to L2
-before the Orbit tier. A read satisfied by L2 is returned
-directly, without promotion: the raw store contract supplies neither a revision nor a
-remaining TTL that would make promotion safe.
+before the Orbit tier. A replicated store keeps a value read from L2 in that
+worker with its expiry, unless a write the worker has applied since is newer;
+a value whose expiry L2 cannot report answers the read only. An SHM store has
+no per-worker copy and returns the L2 value directly.
 
 Consumers that fall behind discard unsafe L1 state and recover through L2 when
 available; without a usable backing path they report the recovery failure
