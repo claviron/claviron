@@ -2,7 +2,8 @@ use super::*;
 
 #[test]
 fn response_transport_is_not_a_link_setting() {
-    let result = serde_yaml::from_str::<super::LinkConfig>("shared_response: true");
+    let result =
+        serde_yaml::from_str::<super::LinkConfig>("shared_response: true");
     assert!(result.unwrap_err().to_string().contains("shared_response"));
 }
 

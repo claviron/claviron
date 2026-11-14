@@ -504,7 +504,8 @@ pub async fn deliver_response(
     }
     let (mut head, body) = response.into_parts();
     let hint = body.size_hint();
-    let declared = hint.exact().or_else(|| declared_reply_length(&head.headers));
+    let declared =
+        hint.exact().or_else(|| declared_reply_length(&head.headers));
     let delivery = policy.delivery(&head.headers, declared);
     head.headers.remove(crate::policy::X_ACCEL_BUFFERING);
     let body = match (delivery, policy.buffer_size) {
@@ -573,7 +574,8 @@ async fn buffer_reply(
             Some(Ok(frame)) => match frame.into_data() {
                 Ok(data) if data.is_empty() => continue,
                 Ok(data)
-                    if limit.is_none_or(|limit| data.len() <= limit - buffered) =>
+                    if limit
+                        .is_none_or(|limit| data.len() <= limit - buffered) =>
                 {
                     if buffered == 0 {
                         first = data;

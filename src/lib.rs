@@ -40,11 +40,11 @@ pub use claviron_logging as logging;
 pub use claviron_module as module;
 #[cfg(any(feature = "orbit", feature = "rate-limit"))]
 pub use claviron_orbit as orbit;
-#[cfg(feature = "resolver")]
-pub use claviron_resolver as resolver;
 /// Compile application and host routing plans.
 #[cfg(feature = "pipeline")]
 pub use claviron_pipeline as pipeline;
+#[cfg(feature = "resolver")]
+pub use claviron_resolver as resolver;
 #[cfg(feature = "runtime")]
 pub use claviron_runtime as runtime;
 #[cfg(feature = "metrics")]

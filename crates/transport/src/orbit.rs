@@ -1158,12 +1158,23 @@ async fn serve<O: Owner>(
         let handshake =
             Handshake { segment: Arc::clone(&segment), origin, correlation };
         match exchange.stream {
-            Some(ticket) if ticket.id.kind() != SHARED_RESPONSE_CONTROL_KIND => {
+            Some(ticket)
+                if ticket.id.kind() != SHARED_RESPONSE_CONTROL_KIND =>
+            {
                 match bodies.accept(ticket) {
                     Ok(endpoint) => {
-                        session(&exchange, handshake, endpoint, owner.as_ref(), shutdown).await;
+                        session(
+                            &exchange,
+                            handshake,
+                            endpoint,
+                            owner.as_ref(),
+                            shutdown,
+                        )
+                        .await;
                     }
-                    Err(error) => tracing::debug!(correlation, %error, "could not open session body"),
+                    Err(error) => {
+                        tracing::debug!(correlation, %error, "could not open session body")
+                    }
                 }
             }
             _ => handshake.refuse(400, None),
@@ -1228,7 +1239,9 @@ async fn serve<O: Owner>(
     let whole = if payload_body {
         http_body::Body::is_end_stream(&response_body)
     } else {
-        length.is_some_and(|size| size <= segment.spec().streams.buffer_bytes as u64)
+        length.is_some_and(|size| {
+            size <= segment.spec().streams.buffer_bytes as u64
+        })
     };
     let mut streaming = None;
     let bytes = if whole {
@@ -1257,7 +1270,10 @@ async fn serve<O: Owner>(
         && parts.status.as_u16() >= 200
         && !matches!(parts.status.as_u16(), 204 | 304)
     {
-        parts.headers.insert(http::header::CONTENT_LENGTH, http::HeaderValue::from(length));
+        parts.headers.insert(
+            http::header::CONTENT_LENGTH,
+            http::HeaderValue::from(length),
+        );
     }
     let mut reply = ExchangeReply {
         correlation,

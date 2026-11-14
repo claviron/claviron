@@ -36,12 +36,7 @@ impl CacheCatalog {
                 (name.clone(), Arc::new(CacheRepository::new(store.clone())))
             })
             .collect();
-        Self {
-            default: config.default.clone(),
-            config,
-            stores,
-            repositories,
-        }
+        Self { default: config.default.clone(), config, stores, repositories }
     }
 
     pub(crate) fn store(

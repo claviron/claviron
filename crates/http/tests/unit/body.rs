@@ -92,7 +92,8 @@ fn reply_delivery_streaming_signals_leave_the_body_unpolled() {
 
     let stream =
         futures_util::stream::pending::<Result<Frame<Bytes>, Infallible>>();
-    let mut response = Response::new(crate::boxed_body(StreamBody::new(stream)));
+    let mut response =
+        Response::new(crate::boxed_body(StreamBody::new(stream)));
     response.extensions_mut().insert(super::ExplicitStream);
     let response = super::deliver_response(response, &Method::GET, &policy)
         .now_or_never()

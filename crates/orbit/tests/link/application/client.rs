@@ -854,9 +854,7 @@ fn a_refusal_episode_is_stated_once_per_directory_generation() {
 async fn shared_response_creator_capacity_waits_without_holding_receiver_work()
 {
     let mut case = CreatorPressure::new("m");
-    case.bodies
-        .prepare_http(&case.segment, case.worker.lane, 1)
-        .unwrap();
+    case.bodies.prepare_http(&case.segment, case.worker.lane, 1).unwrap();
     let target = case.client.target("example");
     let pending = target.send_http_wait(Exchange::default()).await.unwrap();
     assert!(matches!(pending, HttpPending::SharedResponse { .. }));
@@ -919,9 +917,7 @@ async fn shared_body_reset_after_publication_keeps_the_reply_head() {
     use super::super::body::{RESPONSE_BODY_RESET, ResetCode};
 
     let mut case = CreatorPressure::new("r");
-    case.bodies
-        .prepare_http(&case.segment, case.worker.lane, 1)
-        .unwrap();
+    case.bodies.prepare_http(&case.segment, case.worker.lane, 1).unwrap();
     let target = case.client.target("example");
     let HttpPending::SharedResponse { correlation, mut body, reply } =
         target.send_http_wait(Exchange::default()).await.unwrap()

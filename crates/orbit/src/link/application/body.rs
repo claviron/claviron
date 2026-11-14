@@ -16,7 +16,9 @@ pub use orbitive::stream::exchange::{
 use orbitive::stream::exchange::{
     ExchangeSpec, ExchangeTicket, Exchanges, PayloadArenaSpec,
 };
-use orbitive::stream::{Endpoint, Incarnation, StreamSpec, Streams, Ticket, WriteHalf};
+use orbitive::stream::{
+    Endpoint, Incarnation, StreamSpec, Streams, Ticket, WriteHalf,
+};
 use orbitive::{Fleet, NodeId};
 use tokio::io::AsyncWriteExt;
 
@@ -149,7 +151,10 @@ impl ApplicationBodies {
         if segment.allows_shared_response() {
             self.shared_response =
                 Some(segment.open_shared_response(lane, incarnation)?);
-            segment.inbox().advertise_paired_bodies(lane).map_err(map_link_error)?;
+            segment
+                .inbox()
+                .advertise_paired_bodies(lane)
+                .map_err(map_link_error)?;
         }
         Ok(())
     }
@@ -158,14 +163,17 @@ impl ApplicationBodies {
     pub fn accept_http(
         &self,
         exchange: &super::Exchange,
-    ) -> Result<(Option<orbitive::stream::ReadHalf>, Option<ResponseWriter>)> {
+    ) -> Result<(Option<orbitive::stream::ReadHalf>, Option<ResponseWriter>)>
+    {
         let Some(ticket) = exchange.stream else { return Ok((None, None)) };
         if ticket.id.kind() == SHARED_RESPONSE_CONTROL_KIND {
             if usize::from(ticket.id.node()) != usize::from(exchange.origin)
                 || exchange.upgrade
                 || matches!(exchange.body, super::ExchangeBody::Stream)
             {
-                return Err(super::Error::Malformed("invalid HTTP response ticket"));
+                return Err(super::Error::Malformed(
+                    "invalid HTTP response ticket",
+                ));
             }
             let (writer, _) = self.accept_shared_response(ticket)?.split();
             Ok((None, Some(ResponseWriter::Payload(writer))))
@@ -257,7 +265,9 @@ pub enum ResponseWriter {
 }
 
 impl ResponseWriter {
-    pub async fn peer_closed(&mut self) -> std::result::Result<(), StreamError> {
+    pub async fn peer_closed(
+        &mut self
+    ) -> std::result::Result<(), StreamError> {
         match self {
             Self::ByteStream(writer) => writer.peer_closed().await,
             Self::Payload(writer) => writer.peer_closed().await,
@@ -294,7 +304,9 @@ impl ResponseWriter {
             Self::ByteStream(writer) => {
                 let written = writer.write(bytes).await?;
                 if written == 0 {
-                    return Err(StreamError::Io(std::io::ErrorKind::WriteZero.into()));
+                    return Err(StreamError::Io(
+                        std::io::ErrorKind::WriteZero.into(),
+                    ));
                 }
                 Ok(written)
             }
@@ -309,7 +321,10 @@ impl ResponseWriter {
                     match writer.data(chunk) {
                         Ok(_) => return Ok(chunk.len()),
                         // Other responses on this lane may reserve the same arena credit.
-                        Err(StreamError::PayloadFull { .. } | StreamError::WouldBlock) => {}
+                        Err(
+                            StreamError::PayloadFull { .. }
+                            | StreamError::WouldBlock,
+                        ) => {}
                         Err(error) => return Err(error),
                     }
                 }
@@ -319,7 +334,9 @@ impl ResponseWriter {
 
     pub async fn finish(&mut self) -> std::result::Result<(), StreamError> {
         match self {
-            Self::ByteStream(writer) => writer.shutdown().await.map_err(StreamError::Io),
+            Self::ByteStream(writer) => {
+                writer.shutdown().await.map_err(StreamError::Io)
+            }
             Self::Payload(writer) => {
                 poll_fn(|cx| writer.poll_ready(0, cx)).await?;
                 writer.finish()
