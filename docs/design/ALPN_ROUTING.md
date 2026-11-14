@@ -77,10 +77,12 @@ ships, such as gRPC enrollment, gets no hook another package could not use.
   One id has one profile in a process; a second registration is refused at
   boot.
 - A handshake-only profile is enabled in code, for the listener its clients
-  reach. An application enables ACME's `acme-tls/1` once with
+  reach. An application enables ACME's TLS-ALPN-01 once with
   `register_local(state, listener)`, naming the listener the CA connects to;
   first issuance and every renewal are new orders on that listener, and no
-  host or configuration file lists the id.
+  host lists the id. The profile owns its ids like any other: ACME's comes
+  from `acme.yaml`, RFC 8737's `acme-tls/1` unless `tls-alpn-01.alpn` names
+  another, and is registered when that configuration is applied.
 - A host enables a session profile by its id. An id no profile registered is
   a configuration error, not a no-op, and a host that does not list an id
   never selects its profile. Which hosts list it is setup, in the host
