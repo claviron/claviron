@@ -298,6 +298,9 @@ pub async fn reload_resolver_certs(
 ) -> claviron_runtime::registry::Result<()> {
     use claviron_runtime::registry::Resolve;
 
+    // Without `db` there is no hosting to resolve and the binding is `()`;
+    // the steps below take it either way.
+    #[cfg_attr(not(feature = "db"), allow(clippy::let_unit_value))]
     let hosting = HostingDeps::resolve(state.registry_ref())?;
     let tls_cfg = load_tls_config(state).await?.ok_or_else(removed)?;
     let default_source = tls_cfg.default_cert_entry().clone();
