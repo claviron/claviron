@@ -40,7 +40,7 @@ fn a_cn_that_is_not_a_host_name_still_serves_its_aliases() {
             issuer_id: None,
             cn: cn.into(),
             certs_der: cert.to_vec(),
-            key_der: key.serialize_der(),
+            key_der: Some(key.serialize_der()),
             expires_at: now + time::Duration::days(1),
             issued_at: now,
             updated_at: None,

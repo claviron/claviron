@@ -10,7 +10,9 @@ pub struct Certificate {
     pub issuer_id: Option<i32>,
     pub cn: String,
     pub certs_der: Vec<u8>,
-    pub key_der: Vec<u8>,
+    /// PKCS#8 DER. `None` when this server does not hold the key: a client
+    /// certificate issued from a CSR keeps it with its holder.
+    pub key_der: Option<Vec<u8>>,
     pub expires_at: OffsetDateTime,
     pub issued_at: OffsetDateTime,
     pub updated_at: Option<OffsetDateTime>,
@@ -40,7 +42,8 @@ pub struct NewCertificate {
     pub issuer_id: Option<i32>,
     pub cn: String,
     pub certs_der: Vec<u8>,
-    pub key_der: Vec<u8>,
+    /// `None` only for a client certificate issued from a CSR.
+    pub key_der: Option<Vec<u8>>,
     pub expires_at: OffsetDateTime,
     pub issued_at: OffsetDateTime,
     pub enabled: bool,

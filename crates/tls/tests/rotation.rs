@@ -35,7 +35,7 @@ fn certificate(aliases: &[&str]) -> HostedCertificate {
             issuer_id: None,
             cn: "example.test".into(),
             certs_der: cert.to_vec(),
-            key_der: key.serialize_der(),
+            key_der: Some(key.serialize_der()),
             expires_at: now + time::Duration::days(1),
             issued_at: now,
             updated_at: None,
@@ -74,7 +74,7 @@ async fn resolver_publication_manager_retires_aliases_and_preserves_failed_updat
 
     let rotated = certificate(&["current.test"]);
     let mut broken = rotated.clone();
-    broken.certificate.key_der.clear();
+    broken.certificate.key_der = None;
     assert!(manager.upsert(broken).is_err());
     assert!(Arc::ptr_eq(
         &resolver.get_cert("retired.test").unwrap(),

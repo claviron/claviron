@@ -1131,10 +1131,15 @@ impl HostingStore {
         }
         // Only a client's key may stay with its holder, when its certificate
         // was issued from a CSR. A CA signs and a server serves with its own.
-        if new.kind != CertificateKind::Client && new.key_der.is_empty() {
+        if new.kind != CertificateKind::Client && new.key_der.is_none() {
             return Err(HostingError::InvalidInput(
                 "CA and server certificates are stored with their private key"
                     .into(),
+            ));
+        }
+        if new.key_der.as_ref().is_some_and(Vec::is_empty) {
+            return Err(HostingError::InvalidInput(
+                "a private key cannot be empty".into(),
             ));
         }
         if server_id.is_some() && !new.kind.is_server() {
@@ -1233,7 +1238,8 @@ impl HostingStore {
             query_as::<CertificateRow>,
             "UPDATE hosting.certificates
                 SET certs_der = $2, issued_at = $3, expires_at = $4, updated_at = NOW()
-              WHERE id = $1 AND certs_der = $5 AND key_der = $6 AND enabled = TRUE
+              WHERE id = $1 AND certs_der = $5
+                AND (key_der = $6 OR (key_der IS NULL AND $6 IS NULL)) AND enabled = TRUE
                 AND revoked_at IS NULL
                 AND (issuer_id = $7 OR (issuer_id IS NULL AND $7 IS NULL))
                 AND cn = $8 AND kind::TEXT = $9
@@ -1256,15 +1262,9 @@ impl HostingStore {
         key_der: Vec<u8>,
         expires_at: OffsetDateTime,
     ) -> Result<HostedCertificate> {
-        if key_der.is_empty()
-            && self
-                .certificate_by_id(certificate_id)
-                .await?
-                .is_some_and(|stored| stored.kind != CertificateKind::Client)
-        {
+        if key_der.is_empty() {
             return Err(HostingError::InvalidInput(
-                "CA and server certificates are stored with their private key"
-                    .into(),
+                "a private key cannot be empty".into(),
             ));
         }
         let updated = run!(
@@ -1289,8 +1289,8 @@ impl HostingStore {
     ///
     /// Earlier releases recorded a file authority's chain without its key.
     /// This completes such a row and changes nothing else: the chain must be
-    /// the stored one, the stored key must be empty and the CA unrevoked.
-    /// That the key belongs to the certificate is the caller's to verify.
+    /// the stored one, the stored key absent and the CA unrevoked. That the
+    /// key belongs to the certificate is the caller's to verify.
     pub async fn complete_ca_signing_key(
         &self,
         certificate_id: i32,
@@ -1308,7 +1308,7 @@ impl HostingStore {
             "UPDATE hosting.certificates
                 SET key_der = $3, updated_at = NOW()
               WHERE id = $1 AND kind::TEXT = 'ca' AND certs_der = $2
-                AND length(key_der) = 0 AND revoked_at IS NULL
+                AND key_der IS NULL AND revoked_at IS NULL
           RETURNING id, kind::TEXT AS kind, issuer_id, cn, certs_der, key_der, expires_at,
                     issued_at, updated_at, enabled, revoked_at",
             [certificate_id, certs_der, key_der],
@@ -1640,7 +1640,7 @@ struct CertificateWithAliasRow {
     issuer_id: Option<i32>,
     cn: String,
     certs_der: Vec<u8>,
-    key_der: Vec<u8>,
+    key_der: Option<Vec<u8>>,
     expires_at: OffsetDateTime,
     issued_at: OffsetDateTime,
     updated_at: Option<OffsetDateTime>,
@@ -1691,7 +1691,7 @@ struct CertificateRow {
     issuer_id: Option<i32>,
     cn: String,
     certs_der: Vec<u8>,
-    key_der: Vec<u8>,
+    key_der: Option<Vec<u8>>,
     expires_at: OffsetDateTime,
     issued_at: OffsetDateTime,
     updated_at: Option<OffsetDateTime>,

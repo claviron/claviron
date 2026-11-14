@@ -103,15 +103,15 @@ impl CertSigner {
             return Err(Error::Other("authority CA is disabled or changed; restart after configuring an enabled CA".into()));
         }
         // Only rows earlier releases wrote from a file authority lack it.
-        if ca.key_der.is_empty() {
+        let Some(key_der) = &ca.key_der else {
             return Err(Error::Other(format!(
                 "hosting issuer '{}' has no signing key; complete it with \
                  `claviron-hosting import-ca`",
                 issuer.name
             )));
-        }
+        };
         let key = claviron_types::ssl::generators::read_private_key_from_der(
-            &ca.key_der,
+            key_der,
         )?;
         Ok(Self { authority: authority.clone(), key })
     }

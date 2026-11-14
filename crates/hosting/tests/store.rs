@@ -11,7 +11,7 @@ fn certificate_rows_are_grouped_without_losing_aliases() {
             issuer_id: Some(3),
             cn: "example.test".to_owned(),
             certs_der: vec![1, 2],
-            key_der: vec![3, 4],
+            key_der: Some(vec![3, 4]),
             expires_at: now,
             issued_at: now,
             updated_at: None,
@@ -122,7 +122,7 @@ async fn issuer_relationships_round_trip_without_installing_client_identity() {
         issuer_id,
         cn: cn.into(),
         certs_der: vec![1, 2],
-        key_der: vec![3, 4],
+        key_der: Some(vec![3, 4]),
         issued_at: OffsetDateTime::UNIX_EPOCH,
         expires_at: OffsetDateTime::UNIX_EPOCH,
         enabled: true,
@@ -233,11 +233,12 @@ async fn only_a_client_is_stored_without_its_key_and_a_keyless_ca_is_only_comple
         .execute(&pool)
         .await
         .unwrap();
-    // What an earlier release left behind: a file authority's chain alone.
+    // What an earlier release left behind: a file authority's chain alone,
+    // its key absent since the key column became nullable.
     sqlx::query(
         "INSERT INTO hosting_certificates
             (id, kind, cn, certs_der, key_der, expires_at, issued_at, enabled)
-         VALUES (1, 'ca', 'legacy.test', x'0102', x'', '1970-01-01T00:00:00Z',
+         VALUES (1, 'ca', 'legacy.test', x'0102', NULL, '1970-01-01T00:00:00Z',
                  '1970-01-01T00:00:00Z', 1)",
     )
     .execute(&pool)
@@ -249,7 +250,7 @@ async fn only_a_client_is_stored_without_its_key_and_a_keyless_ca_is_only_comple
         issuer_id: None,
         cn: "ca.test".into(),
         certs_der: vec![1, 2],
-        key_der: Vec::new(),
+        key_der: None,
         issued_at: OffsetDateTime::UNIX_EPOCH,
         expires_at: OffsetDateTime::UNIX_EPOCH,
         enabled: true,
@@ -276,7 +277,7 @@ async fn only_a_client_is_stored_without_its_key_and_a_keyless_ca_is_only_comple
     ));
     let completed =
         store.complete_ca_signing_key(1, &[1, 2], vec![3, 4]).await.unwrap();
-    assert_eq!(completed.certificate.key_der, vec![3, 4]);
+    assert_eq!(completed.certificate.key_der, Some(vec![3, 4]));
     // A key once present is not replaced through this door.
     assert!(matches!(
         store.complete_ca_signing_key(1, &[1, 2], vec![5, 6]).await,

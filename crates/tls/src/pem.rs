@@ -61,7 +61,14 @@ pub fn certified_key_from_path_pair(
 pub fn db_cert_to_certified_key(
     cert: &Certificate
 ) -> Result<CertifiedKey, Error> {
-    let key_der = PrivateKeyDer::Pkcs8(cert.key_der.clone().into());
+    // A server serves with its own key; one held elsewhere cannot be served.
+    let key_der = cert.key_der.clone().ok_or_else(|| {
+        Error::Other(format!(
+            "certificate '{}' has no private key on this server",
+            cert.cn
+        ))
+    })?;
+    let key_der = PrivateKeyDer::Pkcs8(key_der.into());
 
     let certs = parse_cert_chain_from_bytes(&cert.cn, &cert.certs_der)?;
 

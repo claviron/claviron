@@ -123,6 +123,13 @@ and link as well as the alias write. These operations never define a runtime hos
 
 ## Certificate identity and issuers
 
+`certificates.key_der` is the PKCS#8 private key, or `NULL` when this server
+does not hold it: a client certificate issued from a CSR keeps its key with its
+holder. Empty bytes are refused by the schema and by the store. The store keeps
+a CA's and a server's key mandatory, since one signs and the other serves; a CA
+an earlier release recorded without its key gains it only through
+`complete_ca_signing_key`, for the stored chain.
+
 `certificates.revoked_at` is a nullable revocation timestamp, independent of the
 reversible `enabled` flag. `revoke_certificate` records the first timestamp and
 sets `enabled=false` in one update, announcing the committed certificate change.
