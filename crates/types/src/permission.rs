@@ -64,6 +64,40 @@ impl FromStr for Permission {
     }
 }
 
+/// A permission written as its name, validated as it is read.
+impl<'de> serde::Deserialize<'de> for Permission {
+    fn deserialize<D: serde::Deserializer<'de>>(
+        deserializer: D
+    ) -> Result<Self, D::Error> {
+        struct Name;
+        impl serde::de::Visitor<'_> for Name {
+            type Value = Permission;
+            fn expecting(
+                &self,
+                f: &mut fmt::Formatter<'_>,
+            ) -> fmt::Result {
+                f.write_str("a permission name such as grpc.access")
+            }
+            fn visit_str<E: serde::de::Error>(
+                self,
+                name: &str,
+            ) -> Result<Permission, E> {
+                Permission::new(name).map_err(E::custom)
+            }
+        }
+        deserializer.deserialize_str(Name)
+    }
+}
+
+impl serde::Serialize for Permission {
+    fn serialize<S: serde::Serializer>(
+        &self,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
 impl AsRef<str> for Permission {
     fn as_ref(&self) -> &str {
         self.as_str()

@@ -84,3 +84,18 @@ fn catalog_validates_the_whole_selection_without_mutating_definitions() {
     assert!(PermissionCatalog::new().validate([Read::NAME]).is_err());
     assert!(catalog.validate(Vec::<String>::new()).unwrap().is_empty());
 }
+
+#[test]
+fn a_permission_reads_as_its_validated_name() {
+    use serde::Deserialize;
+    use serde::de::IntoDeserializer;
+    use serde::de::value::{Error, StrDeserializer};
+
+    let read = |name: &'static str| {
+        let input: StrDeserializer<'_, Error> = name.into_deserializer();
+        Permission::deserialize(input)
+    };
+    assert_eq!(read("grpc.access").unwrap().as_str(), "grpc.access");
+    assert!(read("bad permission").is_err());
+    assert!(read("").is_err());
+}
