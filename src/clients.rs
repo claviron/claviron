@@ -6,4 +6,4 @@
 pub use orbitive::client_pool::*;
 
 mod config;
-pub use config::PoolConfig;
+pub use config::{HttpClientConfig, PoolConfig};

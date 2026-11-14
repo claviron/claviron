@@ -1,4 +1,4 @@
-use super::{OptionsError, PoolConfig, PoolOptions};
+use super::{HttpClientConfig, OptionsError, PoolConfig, PoolOptions};
 use std::time::Duration;
 
 fn declaration() -> serde_json::Value {
@@ -96,4 +96,31 @@ fn unknown_pool_fields_and_missing_capacities_are_rejected() {
     let mut value = declaration();
     value.as_object_mut().unwrap().remove("min_idle");
     assert!(serde_json::from_value::<PoolConfig>(value).is_err());
+}
+
+#[test]
+fn an_http_client_declares_its_timeouts_and_pool() {
+    let config: HttpClientConfig = serde_json::from_value(serde_json::json!({
+        "connect_timeout": "2s",
+        "request_timeout": "30s",
+        "pool": declaration(),
+    }))
+    .unwrap();
+    config.validate().unwrap();
+    assert_eq!(config.connect_timeout, Duration::from_secs(2));
+    assert_eq!(config.rate_limit_pause, None);
+
+    let mut zero = config.clone();
+    zero.request_timeout = Duration::ZERO;
+    assert!(matches!(
+        zero.validate(),
+        Err(OptionsError::ZeroDuration("request_timeout"))
+    ));
+    // A timeout is declared, never assumed.
+    assert!(
+        serde_json::from_value::<HttpClientConfig>(
+            serde_json::json!({ "request_timeout": "30s", "pool": declaration() })
+        )
+        .is_err()
+    );
 }

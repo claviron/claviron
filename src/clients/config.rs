@@ -76,6 +76,39 @@ impl From<PoolConfig> for PoolOptions {
     }
 }
 
+/// Outbound HTTP calls through a client pool: how long a connection and a
+/// request may take, how long admission pauses after a rate limit that names
+/// no wait, and the pool's bounds. A declaration only: the consumer builds
+/// its HTTP client and pool from it, and supplies its own defaults, if any.
+#[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct HttpClientConfig {
+    #[serde(with = "humantime_serde")]
+    pub connect_timeout: Duration,
+    #[serde(with = "humantime_serde")]
+    pub request_timeout: Duration,
+    /// Absent: no pause; the next caller sees the server's own answer.
+    #[serde(default, with = "humantime_serde")]
+    pub rate_limit_pause: Option<Duration>,
+    pub pool: PoolConfig,
+}
+
+impl HttpClientConfig {
+    /// The same checks as [`PoolConfig::validate`], and non-zero timeouts.
+    pub fn validate(&self) -> Result<(), OptionsError> {
+        for (name, value) in [
+            ("connect_timeout", Some(self.connect_timeout)),
+            ("request_timeout", Some(self.request_timeout)),
+            ("rate_limit_pause", self.rate_limit_pause),
+        ] {
+            if value.is_some_and(|duration| duration.is_zero()) {
+                return Err(OptionsError::ZeroDuration(name));
+            }
+        }
+        self.pool.validate()
+    }
+}
+
 #[cfg(test)]
 #[path = "../../tests/clients/config.rs"]
 mod tests;
