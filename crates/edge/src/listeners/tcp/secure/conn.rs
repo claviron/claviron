@@ -66,6 +66,8 @@ pub(crate) struct SelectedHost {
     pub(super) vctx: VhostCtx,
     pub(super) listener: Arc<ListenerConfig>,
     pub(super) state: AppState,
+    /// The HTTP version of the session profile the handshake selected.
+    pub(super) session: Option<claviron_tls::Proto>,
 }
 
 impl SelectedHost {
@@ -123,6 +125,10 @@ impl SecureHost for SelectedHost {
 
     fn require_alpn(&self) -> bool {
         self.vctx.vhost_config.tls.require_alpn
+    }
+
+    fn session_protocol(&self) -> Option<claviron_tls::Proto> {
+        self.session
     }
 
     fn retired(

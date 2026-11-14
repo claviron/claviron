@@ -6,6 +6,7 @@ mod connect;
 mod link_webtransport;
 mod non_serving;
 mod routable;
+mod session;
 #[cfg(feature = "webtransport")]
 mod wt;
 
@@ -24,6 +25,7 @@ pub use non_serving::NonServingPipeline;
 pub use non_serving::{InterceptsNonServing, NonServingContext};
 pub(crate) use routable::RouteProtocol;
 pub use routable::{HostBindingProvider, Routable, RouteBinding};
+pub use session::{SessionConflict, SessionProfile, SessionProfiles};
 #[cfg(feature = "webtransport")]
 pub use wt::{
     H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,

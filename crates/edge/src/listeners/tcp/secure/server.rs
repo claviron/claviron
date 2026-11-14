@@ -60,13 +60,15 @@ impl claviron_transport::tcp::secure::Secure for ServerSnapshot {
         {
             return Ok(Selection::HandshakeOnly(config));
         }
-        let (config, vctx) = self.tls_accept.select(hello.server_name())?;
+        let selected =
+            self.tls_accept.select(hello.server_name(), hello.alpn())?;
         Ok(Selection::Http(
-            config,
+            selected.config,
             super::conn::SelectedHost {
-                vctx,
+                vctx: selected.host,
                 listener: self.listener.clone(),
                 state: self.state.clone(),
+                session: selected.session,
             },
         ))
     }
@@ -288,6 +290,7 @@ pub(crate) fn build_snapshots(
             config,
             hosts.clone(),
             previous.map(|old| &old.tls_accept),
+            state,
         )?;
         groups.insert(
             id.clone(),

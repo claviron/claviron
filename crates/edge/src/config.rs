@@ -148,6 +148,7 @@ impl HostConfig {
             && self.transport.protocols == other.transport.protocols
             && self.tls.require_alpn == other.tls.require_alpn
             && self.tls.client_auth == other.tls.client_auth
+            && self.tls.alpn == other.tls.alpn
     }
 
     /// An empty host declaration with an explicit file root and the same

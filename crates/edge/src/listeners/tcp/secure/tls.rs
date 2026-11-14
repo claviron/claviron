@@ -8,8 +8,10 @@ use crate::listeners::tls::{
 use crate::transport::{VhostCtx, VhostTable, resolve_sni_for_listener};
 use claviron_http::ListenerId;
 use claviron_http::config::{ListenerConfig, TcpListenerConfig};
+use claviron_pipeline::plan::HostExecution;
+use claviron_runtime::AppState;
 use claviron_runtime::registry::Error;
-use claviron_tls::Proto::{H1, H2};
+use claviron_tls::Proto::{self, H1, H2};
 use claviron_tls::create_tls_config;
 use claviron_tls::orbit::SessionDomain;
 use claviron_types::Host;
@@ -28,6 +30,25 @@ pub(crate) struct TlsAccept {
 pub(super) struct TlsPolicy {
     by_host: HashMap<Host, TlsHost>,
     protocols: Vec<claviron_tls::Proto>,
+    /// The session profiles each host enabled, prepared with it.
+    sessions: HashMap<Host, Vec<HostSession>>,
+}
+
+/// A session profile a host enabled by ALPN: its own handshake, which asks
+/// for no client certificate, and the only execution its connections reach.
+struct HostSession {
+    protocol: &'static [u8],
+    wire: Proto,
+    config: Arc<rustls::ServerConfig>,
+    execution: HostExecution,
+}
+
+/// What a ClientHello selects: the handshake, the host, and the HTTP version
+/// of a session profile when one was selected.
+pub(super) struct Selected {
+    pub(super) config: Arc<rustls::ServerConfig>,
+    pub(super) host: VhostCtx,
+    pub(super) session: Option<Proto>,
 }
 
 impl TlsAccept {
@@ -37,13 +58,15 @@ impl TlsAccept {
         tcp: &TcpListenerConfig,
         hosts: Arc<VhostTable>,
         previous: Option<&Self>,
+        state: &AppState,
     ) -> Result<Self, Error> {
         let previous = previous
             .map(|old| old.policy.as_ref())
             .filter(|old| old.protocols == tcp.protocols);
-        let policy = Arc::new(Self::prepare_policy(
-            deps, listener, tcp, &hosts, previous,
-        )?);
+        let mut policy =
+            Self::prepare_policy(deps, listener, tcp, &hosts, previous)?;
+        policy.sessions = prepare_sessions(deps, listener, &hosts, state)?;
+        let policy = Arc::new(policy);
         Ok(Self { hosts, policy, listener: listener.id.clone() })
     }
 
@@ -132,15 +155,20 @@ impl TlsAccept {
                 },
             );
         }
-        Ok(TlsPolicy { by_host, protocols: tcp.protocols.clone() })
+        Ok(TlsPolicy {
+            by_host,
+            protocols: tcp.protocols.clone(),
+            sessions: HashMap::new(),
+        })
     }
 
     /// The TLS configuration and host a ClientHello's server name selects.
     /// Both belong to this captured publication.
-    pub(super) fn select(
+    pub(super) fn select<'a>(
         &self,
         sni: Option<&str>,
-    ) -> io::Result<(Arc<rustls::ServerConfig>, VhostCtx)> {
+        offered: Option<impl Iterator<Item = &'a [u8]>>,
+    ) -> io::Result<Selected> {
         let host = resolve_sni_for_listener(&self.hosts, sni, &self.listener)
             .map_err(|error| {
             io::Error::new(io::ErrorKind::PermissionDenied, error.to_string())
@@ -162,8 +190,79 @@ impl TlsAccept {
                     ),
                 )
             })?;
-        Ok((config, host))
+        // A session the host enabled for a protocol the client offered, in
+        // the client's order, replaces the host's handshake and execution.
+        let sessions = self.policy.sessions.get(host.vhost_key.0.as_ref());
+        if let (Some(sessions), Some(offered)) = (sessions, offered) {
+            for protocol in offered {
+                if let Some(session) =
+                    sessions.iter().find(|session| session.protocol == protocol)
+                {
+                    let mut host = host;
+                    host.application = Some(session.execution.clone());
+                    return Ok(Selected {
+                        config: session.config.clone(),
+                        host,
+                        session: Some(session.wire),
+                    });
+                }
+            }
+        }
+        Ok(Selected { config, host, session: None })
     }
+}
+
+/// Prepare the session profiles each host on `listener` enables. An id no
+/// profile registered refuses the publication: a host that names a session
+/// must get it.
+fn prepare_sessions(
+    deps: &super::server::Deps,
+    listener: &ListenerConfig,
+    table: &VhostTable,
+    state: &AppState,
+) -> Result<HashMap<Host, Vec<HostSession>>, Error> {
+    let mut sessions = HashMap::new();
+    let profiles = state.registry_ref().resolve::<crate::SessionProfiles>();
+    for (canonical, record) in table.listener_entries(&listener.id) {
+        let host = &record.config;
+        if host.tls.alpn.is_empty() {
+            continue;
+        }
+        let mut prepared = Vec::with_capacity(host.tls.alpn.len());
+        for id in &host.tls.alpn {
+            let profile = profiles
+                .as_ref()
+                .and_then(|profiles| profiles.get(id.as_bytes()))
+                .ok_or_else(|| {
+                    Error::msg(format!(
+                        "TLS host {canonical}: ALPN '{id}' has no registered session profile"
+                    ))
+                })?;
+            let wire = profile.wire();
+            // Its own handshake: no client certificate, the profile's id
+            // alone, and rustls' own resumption store rather than the
+            // listener's shared one.
+            let mut config =
+                create_tls_config(&[wire], deps.cert_resolver.clone())
+                    .map_err(|error| {
+                        Error::msg(format!("TLS host {canonical}: {error}"))
+                    })?;
+            config.alpn_protocols = vec![profile.protocol().to_vec()];
+            prepared.push(HostSession {
+                protocol: profile.protocol(),
+                wire,
+                config: Arc::new(config),
+                execution: profile.execution(
+                    state,
+                    canonical,
+                    host,
+                    &listener.policy().narrow(&host.policy()),
+                )?,
+            });
+        }
+        sessions.insert(canonical.clone(), prepared);
+    }
+    Ok(sessions)
 }
 
 fn allowed_protocols(

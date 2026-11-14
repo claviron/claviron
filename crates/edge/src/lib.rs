@@ -97,6 +97,8 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
     // TLS handshakes an offered ALPN protocol selects, ahead of host selection.
     registry
         .insert(Arc::new(claviron_tls::handshake::AlpnProfiles::default()))?;
+    // HTTP sessions a host offers by ALPN, each with its own execution.
+    registry.insert(Arc::new(host::SessionProfiles::default()))?;
     // Host-selecting routables (`HostRoutable`) a host puts in front of its owner.
     #[cfg(feature = "axum")]
     claviron_pipeline::routing::register(state)?;
@@ -219,6 +221,7 @@ pub use host::apps::other::{OtherHandler, OtherService};
 pub use host::{
     AnyAuthenticated, AuthContext, HostAppRegistry, HostBindingProvider,
     InterceptsNonServing, NonServingContext, RouteBinding, RustRouter,
+    SessionConflict, SessionProfile, SessionProfiles,
 };
 #[cfg(feature = "websocket")]
 pub use host::{

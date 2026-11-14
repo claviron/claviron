@@ -77,6 +77,13 @@ pub trait SecureHost: Send + 'static {
     /// Whether a connection that negotiated no ALPN is refused.
     fn require_alpn(&self) -> bool;
 
+    /// The HTTP version of a session the host's handshake selected by its
+    /// ALPN protocol id, which names no HTTP version itself. `None` decides
+    /// the version from the negotiated ALPN and the host's policy.
+    fn session_protocol(&self) -> Option<Proto> {
+        None
+    }
+
     /// Completes when the connection should end gracefully because its host
     /// was replaced or removed; never, for a host that cannot change.
     fn retired(
@@ -356,12 +363,15 @@ async fn handle_stream<S: Secure>(
     // Decide protocol using ALPN + per-host RequestPolicy
     let tls_ref = tls_stream.get_ref().1;
     let alpn = tls_ref.alpn_protocol().map(AsRef::as_ref);
-    let proto = decide_protocol(
-        alpn,
-        policy.allows_protocol(H1) && cfg.protocols.contains(&H1),
-        policy.allows_protocol(H2) && cfg.protocols.contains(&H2),
-        host.require_alpn(),
-    )?;
+    let proto = match host.session_protocol() {
+        Some(proto) => proto,
+        None => decide_protocol(
+            alpn,
+            policy.allows_protocol(H1) && cfg.protocols.contains(&H1),
+            policy.allows_protocol(H2) && cfg.protocols.contains(&H2),
+            host.require_alpn(),
+        )?,
+    };
 
     // Read before the connection facts are completed and handed on.
     let h2_connect_protocol = policy.h2.connect_protocol;
