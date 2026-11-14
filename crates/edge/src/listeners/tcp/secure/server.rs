@@ -21,7 +21,7 @@ use claviron_runtime::registry::{
     Component, Error, Reloadable, Resolve, priority,
 };
 use claviron_runtime::{AppState, Register, RunContext, RunnableInstance};
-use claviron_tls::handshake::HandshakeSelector;
+use claviron_tls::handshake::{AlpnProfiles, AlpnSelection};
 use claviron_tls::orbit::{FleetServerSessions, FleetServerSessionsProvider};
 use claviron_tls::resolver::CertResolver;
 use claviron_tls::revocation::Revocations;
@@ -36,7 +36,8 @@ pub(crate) struct ServerSnapshot {
     pub(crate) listener: Arc<ListenerConfig>,
     pub(crate) config: TcpListenerConfig,
     pub(crate) tls_accept: TlsAccept,
-    handshake_selector: Option<Arc<dyn HandshakeSelector>>,
+    /// The ALPN profiles registered when this snapshot was prepared.
+    alpn: AlpnSelection,
     state: AppState,
 }
 impl claviron_transport::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
@@ -54,9 +55,8 @@ impl claviron_transport::tcp::secure::Secure for ServerSnapshot {
         self: &Arc<Self>,
         hello: rustls::server::ClientHello<'_>,
     ) -> std::io::Result<Selection<Self::Host>> {
-        if let Some(selector) = &self.handshake_selector
-            && let Some(config) =
-                selector.select(self.listener.id.as_str(), &hello)?
+        if let Some(config) =
+            self.alpn.select(self.listener.id.as_str(), &hello)?
         {
             return Ok(Selection::HandshakeOnly(config));
         }
@@ -270,8 +270,11 @@ pub(crate) fn build_snapshots(
     previous: Option<&ServerSnapshot>,
 ) -> Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>, Error> {
     let mut groups = BTreeMap::new();
-    let handshake_selector =
-        state.registry_ref().resolve_dyn::<dyn HandshakeSelector>();
+    let alpn = state
+        .registry_ref()
+        .resolve::<AlpnProfiles>()
+        .map(|profiles| profiles.selection())
+        .unwrap_or_default();
     for (id, listener) in &http.listeners {
         let ListenerSettings::Tcp(config) = &listener.settings else {
             continue;
@@ -292,7 +295,7 @@ pub(crate) fn build_snapshots(
                 listener: listener.clone(),
                 config: config.clone(),
                 tls_accept,
-                handshake_selector: handshake_selector.clone(),
+                alpn: alpn.clone(),
                 state: state.clone(),
             }),
         );

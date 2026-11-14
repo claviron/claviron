@@ -94,6 +94,9 @@ pub fn register(state: &AppState) -> RegistryResult<()> {
     let registry = state.registry_ref();
     VhostResolver::register(state)?;
     registry.insert(Arc::new(HostAppRegistry::default()))?;
+    // TLS handshakes an offered ALPN protocol selects, ahead of host selection.
+    registry
+        .insert(Arc::new(claviron_tls::handshake::AlpnProfiles::default()))?;
     // Host-selecting routables (`HostRoutable`) a host puts in front of its owner.
     #[cfg(feature = "axum")]
     claviron_pipeline::routing::register(state)?;
