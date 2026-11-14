@@ -47,12 +47,19 @@ other to finish. The pool is the only coordination; no lock is added.
    process of the fleet. The kind takes a row in the SHM Kind ID Index and its
    cleanup row.
 2. **Deaths.** The master reports each confirmed worker exit to the table with
-   that worker's incarnation.
+   that worker's node and incarnation, from the exit cleanup that already
+   recovers Link streams and cells (`OwnedProcess::recover_orbit_on_exit`),
+   which spawned and adopted workers share.
 3. **The API.** Beside `ClientPool`, a fleet-admitted pool: a key, the local
    pool's options and the fleet `max_concurrency`, from `HttpClientConfig`.
    `acquire` returns one lease holding both the permit and the local client.
-   Without a fleet, as in a standalone process, the same API admits locally.
-4. **Consumers.** ACME first: its client goes behind the fleet-admitted pool,
+4. **Scope in the declaration.** `PoolConfig` names its scope, `process` or
+   `fleet`, and the scope is required: it changes what the limits mean.
+   `process` is the local pool alone, its bounds per process. `fleet` adds the
+   fleet admission and is refused, not narrowed, where no fleet exists. The
+   same configuration then fits a single process, a fleet, or a later
+   standalone service.
+5. **Consumers.** ACME first: its client goes behind the fleet-admitted pool,
    a permit per request, and its renewal may then run in any process. Domains
    follows with its registrars.
 
