@@ -1,5 +1,27 @@
 use super::*;
 
+#[tokio::test]
+async fn bounded_exchanges_reuse_the_worker_after_a_panic() {
+    async fn exchange(
+        id: oneshot::Sender<tokio::task::Id>,
+        fail: bool,
+    ) {
+        id.send(tokio::task::id()).unwrap();
+        assert!(!fail, "exchange handler panicked");
+    }
+
+    let mut tasks = ExchangeTasks::new(true);
+    let (id, first) = oneshot::channel();
+    tasks.start(exchange(id, true));
+    tasks.finished().await;
+
+    let (id, second) = oneshot::channel();
+    tasks.start(exchange(id, false));
+    tasks.finished().await;
+    assert_eq!(first.await.unwrap(), second.await.unwrap());
+    tasks.close().await;
+}
+
 fn cancellation_stream() -> (claviron_orbit::stream::ReadHalf, ResponseWriter) {
     use claviron_orbit::Fleet;
     use claviron_orbit::stream::{Incarnation, Streams};

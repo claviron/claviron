@@ -63,8 +63,12 @@ owner's whole-message sessions to socket WebSockets. These use the same owner
 contract; they introduce no virtual-host configuration. Orbit joins with its
 optional `max_in_flight` bound and its `max_queued`, publishing their sum as
 the admission window and running `max_in_flight` at once through the
-shared `WorkQueue`; the rest wait in arrival order and start, without a wake,
-when a running exchange ends. It uses the shared `ApplicationReceiver` and
+shared `WorkQueue`; the rest wait in arrival order and are promoted when a
+running exchange ends. A bounded lane lazily grows reusable exchange tasks
+with demand. Each task has one handoff slot for an already accepted exchange.
+Completion returns the task to the dispatcher and frees a running place in
+`WorkQueue`. An unbounded lane spawns each exchange separately. Transport
+uses the shared `ApplicationReceiver` and
 `accept_frame` contract; accepted work retains its slot through body/session
 completion; queued work is still run when the receiver drains at shutdown. Intake continues for
 events/control even at capacity, and withdrawal stops routing before drain.

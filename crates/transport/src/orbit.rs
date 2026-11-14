@@ -21,6 +21,7 @@
 //! process-local queue.
 
 use std::future::{Future, poll_fn};
+use std::panic::AssertUnwindSafe;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
@@ -53,10 +54,11 @@ use claviron_orbit::{ApplicationEventRegistry, FleetEventCodec};
 use claviron_runtime::{
     AppState, Event, FleetIncarnation, FleetName, RunContext, registry,
 };
+use futures_util::FutureExt;
 use http::{Request, Uri};
 use http_body_util::BodyExt;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 
@@ -480,43 +482,42 @@ impl OrbitDoor {
             role: self.runtime.to_owned(),
         });
         let joined = Arc::new(joined);
-        let mut exchanges = JoinSet::new();
+        let reuse_tasks = segment
+            .inbox()
+            .work_capacity(lane)
+            .map_err(|error| registry::Error::msg(error.to_string()))?
+            .is_some();
+        let mut exchanges = ExchangeTasks::new(reuse_tasks);
         let mut refusals = JoinSet::new();
         let shutdown = SessionShutdown { token: context.cancellation_token() };
+        let serve_exchange = |(request, admission)| {
+            serve(
+                request,
+                Arc::clone(&joined),
+                Arc::clone(&owner),
+                Arc::clone(&segment),
+                Arc::clone(&bodies),
+                shutdown.clone(),
+                admission,
+            )
+        };
         let mut frame = Vec::new();
         // Up to the published execution runs; the rest of the window waits
-        // here, and the end of one exchange starts the next without a wake.
+        // here until an execution task finishes.
         let mut work = WorkQueue::new();
         loop {
             tokio::select! {
                 biased;
                 () = context.cancelled() => break,
                 Some(finished) = refusals.join_next(), if !refusals.is_empty() => report(finished),
-                Some(finished) = exchanges.join_next(), if !exchanges.is_empty() => {
-                    report(finished);
-                    if let Some((request, admission)) = work.finished(&segment, lane) {
-                        exchanges.spawn(serve(
-                            request,
-                            Arc::clone(&joined),
-                            Arc::clone(&owner),
-                            Arc::clone(&segment),
-                            Arc::clone(&bodies),
-                            shutdown.clone(),
-                            admission,
-                        ));
+                () = exchanges.finished(), if work.running() != 0 => {
+                    if let Some(next) = work.finished(&segment, lane) {
+                        exchanges.start(serve_exchange(next));
                     }
                 }
                 () = self.capacity.execution_changed(), if work.waiting() != 0 => {
-                    while let Some((request, admission)) = work.start_waiting(&segment, lane) {
-                        exchanges.spawn(serve(
-                            request,
-                            Arc::clone(&joined),
-                            Arc::clone(&owner),
-                            Arc::clone(&segment),
-                            Arc::clone(&bodies),
-                            shutdown.clone(),
-                            admission,
-                        ));
+                    while let Some(next) = work.start_waiting(&segment, lane) {
+                        exchanges.start(serve_exchange(next));
                     }
                 }
                 arrived = receiver.next(&mut frame) => match arrived {
@@ -530,16 +531,8 @@ impl OrbitDoor {
                         if matches!(frame_kind(&frame), Ok(FrameKind::Request)) =>
                     {
                         match work.offer(&segment, lane, received, &mut frame) {
-                            Ok(Offered::Start((request, admission))) => {
-                                exchanges.spawn(serve(
-                                    request,
-                                    Arc::clone(&joined),
-                                    Arc::clone(&owner),
-                                    Arc::clone(&segment),
-                                    Arc::clone(&bodies),
-                                    shutdown.clone(),
-                                    admission,
-                                ));
+                            Ok(Offered::Start(next)) => {
+                                exchanges.start(serve_exchange(next));
                             }
                             Ok(Offered::Held) => {}
                             Err(error) => {
@@ -628,13 +621,16 @@ impl OrbitDoor {
         // Exchanges already taken are finished, queued ones included: their
         // callers are still waiting for an answer they can have.
         let mut notifications = true;
-        while !exchanges.is_empty() || !refusals.is_empty() {
-            let finished = tokio::select! {
+        while work.running() != 0 || !refusals.is_empty() {
+            tokio::select! {
                 biased;
-                finished = exchanges.join_next(), if !exchanges.is_empty() => finished,
+                () = exchanges.finished(), if work.running() != 0 => {
+                    if let Some(next) = work.finished(&segment, lane) {
+                        exchanges.start(serve_exchange(next));
+                    }
+                }
                 Some(finished) = refusals.join_next(), if !refusals.is_empty() => {
                     report(finished);
-                    continue;
                 },
                 event = receiver.drain_notification(), if notifications => {
                     if let Err(error) = event {
@@ -642,23 +638,10 @@ impl OrbitDoor {
                         notifications = false;
                         segment.close_reply_space();
                     }
-                    continue;
                 }
-            };
-            let Some(finished) = finished else { break };
-            report(finished);
-            if let Some((request, admission)) = work.finished(&segment, lane) {
-                exchanges.spawn(serve(
-                    request,
-                    Arc::clone(&joined),
-                    Arc::clone(&owner),
-                    Arc::clone(&segment),
-                    Arc::clone(&bodies),
-                    shutdown.clone(),
-                    admission,
-                ));
             }
         }
+        exchanges.close().await;
         // Withdrawal stops routing, not ownership. Nobody may reuse the lane
         // identity while accepted streams are still running on it.
         drop(joined);
@@ -967,6 +950,108 @@ fn refuse_exchange(
 
 fn pid(pid: Option<u32>) -> String {
     pid.map_or_else(|| "unknown".to_owned(), |pid| pid.to_string())
+}
+
+enum ExchangeTasks<F> {
+    Spawn(JoinSet<()>),
+    Reuse(ExchangeWorkers<F>),
+}
+
+struct ExchangeWorkers<F> {
+    tasks: JoinSet<()>,
+    mailboxes: Vec<mpsc::Sender<F>>,
+    idle: Vec<usize>,
+    finished: mpsc::UnboundedSender<usize>,
+    completions: mpsc::UnboundedReceiver<usize>,
+}
+
+impl<F: Future<Output = ()> + Send + 'static> ExchangeTasks<F> {
+    fn new(reuse: bool) -> Self {
+        if reuse {
+            let (finished, completions) = mpsc::unbounded_channel();
+            Self::Reuse(ExchangeWorkers {
+                tasks: JoinSet::new(),
+                mailboxes: Vec::new(),
+                idle: Vec::new(),
+                finished,
+                completions,
+            })
+        } else {
+            Self::Spawn(JoinSet::new())
+        }
+    }
+
+    fn start(
+        &mut self,
+        future: F,
+    ) {
+        match self {
+            Self::Spawn(tasks) => {
+                tasks.spawn(future);
+            }
+            Self::Reuse(workers) => {
+                if let Some(slot) = workers.idle.pop() {
+                    // The dispatcher reclaims a mailbox only after the
+                    // worker reports completion of its preceding exchange.
+                    assert!(workers.mailboxes[slot].try_send(future).is_ok());
+                    return;
+                }
+                let slot = workers.mailboxes.len();
+                let (send, receive) = mpsc::channel(1);
+                let finished = workers.finished.clone();
+                workers.mailboxes.push(send);
+                workers
+                    .tasks
+                    .spawn(exchange_worker(slot, future, receive, finished));
+            }
+        }
+    }
+
+    // Exactly one completion per busy worker. The dispatcher recycles the
+    // worker and advances WorkQueue together, in the same select branch.
+    async fn finished(&mut self) {
+        match self {
+            Self::Spawn(tasks) => {
+                report(tasks.join_next().await.expect("a running exchange"));
+            }
+            Self::Reuse(workers) => {
+                let slot = workers
+                    .completions
+                    .recv()
+                    .await
+                    .expect("exchange completion sender is still owned");
+                workers.idle.push(slot);
+            }
+        }
+    }
+
+    async fn close(self) {
+        if let Self::Reuse(mut workers) = self {
+            workers.mailboxes.clear();
+            while let Some(finished) = workers.tasks.join_next().await {
+                report(finished);
+            }
+        }
+    }
+}
+
+async fn exchange_worker<F: Future<Output = ()>>(
+    slot: usize,
+    mut future: F,
+    mut mailbox: mpsc::Receiver<F>,
+    finished: mpsc::UnboundedSender<usize>,
+) {
+    loop {
+        let result = AssertUnwindSafe(future).catch_unwind().await;
+        if result.is_err() {
+            tracing::debug!("exchange task panicked");
+        }
+        if finished.send(slot).is_err() {
+            return;
+        }
+        let Some(next) = mailbox.recv().await else { return };
+        future = next;
+    }
 }
 
 fn report(finished: Result<(), tokio::task::JoinError>) {
