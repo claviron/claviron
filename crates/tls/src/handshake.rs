@@ -14,9 +14,10 @@ use std::{
 /// certificate and client authentication it applies are its own handshake's,
 /// and a profile that does not answer leaves the connection to its host.
 pub trait AlpnProfile: Send + Sync {
-    /// The ALPN protocol ids this profile answers. No two profiles in a
-    /// process answer the same one.
-    fn protocols(&self) -> &[&'static [u8]];
+    /// The ALPN protocol ids this profile answers, owned by the profile so
+    /// that its configuration can name them. No two profiles in a process
+    /// answer the same one.
+    fn protocols(&self) -> &[Box<[u8]>];
 
     /// The handshake for `hello`, which offered one of [`Self::protocols`].
     /// `None` continues ordinary host selection; an error refuses TLS.
@@ -30,7 +31,7 @@ pub trait AlpnProfile: Send + Sync {
 /// A second profile asked for an ALPN protocol id another one answers.
 #[derive(Debug)]
 pub struct AlpnConflict {
-    pub protocol: &'static [u8],
+    pub protocol: Box<[u8]>,
 }
 
 impl fmt::Display for AlpnConflict {
@@ -41,7 +42,7 @@ impl fmt::Display for AlpnConflict {
         write!(
             f,
             "ALPN protocol '{}' already has a profile",
-            String::from_utf8_lossy(self.protocol)
+            String::from_utf8_lossy(&self.protocol)
         )
     }
 }
@@ -68,7 +69,7 @@ impl AlpnProfiles {
                 .iter()
                 .any(|existing| existing.protocols().contains(protocol))
         }) {
-            return Err(AlpnConflict { protocol });
+            return Err(AlpnConflict { protocol: protocol.clone() });
         }
         profiles.push(profile);
         Ok(())
@@ -100,11 +101,9 @@ impl AlpnSelection {
         }
         let Some(offered) = hello.alpn() else { return Ok(None) };
         for protocol in offered {
-            if let Some(profile) = self
-                .0
-                .iter()
-                .find(|profile| profile.protocols().contains(&protocol))
-            {
+            if let Some(profile) = self.0.iter().find(|profile| {
+                profile.protocols().iter().any(|id| **id == *protocol)
+            }) {
                 return profile.handshake(listener, hello);
             }
         }
