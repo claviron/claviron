@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use claviron_orbit::ClientAdmissionProvider;
-use claviron_orbit::client_admission::{AdmissionPermit, Key};
+use claviron_orbit::pool::admission::{AdmissionPermit, Key};
 
 use super::config::{PoolConfig, PoolScope};
 use super::{

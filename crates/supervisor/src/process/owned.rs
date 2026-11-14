@@ -118,7 +118,7 @@ impl OwnedProcess {
             }
             // The permits the exited worker held return to the fleet.
             if let Some(admission) = &admission {
-                claviron_orbit::client_admission::report_node_dead(
+                claviron_orbit::pool::admission::report_node_dead(
                     admission,
                     node,
                     incarnation,

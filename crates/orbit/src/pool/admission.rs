@@ -1,4 +1,5 @@
-//! Claviron lifecycle binding for the fleet's client admission table.
+//! The fleet's client admission table: a pool table opted into fleet
+//! concurrency.
 //!
 //! One Orbit pool table, opted into fleet concurrency, holds a request budget
 //! per key for the whole fleet. A process takes a permit before it sends with

@@ -25,7 +25,6 @@ pub use orbitive::{Fleet, NodeId, OrbitTyped, RingSpec};
 pub mod arena;
 pub mod cache;
 pub mod cell;
-pub mod client_admission;
 pub mod config;
 pub mod counter;
 pub mod event;
@@ -34,6 +33,7 @@ pub mod invoke;
 pub mod link;
 pub mod lock;
 pub mod placement;
+pub mod pool;
 #[cfg(feature = "quota")]
 pub mod quota;
 mod registry;
@@ -45,7 +45,6 @@ pub mod stream;
 pub use arena::{Arena, ArenaBootPolicy, ArenaProvider};
 pub use cell::orbital::{Error as CellError, Orbital};
 pub use cell::{Cells, CellsProvider, Text};
-pub use client_admission::ClientAdmissionProvider;
 pub use counter::{Counter, CounterProvider};
 pub use event::{
     APPLICATION_EVENT_PAYLOAD_MAX, ApplicationEventLayout,
@@ -58,6 +57,7 @@ pub use invoke::{
     InvocationProvider, InvocationSubscription,
 };
 pub use placement::{Dispatch, DispatchPolicy, Dispatched, Scope, Scoped};
+pub use pool::admission::ClientAdmissionProvider;
 pub use registry::{
     register, register_arena, register_arena_with_policy, register_cells,
     register_client_admission, register_counter, register_fleet,

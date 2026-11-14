@@ -64,7 +64,7 @@ pub fn register_client_admission(
         .resolve::<crate::ClientAdmissionProvider>()
         .is_none()
     {
-        crate::client_admission::register(state)?;
+        crate::pool::admission::register(state)?;
     }
     Ok(())
 }
