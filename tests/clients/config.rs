@@ -3,6 +3,7 @@ use std::time::Duration;
 
 fn declaration() -> serde_json::Value {
     serde_json::json!({
+        "scope": "process",
         "min_idle": 1,
         "max_idle": 2,
         "max_live": 3,
@@ -43,7 +44,7 @@ fn owned_and_borrowed_config_preserve_every_option() {
 #[test]
 fn yaml_config_round_trips_with_explicit_null_durations() {
     let config: PoolConfig = serde_yaml::from_str(
-        "min_idle: 0\nmax_idle: 2\nmax_live: 3\nmax_concurrency: 4\nmax_waiting: 0\nacquire_timeout: null\nidle_timeout: 2s\nmax_lifetime: null\n",
+        "scope: fleet\nmin_idle: 0\nmax_idle: 2\nmax_live: 3\nmax_concurrency: 4\nmax_waiting: 0\nacquire_timeout: null\nidle_timeout: 2s\nmax_lifetime: null\n",
     )
     .unwrap();
     let encoded = serde_yaml::to_string(&config).unwrap();

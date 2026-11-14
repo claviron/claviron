@@ -53,6 +53,22 @@ pub fn register_streams(state: &AppState) -> claviron_runtime::Result<()> {
     Ok(())
 }
 
+/// Register the fleet's client admission table and its Fleet dependency:
+/// one request budget per key, shared by every process. Idempotent.
+pub fn register_client_admission(
+    state: &AppState
+) -> claviron_runtime::Result<()> {
+    register_fleet(state)?;
+    if state
+        .registry_ref()
+        .resolve::<crate::ClientAdmissionProvider>()
+        .is_none()
+    {
+        crate::client_admission::register(state)?;
+    }
+    Ok(())
+}
+
 pub fn register_counter(state: &AppState) -> claviron_runtime::Result<()> {
     register_fleet(state)?;
     if state.registry_ref().resolve::<CounterProvider>().is_none() {

@@ -26,7 +26,7 @@ comes from the provider that owns the resource.
 - [`event.rs`](src/event.rs) — The typed bridge between Orbit frames and the local event bus.
 - [`cell.rs`](src/cell.rs), [`cell/orbital.rs`](src/cell/orbital.rs) — The typed cell tables and `Orbital<T>` declarations.
 - [`cache.rs`](src/cache.rs), [`cache/runtime.rs`](src/cache/runtime.rs) — One cache connection per process, its logical stores and L2 ordering.
-- [`arena.rs`](src/arena.rs), [`counter.rs`](src/counter.rs), [`lock.rs`](src/lock.rs), [`stream.rs`](src/stream.rs), [`quota.rs`](src/quota.rs) — Lifecycle bindings of those primitives.
+- [`arena.rs`](src/arena.rs), [`client_admission.rs`](src/client_admission.rs), [`counter.rs`](src/counter.rs), [`lock.rs`](src/lock.rs), [`stream.rs`](src/stream.rs), [`quota.rs`](src/quota.rs) — Lifecycle bindings of those primitives.
 - [`invoke.rs`](src/invoke.rs), [`invoke/call.rs`](src/invoke/call.rs) — The invocation ring and transport-independent targeted calls.
 - [`service.rs`](src/service.rs), [`service/`](src/service/) — Fleet commands and snapshots over Continuo's process-local service manager, and live membership.
 - [`placement.rs`](src/placement.rs), [`placement/controller.rs`](src/placement/controller.rs) — `OrbitDispatcher`: `One` and `Pool` leases.
@@ -116,6 +116,7 @@ not duplicated as new Claviron constants.
 
 | Kind ID | Physical resource | Shape | Owning definition / Claviron binding |
 |---|---|---|---|
+| `175` | Fleet client admission: one request budget per key for the whole fleet, per-node admission counts returned by a confirmed death | Orbit pool table, fleet concurrency on, one resource slot per lane, 64 keys | Orbitive `orbit-pool` `PoolSpec::with_fleet_concurrency`; [ClientAdmissionProvider binding](src/client_admission.rs); [fleet client admission](../../docs/design/FLEET_CLIENT_ADMISSION.md) |
 | `176` | Application-link inline HTTP exchange control | Caller lane × adopted body-lane capacity, 32-byte records fenced by caller/Runner inbox epoch and slot generation | [Link geometry](src/link/application/geometry.rs), Orbitive `ExchangeControls` |
 | `177` | Application-link shared HTTP response payload | Directional payload arena v5. Outstanding slots are bounded per response and retained through the last receiver byte view | [Shared response bodies](src/link/application/body.rs) |
 | `178` | Application-link shared HTTP response control | Duplex descriptor rings. The request ticket distinguishes these exchanges from kind 181 | [Shared response bodies](src/link/application/body.rs) |
@@ -325,6 +326,7 @@ its index row.
 
 | kind | boot | finalize | successor | what stays, and why it is harmless |
 |---|---|---|---|---|
+| `175` client admission | Reset when quiescent; reuse while adopted workers run | Preserve | exact supervisor exit reports `node_dead`, returning the dead incarnation's permits | admission counts of the last run until the next quiescent boot resets them |
 | `176` inline exchange control (selected Link fleet) | Open or attach when a Runner advertises inline support | Preserve | A new caller lane epoch reclaims abandoned records | No response bytes or response history |
 | `180` shared cache table | Reuse | Preserve | existing arena pin recovery | indexed values, subject to TTL and eviction |
 | `194` cache mutation transport | Reuse | Preserve | — | old frames; cursors start at the head |

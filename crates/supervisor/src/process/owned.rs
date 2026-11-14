@@ -89,6 +89,7 @@ impl OwnedProcess {
     pub(crate) fn recover_orbit_on_exit(
         self,
         state: &claviron_runtime::AppState,
+        node: u16,
         incarnation: u64,
     ) -> Self {
         let fleet = state.fleet_name().to_owned();
@@ -99,6 +100,9 @@ impl OwnedProcess {
         );
         let cells =
             state.registry_ref().resolve::<claviron_orbit::CellsProvider>();
+        let admission = state
+            .registry_ref()
+            .resolve::<claviron_orbit::ClientAdmissionProvider>();
         assert!(self.exit.cleanup.set(Box::new(move || {
             if let Some(applications) = &applications {
                 applications.process_exited(&fleet, pid, incarnation);
@@ -111,6 +115,14 @@ impl OwnedProcess {
                 if let Err(error) = result {
                     tracing::error!(%fleet, pid, incarnation, %error, "could not release exited worker Link streams");
                 }
+            }
+            // The permits the exited worker held return to the fleet.
+            if let Some(admission) = &admission {
+                claviron_orbit::client_admission::report_node_dead(
+                    admission,
+                    node,
+                    incarnation,
+                );
             }
             if let Some(cells) = cells.as_ref().and_then(|provider| provider.handle()) {
                 match cells.recover_text_writers() {

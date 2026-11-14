@@ -52,7 +52,7 @@ bytes.workspace = true
 
 # ── Published sibling libraries shared through workspace dependencies ───
 continuo = { workspace = true, features = ["fleet"] }
-orbitive = { workspace = true, features = ["arena", "cache", "cell", "events", "lock", "counter", "invoke-tokio", "link-tokio", "link-events", "stream-tokio"] }
+orbitive = { workspace = true, features = ["arena", "cache", "cell", "events", "lock", "counter", "pool", "invoke-tokio", "link-tokio", "link-events", "stream-tokio"] }
 
 [dev-dependencies]
 # ── Async runtime & primitives ──────────────────────────────────────────

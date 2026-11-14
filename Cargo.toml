@@ -27,7 +27,9 @@ users = ["auth", "claviron-auth/users"]
 authorization = ["auth", "claviron-auth/authorization"]
 application = ["runtime", "dep:claviron-app"]
 clients = ["orbitive/client-pool", "dep:serde", "dep:humantime-serde"]
-clients-fleet = ["clients", "orbitive/client-pool-fleet"]
+# A client pool whose `scope: fleet` shares one request budget across the
+# fleet through an Orbit admission table.
+clients-fleet = ["clients", "orbit", "runtime", "orbitive/pool", "dep:tokio", "tokio?/time"]
 http = ["runtime", "dep:claviron-http"]
 pipeline = ["http", "dep:claviron-pipeline"]
 transport = ["http", "dep:claviron-transport"]

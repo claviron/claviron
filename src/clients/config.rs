@@ -9,9 +9,23 @@ use super::{OptionsError, PoolOptions};
 /// Capacity values are required. Absent or null durations remain `None`; this
 /// declaration never supplies a timeout or retry policy. Code-first callers
 /// can continue constructing [`PoolOptions`] directly.
+/// Where a pool's admission bounds hold.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PoolScope {
+    /// Each process applies the bounds to itself.
+    Process,
+    /// The fleet shares one request budget (`max_concurrency`) in shared
+    /// memory; clients and waiting stay in each process. Refused where no
+    /// fleet exists.
+    Fleet,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PoolConfig {
+    /// Required: it changes what the bounds mean.
+    pub scope: PoolScope,
     pub min_idle: usize,
     pub max_idle: usize,
     pub max_live: usize,
