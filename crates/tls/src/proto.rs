@@ -28,3 +28,34 @@ impl Proto {
         }
     }
 }
+
+/// The HTTP version a session speaks once its ALPN protocol id is
+/// negotiated; the id itself names none.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionWire {
+    Http1,
+    Http2,
+    /// Either, decided by the connection preface: a client sending one
+    /// request can speak HTTP/1.1 and a long-lived one HTTP/2.
+    Either,
+}
+
+impl SessionWire {
+    /// The HTTP versions the session's handshake is created for.
+    pub fn protocols(self) -> &'static [Proto] {
+        match self {
+            Self::Http1 => &[Proto::H1],
+            Self::Http2 => &[Proto::H2],
+            Self::Either => &[Proto::H1, Proto::H2],
+        }
+    }
+
+    /// The one version spoken, or `None` when the preface decides.
+    pub fn fixed(self) -> Option<Proto> {
+        match self {
+            Self::Http1 => Some(Proto::H1),
+            Self::Http2 => Some(Proto::H2),
+            Self::Either => None,
+        }
+    }
+}

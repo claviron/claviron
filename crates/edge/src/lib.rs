@@ -221,7 +221,7 @@ pub use host::apps::other::{OtherHandler, OtherService};
 pub use host::{
     AnyAuthenticated, AuthContext, HostAppRegistry, HostBindingProvider,
     Inherit, InterceptsNonServing, NonServingContext, RouteBinding, RustRouter,
-    SessionConflict, SessionPlan, SessionProfile, SessionProfiles,
+    SessionConflict, SessionPlan, SessionProfile, SessionProfiles, SessionWire,
 };
 #[cfg(feature = "websocket")]
 pub use host::{

@@ -24,6 +24,7 @@ use claviron_http::metrics::SERVER_METRICS;
 use claviron_http::session::{ConnectionScope, SessionSpawner};
 use claviron_runtime::registry::{Error, Result};
 use claviron_tls::Proto::{self, H1, H2};
+use claviron_tls::SessionWire;
 use claviron_types::ssl::peer::peer_identity;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
@@ -80,15 +81,16 @@ pub trait SecureHost: Send + 'static {
     /// The HTTP version of a session the host's handshake selected by its
     /// ALPN protocol id, which names no HTTP version itself. `None` decides
     /// the version from the negotiated ALPN and the host's policy.
-    fn session_protocol(&self) -> Option<Proto> {
+    fn session_wire(&self) -> Option<SessionWire> {
         None
     }
 
     /// Completes when the connection should end gracefully because its host
     /// was replaced or removed; never, for a host that cannot change.
+    /// `protocol` is `None` when the connection preface decides it.
     fn retired(
         &self,
-        protocol: Proto,
+        protocol: Option<Proto>,
     ) -> impl Future<Output = ()> + Send + 'static;
 
     /// Take the connection's completed facts and return its request owner.
@@ -116,11 +118,24 @@ pub enum ConnectionError {
     AlpnRequired,
     /// Negotiated/assumed protocol is not allowed by host policy
     ProtocolNotAllowed,
+    /// Reading the preface of a connection it decides the version of.
+    Preface(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl From<hyper::Error> for ConnectionError {
     fn from(err: hyper::Error) -> Self {
         if err.is_timeout() { Self::Timeout } else { Self::Serve(err) }
+    }
+}
+
+impl ConnectionError {
+    /// A connection whose preface decided its version fails with Hyper's
+    /// error once serving, and with the preface read's own before.
+    fn by_preface(error: Box<dyn std::error::Error + Send + Sync>) -> Self {
+        match error.downcast::<hyper::Error>() {
+            Ok(error) => (*error).into(),
+            Err(error) => Self::Preface(error),
+        }
     }
 }
 
@@ -145,6 +160,9 @@ impl Display for ConnectionError {
             }
             ConnectionError::Timeout => {
                 write!(f, "Connection timeout")
+            }
+            ConnectionError::Preface(err) => {
+                write!(f, "Connection preface error: {err}")
             }
         }
     }
@@ -255,7 +273,7 @@ impl<O: Owner> SecureHost for SingleHost<O> {
     }
     fn retired(
         &self,
-        _protocol: Proto,
+        _protocol: Option<Proto>,
     ) -> impl Future<Output = ()> + Send + 'static {
         std::future::pending()
     }
@@ -363,19 +381,23 @@ async fn handle_stream<S: Secure>(
     // Decide protocol using ALPN + per-host RequestPolicy
     let tls_ref = tls_stream.get_ref().1;
     let alpn = tls_ref.alpn_protocol().map(AsRef::as_ref);
-    let proto = match host.session_protocol() {
-        Some(proto) => proto,
-        None => decide_protocol(
+    // `None` when a session leaves the version to the connection preface.
+    let proto = match host.session_wire() {
+        Some(wire) => wire.fixed(),
+        None => Some(decide_protocol(
             alpn,
             policy.allows_protocol(H1) && cfg.protocols.contains(&H1),
             policy.allows_protocol(H2) && cfg.protocols.contains(&H2),
             host.require_alpn(),
-        )?,
+        )?),
     };
 
     // Read before the connection facts are completed and handed on.
     let h2_connect_protocol = policy.h2.connect_protocol;
-    debug!("🎭 ALPN negotiated {}", proto.version());
+    match proto {
+        Some(proto) => debug!("🎭 ALPN negotiated {}", proto.version()),
+        None => debug!("🎭 ALPN session: HTTP version by connection preface"),
+    }
     let scope = scope.with_graceful_signal(host.retired(proto));
 
     // The actual port the connection arrived on is authoritative for
@@ -384,7 +406,7 @@ async fn handle_stream<S: Secure>(
         transport: claviron_http::listener::ListenerTransport::Tcp,
         state: Default::default(),
         listener: snapshot.listener().id.clone(),
-        proto: Some(proto),
+        proto,
         remote: peer,
         local_ip: local.ip(),
         local_port: local.port(),
@@ -401,7 +423,7 @@ async fn handle_stream<S: Secure>(
     // Drive the connection based on protocol.
     let serving = async {
         match proto {
-            H2 => {
+            Some(H2) => {
                 let conn_fut =
                     super::protocol::h2(&cfg.h2, h2_connect_protocol)
                         .serve_connection(stream, vhost_service);
@@ -411,7 +433,7 @@ async fn handle_stream<S: Secure>(
                     biased;
                     () = scope.wait_graceful_shutdown() => {
                         #[cfg(debug_assertions)]
-                        debug!("♻️  {} graceful shutdown: sending GOAWAY", proto.version());
+                        debug!("♻️  {} graceful shutdown: sending GOAWAY", H2.version());
                         conn_fut.as_mut().graceful_shutdown();
                         tokio::select! {
                             biased;
@@ -419,7 +441,7 @@ async fn handle_stream<S: Secure>(
                                 #[cfg(debug_assertions)]
                                 debug!(
                                     "♻️  {} graceful shutdown: connection future finished",
-                                    proto.version()
+                                    H2.version()
                                 );
                                 result.map(|_| ConnEnd::Finished).map_err(Into::into)
                             },
@@ -427,7 +449,7 @@ async fn handle_stream<S: Secure>(
                                 #[cfg(debug_assertions)]
                                 debug!(
                                     "❗ {} forced shutdown before graceful connection finished",
-                                    proto.version()
+                                    H2.version()
                                 );
                                 Ok(ConnEnd::DroppedForceShutdown)
                             }
@@ -436,7 +458,7 @@ async fn handle_stream<S: Secure>(
                     result = conn_fut.as_mut() => result.map(|_| ConnEnd::Finished).map_err(Into::into)
                 }
             }
-            H1 => {
+            Some(H1) => {
                 let conn_fut = make_h1_builder(&cfg.h1)
                     .serve_connection(stream, vhost_service);
                 #[cfg(feature = "websocket")]
@@ -456,14 +478,35 @@ async fn handle_stream<S: Secure>(
                     result = conn_fut.as_mut() => result.map(|_| ConnEnd::Finished).map_err(Into::into)
                 }
             }
-            Proto::H3 => {
+            None => {
+                let builder =
+                    super::prior::auto(&cfg.h1, &cfg.h2, h2_connect_protocol);
+                let conn_fut = builder
+                    .serve_connection_with_upgrades(stream, vhost_service);
+                tokio::pin!(conn_fut);
+
+                tokio::select! {
+                    biased;
+                    () = scope.wait_graceful_shutdown() => {
+                        conn_fut.as_mut().graceful_shutdown();
+                        tokio::select! {
+                            biased;
+                            result = conn_fut.as_mut() => result.map(|_| ConnEnd::Finished).map_err(ConnectionError::by_preface),
+                            _ = scope.permit().wait_forced_shutdown() => Ok(ConnEnd::DroppedForceShutdown)
+                        }
+                    }
+                    result = conn_fut.as_mut() => result.map(|_| ConnEnd::Finished).map_err(ConnectionError::by_preface)
+                }
+            }
+            Some(Proto::H3) => {
                 unreachable!("H3 cannot appear in TLS/TCP connections")
             }
         }
     };
     // Only an H1 connection with half-close leaves its read side idle
-    // during a request; every other case sees a socket error itself.
-    if proto == H1 && cfg.h1.half_close {
+    // during a request; every other case sees a socket error itself. A
+    // version the preface decides may be H1.
+    if proto != Some(H2) && cfg.h1.half_close {
         tokio::select! {
             biased;
             error = errors.failed() => Err(ConnectionError::Socket(error)),

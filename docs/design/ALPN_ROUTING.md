@@ -117,6 +117,11 @@ the profile's ids alone. Configs are created when the host is prepared, at
 boot or reload, and kept with the host's TLS view like its ordinary config.
 Certificate rotation reaches both through the same certificate resolver.
 
+A session id names no HTTP version, so the profile declares the one it
+speaks: HTTP/1.1, HTTP/2, or either, decided by the connection preface. Either
+lets one client send a single request over HTTP/1.1 and exit while another
+keeps an HTTP/2 connection, against the same profile and terms.
+
 ## Pipelines
 
 Each listener and host already has its own prepared pipeline. A session

@@ -27,6 +27,7 @@ pub(crate) use routable::RouteProtocol;
 pub use routable::{HostBindingProvider, Routable, RouteBinding};
 pub use session::{
     Inherit, SessionConflict, SessionPlan, SessionProfile, SessionProfiles,
+    SessionWire,
 };
 #[cfg(feature = "webtransport")]
 pub use wt::{

@@ -57,7 +57,7 @@ where
             result = connection.as_mut() => Some(result.map_err(Into::into))
         };
     }
-    let builder = auto(h1, &prior.h2);
+    let builder = auto(h1, &prior.h2, OFFERS_SESSIONS);
     let connection = builder.serve_connection_with_upgrades(io, service);
     tokio::pin!(connection);
     tokio::select! {
@@ -77,10 +77,13 @@ where
 /// a session is the owner's to say, and an attempt nobody claims is refused.
 const OFFERS_SESSIONS: bool = cfg!(feature = "websocket");
 
-/// Either protocol with the same settings its own builder applies.
-fn auto(
+/// Either protocol with the same settings its own builder applies, decided by
+/// the connection preface. `connect_protocol` offers extended CONNECT on
+/// HTTP/2, as [`super::protocol::h2`] does.
+pub(super) fn auto(
     h1: &H1Config,
     h2: &H2Config,
+    connect_protocol: bool,
 ) -> hyper_util::server::conn::auto::Builder<TokioExecutor> {
     use claviron_http::config::HeaderReadTimeout;
     let mut builder =
@@ -107,7 +110,7 @@ fn auto(
             }
         }
     }
-    if OFFERS_SESSIONS {
+    if connect_protocol {
         builder.http2().enable_connect_protocol();
     }
     builder

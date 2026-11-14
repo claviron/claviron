@@ -12,7 +12,8 @@ use claviron_http::config::{HttpSnapshot, ListenerConfig, TcpListenerConfig};
 use claviron_pipeline::plan::HostExecution;
 use claviron_runtime::AppState;
 use claviron_runtime::registry::Error;
-use claviron_tls::Proto::{self, H1, H2};
+use claviron_tls::Proto::{H1, H2};
+use claviron_tls::SessionWire;
 use claviron_tls::create_tls_config;
 use claviron_tls::orbit::SessionDomain;
 use claviron_types::Host;
@@ -39,7 +40,7 @@ pub(super) struct TlsPolicy {
 /// for no client certificate, and the only execution its connections reach.
 struct HostSession {
     protocol: &'static [u8],
-    wire: Proto,
+    wire: SessionWire,
     config: Arc<rustls::ServerConfig>,
     execution: HostExecution,
 }
@@ -49,7 +50,7 @@ struct HostSession {
 pub(super) struct Selected {
     pub(super) config: Arc<rustls::ServerConfig>,
     pub(super) host: VhostCtx,
-    pub(super) session: Option<Proto>,
+    pub(super) session: Option<SessionWire>,
 }
 
 impl TlsAccept {
@@ -247,7 +248,7 @@ fn prepare_sessions(
             // alone, and rustls' own resumption store rather than the
             // listener's shared one.
             let mut config =
-                create_tls_config(&[wire], deps.cert_resolver.clone())
+                create_tls_config(wire.protocols(), deps.cert_resolver.clone())
                     .map_err(|error| {
                         Error::msg(format!("TLS host {canonical}: {error}"))
                     })?;

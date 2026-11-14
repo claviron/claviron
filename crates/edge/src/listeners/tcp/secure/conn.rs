@@ -17,6 +17,7 @@ use claviron_http::ext::ConnCtx;
 use claviron_http::session::ConnectionScope;
 use claviron_runtime::AppState;
 use claviron_tls::Proto;
+use claviron_tls::SessionWire;
 use claviron_transport::tcp::secure::SecureHost;
 use tokio::net::TcpStream;
 use tracing::info;
@@ -67,7 +68,7 @@ pub(crate) struct SelectedHost {
     pub(super) listener: Arc<ListenerConfig>,
     pub(super) state: AppState,
     /// The HTTP version of the session profile the handshake selected.
-    pub(super) session: Option<claviron_tls::Proto>,
+    pub(super) session: Option<SessionWire>,
 }
 
 impl SelectedHost {
@@ -89,13 +90,13 @@ impl SelectedHost {
 /// Complete when this connection's host binding retires; never without one.
 async fn host_retired(
     binding: Option<HostBinding>,
-    proto: Proto,
+    proto: Option<Proto>,
 ) {
     match binding {
         Some(mut binding) => {
             binding.retired().await;
             info!(
-                protocol = %proto.version(),
+                protocol = proto.map(|proto| proto.version()),
                 host = %binding.hostname(),
                 canonical = %binding.canonical(),
                 "🔀 host mapping or configuration changed: retiring this connection gracefully"
@@ -127,13 +128,13 @@ impl SecureHost for SelectedHost {
         self.vctx.vhost_config.tls.require_alpn
     }
 
-    fn session_protocol(&self) -> Option<claviron_tls::Proto> {
+    fn session_wire(&self) -> Option<SessionWire> {
         self.session
     }
 
     fn retired(
         &self,
-        protocol: Proto,
+        protocol: Option<Proto>,
     ) -> impl Future<Output = ()> + Send + 'static {
         host_retired(self.binding(), protocol)
     }

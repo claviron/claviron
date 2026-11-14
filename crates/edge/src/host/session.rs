@@ -12,11 +12,11 @@ use claviron_pipeline::extension::RouteLayer;
 use claviron_pipeline::plan::HostExecution;
 use claviron_runtime::AppState;
 use claviron_runtime::registry::{Error, Result};
-use claviron_tls::Proto;
 use claviron_types::Host;
 use serde::de::DeserializeOwned;
 
 pub use claviron_pipeline::compile::Inherit;
+pub use claviron_tls::SessionWire;
 
 use crate::config::HostConfig;
 
@@ -33,7 +33,7 @@ pub trait SessionProfile: Send + Sync {
     fn protocol(&self) -> &'static [u8];
 
     /// The HTTP version spoken once the id is negotiated.
-    fn wire(&self) -> Proto;
+    fn wire(&self) -> SessionWire;
 
     /// What the profile takes from its host's admission, applied where the
     /// host declares it. Nothing unless named.
