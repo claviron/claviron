@@ -384,6 +384,57 @@ configured files/backend chain. `RouteEffect::Layer` prepares native
 leaves no request-time wrapper. Axum routers can be supplied explicitly through
 `pipeline::apps::axum::application`; their responses, including 404, are handled.
 
+## ALPN session profiles
+
+A package can offer a protocol of its own by ALPN. A client that names the
+protocol in its ClientHello gets a handshake created for it, which asks for no
+client certificate, and reaches only the profile's application; an ordinary
+connection to the same host never reaches it. The package registers a
+`SessionProfile` in `SessionProfiles`; a host enables it by id under
+`tls.alpn`, with that host's parameters.
+
+A profile declares what it takes from its host's admission the way a
+component declares its `Deps`. Each named layer applies where the host
+declares it and is absent where it does not; nothing is inherited unless
+named, and the host's site (redirects, routes, files, backends) never is.
+
+```rust
+impl SessionProfile for EnrollProfile {
+    fn protocol(&self) -> &'static [u8] {
+        b"example-enroll/1"
+    }
+
+    // HTTP/1.1 or HTTP/2, decided by the connection preface.
+    fn wire(&self) -> SessionWire {
+        SessionWire::Either
+    }
+
+    // Like Component::Deps: what it takes from the host, if the host declares it.
+    fn inherits(&self) -> Inherit {
+        Inherit::QUOTA | Inherit::ACL | Inherit::ACCESS_LOG
+    }
+
+    fn execution(&self, plan: SessionPlan<'_>) -> Result<HostExecution> {
+        let params: EnrollParams = plan.params()?;
+        plan.backend(EnrollHandler::new(params))
+    }
+}
+```
+
+```yaml
+enroll.example.com:
+  tls:
+    client_auth: required    # ordinary connections keep mutual TLS
+    alpn:
+      example-enroll/1:      # decoded by the profile into EnrollParams
+        validity_days: 30
+```
+
+`SessionPlan::layer` adds a route layer of the profile's own beside what it
+inherits. An id that no profile registered refuses the host's preparation.
+[ALPN Routing](../../docs/design/ALPN_ROUTING.md) describes where the branch
+sits before the pipeline.
+
 ## Reload and connection lifetime
 
 Host publication, application preparation, and listener ownership are separate.
