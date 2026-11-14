@@ -291,6 +291,7 @@ pub(crate) fn build_snapshots(
             hosts.clone(),
             previous.map(|old| &old.tls_accept),
             state,
+            http,
         )?;
         groups.insert(
             id.clone(),

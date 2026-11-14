@@ -25,7 +25,9 @@ pub use non_serving::NonServingPipeline;
 pub use non_serving::{InterceptsNonServing, NonServingContext};
 pub(crate) use routable::RouteProtocol;
 pub use routable::{HostBindingProvider, Routable, RouteBinding};
-pub use session::{SessionConflict, SessionProfile, SessionProfiles};
+pub use session::{
+    Inherit, SessionConflict, SessionPlan, SessionProfile, SessionProfiles,
+};
 #[cfg(feature = "webtransport")]
 pub use wt::{
     H3WebTransportBiStream, H3WebTransportSession, WebTransportAccept,

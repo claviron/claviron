@@ -42,6 +42,7 @@ tokio = { workspace = true, features = ["fs", "macros", "rt", "sync"] }
 # ── Serialization & parsing ─────────────────────────────────────────────
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+serde_yaml.workspace = true
 
 # ── TLS / certificates ──────────────────────────────────────────────────
 rustls = { workspace = true, features = ["aws_lc_rs", "logging", "std", "tls12"] }

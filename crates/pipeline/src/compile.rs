@@ -184,9 +184,60 @@ struct Compiler<'a> {
     deny: Option<DenyLayer>,
     acl: Option<AclLayer>,
     upgrades: Option<Arc<dyn BackendHandler>>,
+    /// A session plan: what it inherits of its host's admission. The host's
+    /// site (redirect, CORS, headers, files, backends) takes no part in one.
+    session: Option<Inherit>,
+}
+
+/// What a session plan takes from its host's admission, when the host
+/// declares it. A profile names it the way a component names its
+/// dependencies; nothing is inherited unless named.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Inherit(u8);
+
+impl Inherit {
+    pub const NONE: Self = Self(0);
+    /// The listener's trusted proxy identity.
+    pub const PROXY: Self = Self(1);
+    /// The listener's deny list.
+    pub const DENY: Self = Self(1 << 1);
+    /// The host's access control list.
+    pub const ACL: Self = Self(1 << 2);
+    /// The host's declared quotas.
+    pub const QUOTA: Self = Self(1 << 3);
+    /// The host's access log.
+    pub const ACCESS_LOG: Self = Self(1 << 4);
+    /// Request metrics, when the listener records them.
+    pub const METRICS: Self = Self(1 << 5);
+
+    pub const fn contains(
+        self,
+        other: Self,
+    ) -> bool {
+        self.0 & other.0 == other.0
+    }
+}
+
+impl std::ops::BitOr for Inherit {
+    type Output = Self;
+
+    fn bitor(
+        self,
+        other: Self,
+    ) -> Self {
+        Self(self.0 | other.0)
+    }
 }
 
 impl Compiler<'_> {
+    #[cfg(feature = "access-log")]
+    fn inherits(
+        &self,
+        part: Inherit,
+    ) -> bool {
+        self.session.is_none_or(|inherit| inherit.contains(part))
+    }
+
     /// Whether this scope has an application owner: the edge's own Link
     /// dispatch, or what a registered backend prepared for it. A scope has at
     /// most one. The edge knows no backend by name, so this is the first place
@@ -232,11 +283,12 @@ impl Compiler<'_> {
             .config
             .setting_at(prefix, |scope| scope.redirect.as_ref())
             .and_then(|rules| rules.first())
-            .map(RedirectLayer::new);
+            .map(RedirectLayer::new)
+            .filter(|_| self.session.is_none());
         let policy = self.config.policy_at(prefix, self.policy);
         // A redirect serves nothing, so nothing is prepared behind it; what its
         // directives declare must still have one owner.
-        let prepared = if redirect.is_none() {
+        let prepared = if redirect.is_none() && self.session.is_none() {
             PreparedBackends::resolve(
                 self.registry
                     .map(SiteRegistry::backends)
@@ -268,7 +320,7 @@ impl Compiler<'_> {
         // An owner the scope only inherits leaves it the files it inherits too.
         let owned = self.application_owner(&config, prefix, declared)?
             && !prepared.inherited;
-        let steps = if redirect.is_none() {
+        let steps = if redirect.is_none() && self.session.is_none() {
             scope_steps(&config, owned)
         } else {
             Vec::new()
@@ -294,6 +346,7 @@ impl Compiler<'_> {
             cors: self
                 .config
                 .setting_at(prefix, |scope| scope.cors.as_ref())
+                .filter(|_| self.session.is_none())
                 .cloned()
                 .map(CorsLayer::new)
                 .transpose()
@@ -330,6 +383,7 @@ impl Compiler<'_> {
             self.headers.into_iter().chain(
                 self.config
                     .scopes_at(prefix)
+                    .filter(|_| self.session.is_none())
                     .filter_map(|scope| scope.headers.as_ref()),
             ),
         )
@@ -353,7 +407,9 @@ impl Compiler<'_> {
         #[cfg(feature = "access-log")]
         if let Some(log) = AccessLogLayer::new(
             self.host,
-            self.config.setting_at(prefix, |scope| scope.access_log()),
+            self.config
+                .setting_at(prefix, |scope| scope.access_log())
+                .filter(|_| self.inherits(Inherit::ACCESS_LOG)),
         ) {
             #[cfg(feature = "rate-limit")]
             if let Some(quotas) = self.quotas {
@@ -578,6 +634,89 @@ pub fn compile_site(
     })
 }
 
+/// A session plan's inputs: the host whose admission it may inherit, and the
+/// profile's own layers and owner. See `docs/design/ALPN_ROUTING.md`.
+pub struct SessionInput<'a> {
+    pub state: &'a AppState,
+    pub host: &'a Host,
+    /// The host's site, read for its admission declarations only.
+    pub site: Arc<Site>,
+    pub transport: &'a TransportPolicy,
+    pub listener: Option<&'a ListenerConfig>,
+    pub http: Option<&'a HttpSnapshot>,
+    /// What the profile takes from the host's admission.
+    pub inherit: Inherit,
+    /// Layers the profile adds itself.
+    pub layers: &'a [Arc<dyn RouteLayer>],
+    /// The profile's owner, the only one the session reaches.
+    pub owner: Arc<dyn HostHandler>,
+    /// The bounds the session's requests are held to.
+    pub policy: HttpPolicy,
+}
+
+/// Compile a session plan: the host admission a profile inherits, its own
+/// layers, and its owner, without the host's site.
+pub fn compile_session(input: SessionInput<'_>) -> Result<HostExecution> {
+    let SessionInput {
+        state,
+        host,
+        site,
+        transport,
+        listener,
+        http,
+        inherit,
+        layers,
+        owner,
+        policy,
+    } = input;
+    #[cfg(feature = "rate-limit")]
+    let quotas = if inherit.contains(Inherit::QUOTA) {
+        crate::layers::quotas_of_site(&site)?
+    } else {
+        None
+    };
+    let compiler = Compiler {
+        host: Some(host),
+        listener,
+        protocol: listener.map(RouteProtocol::from),
+        config: &site,
+        transport,
+        policy,
+        headers: None,
+        #[cfg(feature = "metrics")]
+        metrics: inherit.contains(Inherit::METRICS)
+            && http.is_some_and(|http| http.metrics.is_some()),
+        #[cfg(feature = "rate-limit")]
+        quotas: quotas.as_deref(),
+        state,
+        backends: &[],
+        applications: &[],
+        layers,
+        registry: None,
+        proxy: listener
+            .filter(|_| inherit.contains(Inherit::PROXY))
+            .and_then(ProxyLayer::for_listener),
+        deny: http
+            .filter(|_| inherit.contains(Inherit::DENY))
+            .and_then(|http| DenyLayer::from_matcher(&http.deny)),
+        acl: if inherit.contains(Inherit::ACL) {
+            AclLayer::for_host(&site)
+        } else {
+            None
+        },
+        upgrades: None,
+        session: Some(inherit),
+    };
+    compiler.scope(
+        site.clone(),
+        BackendPlan { steps: Vec::new(), fallback: None },
+        true,
+        Some(&owner),
+        &[],
+        &claviron_http::ext::PathPrefix::root(),
+    )
+}
+
 /// Compile a site into its immutable dispatch owner, for one listener's plan
 /// or for every protocol when none is given.
 pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
@@ -637,6 +776,7 @@ pub fn compile(input: CompileInput<'_>) -> Result<HostExecution> {
         deny: http.and_then(|http| DenyLayer::from_matcher(&http.deny)),
         acl: AclLayer::for_host(&config),
         upgrades,
+        session: None,
     };
     let fallback = config.fallback().cloned().unwrap_or_else(|| config.clone());
     let root = claviron_http::ext::PathPrefix::root();

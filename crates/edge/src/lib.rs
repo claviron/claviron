@@ -220,8 +220,8 @@ pub use host::Routable;
 pub use host::apps::other::{OtherHandler, OtherService};
 pub use host::{
     AnyAuthenticated, AuthContext, HostAppRegistry, HostBindingProvider,
-    InterceptsNonServing, NonServingContext, RouteBinding, RustRouter,
-    SessionConflict, SessionProfile, SessionProfiles,
+    Inherit, InterceptsNonServing, NonServingContext, RouteBinding, RustRouter,
+    SessionConflict, SessionPlan, SessionProfile, SessionProfiles,
 };
 #[cfg(feature = "websocket")]
 pub use host::{

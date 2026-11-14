@@ -122,10 +122,11 @@ pub struct HandshakePolicy {
     /// Refuse TLS connections without negotiated ALPN. Does not affect non-SSL serving.
     #[serde(default)]
     pub require_alpn: bool,
-    /// Session profiles this host offers, by ALPN protocol id. Each id is
-    /// registered by the package that speaks it; enabling it here is setup.
+    /// Session profiles this host offers, by ALPN protocol id, each with this
+    /// host's parameters for it. Each id is registered by the package that
+    /// speaks it, which also decodes its parameters; enabling it here is setup.
     #[serde(default)]
-    pub alpn: Vec<Box<str>>,
+    pub alpn: std::collections::BTreeMap<Box<str>, serde_yaml::Value>,
 }
 
 #[cfg(test)]

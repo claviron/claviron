@@ -2,12 +2,13 @@ use std::collections::HashMap;
 use std::io;
 use std::sync::Arc;
 
+use crate::host::SessionPlan;
 use crate::listeners::tls::{
     TlsHost, client_authority, create_host_auth_config,
 };
 use crate::transport::{VhostCtx, VhostTable, resolve_sni_for_listener};
 use claviron_http::ListenerId;
-use claviron_http::config::{ListenerConfig, TcpListenerConfig};
+use claviron_http::config::{HttpSnapshot, ListenerConfig, TcpListenerConfig};
 use claviron_pipeline::plan::HostExecution;
 use claviron_runtime::AppState;
 use claviron_runtime::registry::Error;
@@ -59,13 +60,15 @@ impl TlsAccept {
         hosts: Arc<VhostTable>,
         previous: Option<&Self>,
         state: &AppState,
+        http: &HttpSnapshot,
     ) -> Result<Self, Error> {
         let previous = previous
             .map(|old| old.policy.as_ref())
             .filter(|old| old.protocols == tcp.protocols);
         let mut policy =
             Self::prepare_policy(deps, listener, tcp, &hosts, previous)?;
-        policy.sessions = prepare_sessions(deps, listener, &hosts, state)?;
+        policy.sessions =
+            prepare_sessions(deps, listener, &hosts, state, http)?;
         let policy = Arc::new(policy);
         Ok(Self { hosts, policy, listener: listener.id.clone() })
     }
@@ -220,6 +223,7 @@ fn prepare_sessions(
     listener: &ListenerConfig,
     table: &VhostTable,
     state: &AppState,
+    http: &HttpSnapshot,
 ) -> Result<HashMap<Host, Vec<HostSession>>, Error> {
     let mut sessions = HashMap::new();
     let profiles = state.registry_ref().resolve::<crate::SessionProfiles>();
@@ -229,7 +233,7 @@ fn prepare_sessions(
             continue;
         }
         let mut prepared = Vec::with_capacity(host.tls.alpn.len());
-        for id in &host.tls.alpn {
+        for (id, params) in &host.tls.alpn {
             let profile = profiles
                 .as_ref()
                 .and_then(|profiles| profiles.get(id.as_bytes()))
@@ -252,12 +256,15 @@ fn prepare_sessions(
                 protocol: profile.protocol(),
                 wire,
                 config: Arc::new(config),
-                execution: profile.execution(
+                execution: profile.execution(SessionPlan::new(
                     state,
                     canonical,
                     host,
-                    &listener.policy().narrow(&host.policy()),
-                )?,
+                    listener,
+                    Some(http),
+                    params,
+                    profile.inherits(),
+                ))?,
             });
         }
         sessions.insert(canonical.clone(), prepared);
