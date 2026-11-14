@@ -22,6 +22,8 @@ policy resolution. PHP Embed, FCGI, Lua, Upstream and Broadcast supply optional 
 from their own crates; native engine/Runner use does not require Edge. Link
 remains native in Edge.
 
+[ALPN_ROUTING](ALPN_ROUTING.md) defines how a TLS connection reaches a
+pipeline, before the first request;
 [EDGE_BACKENDS](EDGE_BACKENDS.md) defines request handoff;
 [LIFETIME_POLICY](LIFETIME_POLICY.md) defines preparation and publication.
 

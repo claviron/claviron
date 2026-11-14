@@ -12,6 +12,9 @@ contracts, not protocol standards or chronological decision records.
 
 - [HOT_PIPELINE](HOT_PIPELINE.md): application composition, host admission and
   boot/reload preparation of active policies and request owners.
+- [ALPN_ROUTING](ALPN_ROUTING.md): the protocol a TLS client offers selects a
+  handshake and a prepared pipeline, before any request; profiles registered
+  by their packages, enabled per host.
 - [EDGE_BACKENDS](EDGE_BACKENDS.md): application execution and forwarding owners;
   HTTP policy, body delivery and protocol boundaries at their pipeline handoff.
 - [EXECUTION_AND_ADMISSION](EXECUTION_AND_ADMISSION.md): where work runs, how
