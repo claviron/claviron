@@ -1,7 +1,6 @@
 use std::convert::Infallible;
 
 use async_trait::async_trait;
-use claviron_runtime::AppState;
 
 use super::{AdmissionError, AdmittedPool, key};
 use crate::clients::{ActiveRequestPolicy, ClientManager, PoolConfig};
@@ -51,16 +50,14 @@ fn a_budget_key_is_the_same_for_every_process_naming_it() {
 
 #[tokio::test]
 async fn a_process_pool_admits_locally() {
-    let state = AppState::standalone("admitted-process", ".");
     let pool =
-        AdmittedPool::new(&state, "test", Numbers, &config("process")).unwrap();
+        AdmittedPool::new(None, "test", Numbers, &config("process")).unwrap();
     let lease = pool.acquire(ActiveRequestPolicy::Preserve).await.unwrap();
     assert_eq!(**lease, 7);
 }
 
 #[test]
 fn a_fleet_pool_without_the_table_is_refused_not_narrowed() {
-    let state = AppState::standalone("admitted-fleet", ".");
-    let refused = AdmittedPool::new(&state, "test", Numbers, &config("fleet"));
+    let refused = AdmittedPool::new(None, "test", Numbers, &config("fleet"));
     assert!(matches!(refused, Err(AdmissionError::FleetUnavailable(_))));
 }

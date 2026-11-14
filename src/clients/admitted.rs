@@ -11,7 +11,6 @@ use std::time::Duration;
 
 use claviron_orbit::ClientAdmissionProvider;
 use claviron_orbit::client_admission::{AdmissionPermit, Key};
-use claviron_runtime::AppState;
 
 use super::config::{PoolConfig, PoolScope};
 use super::{
@@ -81,12 +80,14 @@ impl<M: ClientManager> AdmittedPool<M>
 where
     M::Error: std::error::Error + 'static,
 {
-    /// Build the pool `config` declares. `name` keys the fleet budget: the
-    /// consumer and the remote side whose limit it is, such as `acme` and a
-    /// CA's directory URL. Every process naming the same key shares one
+    /// Build the pool `config` declares. `admission` is the fleet's table,
+    /// resolved from the registry where the application registered it
+    /// (`claviron::orbit::register_client_admission`); `scope: fleet` needs
+    /// it. `name` keys the fleet budget: the consumer and the remote side
+    /// whose limit it is. Every process naming the same key shares one
     /// budget and must declare the same `max_concurrency`.
     pub fn new(
-        state: &AppState,
+        admission: Option<Arc<ClientAdmissionProvider>>,
         name: &str,
         manager: M,
         config: &PoolConfig,
@@ -95,10 +96,8 @@ where
         let fleet = match config.scope {
             PoolScope::Process => None,
             PoolScope::Fleet => {
-                let provider = state
-                    .registry_ref()
-                    .resolve::<ClientAdmissionProvider>()
-                    .ok_or(AdmissionError::FleetUnavailable(
+                let provider =
+                    admission.ok_or(AdmissionError::FleetUnavailable(
                         "this process did not register",
                     ))?;
                 let max_concurrency = u32::try_from(config.max_concurrency)
