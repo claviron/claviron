@@ -31,7 +31,7 @@ tls = [
 # together.
 quic = [
     "dep:h3", "dep:h3-webtransport", "dep:h3-quinn", "dep:quinn",
-    "dep:quinn-deferred-config", "dep:rustls", "dep:claviron-sys",
+    "dep:rustls", "dep:claviron-sys",
     "dep:claviron-tls", "dep:claviron-types", "claviron-types/ssl",
     "claviron-http/http3",
 ]
@@ -82,7 +82,6 @@ fastwebsockets = { workspace = true, optional = true, features = ["upgrade"] }
 h3 = { workspace = true, optional = true }
 h3-quinn = { workspace = true, features = ["datagram"], optional = true }
 quinn = { workspace = true, optional = true, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
-quinn-deferred-config = { workspace = true, optional = true, features = ["rustls-aws-lc-rs"] }
 rustls = { workspace = true, optional = true, features = ["std"] }
 h3-webtransport = { workspace = true, optional = true }
 

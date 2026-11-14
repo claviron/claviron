@@ -18,7 +18,7 @@ default = []
 # One access record per request, to the log channel logging.yaml names.
 access-log = ["dep:claviron-logging", "claviron-logging/pipeline"]
 # Optional Rust application adapter.
-axum = ["dep:axum", "claviron-http/axum"]
+axum = ["dep:axum", "dep:tower", "claviron-http/axum"]
 metrics = ["claviron-http/metrics"]
 # H1 upgrades answered by endpoints a host registered, ahead of its applications.
 websocket = ["claviron-http/websocket"]
@@ -64,7 +64,7 @@ serde_yaml.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, optional = true, features = ["io-util", "macros", "rt", "sync", "time"] }
 tokio-util = { workspace = true, features = ["rt"] }
-tower = { workspace = true, features = ["util"] }
+tower = { workspace = true, optional = true, features = ["util"] }
 tracing.workspace = true
 
 [dev-dependencies]

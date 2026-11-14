@@ -36,7 +36,7 @@ rate-limit = ["http", "dep:claviron-orbit", "claviron-orbit/quota", "claviron-ht
 axum = ["http", "claviron-http/axum", "dep:axum", "claviron-edge?/axum", "claviron-files?/axum", "claviron-pipeline?/axum", "claviron-transport?/axum"]
 warp = ["http", "dep:warp", "claviron-http/warp", "claviron-edge?/warp"]
 # Native benchmark handlers. Adapt existing compositions without selecting one.
-bench = ["axum", "dep:serde", "dep:async-trait", "pipeline", "dep:claviron-types", "tokio/time"]
+bench = ["axum", "dep:serde", "dep:async-trait", "pipeline", "dep:claviron-types", "dep:tokio", "tokio/time", "dep:tracing"]
 logging = ["dep:claviron-logging"]
 # Declared log channels (logging.yaml): records buffered in an Orbit ring and
 # written by one writer per fleet. See crates/logging/ARCHITECTURE.md.
@@ -73,6 +73,8 @@ server = [
     "runtime",
     "orbit",
     "sys",
+    "dep:tokio",
+    "dep:tracing",
     "tokio/macros",
     "tokio/rt",
     "tokio/signal",
@@ -187,7 +189,7 @@ claviron-upstream = { workspace = true, optional = true }
 
 # ── Async runtime & primitives ──────────────────────────────────────────
 async-trait = { workspace = true, optional = true }
-tokio.workspace = true
+tokio = { workspace = true, optional = true }
 tokio-util = { workspace = true, optional = true, features = ["rt"] }
 
 # ── Serialization & parsing ─────────────────────────────────────────────
@@ -211,7 +213,7 @@ time = { workspace = true, features = ["formatting"] }
 
 # ── Logging / errors / diagnostics ──────────────────────────────────────
 thiserror.workspace = true
-tracing.workspace = true
+tracing = { workspace = true, optional = true }
 
 # ── HTTP/3 (QUIC) ───────────────────────────────────────────────────────
 quinn = { workspace = true, optional = true, features = ["runtime-tokio", "rustls-aws-lc-rs"] }
