@@ -64,6 +64,7 @@ pub struct SessionPlan<'a> {
 }
 
 impl<'a> SessionPlan<'a> {
+    #[cfg(all(feature = "tcp", feature = "tls"))]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         state: &'a AppState,
