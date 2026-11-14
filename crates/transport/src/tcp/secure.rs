@@ -27,6 +27,7 @@ use claviron_tls::Proto::{self, H1, H2};
 use claviron_types::ssl::peer::peer_identity;
 use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio_rustls::LazyConfigAcceptor;
 use tokio_rustls::rustls;
@@ -48,12 +49,17 @@ pub trait Secure: TcpListenerSnapshot + Send + Sync + 'static {
     /// The listener's socket, protocol and handshake settings.
     fn config(&self) -> &TcpListenerConfig;
 
-    /// Choose the TLS configuration and the connection's host from the
-    /// server name the client offered. An error refuses the handshake.
+    /// Choose how to accept the offered SNI and ALPNs. An error refuses
+    /// the handshake.
     fn select(
         self: &Arc<Self>,
-        server_name: Option<&str>,
-    ) -> io::Result<(Arc<rustls::ServerConfig>, Self::Host)>;
+        hello: rustls::server::ClientHello<'_>,
+    ) -> io::Result<Selection<Self::Host>>;
+}
+
+pub enum Selection<H> {
+    Http(Arc<rustls::ServerConfig>, H),
+    HandshakeOnly(Arc<rustls::ServerConfig>),
 }
 
 /// The owner a TLS connection was accepted for.
@@ -218,9 +224,9 @@ impl<O: Owner> Secure for Single<O> {
     }
     fn select(
         self: &Arc<Self>,
-        _server_name: Option<&str>,
-    ) -> io::Result<(Arc<rustls::ServerConfig>, Self::Host)> {
-        Ok((self.tls.clone(), SingleHost(self.clone())))
+        _hello: rustls::server::ClientHello<'_>,
+    ) -> io::Result<Selection<Self::Host>> {
+        Ok(Selection::Http(self.tls.clone(), SingleHost(self.clone())))
     }
 }
 
@@ -265,12 +271,11 @@ struct AcceptedTls<H> {
     host: H,
 }
 
-/// Read the ClientHello, let the snapshot select configuration and host from
-/// its server name, then complete the handshake with that configuration.
+/// Read the ClientHello and complete the selected handshake.
 async fn accept<S: Secure>(
     snapshot: &Arc<S>,
     stream: TcpStream,
-) -> io::Result<AcceptedTls<S::Host>> {
+) -> io::Result<Option<AcceptedTls<S::Host>>> {
     let (stream, errors) = TcpIo::split(stream);
     let start =
         LazyConfigAcceptor::new(rustls::server::Acceptor::default(), stream)
@@ -284,8 +289,18 @@ async fn accept<S: Secure>(
         }),
         "TLS ClientHello ALPN offered",
     );
-    let (config, host) = snapshot.select(hello.server_name())?;
-    Ok(AcceptedTls { stream: start.into_stream(config).await?, errors, host })
+    match snapshot.select(hello)? {
+        Selection::Http(config, host) => Ok(Some(AcceptedTls {
+            stream: start.into_stream(config).await?,
+            errors,
+            host,
+        })),
+        Selection::HandshakeOnly(config) => {
+            let mut stream = start.into_stream(config).await?;
+            stream.shutdown().await?;
+            Ok(None)
+        }
+    }
 }
 
 /// Decide HTTP protocol (H1/H2) using negotiated ALPN and per-host RequestPolicy
@@ -482,7 +497,8 @@ pub async fn serve<S: Secure>(
     };
 
     match tls_result {
-        Ok(Ok(accepted)) => {
+        Ok(Ok(None)) => {}
+        Ok(Ok(Some(accepted))) => {
             let tls_stream = accepted.stream;
             debug!(
                 "🔐 TLS handshake complete, client connected from {}",

@@ -21,11 +21,13 @@ use claviron_runtime::registry::{
     Component, Error, Reloadable, Resolve, priority,
 };
 use claviron_runtime::{AppState, Register, RunContext, RunnableInstance};
+use claviron_tls::handshake::HandshakeSelector;
 use claviron_tls::orbit::{FleetServerSessions, FleetServerSessionsProvider};
 use claviron_tls::resolver::CertResolver;
 use claviron_tls::revocation::Revocations;
 use claviron_transport::instances::ListenerInstances;
 use claviron_transport::listener::Listener;
+use claviron_transport::tcp::secure::Selection;
 use tracing::info;
 
 use super::tls::TlsAccept;
@@ -34,6 +36,7 @@ pub(crate) struct ServerSnapshot {
     pub(crate) listener: Arc<ListenerConfig>,
     pub(crate) config: TcpListenerConfig,
     pub(crate) tls_accept: TlsAccept,
+    handshake_selector: Option<Arc<dyn HandshakeSelector>>,
     state: AppState,
 }
 impl claviron_transport::tcp::listener::TcpListenerSnapshot for ServerSnapshot {
@@ -49,10 +52,16 @@ impl claviron_transport::tcp::secure::Secure for ServerSnapshot {
     }
     fn select(
         self: &Arc<Self>,
-        server_name: Option<&str>,
-    ) -> std::io::Result<(Arc<rustls::ServerConfig>, Self::Host)> {
-        let (config, vctx) = self.tls_accept.select(server_name)?;
-        Ok((
+        hello: rustls::server::ClientHello<'_>,
+    ) -> std::io::Result<Selection<Self::Host>> {
+        if let Some(selector) = &self.handshake_selector
+            && let Some(config) =
+                selector.select(self.listener.id.as_str(), &hello)?
+        {
+            return Ok(Selection::HandshakeOnly(config));
+        }
+        let (config, vctx) = self.tls_accept.select(hello.server_name())?;
+        Ok(Selection::Http(
             config,
             super::conn::SelectedHost {
                 vctx,
@@ -261,6 +270,8 @@ pub(crate) fn build_snapshots(
     previous: Option<&ServerSnapshot>,
 ) -> Result<BTreeMap<ListenerId, Arc<ServerSnapshot>>, Error> {
     let mut groups = BTreeMap::new();
+    let handshake_selector =
+        state.registry_ref().resolve_dyn::<dyn HandshakeSelector>();
     for (id, listener) in &http.listeners {
         let ListenerSettings::Tcp(config) = &listener.settings else {
             continue;
@@ -281,6 +292,7 @@ pub(crate) fn build_snapshots(
                 listener: listener.clone(),
                 config: config.clone(),
                 tls_accept,
+                handshake_selector: handshake_selector.clone(),
                 state: state.clone(),
             }),
         );
