@@ -35,6 +35,9 @@ contracts, not protocol standards or chronological decision records.
   lifetime; an absent deadline grants no implicit termination authority.
 - [HOT_CLIENT_POOL](HOT_CLIENT_POOL.md): retain usable protocol clients and
   maintain explicit warm capacity rather than repeating setup per operation.
+- [FLEET_CLIENT_ADMISSION](FLEET_CLIENT_ADMISSION.md): one request budget
+  shared by the fleet in shared memory, physical clients kept in each process;
+  a proposal.
 - [WORKER_ADOPTION](WORKER_ADOPTION.md): preserve surviving workers through an
   explicit identity-checked ownership transfer.
 - [INCARNATION_MASKING](INCARNATION_MASKING.md): keep logical roles stable while
