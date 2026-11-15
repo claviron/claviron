@@ -15,11 +15,15 @@ has its own contract in [Graceful ownership](GRACEFUL_OWNERSHIP.md).
 
 | Stage | What belongs there |
 | --- | --- |
-| Compile time | Select optional capabilities and types; establish layouts that communicating binaries must agree on. |
+| Compile time | Select optional capabilities and types; establish layouts that communicating binaries must agree on. Use its stages, each in the crate that owns it: dependency resolution, build script, macro expansion, constant evaluation, monomorphization, linking. |
 | Boot | Resolve configuration and provider dependencies, validate declarations, prepare application bindings and resource owners. |
 | Reload / publication | Prepare changed configuration and application generations before publishing them to readers. |
 | Connection acceptance | Select connection-owned TLS, host and session capabilities. |
 | Request / operation | Check facts that belong to this request and execute it against prepared state. |
+
+The application's compile is not Claviron's. `claviron::runtime::VERSION` is
+Claviron's version; the application's comes from
+`application_build::register!`, which expands in the application.
 
 These are places to put work, not a demand to make every value static. A
 configuration-dependent decision cannot be moved to compilation merely to
