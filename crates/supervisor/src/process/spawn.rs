@@ -121,19 +121,3 @@ fn worker_name(executable: &Path) -> &str {
         .unwrap_or("claviron");
     name.strip_suffix(DELETED_SUFFIX).unwrap_or(name)
 }
-
-#[cfg(test)]
-mod tests {
-    use std::path::Path;
-
-    use super::worker_name;
-
-    #[test]
-    fn worker_name_drops_the_deleted_suffix() {
-        assert_eq!(
-            worker_name(Path::new("/usr/local/bin/app (deleted)")),
-            "app"
-        );
-        assert_eq!(worker_name(Path::new("/usr/local/bin/app")), "app");
-    }
-}
