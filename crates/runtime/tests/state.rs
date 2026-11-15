@@ -91,3 +91,13 @@ fn fleet_name_is_independent_from_instance_name() {
     assert_eq!(isolated.fleet_name(), "python-dev");
     assert_ne!(edge.name(), medusa.name());
 }
+
+#[test]
+fn application_build_registers_once_per_process() {
+    let state = State::standalone_in_fleet("edge", "example", ".");
+    crate::application_build::register!(state).unwrap();
+
+    // Expanded in this crate, so this crate's version.
+    assert_eq!(crate::application_build::version(&state), Some(crate::VERSION));
+    assert!(crate::application_build::register!(state).is_err());
+}

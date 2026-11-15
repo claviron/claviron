@@ -19,7 +19,7 @@ mod server_name;
 mod state;
 
 pub mod activity;
-mod application_build;
+pub mod application_build;
 pub use application_build::ApplicationBuild;
 
 /// Version of the Claviron runtime, distinct from its embedding application.

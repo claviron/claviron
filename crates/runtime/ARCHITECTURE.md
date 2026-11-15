@@ -217,8 +217,12 @@ generations. Runtime knows no socket, host, protocol or bind policy.
 Management can read `runtime_started_at` and monotonic `runtime_uptime` from
 AppState. Both describe the responding process's runtime and survive reload;
 neither is a worker-side estimate of the master's lifetime. `ApplicationBuild`
-is optional, application-registered version metadata. `runtime::VERSION`
-identifies Claviron itself, never the application.
+is optional, application-registered version metadata.
+`application_build::register!(state)` builds it in the calling crate, so the
+version is the application's, and registers it from the application's
+bootstrap. It is a macro because a function in this crate would read the
+runtime's own package version.
+`runtime::VERSION` identifies Claviron itself, never the application.
 
 The intended public split is:
 
