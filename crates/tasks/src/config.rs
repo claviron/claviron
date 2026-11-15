@@ -356,7 +356,11 @@ pub struct TaskConfig {
     #[serde(default)]
     pub timing: TaskTiming,
 
-    #[serde(default = "default_one")]
+    /// Instances of the task each eligible process runs side by side, numbered
+    /// 1 to N (`task_worker_number`). `instances` is accepted as its other
+    /// name, the word an application's own configuration uses for the same
+    /// thing. Omission runs one.
+    #[serde(default = "default_one", alias = "instances")]
     pub concurrency: u8,
 
     /// Maximum total attempts for one execution. Accepts a positive integer

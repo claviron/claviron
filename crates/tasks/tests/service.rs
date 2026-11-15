@@ -1878,3 +1878,12 @@ async fn audit_lifecycle_completion_selects_only_reload_targets_and_explicit_run
     service.wait_all_stopped(None).await;
     assert_eq!(service.running_tasks_count(), 0);
 }
+
+#[test]
+fn instances_names_a_tasks_concurrency() {
+    let config: TaskServiceConfig = serde_yaml::from_str(
+        "tasks:\n  worker:\n    timing: { kind: daemon }\n    instances: 3\n",
+    )
+    .expect("instances is concurrency's other name");
+    assert_eq!(config.tasks["worker"].concurrency, 3);
+}
