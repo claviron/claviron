@@ -1,4 +1,5 @@
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::Command;
 use std::sync::Arc;
 
@@ -61,17 +62,17 @@ pub(crate) fn spawn_worker(
     let executable = std::env::current_exe().map_err(|error| {
         Error::worker(id, format!("failed to prepare worker command: {error}"))
     })?;
-    let name = executable
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("claviron");
-    let mut cmd = Command::new(&executable);
+    let name = worker_name(&executable);
+    let mut cmd = Command::new(worker_program(&executable));
     cmd.arg0(format!("{name} [worker #{id}]"));
     bootstrap.apply_to(&mut cmd)?;
     descriptors.attach(&mut cmd);
 
     let child = cmd.spawn().map_err(|e| {
-        Error::service(format!("Worker #{id} failed to spawn {}", e))
+        Error::service(format!(
+            "Worker #{id} failed to spawn {}: {e}",
+            executable.display()
+        ))
     })?;
 
     // Every path that creates a worker process comes through here; the
@@ -87,4 +88,52 @@ pub(crate) fn spawn_worker(
         WorkerIntent::EnsureRunning,
     )
     .with_incarnation(incarnation))
+}
+
+/// Linux marks the executable link of a process whose file was replaced or
+/// removed with this suffix.
+const DELETED_SUFFIX: &str = " (deleted)";
+
+/// The program a worker executes.
+///
+/// On Linux this is `/proc/self/exe`, the image the master is running. It
+/// stays valid after the file at the master's path was replaced or removed,
+/// as an upgrade does while the fleet runs. `current_exe()` reads the same
+/// link as text and returns `<path> (deleted)` then, which no file has, so
+/// spawning it fails with ENOENT; spawning the replacement file instead
+/// would start a worker from another build than its master.
+#[cfg(target_os = "linux")]
+fn worker_program(_executable: &Path) -> &Path {
+    Path::new("/proc/self/exe")
+}
+
+#[cfg(not(target_os = "linux"))]
+fn worker_program(executable: &Path) -> &Path {
+    executable
+}
+
+/// The executable's file name for the worker's `argv[0]`, without the
+/// suffix Linux adds once the file is gone.
+fn worker_name(executable: &Path) -> &str {
+    let name = executable
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("claviron");
+    name.strip_suffix(DELETED_SUFFIX).unwrap_or(name)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use super::worker_name;
+
+    #[test]
+    fn worker_name_drops_the_deleted_suffix() {
+        assert_eq!(
+            worker_name(Path::new("/usr/local/bin/app (deleted)")),
+            "app"
+        );
+        assert_eq!(worker_name(Path::new("/usr/local/bin/app")), "app");
+    }
 }
