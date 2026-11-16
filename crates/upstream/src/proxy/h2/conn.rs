@@ -151,6 +151,18 @@ where
         tracing::debug!(source = %origin.source, error = %err, "upstream h2 handshake failed");
         OriginReachabilityFailure::handshake(crate::config::profile::UpstreamProtocol::H2)
     })?;
+    match pool.upgrade() {
+        Some(pool) => tracing::info!(
+            origin = pool.label(),
+            conn = conn_id,
+            "upstream h2 connection opened"
+        ),
+        None => tracing::info!(
+            source = %origin.source,
+            conn = conn_id,
+            "upstream h2 connection opened"
+        ),
+    }
     let driver = tasks.spawn(async move {
         let drive = std::future::poll_fn(|cx| {
             let result = std::pin::Pin::new(&mut conn).poll(cx);
