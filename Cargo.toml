@@ -5,7 +5,7 @@ categories = ["web-programming::http-server", "asynchronous", "network-programmi
 description = "Build around your application. Run existing apps alongside Rust and move one route at a time."
 authors.workspace = true
 edition.workspace = true
-version = "0.2.6"
+version = "0.2.7"
 publish.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -412,17 +412,17 @@ claviron-hosting = { version = "0.2.6", path = "crates/hosting" }
 claviron-http = { version = "0.2.6", path = "crates/http" }
 claviron-logging = { version = "0.2.6", path = "crates/logging" }
 claviron-macros = { version = "0.2.6", path = "crates/macros" }
-claviron-orbit = { version = "0.2.6", path = "crates/orbit" }
+claviron-orbit = { version = "0.2.7", path = "crates/orbit" }
 claviron-pipeline = { version = "0.2.6", path = "crates/pipeline" }
 claviron-resolver = { version = "0.2.6", path = "crates/resolver", default-features = false }
-claviron-runtime = { version = "0.2.6", path = "crates/runtime" }
-claviron-supervisor = { version = "0.2.6", path = "crates/supervisor" }
+claviron-runtime = { version = "0.2.7", path = "crates/runtime" }
+claviron-supervisor = { version = "0.2.7", path = "crates/supervisor" }
 claviron-sys = { version = "0.2.6", path = "crates/sys" }
 claviron-tasks = { version = "0.2.6", path = "crates/tasks" }
 claviron-tls = { version = "0.2.6", path = "crates/tls", default-features = false }
 claviron-transport = { version = "0.2.6", path = "crates/transport" }
 claviron-types = { version = "0.2.6", path = "crates/types", default-features = false }
-claviron-upstream = { version = "0.2.6", path = "crates/upstream" }
+claviron-upstream = { version = "0.2.7", path = "crates/upstream" }
 # ── Async runtime & primitives ───────────────────────────────────────
 arc-swap = "1.9"
 async-trait = "0.1"
