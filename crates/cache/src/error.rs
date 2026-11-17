@@ -26,6 +26,22 @@ pub enum Error {
     #[error("cache rejected: {0}")]
     Rejected(String),
 
+    /// A tagged operation on a store whose
+    /// [`CacheRepository::supports_tags`](crate::CacheRepository::supports_tags)
+    /// is false. Its untagged operations are unaffected.
+    #[error("cache store '{store}' (driver '{driver}') does not support tags")]
+    TagsUnsupported { store: Box<str>, driver: Box<str> },
+
+    /// More tags than the store keeps on one entry or names in one
+    /// invalidation. `max` can be below the store's general bound when a long
+    /// key leaves less room; nothing was written.
+    #[error("too many cache tags: {count} > {max}")]
+    TooManyTags { count: usize, max: usize },
+
+    /// A tag invalidation must name at least one tag.
+    #[error("a cache tag invalidation must name at least one tag")]
+    TagsEmpty,
+
     #[error("cache other: {0}")]
     Other(String),
 }
@@ -58,7 +74,17 @@ impl From<&str> for Error {
 #[cfg(feature = "orbit")]
 impl From<claviron_orbit::cache::Error> for Error {
     fn from(value: claviron_orbit::cache::Error) -> Self {
-        Self::wrap("Orbit cache operation failed", value)
+        use claviron_orbit::cache::Error as Orbit;
+        match value {
+            Orbit::TooManyTags { count, max } => {
+                Self::TooManyTags { count, max }
+            }
+            Orbit::TagsEmpty => Self::TagsEmpty,
+            Orbit::TagsUnsupported { store, .. } => {
+                Self::TagsUnsupported { store, driver: "orbit".into() }
+            }
+            other => Self::wrap("Orbit cache operation failed", other),
+        }
     }
 }
 
@@ -78,6 +104,10 @@ impl IntoResponse for Error {
             Error::Rejected(message) => (
                 axum::http::StatusCode::NOT_IMPLEMENTED,
                 json!({ "error": message }),
+            ),
+            error @ Error::TagsUnsupported { .. } => (
+                axum::http::StatusCode::NOT_IMPLEMENTED,
+                json!({ "error": error.to_string() }),
             ),
             other => (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,

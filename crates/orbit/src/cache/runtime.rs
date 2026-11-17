@@ -14,7 +14,8 @@ use claviron_runtime::registry::{
 use claviron_runtime::{AppState, RunContext};
 use orbitive::cache::{
     Cache, CacheLayout, CachePoll, CacheRead, CacheRevision,
-    DefaultCacheLayout, SHARED_CACHE_KIND, SharedCache, SharedStore, Store,
+    DefaultCacheLayout, SHARED_CACHE_KIND, SHARED_TAG_KIND, SharedCache,
+    SharedStore, Store,
 };
 use orbitive::{Fleet, OrbitTyped, RingSpec};
 use tokio::runtime::Handle;
@@ -23,9 +24,10 @@ use tracing::warn;
 
 use crate::shm::{
     ExistingBootPolicy, FinalizePolicy, ManagedShmProvider, ManagedShmResource,
-    ManagedShmResources, OrbitRingResource,
+    ManagedShmResources, OrbitRingResource, PhysicalShmState, ShmCreateOutcome,
+    ShmResourceDescriptor, ShmShape,
 };
-use crate::{FleetProvider, shm};
+use crate::{FleetProvider, OrbitStateExt, shm};
 
 #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
 const FALLBACK_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -87,9 +89,103 @@ impl ManagedShmResources for CacheShmResources {
     }
 }
 
+/// The shared cache table's tag floors (kind 171). They belong with the
+/// table (kind 172): a table recreated under retained records would forget
+/// their invalidations, so Orbitive stamps every tagged record with the
+/// floors' instance and treats another instance's records as misses.
+/// Neither segment is reset or unlinked here; `SharedCache::unlink` removes
+/// both together.
+pub(crate) struct SharedTagResources;
+
+const SHARED_TAG_PROVIDER: &str = "SharedCacheTagProvider";
+
+impl ManagedShmResources for SharedTagResources {
+    fn name(&self) -> &'static str {
+        SHARED_TAG_PROVIDER
+    }
+
+    fn boot_priority(&self) -> Option<u8> {
+        Some(priority::EARLY)
+    }
+
+    // Opening the floors opens their table too, which its own provider
+    // decides first.
+    fn order(&self) -> ComponentOrder {
+        ComponentOrder::new().after::<ManagedShmProvider<
+            crate::arena::ArenaResources<SHARED_CACHE_KIND>,
+        >>()
+    }
+
+    fn enabled(
+        &self,
+        state: &AppState,
+    ) -> bool {
+        state
+            .registry_ref()
+            .resolve::<CacheService>()
+            .is_some_and(|cache| cache.has_shm_stores())
+    }
+
+    fn shm_resources(&self) -> Vec<&dyn ManagedShmResource> {
+        vec![self]
+    }
+}
+
+#[async_trait]
+impl ManagedShmResource for SharedTagResources {
+    fn descriptor(&self) -> ShmResourceDescriptor {
+        ShmResourceDescriptor {
+            provider: SHARED_TAG_PROVIDER,
+            resource: "shared-cache-tag-floors",
+            shape: ShmShape::OrbitTable,
+            orbit_kind: Some(SHARED_TAG_KIND),
+            existing_boot: ExistingBootPolicy::Reuse,
+            finalize: FinalizePolicy::Preserve,
+        }
+    }
+
+    fn validate_physical(
+        &self,
+        state: &AppState,
+    ) -> registry::Result<PhysicalShmState> {
+        let fleet = shared_fleet(state)?;
+        let name =
+            orbitive::shm::ring_segment_name(fleet.name(), SHARED_TAG_KIND);
+        Ok(orbitive::shm::ShmRegion::validate_existing(&name, 64)?.into())
+    }
+
+    fn create_or_reuse(
+        &self,
+        state: &AppState,
+    ) -> registry::Result<ShmCreateOutcome> {
+        self.reuse(state)?;
+        Ok(ShmCreateOutcome::Opened)
+    }
+
+    /// Orbitive opens the floors only with their table, and checks the
+    /// floors' header and geometry as it does.
+    fn reuse(
+        &self,
+        state: &AppState,
+    ) -> registry::Result<()> {
+        SharedCache::new(shared_fleet(state)?).map(drop).map_err(|error| {
+            registry::Error::msg(format!(
+                "shared cache tag floors failed to open: {error}"
+            ))
+        })
+    }
+}
+
+fn shared_fleet(state: &AppState) -> registry::Result<Arc<Fleet>> {
+    state
+        .fleet()
+        .ok_or_else(|| registry::Error::msg("Orbit fleet is unavailable"))
+}
+
 pub(crate) fn register_shm(state: &AppState) -> registry::Result<()> {
     crate::arena::register_cache_arenas(state)?;
-    shm::register(state, CacheShmResources::new())
+    shm::register(state, CacheShmResources::new())?;
+    shm::register(state, SharedTagResources)
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -101,8 +197,25 @@ pub enum Error {
     Primitive(orbitive::cache::Error),
     Orbit(orbitive::Error),
     Io(std::io::Error),
-    Backing { operation: &'static str, message: String },
+    Backing {
+        operation: &'static str,
+        message: String,
+    },
     Rejected(String),
+    /// More tags than one entry or invalidation carries, or than a
+    /// replicated mutation frame has room for beside the store name and key.
+    TooManyTags {
+        count: usize,
+        max: usize,
+    },
+    /// An invalidation must name at least one tag.
+    TagsEmpty,
+    /// A tagged operation on a store with a backing store, which cannot
+    /// record tags or their invalidations.
+    TagsUnsupported {
+        store: Box<str>,
+        backing: Box<str>,
+    },
 }
 
 impl fmt::Display for Error {
@@ -127,6 +240,16 @@ impl fmt::Display for Error {
             Self::Rejected(message) => {
                 write!(f, "Orbit cache rejected: {message}")
             }
+            Self::TooManyTags { count, max } => {
+                write!(f, "too many cache tags: {count} > {max}")
+            }
+            Self::TagsEmpty => {
+                f.write_str("a cache tag invalidation must name a tag")
+            }
+            Self::TagsUnsupported { store, backing } => write!(
+                f,
+                "Orbit cache store '{store}' does not support tags: its backing store '{backing}' cannot record them"
+            ),
         }
     }
 }
@@ -144,7 +267,13 @@ impl StdError for Error {
 
 impl From<orbitive::cache::Error> for Error {
     fn from(value: orbitive::cache::Error) -> Self {
-        Self::Primitive(value)
+        match value {
+            orbitive::cache::Error::TooManyTags { count, max } => {
+                Self::TooManyTags { count, max }
+            }
+            orbitive::cache::Error::TagsEmpty => Self::TagsEmpty,
+            other => Self::Primitive(other),
+        }
     }
 }
 
@@ -249,6 +378,9 @@ impl Primitive {
         }
     }
 
+    /// Keep a backing value untagged. That is exact, not a loss: only a
+    /// store with a backing store fills, and such a store refuses tagged
+    /// writes, so its backing store holds no tagged value.
     fn fill(
         &self,
         key: &[u8],
@@ -295,6 +427,35 @@ impl Primitive {
                 store.put(key, value, ttl)?;
             }
             Self::Shm(store) => store.put(key, value, ttl)?,
+        }
+        Ok(())
+    }
+
+    fn put_tagged(
+        &self,
+        key: &[u8],
+        value: &[u8],
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> Result<()> {
+        match self {
+            Self::Replicated(store) => {
+                store.put_tagged(key, value, ttl, tags)?;
+            }
+            Self::Shm(store) => store.put_tagged(key, value, ttl, tags)?,
+        }
+        Ok(())
+    }
+
+    fn invalidate_tags(
+        &self,
+        tags: &[&str],
+    ) -> Result<()> {
+        match self {
+            Self::Replicated(store) => {
+                store.invalidate_tags(tags)?;
+            }
+            Self::Shm(store) => store.invalidate_tags(tags)?,
         }
         Ok(())
     }
@@ -757,6 +918,7 @@ impl Component<AppState> for CacheService {
             .after::<ManagedShmProvider<CacheShmResources>>()
             .after::<crate::arena::ArenaProvider>()
             .after::<ManagedShmProvider<crate::arena::ArenaResources<SHARED_CACHE_KIND>>>()
+            .after::<ManagedShmProvider<SharedTagResources>>()
     }
 
     fn as_runnable(
@@ -857,6 +1019,26 @@ impl CacheRuntime {
         self.state.backing().is_none_or(|backing| backing.supports_ttl())
     }
 
+    /// Whether [`Self::put_tagged`] and [`Self::invalidate_tags`] are
+    /// accepted: in both modes, while the store has no backing store.
+    ///
+    /// A backing store holds values without their tags and does not record
+    /// invalidations, so a miss after an invalidation would read the
+    /// invalidated value back from it, filled or not.
+    pub fn supports_tags(&self) -> bool {
+        self.state.backing().is_none()
+    }
+
+    fn refuse_tags_with_backing(&self) -> Result<()> {
+        match self.state.backing() {
+            None => Ok(()),
+            Some(backing) => Err(Error::TagsUnsupported {
+                store: self.state.name.as_str().into(),
+                backing: backing.store_name().into(),
+            }),
+        }
+    }
+
     /// Inspect the configured Orbit tier directly, without consulting L2.
     pub fn read_local(
         &self,
@@ -935,6 +1117,35 @@ impl CacheRuntime {
         Ok(())
     }
 
+    /// Put a value that [`Self::invalidate_tags`] of any of `tags` makes a
+    /// miss in every process of the fleet. An empty set is an untagged put.
+    /// Refused with [`Error::TagsUnsupported`] on a store with a backing
+    /// store, and with [`Error::TooManyTags`] beyond Orbitive's per-entry
+    /// bound or the room the key leaves in a replicated mutation frame.
+    pub async fn put_tagged(
+        &self,
+        key: &str,
+        value: &[u8],
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> Result<()> {
+        let store = self.state.primitive()?;
+        self.refuse_tags_with_backing()?;
+        store.put_tagged(key.as_bytes(), value, ttl, tags)
+    }
+
+    /// Make every entry carrying any of `tags`, written before this call, a
+    /// miss in every process of the fleet, as one operation. Refused like
+    /// [`Self::put_tagged`]; an empty set is [`Error::TagsEmpty`].
+    pub async fn invalidate_tags(
+        &self,
+        tags: &[&str],
+    ) -> Result<()> {
+        let store = self.state.primitive()?;
+        self.refuse_tags_with_backing()?;
+        store.invalidate_tags(tags)
+    }
+
     pub async fn forget(
         &self,
         key: &str,
@@ -976,6 +1187,25 @@ impl CacheRuntime {
         ttl: Option<Duration>,
     ) -> Result<()> {
         self.service.runtime_handle()?.block_on(self.put(key, value, ttl))
+    }
+
+    pub fn put_tagged_sync(
+        &self,
+        key: &str,
+        value: &[u8],
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> Result<()> {
+        self.service
+            .runtime_handle()?
+            .block_on(self.put_tagged(key, value, ttl, tags))
+    }
+
+    pub fn invalidate_tags_sync(
+        &self,
+        tags: &[&str],
+    ) -> Result<()> {
+        self.service.runtime_handle()?.block_on(self.invalidate_tags(tags))
     }
 
     pub fn forget_sync(

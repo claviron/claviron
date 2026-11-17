@@ -17,6 +17,7 @@ use crate::drivers::memory::MemoryCacheStore;
 use crate::error::{Error, Result};
 use crate::{
     CacheDriver, CacheExpiry, CacheStore, CacheStoreResolver, CacheValue,
+    TaggedCacheStore,
 };
 
 /// Configured Orbit driver factory.
@@ -254,6 +255,23 @@ impl OrbitCacheStore {
         self.put_sync(key, &value.encode().map_err(Error::from)?, ttl)
     }
 
+    pub fn put_tagged_sync(
+        &self,
+        key: &str,
+        value: &[u8],
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> Result<()> {
+        self.cache.put_tagged_sync(key, value, ttl, tags).map_err(Error::from)
+    }
+
+    pub fn invalidate_tags_sync(
+        &self,
+        tags: &[&str],
+    ) -> Result<()> {
+        self.cache.invalidate_tags_sync(tags).map_err(Error::from)
+    }
+
     pub fn forget_sync(
         &self,
         key: &str,
@@ -309,6 +327,33 @@ impl CacheStore for OrbitCacheStore {
 
     async fn clear(&self) -> Result<()> {
         self.cache.clear().await.map_err(Error::from)
+    }
+
+    /// Both modes keep tags. A store configured with `l2` does not: its
+    /// backing store would return a value after its tag was invalidated.
+    fn tagged(&self) -> Option<&dyn TaggedCacheStore> {
+        (self.l2_name.is_none() && self.cache.supports_tags())
+            .then_some(self as &dyn TaggedCacheStore)
+    }
+}
+
+#[async_trait]
+impl TaggedCacheStore for OrbitCacheStore {
+    async fn put_tagged(
+        &self,
+        key: &str,
+        value: Cow<'_, [u8]>,
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> Result<()> {
+        self.cache.put_tagged(key, &value, ttl, tags).await.map_err(Error::from)
+    }
+
+    async fn invalidate_tags(
+        &self,
+        tags: &[&str],
+    ) -> Result<()> {
+        self.cache.invalidate_tags(tags).await.map_err(Error::from)
     }
 }
 

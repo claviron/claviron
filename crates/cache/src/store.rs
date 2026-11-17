@@ -71,6 +71,44 @@ pub trait CacheStore: Any + Send + Sync + 'static {
             self.driver_name()
         )))
     }
+
+    /// This store's tagged operations, or `None` when it cannot keep tags.
+    ///
+    /// The answer belongs to the built store, not to its driver: one driver
+    /// can build stores that differ, as an Orbit store does with and without
+    /// a backing store. A store answers `Some` only when an invalidation
+    /// reaches every value it can return afterwards, including what a miss
+    /// reads from a lower tier. Untagged operations do not depend on it.
+    fn tagged(&self) -> Option<&dyn TaggedCacheStore> {
+        None
+    }
+}
+
+/// Tagged writes and invalidation by tag for a store that supports them.
+///
+/// Reached through [`CacheStore::tagged`]. These are separate entry points
+/// rather than an optional argument to `put`, so a store without tags refuses
+/// the tagged call instead of silently dropping its tags. Reads are the same
+/// for tagged and untagged entries.
+#[async_trait]
+pub trait TaggedCacheStore: Send + Sync {
+    /// Store `value` under `key` so that [`Self::invalidate_tags`] of any of
+    /// `tags` makes it a miss. An empty set is an untagged put. A set larger
+    /// than the store keeps is [`Error::TooManyTags`]; nothing is truncated.
+    async fn put_tagged(
+        &self,
+        key: &str,
+        value: Cow<'_, [u8]>,
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> crate::Result<()>;
+
+    /// Make every entry carrying any of `tags`, written before this call, a
+    /// miss. An empty set is [`Error::TagsEmpty`].
+    async fn invalidate_tags(
+        &self,
+        tags: &[&str],
+    ) -> crate::Result<()>;
 }
 
 /// Read-only view of the complete candidate store graph during composition.
@@ -159,6 +197,13 @@ impl CacheRepository {
         self.store.supports_ttl()
     }
 
+    /// Whether this store accepts [`Self::put_tagged`] and
+    /// [`Self::invalidate_tags`]. Fixed for the store's life; a reload that
+    /// changes it builds another store, resolved again through the provider.
+    pub fn supports_tags(&self) -> bool {
+        self.store.tagged().is_some()
+    }
+
     pub fn as_any(&self) -> &dyn Any {
         self.store.as_any()
     }
@@ -205,6 +250,40 @@ impl CacheRepository {
         self.put(key, encoded, ttl).await
     }
 
+    /// Store bytes that an invalidation of any of `tags` makes a miss.
+    /// Refused with [`Error::TagsUnsupported`] when [`Self::supports_tags`]
+    /// is false, before anything is written.
+    pub async fn put_tagged<'v>(
+        &self,
+        key: &str,
+        value: impl Into<Cow<'v, [u8]>>,
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> crate::Result<()> {
+        self.tagged()?.put_tagged(key, value.into(), ttl, tags).await
+    }
+
+    pub async fn put_value_tagged(
+        &self,
+        key: &str,
+        value: CacheValue,
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> crate::Result<()> {
+        let tagged = self.tagged()?;
+        let encoded = value.encode().map_err(Error::from)?;
+        tagged.put_tagged(key, encoded.into(), ttl, tags).await
+    }
+
+    /// Make every entry carrying any of `tags` a miss. Refused like
+    /// [`Self::put_tagged`].
+    pub async fn invalidate_tags(
+        &self,
+        tags: &[&str],
+    ) -> crate::Result<()> {
+        self.tagged()?.invalidate_tags(tags).await
+    }
+
     pub async fn forget(
         &self,
         key: &str,
@@ -214,5 +293,12 @@ impl CacheRepository {
 
     pub async fn clear(&self) -> crate::Result<()> {
         self.store.clear().await
+    }
+
+    fn tagged(&self) -> crate::Result<&dyn TaggedCacheStore> {
+        self.store.tagged().ok_or_else(|| Error::TagsUnsupported {
+            store: self.store_name().into(),
+            driver: self.driver_name().into(),
+        })
     }
 }

@@ -16,8 +16,9 @@ it alone does not enable the cache subsystem.
 | Surface | Responsibility |
 | --- | --- |
 | `CacheProvider` | Default-store operations and the active named-store catalog. |
-| `CacheRepository` | One store's byte operations and common typed value codec. |
+| `CacheRepository` | One store's byte operations, its tag capability and common typed value codec. |
 | `CacheStore` | Driver-neutral storage of immutable owning byte buffers. |
+| `TaggedCacheStore` | Tagged writes and invalidation by tag, for a store that supports them. |
 | `CacheDriver` | Construction and validation of stores from their options. |
 | `CacheRegistry` | Driver registration and complete catalog composition. |
 
@@ -67,7 +68,7 @@ stores:
 | | `l2` | A single-tier store read on a miss; a hit is kept with its expiry. |
 | `orbit` | `mode` | `replicated` (default) or `shm`. |
 | | `l1_capacity` | Entries per worker; `replicated` only. |
-| | `l2` | A store every worker can read, such as file or Redis, read on a miss; a replicated store keeps the hit. |
+| | `l2` | A store every worker can read, such as file or Redis, read on a miss; a replicated store keeps the hit. A store with `l2` does not support tags. |
 | `file` | `path` | Directory, relative to the application's working directory. |
 | | `prefix` | Optional key prefix. |
 | `redis` | `connection` | A connection declared in `redis.yaml`. |
@@ -132,6 +133,51 @@ first building an owned JSON tree. `get_value` deliberately returns owned data.
 
 The value envelope is versioned. Do not assume arbitrary old and new binaries
 can share cache namespaces across codec changes without a compatibility plan.
+
+## Tags
+
+A store may support tags: a tagged write, and one call that makes every entry
+carrying any of a set of tags a miss. Ask the resolved store, not its driver:
+
+```rust
+use claviron::cache::{CacheProvider, Result};
+
+async fn cache_profile(cache: &CacheProvider, id: u64, profile: &[u8]) -> Result<()> {
+    let store = cache.store("shared")?;
+    // Refused with Error::TagsUnsupported when `store.supports_tags()` is false.
+    store.put_tagged(&format!("user:{id}"), profile, None, &["users", "team:7"]).await?;
+    // Later, from any worker: every entry tagged `team:7` becomes a miss.
+    store.invalidate_tags(&["team:7"]).await
+}
+```
+
+A caller that cannot rely on tags checks `supports_tags()` first and chooses
+another invalidation for that store, such as `forget` per key or `clear`.
+
+- `supports_tags()` is fixed for a store's life. Tagged operations are
+  separate calls: `put_tagged`, `put_value_tagged` and `invalidate_tags`. A
+  store without tags refuses them with `Error::TagsUnsupported` and writes
+  nothing; its `get`, `put`, `forget` and `clear` work as before. Reads do not
+  change: a tagged entry is a hit or a miss like any other.
+- An invalidation covers entries written before it, in every process that
+  shares the store. An empty tag set on a put is an untagged put; an
+  invalidation must name a tag (`Error::TagsEmpty`).
+- A set larger than the store keeps is `Error::TooManyTags { count, max }`,
+  and nothing is truncated. Orbit stores keep up to 16 tags per entry and per
+  invalidation; a replicated store keeps fewer for a key long enough to leave
+  less room in its mutation frame, and `max` says how many.
+
+| Store | Supports tags |
+| --- | --- |
+| `orbit` without `l2`, `replicated` or `shm` | yes |
+| `orbit` with `l2` | no |
+| `memory`, `file`, `redis` | no |
+
+An Orbit store with `l2` does not support tags because its backing store keeps
+values without their tags and does not record invalidations: after an
+invalidation, the next miss would read the invalidated value back from L2. A
+custom store supports tags by implementing `TaggedCacheStore` and returning it
+from `CacheStore::tagged`; the default is `None`.
 
 ## TTL, backing stores, and recovery
 

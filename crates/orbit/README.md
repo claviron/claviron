@@ -18,7 +18,9 @@ Different data has different storage and delivery contracts:
 - `Orbital<T>` holds a 64-bit atomic current value; counters and locks provide
   their dedicated coordination operations.
 - Arenas and cache primitives hold keyed state. The configured cache stores and
-  backing-store policy are assembled by `claviron-cache`.
+  backing-store policy are assembled by `claviron-cache`. A cache store in
+  either mode accepts tagged writes and invalidation by tag while it has no
+  backing store (`CacheRuntime::supports_tags`).
 - Event rings retain bounded append-only history. Readers own cursors and must
   handle lag; a ring is not an ever-growing queue of authoritative records.
 - Streams and Orbit Link carry application traffic between same-host peers.

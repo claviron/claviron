@@ -45,9 +45,12 @@ lives in `claviron-orbit::cache`.
   It owns no background task.
 - `CacheRepository`: common operations for one named store. It owns
   `CacheValue` encoding/decoding and delegates raw storage to `CacheStore`.
+  It answers `supports_tags` and offers `put_tagged`, `put_value_tagged` and
+  `invalidate_tags` (see Tags).
 - `CacheStore`: async byte `get`, `put`, `forget`, namespace `clear`, and TTL
   capability contract. `get` returns immutable owning `bytes::Bytes`, not a
   freshly copied vector. Storage drivers do not own serialization policy.
+  `tagged()` returns the store's `TaggedCacheStore`, or `None`.
 - `CacheDriver`: named-store factory used at boot and reload. A driver receives
   the common store entry and may parse its options, ignore them, or use
   configuration from its own provider. Its optional finalization receives a
@@ -75,7 +78,75 @@ The embedded PHP adapter exposes driver-neutral `claviron_cache_*` primitives.
 `claviron_cache_store()` resolves a named or default `CacheRepository` once and
 returns an opaque native handle; get/put/forget/clear operate on that handle.
 `CacheProvider` remains an internal catalog/lifecycle dependency and is not
-exposed as a PHP value.
+exposed as a PHP value. A framework adapter answers its tag capability from
+the same handle's `CacheRepository::supports_tags`, so it follows the
+resolved store rather than its driver name.
+
+## Tags
+
+A store may support tags. The capability is answered per built store:
+`CacheStore::tagged` returns its `TaggedCacheStore` or `None`, and
+`CacheRepository::supports_tags` is whether it returned one. Operations and
+answer come from the same call, so a store cannot claim tags and then lack the
+operations, or the reverse.
+
+- `put_tagged(key, value, ttl, tags)` and `put_value_tagged` store an entry
+  that `invalidate_tags(tags)` makes a miss; an invalidation covers entries
+  written before it. An empty set on a put is an untagged put; an empty
+  invalidation is `Error::TagsEmpty`.
+- Reads are unchanged: `get` returns a hit or a miss for tagged and untagged
+  entries alike.
+- A store without tags refuses both tagged calls with
+  `Error::TagsUnsupported { store, driver }` before anything is written. Its
+  untagged operations keep working. There is no `put` with an optional tag
+  argument, because a store that cannot keep tags would have to drop them
+  silently.
+- A tag set larger than the store keeps is `Error::TooManyTags { count, max }`;
+  nothing is truncated. For Orbit, `max` is 16, or fewer for a replicated put
+  whose key leaves less room in the mutation frame.
+
+| Store | Tags | What tags would need |
+| --- | --- | --- |
+| `orbit`, either mode, no `l2` | yes | — |
+| `orbit` with `l2` | no | see below |
+| `memory` | no | a bounded per-tag floor beside the Moka cache and a check of each tagged entry's floors on every hit, or an index from tag to keys removed on invalidation; with `l2`, the same as Orbit with `l2` |
+| `redis` | no | an atomic tagged write and invalidation (a script, or `MULTI`): either an index set per tag whose members are deleted with it, or a version key per tag stored with the value and compared on read; both under the store's prefix so `clear` removes them, and kept out of Redis eviction, since a dropped index or version forgets an invalidation |
+| `file` | no | tags and a stamp in the entry's metadata, per-tag floors kept as entries, and a lock serializing a tagged write against an invalidation, since `cacache` has no multi-key atomicity |
+| third-party | `None` by default | implement `TaggedCacheStore` and return it from `tagged` |
+
+### Orbit stores with a backing store
+
+An Orbit store configured with `l2` answers `supports_tags() == false`. Tags
+on such a store would be wrong, not merely slow. The backing store holds the
+value without its tags and records no invalidation, so after
+`invalidate_tags` removes the entry from every Orbit view, the next miss reads
+the invalidated value straight back from L2 and returns it, in both modes and
+whether or not a replicated miss keeps it. Orbitive's contract states the same
+from the fill side: `fill` keeps a value untagged and no invalidation reaches
+it; `fill_tagged` needs the tags the backing store holds, and an invalidation
+must reach the backing store before `invalidate_tags`.
+
+Making it correct needs more than this change can do cleanly:
+
+- `CacheStore`/`CacheBacking` would carry a tagged write that stores the tags
+  and a stamp with the value, an invalidation that records a floor per tag in
+  the backing store, and a read that returns value, tags and stamp together.
+  Every L2 read, served or filled, would be judged against those floors before
+  it is returned, and a filled value passed to `fill_tagged` with its tags.
+- The floors would have to be durable and outside the backing store's
+  eviction: a Redis `maxmemory` policy that drops a floor forgets an
+  invalidation and serves a stale hit.
+- The stamp needs a clock all workers share, comparable with what the backing
+  store retains. Orbit's mutation sequence restarts with its ring, and the
+  shared table's clock is private to Orbitive; neither carries an identity a
+  persisted floor could be checked against after the ring or table is
+  recreated, so a retained value could outrank a newer floor.
+- Each driver would implement it atomically; see the table above.
+
+Until then a backed Orbit store keeps its untagged behavior unchanged, and its
+fills stay untagged, which is exact: none of its values was written with tags.
+The capability is fixed by the store's configuration, so two Orbit stores of
+one driver can answer differently.
 
 ## Configuration
 
@@ -114,8 +185,9 @@ use one separate keyed arena per fleet. They have no per-worker index or
 mutation listener. Mode changes require restart.
 
 `l2` optionally names a non-Orbit backing store. Both modes consult it on
-miss and return the backing result without a fill. Explicit mutations retain
-the existing L2-first ordering.
+miss; a replicated store keeps a result whose expiry is known (see Optional
+L2), an SHM store returns it without keeping it. Explicit mutations retain
+the existing L2-first ordering. A store with `l2` does not support tags.
 
 Relative paths remain process-cwd relative. They are not resolved relative to
 the YAML file.
@@ -418,6 +490,10 @@ idle rather than failing boot.
   owned through `claviron-orbit::cache::CacheRuntime`. The connection shares
   one resident payload byte budget across stores.
 - A backing value without revision/expiry metadata is never promoted to L1.
+- A store supports tags only when every value it can return after an
+  invalidation is reached by it, lower tiers included. An Orbit store with an
+  L2 therefore does not; a tagged call on a store without tags is refused,
+  never reduced to an untagged one.
 - An Orbit TTL write never passes through an L2 that cannot preserve TTL.
 - L2 writes/deletes complete before the corresponding Orbit mutation publishes.
 - L2 namespace clear completes before the corresponding Orbit reset publishes.

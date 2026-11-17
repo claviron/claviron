@@ -215,6 +215,39 @@ impl CacheProvider {
         self.default_store()?.put_value(key, value, ttl).await
     }
 
+    /// Whether the default store accepts tagged operations; see
+    /// [`CacheRepository::supports_tags`].
+    pub fn supports_tags(&self) -> crate::Result<bool> {
+        Ok(self.default_store()?.supports_tags())
+    }
+
+    pub async fn put_tagged<'v>(
+        &self,
+        key: &str,
+        value: impl Into<Cow<'v, [u8]>>,
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> crate::Result<()> {
+        self.default_store()?.put_tagged(key, value, ttl, tags).await
+    }
+
+    pub async fn put_value_tagged(
+        &self,
+        key: &str,
+        value: CacheValue,
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> crate::Result<()> {
+        self.default_store()?.put_value_tagged(key, value, ttl, tags).await
+    }
+
+    pub async fn invalidate_tags(
+        &self,
+        tags: &[&str],
+    ) -> crate::Result<()> {
+        self.default_store()?.invalidate_tags(tags).await
+    }
+
     pub async fn forget(
         &self,
         key: &str,

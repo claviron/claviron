@@ -10,7 +10,8 @@ use claviron_orbit::Fleet;
 use claviron_orbit::cache::{CacheRead, CacheService};
 
 use super::{OrbitCacheDriver, OrbitCacheStore};
-use crate::{CacheDriver, CacheStore, Result};
+use crate::config::CacheStoreConfig;
+use crate::{CacheDriver, CacheRepository, CacheStore, Error, Result};
 
 struct MemoryStore {
     values: Mutex<HashMap<String, Bytes>>,
@@ -269,4 +270,117 @@ async fn shm_store_reads_before_l2_and_keeps_existing_miss_behavior() {
         serde_yaml::from_str("driver: orbit\nmode: shm\nl1_capacity: 5")
             .unwrap();
     assert!(driver.create_store("invalid", &invalid).is_err());
+}
+
+fn orbit_config(options: &str) -> CacheStoreConfig {
+    serde_yaml::from_str(&format!("driver: orbit\n{options}")).unwrap()
+}
+
+#[tokio::test]
+async fn one_driver_answers_tags_per_store_and_a_backed_store_refuses_them() {
+    let fleet = Arc::new(Fleet::join("cache_tags", 1).unwrap());
+    let driver = Arc::new(OrbitCacheDriver {
+        service: CacheService::from_fleet(fleet).unwrap(),
+    });
+    let l2 = Arc::new(MemoryStore::with_known_expiry());
+    let stores: HashMap<String, Arc<dyn CacheStore>> =
+        [("saved".to_owned(), l2.clone() as Arc<dyn CacheStore>)].into();
+
+    for mode in ["replicated", "shm"] {
+        let plain = CacheRepository::new(
+            driver
+                .clone()
+                .create_store(
+                    &format!("{mode}-plain"),
+                    &orbit_config(&format!("mode: {mode}")),
+                )
+                .unwrap(),
+        );
+        let backed = driver
+            .clone()
+            .create_store(
+                &format!("{mode}-backed"),
+                &orbit_config(&format!("mode: {mode}\nl2: saved")),
+            )
+            .unwrap();
+        driver.finish_store(&backed, &stores).unwrap();
+        let backed = CacheRepository::new(backed);
+
+        assert!(plain.supports_tags(), "{mode}");
+        plain
+            .put_tagged("user:1", &b"profile"[..], None, &["users"])
+            .await
+            .unwrap();
+        plain.put("config", &b"plain"[..], None).await.unwrap();
+        plain.invalidate_tags(&["users"]).await.unwrap();
+        assert_eq!(plain.get("user:1").await.unwrap(), None, "{mode}");
+        assert_eq!(
+            plain.get("config").await.unwrap(),
+            Some(Bytes::from_static(b"plain")),
+            "{mode}"
+        );
+
+        // Refused at the tagged call, before either tier is written.
+        assert!(!backed.supports_tags(), "{mode}");
+        assert!(matches!(
+            backed
+                .put_tagged("user:2", &b"profile"[..], None, &["users"])
+                .await,
+            Err(Error::TagsUnsupported { .. })
+        ));
+        assert!(matches!(
+            backed.invalidate_tags(&["users"]).await,
+            Err(Error::TagsUnsupported { .. })
+        ));
+        let orbit = backed.as_any().downcast_ref::<OrbitCacheStore>().unwrap();
+        assert!(matches!(
+            orbit
+                .cache()
+                .put_tagged("user:2", b"profile", None, &["users"])
+                .await,
+            Err(claviron_orbit::cache::Error::TagsUnsupported { .. })
+        ));
+        assert_eq!(l2.get("user:2").await.unwrap(), None, "{mode}");
+        assert_eq!(backed.get("user:2").await.unwrap(), None, "{mode}");
+
+        // Its untagged operations keep working.
+        backed.put("config", &b"backed"[..], None).await.unwrap();
+        assert_eq!(
+            backed.get("config").await.unwrap(),
+            Some(Bytes::from_static(b"backed")),
+            "{mode}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn tag_bounds_reach_the_caller_as_typed_errors() {
+    let fleet = Arc::new(Fleet::join("cache_tag_bounds", 1).unwrap());
+    let driver = Arc::new(OrbitCacheDriver {
+        service: CacheService::from_fleet(fleet).unwrap(),
+    });
+    let names = (0..17).map(|tag| format!("tag:{tag}")).collect::<Vec<_>>();
+    let tags = names.iter().map(String::as_str).collect::<Vec<_>>();
+
+    for mode in ["replicated", "shm"] {
+        let store = CacheRepository::new(
+            driver
+                .clone()
+                .create_store(mode, &orbit_config(&format!("mode: {mode}")))
+                .unwrap(),
+        );
+        assert!(matches!(
+            store.put_tagged("key", &b"value"[..], None, &tags).await,
+            Err(Error::TooManyTags { count: 17, max: 16 })
+        ));
+        assert_eq!(store.get("key").await.unwrap(), None, "{mode}");
+        assert!(matches!(
+            store.invalidate_tags(&tags).await,
+            Err(Error::TooManyTags { count: 17, max: 16 })
+        ));
+        assert!(matches!(
+            store.invalidate_tags(&[]).await,
+            Err(Error::TagsEmpty)
+        ));
+    }
 }

@@ -116,13 +116,16 @@ not duplicated as new Claviron constants.
 
 | Kind ID | Physical resource | Shape | Owning definition / Claviron binding |
 |---|---|---|---|
+| `171` | Shared Orbit cache tag floors: a monotonic clock, a random table instance written at creation, and per-tag invalidation floors that judge the tagged records of kind `172` | Table, 64-byte header and `SHARED_TAG_SETS` (default 1,024) 128-byte sets of seven floors and an overflow floor; peers built with another set count are refused at open | Orbitive `SHARED_TAG_KIND`; [SharedCacheTagProvider binding](src/cache/runtime.rs); belongs with `172`, `Reuse` / `Preserve` |
+| `172` | Shared Orbit cache current state; a tagged record carries its tags, the clock it read and the instance of `171` | Dedicated arena with key index, reader pins and byte slots | Orbitive `SHARED_CACHE_KIND`; named cache stores share the segment, `Reuse` / `Preserve`; replaces `180` |
+| `173` | Arena-addressed cache mutation transport (protocol v4, with tags and tag invalidation); values stay in kind `193` | Ring | Orbitive `CACHE_MUTATION_RING_KIND`; [cache binding](src/cache/runtime.rs); replaces `194` |
 | `174` | Orbitals: 64-bit atomic values (`i64`, `u64`, `f64`, `bool`) shared by the fleet, addressed by `kind:8 \| slot:24 \| epoch:32` ids | Table, 64-byte header and one 64-byte slot per value, `ORBIT_ATOMIC_CAPACITY` slots (default 4,096); slots are not reused within an epoch | Orbitive `orbit-atomic` `ATOMIC_KIND`; [OrbitalsProvider binding](src/atomic.rs) |
 | `175` | Fleet client admission: one request budget per key for the whole fleet, per-node admission counts returned by a confirmed death | Orbit pool table, fleet concurrency on, one resource slot per lane, 64 keys | Orbitive `orbit-pool` `PoolSpec::with_fleet_concurrency`; [ClientAdmissionProvider binding](src/pool/admission.rs); [fleet client admission](../../docs/design/FLEET_CLIENT_ADMISSION.md) |
 | `176` | Application-link inline HTTP exchange control | Caller lane × adopted body-lane capacity, 32-byte records fenced by caller/Runner inbox epoch and slot generation | [Link geometry](src/link/application/geometry.rs), Orbitive `ExchangeControls` |
 | `177` | Application-link shared HTTP response payload | Directional payload arena v5. Outstanding slots are bounded per response and retained through the last receiver byte view | [Shared response bodies](src/link/application/body.rs) |
 | `178` | Application-link shared HTTP response control | Duplex descriptor rings. The request ticket distinguishes these exchanges from kind 181 | [Shared response bodies](src/link/application/body.rs) |
 | `179` | Application-link paired request direction | Minimal directional arena. Empty and inline requests use the inbox | [Shared response bodies](src/link/application/body.rs) |
-| `180` | Shared Orbit cache current state | Dedicated arena with key index, reader pins and byte slots | Orbitive `SHARED_CACHE_KIND`; named cache stores share the segment, `Reuse` / `Preserve` |
+| `180` | Retired shared Orbit cache current state without tags | Dedicated arena with key index, reader pins and byte slots | Replaced by `172`: a reader of this table would serve a tagged record without checking its tags' floors. Retained segments are not reset or unlinked automatically |
 | `181` | Application-link bodies: per-node lanes of stream slots, two bounded byte rings per slot. One duplex slot per exchange — request body one way, response body the other. Separate from kind `246` because worker coordination wants many narrow lanes and this wants fewer and wider. In the selected destination fleet beside kind `182`, addressed by the same lane index | Header + doorbells + bitmaps + slots + rings in one segment | Orbitive `orbit-link` / `orbit-stream` with Claviron `LINK_SPEC`; `ORBIT_LINK_LANE_CAPACITY` / `ORBIT_LINK_BUFFER_BYTES`; [application link](../../docs/design/ORBIT_LINK.md) |
 | `182` | Application-link inbox: one lane per link participant, fixed-size frames carrying an exchange header and its stream ticket. Many writers, the lane's owner reads; a full lane refuses rather than overwrites, and the next process to join takes back lanes whose kernel hold it can take (see Cleanup). Blocking consumers wait on the lane word; Tokio consumers arm the lane's named descriptor bell and await the reactor while frames remain in SHM. One directory-watcher slot per lane follows the lanes: a process that holds no lane (a master) is woken by the same claims and releases through its slot, held like a lane by a kernel lock (`orbitive::shm::try_hold_watcher`), and never appears in the directory. An interest entry per lane and per watcher follows: the routing keys (application-event domain topics) that slot's process subscribes to, read by `orbitive::link::LinkEvents` so an application event crosses the link only to a side that wants it. Lives in the selected destination fleet (`/orbit-<fleet_name>-182-<uid>`), with application names advertised inside it | Ring, watcher slots after the lanes (orbit-link layout 9; receiver-owned work claims and member capacity interests) | Orbitive `orbit-link` layout with Claviron `LINK_SPEC`; `ORBIT_LINK_INBOX_CAPACITY` / `ORBIT_LINK_INBOX_PAYLOAD_CAPACITY` / `ORBIT_LINK_FLEET_CAPACITY`; [application link](../../docs/design/ORBIT_LINK.md) |
 | `183` | Retired body namespace addressed by layout-8 inbox `184` | Duplex streams | Replaced by `181`; retained mappings are never reset or unlinked automatically |
@@ -136,13 +139,13 @@ not duplicated as new Claviron constants.
 | `191` | Runnable service snapshots with controller lifecycle, dispatch and actual execution census | Ring, 512-byte payloads | [SERVICE_SNAPSHOT_RING_KIND](src/service/snapshot.rs); replaces `232`; `Reuse` / `Preserve` |
 | `192` | Application snapshots with execution descriptions, row version 2 | Ring, 512-byte payloads | `claviron-app` [APPLICATION_SNAPSHOT_RING_KIND](../app/src/fleet/snapshot.rs); replaces `235`; `Reuse` / `Preserve` |
 | `193` | Shared byte arena v2 with per-process reader pins, reclaimed only after taking the dead owner's kernel hold | Index + owner rows + byte ring | Orbitive `ARENA_KIND`; [ArenaProvider binding](src/arena.rs); replaces `242` |
-| `194` | Arena-addressed cache mutation transport (protocol v3); values stay in kind `193` | Ring | Orbitive `CACHE_MUTATION_RING_KIND`; [cache binding](src/cache/runtime.rs); replaces `200`/`201` |
+| `194` | Retired arena-addressed cache mutation transport (protocol v3, no tags) | Ring | Replaced by `173`. The segment geometry did not change, but a v3 and a v4 peer would read each other's frames as malformed and force each other into resync, so the frame change takes a new kind. Retained segments are not reset or unlinked automatically |
 | `195` | Retired application inbox before receiver-owned work admission | Ring (layout 6/7) | Replaced by `184`; retained mappings are never resized or reset automatically |
 | `196` | Retired application-link inbox without interest entries (orbit-link layout 5) | Ring | Replaced by `195` when the interest table grew the segment; retained segments are not resized, reset or unlinked automatically |
 | `197` | Current worker lifecycle/operation snapshots with master runtime start, monotonic uptime and reload revision | Ring, 171-byte rows on 192-byte payloads | `supervisor` [WORKER_SNAPSHOT_RING_KIND](../supervisor/src/observation/snapshot.rs); replaces kind `240`; `Reuse` / `Preserve` |
 | `198` | Auth live sessions and consumed replay IDs; typed BLAKE3, encrypted or explicitly unprotected records; Principals stay process-local | Table, 320-byte slots, two 17-word banks; OAUTH004 with policy ID | Orbitive `orbit-auth` `AUTH_STATE_KIND`; supplied-Fleet backing, preserve across restart, no automatic migration; no Claviron provider binding yet |
 | `199` | Retired auth HMAC-only fixed metadata layout | Table, 320-byte slots, two 16-word banks; OAUTH003 | Replaced by typed kind `198`; retained segments are not resized, migrated, reset or unlinked automatically |
-| `200` | Retired ring-payload cache mutation transport (protocol v2) | Ring | Replaced by `194`; retained segments are not reset or unlinked automatically |
+| `200` | Retired ring-payload cache mutation transport (protocol v2) | Ring | Replaced by `194`, itself replaced by `173`; retained segments are not reset or unlinked automatically |
 | `201` | Retired cache payload transport | Ring | Values now live in arena `193`; retained segments are not reset or unlinked automatically |
 | `202` | Retired application-link inbox without directory-watcher slots (orbit-link layout 4) | Ring | Replaced by `196` when the watcher table grew the segment; retained segments are not resized, reset or unlinked automatically |
 | `203` | Retired benchmark RSS requests | Ring | Its application is gone; retained segments are not reset or unlinked automatically. Listed so the number is not reused blindly |
@@ -328,8 +331,10 @@ its index row.
 | `174` Orbitals | Reset when quiescent, starting a new epoch; reuse in the same epoch while adopted workers run | Preserve | — | values and used slots of the last run until the next quiescent boot resets them; ids from before a reset are refused as stale |
 | `175` client admission | Reset when quiescent; reuse while adopted workers run | Preserve | exact supervisor exit reports `node_dead`, returning the dead incarnation's permits | admission counts of the last run until the next quiescent boot resets them |
 | `176` inline exchange control (selected Link fleet) | Open or attach when a Runner advertises inline support | Preserve | A new caller lane epoch reclaims abandoned records | No response bytes or response history |
-| `180` shared cache table | Reuse | Preserve | existing arena pin recovery | indexed values, subject to TTL and eviction |
-| `194` cache mutation transport | Reuse | Preserve | — | old frames; cursors start at the head |
+| `172` shared cache table | Reuse | Preserve | existing arena pin recovery | indexed values, subject to TTL and eviction; invalidated tagged records read as misses until overwritten or evicted |
+| `171` shared cache tag floors, with `172` | Reuse | Preserve | — | the clock and the floors, on purpose: they judge the retained tagged records of `172`. Clear the two together (`SharedCache::unlink` does); floors cleared alone get a new instance, so every retained tagged record reads as a miss, never as a stale hit |
+| `173` cache mutation transport | Reuse | Preserve | — | old frames; cursors start at the head |
+| `180` retired shared cache table, `194` retired mutation transport | no longer opened | no automatic cleanup | — | old segments retained for binaries of the earlier build; `orbit clear <fleet> --kind 180` and `--kind 194` once every process of that build has stopped |
 | `184` application-link inbox (selected link fleet, not managed) | `orbitive::link::LinkSegment` creates once and otherwise attaches; a lane is won under its hold by CAS, then cleared and stamped | Claviron releases the lane, then its hold | **the next joiner takes back every lane whose hold it can take**: the kernel let go of it, so its owner is gone | a dead owner's lane and frames until the next process joins the fleet; the lock files beside the segment (removed with it) |
 | `183` application-link bodies (selected link fleet, not managed) | `orbitive::link::LinkBodies` attaches without reset | nothing | join recovery, refused-write recovery, and exact supervisor exit reset only the dead lane/incarnation's sides | unsupervised peers still need reclaim on a refused write or a join |
 | `213`–`219`, `223`–`225` metrics | Reuse | Preserve | overwrite | old samples; readers filter by `max_age` |
@@ -520,33 +525,65 @@ that reads the handle in its own boot orders itself after `OrbitalsProvider`.
 `CacheRuntime` binds each named store to one Orbit tier and optional L2.
 Replicated stores share one `orbitive::cache::Cache` and one readiness listener per process.
 Mutations address `(store, key)` and Reset is store-scoped. The listener installs readiness before its first poll.
-SHM stores share the dedicated keyed arena. A successful write is visible to later peer reads
-without a mutation or listener. New workers can read retained values.
+SHM stores share the dedicated keyed arena (kind `172`) and its tag floors (kind `171`). A successful
+write is visible to later peer reads without a mutation or listener. New workers can read retained values.
+`SharedCacheTagProvider` opens the floors after the arena's provider decides the table, with the same
+`Reuse` / `Preserve` policy; neither provider resets or unlinks them.
 
-The ring carries arena addresses, revisions and TTL, never bodies. It is coherence traffic, not a snapshot.
+The ring carries arena addresses, revisions, TTL and tag hashes, never bodies. It is coherence traffic, not a snapshot.
 
 ```text
 get:    Orbit hit -> return
-        Orbit miss -> optional backing get
+        Orbit miss -> optional backing get -> replicated fill (known expiry)
 
 put:    validate Orbit bounds -> optional backing put -> Orbit put
 forget: validate Orbit key    -> optional backing forget -> Orbit delete
 clear:  optional backing clear -> Orbit reset
+
+put_tagged:      no backing -> Orbit put_tagged
+invalidate_tags: no backing -> Orbit invalidate_tags
 ```
 
-An L2 read does not populate either Orbit tier. Explicit writes and invalidations complete L2 first.
+A replicated miss fills that worker's L1 from the backing value when its expiry is known, at the fill
+revision taken before the backing read; an SHM miss returns the backing value without keeping it.
+Explicit writes and invalidations complete L2 first.
 
 If mutation history is lost, every replicated L1 is disabled because the missing mutation's store is unknowable.
 The listener resumes with empty L1s at a publication-coordinated cut when every replicated store has a backing.
 SHM reads are independent of mutation history.
 
 The listener copies a Put's arena payload into L1. A hit checks TTL and clones the local `Bytes` handle. Delete
-and Reset invalidate entries, while snapshots already returned stay valid. An unavailable payload installs a
-revision tombstone. Direct users without a managed listener call `CacheService::poll_mutations` explicitly.
+and Reset invalidate entries, while snapshots already returned stay valid. An unavailable payload fences the key
+at the Put's revision, so a delayed older Put is still refused. Direct users without a managed listener call `CacheService::poll_mutations` explicitly.
 
 A catalog can hide and reopen a registered store with the same mode, capacity and backing.
 Changing those options requires restart. Lock state never shares keys, reset behavior or
 storage with cache values.
+
+### Tags
+
+`CacheRuntime::put_tagged` and `invalidate_tags` are separate entry points from `put`; reads do not
+change. Both modes support them through Orbitive: a replicated store removes the covered entries in
+every worker's L1 when it applies the invalidation, and an SHM store checks a tagged record against the
+shared tag floors (kind `171`) when it reads it. `supports_tags` is true while the store has no backing
+store; with one, both tagged calls return `Error::TagsUnsupported` before anything is written.
+
+A backing store holds a value without its tags and records no invalidation, so after an invalidation
+the next miss would read the invalidated value straight back from it, whether or not the miss fills
+L1. Orbitive's fill contract asks the same thing from the other side: `Store::fill_tagged` carries the
+tags the backing store holds, and an invalidation must reach the backing store before
+`invalidate_tags`. `CacheBacking` offers neither, so a backed store keeps tags off rather than serve a
+value after its tag was invalidated; its fills stay untagged, which is exact, since none of its values
+was written with tags. Supporting tags with a backing store needs, in the backing contract: a tagged
+put that stores the tags and a stamp with the value; an invalidation that records each tag's floor in
+the backing store, durably and outside its eviction, before the Orbit invalidation; and a read that
+returns the tags and stamp, judged against those floors before the value is served or given to
+`fill_tagged`. The stamp needs a fleet-wide clock with an identity that survives in the backing store
+across a ring or table that is recreated, which Orbitive does not expose today.
+
+Orbitive's `TooManyTags { count, max }` and `TagsEmpty` become this crate's typed variants of the same
+names. `max` is `MAX_TAGS` (16) or, for a replicated put, the fewer tags a long key leaves room for in
+the mutation frame.
 
 ## Arena
 
