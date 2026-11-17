@@ -1,6 +1,6 @@
 [package]
 name = "claviron-auth"
-version.workspace = true
+version = "0.2.6"
 publish.workspace = true
 edition.workspace= true
 autotests = false

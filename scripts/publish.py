@@ -567,7 +567,8 @@ def main(argv=None):
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())
         config = project["tool"]["claviron"]["publish"]
         directory = ROOT / config["state-directory"]
-        workspace_version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+        # Crates are versioned independently; a workspace version is optional.
+        workspace_version = tomllib.loads((ROOT / "Cargo.toml").read_text())["workspace"].get("package", {}).get("version")
         metadata = json.loads(run(ROOT, "cargo", "metadata", "--no-deps", "--offline", "--format-version", "1"))
         packages = packages_from(metadata)
         with exclusive(directory):

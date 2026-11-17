@@ -1,6 +1,6 @@
 [package]
 name = "claviron-resolver"
-version.workspace = true
+version = "0.2.6"
 publish.workspace = true
 edition.workspace= true
 description = "Shared DNS resolution contracts and an optional Hickory driver for Claviron"

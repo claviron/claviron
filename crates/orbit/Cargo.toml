@@ -1,6 +1,6 @@
 [package]
 name = "claviron-orbit"
-version.workspace = true
+version = "0.2.6"
 publish.workspace = true
 edition.workspace= true
 description = "Claviron lifecycle bindings for Orbitive shared memory, events, locks, counters, and application transport"

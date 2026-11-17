@@ -1,7 +1,7 @@
 [package]
 autotests = false
 name = "claviron-hosting"
-version.workspace = true
+version = "0.2.6"
 publish.workspace = true
 edition.workspace= true
 description = "Hosting persistence, aliases, and certificate records for Claviron"

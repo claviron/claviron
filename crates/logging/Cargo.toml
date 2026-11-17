@@ -1,6 +1,6 @@
 [package]
 name = "claviron-logging"
-version.workspace = true
+version = "0.2.6"
 publish.workspace = true
 edition.workspace= true
 description = "Process diagnostics and fleet-buffered log channels for Claviron"
