@@ -62,6 +62,7 @@ pub use claviron_tls as tls;
 /// Named listeners and HTTP connection drivers.
 #[cfg(feature = "transport")]
 pub use claviron_transport as transport;
+pub use claviron_types as types;
 #[cfg(feature = "ssl")]
 pub use claviron_types::ssl;
 #[cfg(feature = "upstream")]
