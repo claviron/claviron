@@ -98,8 +98,6 @@ impl OwnedProcess {
             .registry_ref()
             .resolve::<claviron_orbit::link::application::ApplicationService>(
         );
-        let cells =
-            state.registry_ref().resolve::<claviron_orbit::CellsProvider>();
         let admission = state
             .registry_ref()
             .resolve::<claviron_orbit::ClientAdmissionProvider>();
@@ -123,19 +121,6 @@ impl OwnedProcess {
                     node,
                     incarnation,
                 );
-            }
-            if let Some(cells) = cells.as_ref().and_then(|provider| provider.handle()) {
-                match cells.recover_text_writers() {
-                    Ok(recovered) if recovered != 0 => {
-                        tracing::debug!(%fleet, pid, incarnation, recovered,
-                            "text cell writers recovered after worker exit");
-                    }
-                    Ok(_) => {},
-                    Err(error) => {
-                        tracing::error!(%fleet, pid, incarnation, %error,
-                            "could not recover text cells after worker exit");
-                    }
-                }
             }
         })).is_ok(), "exit cleanup is installed only once before publication");
         self

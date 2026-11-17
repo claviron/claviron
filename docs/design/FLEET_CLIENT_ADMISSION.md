@@ -48,7 +48,7 @@ other to finish. The pool is the only coordination; no lock is added.
    cleanup row.
 2. **Deaths.** The master reports each confirmed worker exit to the table with
    that worker's node and incarnation, from the exit cleanup that already
-   recovers Link streams and cells (`OwnedProcess::recover_orbit_on_exit`),
+   recovers Link streams (`OwnedProcess::recover_orbit_on_exit`),
    which spawned and adopted workers share.
 3. **The API.** Beside `ClientPool`, a fleet-admitted pool: a key, the local
    pool's options and the fleet `max_concurrency`, from `HttpClientConfig`.

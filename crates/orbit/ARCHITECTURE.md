@@ -24,7 +24,7 @@ comes from the provider that owns the resource.
 - [`fleet.rs`](src/fleet.rs) — `FleetProvider`: the process's one `Arc<Fleet>`.
 - [`shm.rs`](src/shm.rs) — Boot and finalize policy, the managed provider wrapper and the lifecycle inventory.
 - [`event.rs`](src/event.rs) — The typed bridge between Orbit frames and the local event bus.
-- [`cell.rs`](src/cell.rs), [`cell/orbital.rs`](src/cell/orbital.rs) — The typed cell tables and `Orbital<T>` declarations.
+- [`atomic.rs`](src/atomic.rs) — The Orbitals table: Orbitive's `Orbital<T>` re-exported, with no Claviron handle type.
 - [`cache.rs`](src/cache.rs), [`cache/runtime.rs`](src/cache/runtime.rs) — One cache connection per process, its logical stores and L2 ordering.
 - [`arena.rs`](src/arena.rs), [`pool/admission.rs`](src/pool/admission.rs), [`counter.rs`](src/counter.rs), [`lock.rs`](src/lock.rs), [`stream.rs`](src/stream.rs), [`quota.rs`](src/quota.rs) — Lifecycle bindings of those primitives.
 - [`invoke.rs`](src/invoke.rs), [`invoke/call.rs`](src/invoke/call.rs) — The invocation ring and transport-independent targeted calls.
@@ -50,7 +50,7 @@ comes from the provider that owns the resource.
 
 ```text
 FleetProvider              priority EARLY: Fleet::join_shm_as(fleet_name, capacity, node)
-CellsProvider              EARLY, after it: open the tables, bind Orbital declarations
+OrbitalsProvider           after FleetProvider: reset the Orbitals table when quiescent, else reuse it
 master and worker          event ring companion, then FleetEventRegistry with its cursor at the head
 standalone                 Fleet only; local events stay on state.events()
 optional providers         counter, arena, invocations, locks, streams: after FleetProvider
@@ -105,7 +105,7 @@ explicit sharing domain reported by `AppState::fleet_name()` and defaults to
 `clv`; it is not derived from the application/process instance name. A state
 table and a ring with the same kind collide just as two rings do.
 `OrbitTyped::KIND`, layout kinds, and custom table kinds all belong in this
-index. Frame kinds/opcodes, event topics, node IDs, run IDs, and cell slot IDs
+index. Frame kinds/opcodes, event topics, node IDs, run IDs, and Orbital slot IDs
 are different namespaces and do not reserve SHM kinds.
 
 The table below records current and retired allocations, checked against those
@@ -116,6 +116,7 @@ not duplicated as new Claviron constants.
 
 | Kind ID | Physical resource | Shape | Owning definition / Claviron binding |
 |---|---|---|---|
+| `174` | Orbitals: 64-bit atomic values (`i64`, `u64`, `f64`, `bool`) shared by the fleet, addressed by `kind:8 \| slot:24 \| epoch:32` ids | Table, 64-byte header and one 64-byte slot per value, `ORBIT_ATOMIC_CAPACITY` slots (default 4,096); slots are not reused within an epoch | Orbitive `orbit-atomic` `ATOMIC_KIND`; [OrbitalsProvider binding](src/atomic.rs) |
 | `175` | Fleet client admission: one request budget per key for the whole fleet, per-node admission counts returned by a confirmed death | Orbit pool table, fleet concurrency on, one resource slot per lane, 64 keys | Orbitive `orbit-pool` `PoolSpec::with_fleet_concurrency`; [ClientAdmissionProvider binding](src/pool/admission.rs); [fleet client admission](../../docs/design/FLEET_CLIENT_ADMISSION.md) |
 | `176` | Application-link inline HTTP exchange control | Caller lane × adopted body-lane capacity, 32-byte records fenced by caller/Runner inbox epoch and slot generation | [Link geometry](src/link/application/geometry.rs), Orbitive `ExchangeControls` |
 | `177` | Application-link shared HTTP response payload | Directional payload arena v5. Outstanding slots are bounded per response and retained through the last receiver byte view | [Shared response bodies](src/link/application/body.rs) |
@@ -127,8 +128,8 @@ not duplicated as new Claviron constants.
 | `183` | Retired body namespace addressed by layout-8 inbox `184` | Duplex streams | Replaced by `181`; retained mappings are never reset or unlinked automatically |
 | `184` | Retired application inbox with startup-only admission policy | Ring (layout 8) | Replaced by `182`; layout 9 packs the live bound and retiring slot window atomically |
 | `185` | Fleet TLS server sessions v2: a claim on each set instead of a table lock, owner registrations held by kernel locks | Header + owner generations + set claims + slots | Orbitive `orbit-rustls` `SERVER_SESSION_STATE_KIND` since 0.5.6; `tls` [TLS_SESSION_STATE_KIND](../tls/src/orbit.rs) follows that constant |
-| `186` | Recoverable text cells v5 with two committed/staging banks, full-width revision and exact owner incarnations | Table + owner identities + per-owner slot pin rows | Orbitive `CELL_TEXT_KIND`; replaces `188`; owner-exit recovery completes pending wakes under exact kernel holds, without touching the last committed text |
-| `187` | Handle-pinned scalar cells v4 with a separate parking generation | Table + per-owner slot pin rows | Orbitive `CELL_STATE_KIND`; replaces `189`; logical release precedes physical reuse, cancellation changes the native park word without changing the value version |
+| `186` | Retired recoverable text cells v5 with two committed/staging banks, full-width revision and exact owner incarnations | Table + owner identities + per-owner slot pin rows | Replaced by `174`, which holds no text values; retained segments are not reset or unlinked automatically |
+| `187` | Retired handle-pinned scalar cells v4 with a separate parking generation | Table + per-owner slot pin rows | Replaced by `174`; retained segments are not reset or unlinked automatically |
 | `188` | Retired handle-pinned text cells v4 with a separate parking generation | Table + per-owner slot pin rows | Replaced by `186`; anonymous writer/seqlock publication has no owner-death recovery; retained objects are not migrated, reset or unlinked automatically |
 | `189` | Retired handle-pinned scalar cells v3 | Table + per-owner slot pin rows | Replaced by `187`; old peers parked on the value version; retained objects are not migrated, reset or unlinked automatically |
 | `190` | Retired handle-pinned text cells v3 | Table + per-owner slot pin rows | Replaced by `188`; old peers parked on the seqlock version; retained objects are not migrated, reset or unlinked automatically |
@@ -205,15 +206,13 @@ not an additional allocation.
 
 The runtime `ShmLifecycleInventory` complements this static index: it reports
 registered descriptors and decisions for the enabled process, not every kind
-reserved across projects. In particular, `CellsProvider` currently has one
-descriptor under scalar kind `187` while also opening text kind `186`; both
-physical allocations must remain listed here.
+reserved across projects.
 
 ### Existing kind reuse warning: `227`
 
 Before worker snapshots moved to `240`, the supervisor used kind `227` for its
-older 64-byte-payload snapshot ring. Orbitive now uses `227` for the text-cell
-table. An old object at the same fleet/UID name is therefore not automatically
+older 64-byte-payload snapshot ring. Orbitive later used `227` for a text-cell
+table, itself retired since. An old object at the same fleet/UID name is therefore not automatically
 a text-cell object or disposable stale state. Validate the actual header and
 geometry and apply the owning lifecycle/activity policy; never clear it merely
 because an older document calls `227` orphaned. This index records the existing
@@ -326,6 +325,7 @@ its index row.
 
 | kind | boot | finalize | successor | what stays, and why it is harmless |
 |---|---|---|---|---|
+| `174` Orbitals | Reset when quiescent, starting a new epoch; reuse in the same epoch while adopted workers run | Preserve | — | values and used slots of the last run until the next quiescent boot resets them; ids from before a reset are refused as stale |
 | `175` client admission | Reset when quiescent; reuse while adopted workers run | Preserve | exact supervisor exit reports `node_dead`, returning the dead incarnation's permits | admission counts of the last run until the next quiescent boot resets them |
 | `176` inline exchange control (selected Link fleet) | Open or attach when a Runner advertises inline support | Preserve | A new caller lane epoch reclaims abandoned records | No response bytes or response history |
 | `180` shared cache table | Reuse | Preserve | existing arena pin recovery | indexed values, subject to TTL and eviction |
@@ -338,13 +338,13 @@ its index row.
 | `222` upstream state | ResetWhenQuiescent{Reuse}; `Unknown` reuses | Preserve | — | only a live fleet's adopted state |
 | `191`, `192`, `226` snapshots | Reuse | Preserve | overwrite | `max_age` filter |
 | `235` retired application snapshots | no longer opened | no automatic cleanup | — | old rows retained for older peers; operator cleanup only after the fleet stops |
-| `187`+`186` cells | Reuse | Preserve | exact kernel holds fence dead-owner pin reclamation; text owner-exit recovery completes abandoned notification before clearing ownership | values survive restart; released generations remain pinned until old handles drop; text owner row reuse first recovers its old descriptors |
+| `186`+`187` retired cells v5 and v4 | no longer opened; Orbitals `174` replace them | no automatic cleanup | — | old tables remain for older binaries; operator cleanup only after their users stop |
 | `188` retired text cells v4 | no longer opened by the recoverable-text protocol | no automatic cleanup | — | old tables remain for older binaries; operator cleanup only after their users stop |
 | `189`+`190` retired cells v3 | no longer opened by the separate-parking protocol | no automatic cleanup | — | old tables remain for old binaries; operator cleanup only after their users stop |
 | `227`+`233` retired cells | no longer opened by the handle-pinned protocol | no automatic cleanup | — | old tables remain for old binaries; operator cleanup only after their users stop |
 | `228` lock state | Reuse | Preserve | — | a dead holder's lease, until its TTL |
 | `229` lock transitions | Reuse | Preserve | — | cursor at the head |
-| `230` counters | Reuse | Preserve | — | values, on purpose, as for cells |
+| `230` counters | Reuse | Preserve | — | values, on purpose |
 | `185` TLS sessions | ResetWhenQuiescent{Reuse}, when `cleanup_on_exit` | UnlinkWhenQuiescent | — | nothing after a quiescent exit; otherwise sessions bounded by their TTL |
 | `236`/`237` broadcast | Reuse | Preserve | — | cursor at the head |
 | `238` master generation | Reuse | Preserve | a new master publishes a higher generation | the head orders masters |
@@ -501,19 +501,19 @@ report overwritten frames as lag. It is never reset at boot, because a reset cou
 cancel outstanding work. A consumer that wants to announce completion publishes an application event carrying
 the `InvocationId`.
 
-## Typed cells
+## Orbitals
 
-`register_fleet` installs `CellsProvider`, so an application needs no cell setup. `Orbital::<T>::new(initial)`
-declares a value, and allocation errors reject startup before the application runs.
+`register_fleet` also installs `OrbitalsProvider` for the one Orbitals table, kind `174`. Claviron adds no handle
+type, declaration or name directory over it: `claviron_orbit::atomic` re-exports Orbitive's `Orbital<T>`,
+`OrbitalId` and `Orbitals`, and the crate root exports the same three. A process resolves `OrbitalsProvider`, takes its `handle()`, declares a value with
+`Orbitals::allocate` and passes the id; another process opens that id.
 
-The default constructor binds weakly to one managed owner; another live owner cannot replace it. Before binding,
-`load` returns the initial value and a mutation fails with `CellError::NotPrepared` rather than pretend an unshared
-update succeeded. After binding, an operation reads a local `ArcSwap` handle and calls Orbitive, with no lookup or
-lock. `try_new` reports a failure immediately; `new` keeps it for later operations. An error never becomes zero.
-
-Clones share one id. The last clone retires the slot, and `release` retires it earlier. Handles opened from an id
-borrow that lifetime and read `Stale` afterwards. `Cells` and `cell::Orbital<T>` remain for explicit-handle
-composition, which language adapters use.
+The table's life is the fleet's. A master that boots onto a quiescent fleet resets it, which starts a new epoch
+and makes every earlier id `Stale`. A master that adopts running workers reuses it in the same epoch, because a
+reset does not invalidate the handles those workers hold. A worker always reuses. Slots are not returned within
+an epoch, so a fleet that is only ever adopted keeps consuming them. The provider boots after `FleetProvider` at
+the default priority, as the other reset-when-quiescent tables do: a consumer
+that reads the handle in its own boot orders itself after `OrbitalsProvider`.
 
 ## Cache
 

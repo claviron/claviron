@@ -15,7 +15,7 @@ service lifecycle. Orbit is not an Internet transport or a durable database.
 
 Different data has different storage and delivery contracts:
 
-- Cells and `Orbital<T>` hold typed current values; counters and locks provide
+- `Orbital<T>` holds a 64-bit atomic current value; counters and locks provide
   their dedicated coordination operations.
 - Arenas and cache primitives hold keyed state. The configured cache stores and
   backing-store policy are assembled by `claviron-cache`.
@@ -31,9 +31,9 @@ resource has a declared owner, layout, capacity, and lifecycle.
 ## Lifecycle and registration
 
 The standard server composition registers the common Orbit infrastructure.
-Integrations can opt into resource providers with `register_cells`,
-`register_counter`, `register_lock`, `register_arena`, `register_streams`, and
-`register_invoke`. Register providers before boot, not from a request handler.
+Integrations can opt into resource providers with
+`register_orbitals`, `register_counter`, `register_lock`, `register_arena`,
+`register_streams`, and `register_invoke`. Register providers before boot, not from a request handler.
 Arena boot policy can be selected explicitly with `register_arena_with_policy`.
 
 `OrbitStateExt` adds a fleet accessor without placing that API directly on
@@ -50,14 +50,13 @@ fn fleet_is_prepared(state: &AppState) -> bool {
 The accessor returns `None` before the fleet provider has booted. Obtaining a
 fleet handle is not a readiness check for every service in that fleet.
 
-`Orbital<T>` is a managed shared value. It may be declared before boot with an
-initial value; loading before binding returns that initial value, but mutation
-requires a prepared binding. Clones refer to the same managed allocation.
-Allocation and stale-handle errors remain errors rather than silently becoming
-zero-valued state.
+`Orbital<T>` is Orbitive's shared atomic value (`i64`, `u64`, `f64` or `bool`),
+exported unchanged. After boot, resolve `OrbitalsProvider`, take its `handle()`
+and declare a value with `Orbitals::allocate`; another process reaches it with
+`Orbitals::open` and the value's `OrbitalId`. An id from before the table's
+last reset is refused as stale rather than read as a zero value.
 
-The [cell design note](../../docs/design/ORBIT_CELL.md) explains declaration,
-binding and managed allocation lifetime. [Fleet awareness](../../docs/design/FLEETAWARE.md)
+[Fleet awareness](../../docs/design/FLEETAWARE.md)
 defines the same-OS scope; [Orbit Link](../../docs/design/ORBIT_LINK.md) describes
 how independently running applications communicate within it.
 

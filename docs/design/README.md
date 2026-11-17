@@ -47,8 +47,6 @@ contracts, not protocol standards or chronological decision records.
 
 - [FLEETAWARE](FLEETAWARE.md): sibling processes cooperating on one OS, not a
   cloud cluster or automatic distributed singleton.
-- [ORBIT_CELL](ORBIT_CELL.md): declare typed shared values; bind them before
-  application work and release them through explicit ownership.
 - [ORBIT_LINK](ORBIT_LINK.md): named application traffic over bounded inboxes
   and asynchronous SHM streams, with process-local resource ownership.
 

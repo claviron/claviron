@@ -43,8 +43,7 @@ away from traffic while keeping the old generation alive for its users.
 
 The same direction appears in [hot client pools](HOT_CLIENT_POOL.md): retain
 and maintain usable resources instead of treating every operation as a fresh
-setup. It also appears in [managed cells](ORBIT_CELL.md), where declaration and
-binding are separate from value operations.
+setup.
 
 ## A concrete example: connection state
 
@@ -118,7 +117,6 @@ its inputs are known, and how is a later change published safely?**
 - [TLS policy preparation](../../crates/edge/src/tcp/secure/tls.rs).
 - [Accept layers and connection state](../../crates/edge/src/host/accept.rs).
 - [Request-time admission](../../crates/edge/src/service/host.rs).
-- [Managed cell binding and operations](../../crates/orbit/src/cell/orbital.rs).
 
 Use `LIFETIME_POLICY` when moving work between these stages, not as shorthand
 for removing a safety check.

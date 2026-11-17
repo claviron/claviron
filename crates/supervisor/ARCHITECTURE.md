@@ -794,7 +794,7 @@ Growing that existing segment would reject a new binary while earlier peers
 still held it, so the incompatible shapes coexist on distinct kinds. Kind
 `240` is never resized or automatically removed. Operator cleanup requires a
 stopped fleet and the canonical [SHM kind index](../orbit/ARCHITECTURE.md#shm-kind-id-index).
-The first snapshot layout used `227`, which is now a text-cell table; that
+The first snapshot layout used `227`, which a later text-cell table, since retired, reused; that
 historical number is not permission to clear a current resource.
 
 `WorkerServiceMembership` is a non-runnable capability bound to Orbit's

@@ -9,7 +9,7 @@ use crate::{
     StreamsProvider,
 };
 
-/// Register the fleet and its common typed-cell infrastructure.
+/// Register the fleet and its common Orbitals infrastructure.
 ///
 /// Call from `bootstrap::register` at the appropriate point. Explicitly
 /// checks for an existing provider so repeated feature-level registration is
@@ -18,7 +18,7 @@ pub fn register_fleet(state: &AppState) -> claviron_runtime::Result<()> {
     if state.registry_ref().resolve::<FleetProvider>().is_none() {
         state.registry_ref().register(Arc::new(FleetProvider::new()))?;
     }
-    crate::cell::register(state)
+    crate::atomic::register(state)
 }
 
 /// Register the optional keyed counter capability and its Fleet dependency.
@@ -38,8 +38,8 @@ pub fn register_arena_with_policy(
     Ok(())
 }
 
-/// Typed cells: one table per fleet, shared by every runtime on it.
-pub fn register_cells(state: &AppState) -> claviron_runtime::Result<()> {
+/// Orbitals: one table of shared atomic values per fleet, kind `174`.
+pub fn register_orbitals(state: &AppState) -> claviron_runtime::Result<()> {
     register_fleet(state)
 }
 
