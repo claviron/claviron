@@ -123,7 +123,9 @@ metrics = [
 # Native modules: compiled libraries `modules.yaml` lists, registering themselves
 # as services and applications. Without that file, nothing is installed.
 module = ["application", "server", "dep:claviron-module"]
+
 # ── Protocols ────────────────────────────────────────────────────────
+
 http3 = [
     "tls", "claviron-edge/quic", "dep:quinn",
     "transport", "claviron-transport/quic",
@@ -423,6 +425,7 @@ claviron-tls = { version = "0.2.6", path = "crates/tls", default-features = fals
 claviron-transport = { version = "0.2.6", path = "crates/transport" }
 claviron-types = { version = "0.2.6", path = "crates/types", default-features = false }
 claviron-upstream = { version = "0.2.7", path = "crates/upstream" }
+
 # ── Async runtime & primitives ───────────────────────────────────────
 arc-swap = "1.9"
 async-trait = "0.1"
@@ -430,6 +433,7 @@ futures-util = "0.3"
 pin-project-lite = "0.2"
 tokio = "1"
 tokio-util = "0.7"
+
 # ── Serialization & parsing ──────────────────────────────────────────
 rkyv = { version = "0.8.18", default-features = false }
 clap = "4.6"
@@ -442,10 +446,12 @@ serde_yaml = "0.9"
 hex = "0.4"
 hmac = "0.13"
 sha2 = "0.11"
+
 # ── Proc macros ─────────────────────────────────────────────────────
 proc-macro2 = "1.0"
 quote = "1.0"
 syn = "3"
+
 # ── HTTP core ────────────────────────────────────────────────────────
 fastwebsockets = "0.10"
 headers = "0.4"
@@ -456,37 +462,49 @@ httpdate = "1"
 hyper = "1.12"
 hyper-util = "0.1"
 percent-encoding = "2.3"
+
 # ── Web framework (axum + tower) ─────────────────────────────────────
 axum = "0.8"
 tower = "0.5"
+
 # ── TLS / certificates ───────────────────────────────────────────────
 rcgen = "^0.14"
 rustls = { version = "0.23", default-features = false }
 tokio-rustls = "0.26"
 rustls-native-certs = "0.8"
 x509-parser = "0.18"
+
 # ── Crypto / hashing / encoding ──────────────────────────────────────
 base64ct = "1.8"
 blake3 = "1.8"
 fastrand = "2.4"
 sha1 = "0.11.0"
+
 # ── Database / cache backends ────────────────────────────────────────
 # Keep Redis off its rustls feature; the default server profile does not need
 # Redis TLS right now.
 redis = "1.7"
 sqlx = { version = "0.9", default-features = false }
 cacache = { version = "13.1", default-features = false }
+
+# ── In-memory caching / concurrent maps ──────────────────────────────
+dashmap = "6.1"
+moka = "0.12"
+once_cell = "1.21"
+
 # ── System / OS bindings ─────────────────────────────────────────────
 hostname = "0.4"
 dirs = "7"
 libc = "0.2"
-nix = "0.31"
+nix = "0.32.0"
 socket2 = "0.6"
+
 # ── Networking utilities ─────────────────────────────────────────────
 hickory-resolver = { version = "0.26.3", default-features = false }
 ipnet = "2.12"
 maxminddb = "0.33.0"
 url = "2.5"
+
 # ── Time / identifiers ───────────────────────────────────────────────
 chrono = { version = "0.4", default-features = true } # used for tasks/cron only
 cron = "0.17"
@@ -494,6 +512,7 @@ humantime = "2.3"
 humantime-serde = "1"
 time = "0.3"
 uuid = "1.26"
+
 # ── Logging / errors / diagnostics ───────────────────────────────────
 opentelemetry = { version = "0.33", default-features = false }
 opentelemetry-otlp = { version = "0.33", default-features = false }
@@ -502,26 +521,26 @@ thiserror = "2.0"
 tracing = "0.1"
 tracing-journald = "0.3"
 tracing-subscriber = "0.3"
-# ── In-memory caching / concurrent maps ──────────────────────────────
-dashmap = "6.1"
-moka = "0.12"
-once_cell = "1.21"
+
 # ── Compression / mime detection ─────────────────────────────────────
 brotli = "9"
 infer = "0.22"
 mime_guess = "2"
 zstd = "0.14"
+
 # ── Misc utilities ───────────────────────────────────────────────────
 byte-unit = "5.2"
 bytes = "1.11"
 inventory = "0.3"
 regex = "1.12"
+
 # ── HTTP/3 (QUIC) ────────────────────────────────────────────────────
 # Public Quinn stays on the released 0.11 line. `quinn-deferred-config`
 # layers ClientHello-based ServerConfig selection on top until the
 # upstream API lands.
 quinn = { version = "0.11", default-features = false }
 quinn-deferred-config = { version = "0.1", default-features = false }
+
 # ─────────────────────────────────────────────────────────────────────
 # H3 forks published on crates.io include the merged upstream fixes.
 # Keep direct H3 consumers on the same fork family to share Rust types.
@@ -530,6 +549,7 @@ quinn-deferred-config = { version = "0.1", default-features = false }
 h3 = { package = "h3-forked", version = "0.0.4" }
 h3-quinn = { package = "h3-quinn-forked", version = "0.0.4" }
 h3-webtransport = { package = "h3-webtransport-forked", version = "0.0.4" }
+
 # ── Published sibling libraries shared through workspace dependencies ──
 # Bounded state and shared-memory coordination across fleet processes.
 orbitive = { version = "0.6.15", default-features = false }
