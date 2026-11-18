@@ -1374,13 +1374,21 @@ the four planned labeled resolution Prometheus families in every serving mode.
 Only elected boot/refresh owners count completed logical lookups, including
 required-boot errors; canceled/lost queries, peer reads, hints and retirement
 receipts do not count. Results are ok/nxdomain/empty/timeout/error. Gauges read
-canonical publications without summing per-worker copies. Fleet counters use
-existing managed CounterProvider kind 230, with full BLAKE3-derived profile/name
-keys; no new ABI or metrics ring is introduced. Attachment increments zero to
-install without resetting peer totals. Counter capacity failure rejects cold
-preparation explicitly; removed keys remain resident until the counter owner's
-authorized quiescent reset. Embedders without Fleet retain private atomics across
-reloads. Counter overflow is a metric error, never a DNS health verdict.
+canonical publications without summing per-worker copies. Fleet counters are
+`CounterProvider` counters, kept `i64` values of the Orbitals table (kinds 174
+and 170), with full BLAKE3-derived profile/name keys; no new ABI or metrics ring
+is introduced. Attachment opens the five keys once, installing a missing one at
+zero without resetting peer totals, and records through the open handles with no
+key lookup. It runs after the process has decided the Orbitals table, so the
+handles stay in its epoch. A key is `clv:upstream:dns:` + 43 base64url
+characters + `:` + result, 63 to 69 bytes, within orbit-atomic's default
+`ATOMIC_NAME_MAX` of 112; a fleet built with a lower `ORBIT_ATOMIC_NAME_MAX`
+refuses cold preparation with `KeyTooLarge`. A full Orbitals table also rejects
+cold preparation explicitly.
+Counters are kept, so removed keys stay resident across quiescent resets until
+the table's segments are cleared after a stop. Embedders without Fleet retain
+private atomics across reloads. Counter overflow is a metric error, never a DNS
+health verdict.
 
 ## Managed warm generations
 

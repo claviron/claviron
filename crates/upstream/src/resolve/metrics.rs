@@ -4,7 +4,7 @@ use std::fmt::Write;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use claviron_orbit::counter::Counter;
+use claviron_orbit::counter::{Counter, CounterHandle};
 
 use super::{AddressAnswer, PublicationError};
 
@@ -20,7 +20,9 @@ pub struct QueryCounts {
 }
 pub(super) enum Counters {
     Local([AtomicU64; 5]),
-    Fleet { table: Arc<Counter>, keys: [String; 5] },
+    /// Opened once, when the binding is prepared after the process has
+    /// decided the Orbitals table; recording touches only the value.
+    Fleet([CounterHandle; 5]),
 }
 #[derive(Default)]
 pub(crate) struct Store(Mutex<BTreeMap<(String, String), Arc<Counters>>>);
@@ -45,13 +47,21 @@ impl Store {
                     &identity,
                 );
                 let identity = claviron_helpers::base64::base64_encode(&digest);
-                let keys = RESULTS.map(|result| {
-                    format!("clv:upstream:dns:{identity}:{result}")
-                });
-                for key in &keys {
-                    table.increment(key, 0).map_err(failed)?;
-                }
-                Counters::Fleet { table, keys }
+                let mut counter_key = format!("clv:upstream:dns:{identity}:");
+                let stem = counter_key.len();
+                let mut open = |result: &str| {
+                    counter_key.truncate(stem);
+                    counter_key.push_str(result);
+                    table.open(&counter_key).map_err(failed)
+                };
+                let [ok, nxdomain, empty, timeout, error] = RESULTS;
+                Counters::Fleet([
+                    open(ok)?,
+                    open(nxdomain)?,
+                    open(empty)?,
+                    open(timeout)?,
+                    open(error)?,
+                ])
             }
         };
         let counters = Arc::new(counters);
@@ -87,8 +97,8 @@ impl Counters {
                     |v| v.checked_add(1),
                 );
             }
-            Self::Fleet { table, keys } => {
-                if let Err(error) = table.increment(&keys[index], 1) {
+            Self::Fleet(counters) => {
+                if let Err(error) = counters[index].increment(1) {
                     tracing::error!(%error, "upstream DNS query counter could not increment");
                 }
             }
@@ -102,12 +112,9 @@ impl Counters {
                     *value = counter.load(Ordering::Relaxed);
                 }
             }
-            Self::Fleet { table, keys } => {
-                for (value, key) in values.iter_mut().zip(keys) {
-                    *value = u64::try_from(
-                        table.get(key).map_err(failed)?.unwrap_or(0),
-                    )
-                    .map_err(failed)?;
+            Self::Fleet(counters) => {
+                for (value, counter) in values.iter_mut().zip(counters) {
+                    *value = u64::try_from(counter.get()).map_err(failed)?;
                 }
             }
         }
