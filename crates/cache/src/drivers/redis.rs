@@ -1,15 +1,13 @@
 use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use claviron_helpers::de::{
-    deserialize_duration, deserialize_optional_duration,
-};
+use claviron_helpers::de::deserialize_optional_duration;
 use claviron_runtime::congif::{
     self, ConfigFile, ConfigObserver, Configurable,
 };
@@ -23,11 +21,20 @@ use url::Url;
 use crate::config::CacheStoreConfig;
 use crate::{CacheDriver, CacheEntry, CacheExpiry, CacheStore, Error};
 
-/// The owner of `redis.yaml`: named connections, opened on first use from
-/// the configuration Congif prepared. An absent file declares none; a
-/// changed one drops the cached clients so the next use connects as declared.
+/// The owner of the named Redis connections, opened on first use.
+///
+/// Two sources declare them. By default the provider owns `redis.yaml`:
+/// Congif prepares it before boot and in the reload batch, an absent file
+/// declares none, and a changed one drops the cached clients so the next use
+/// connects as declared. A host that owns a launch document of its own
+/// supplies the declaration instead ([`register_redis_with_config`],
+/// [`Self::with_config`]); that declaration is fixed for the process, with no
+/// file to read, watch or reload.
+///
+/// [`register_redis_with_config`]: crate::register_redis_with_config
 pub struct RedisProvider {
-    config_path: PathBuf,
+    /// `None` when the host supplied the declaration.
+    config_path: Option<PathBuf>,
     config: ArcSwap<RedisConfig>,
     clients: RwLock<HashMap<String, redis::Client>>,
     managers: RwLock<HashMap<String, redis::aio::ConnectionManager>>,
@@ -47,6 +54,31 @@ pub(crate) fn register(
     Ok(provider)
 }
 
+/// Supply the Redis connections from an enclosing launch document, in the
+/// schema `redis.yaml` uses. No file is read or watched: the declaration is
+/// fixed for this process, and a central reload leaves it, its clients and
+/// its warm connections as they are. Changing it takes a restart of the
+/// process that supplied it.
+///
+/// Register it before the cache composes ([`crate::register`] or
+/// [`crate::register_with_config`]), which then uses this provider instead of
+/// opening `redis.yaml`. A provider already registered is an error, not a
+/// merge.
+pub fn register_with_config(
+    state: &AppState,
+    config: RedisConfig,
+) -> claviron_runtime::registry::Result<()> {
+    if state.registry_ref().resolve::<RedisProvider>().is_some() {
+        return Err(claviron_runtime::registry::Error::msg(
+            "redis provider already registered",
+        ));
+    }
+    state
+        .registry_ref()
+        .register(Arc::new(RedisProvider::with_config(config)))?;
+    Ok(())
+}
+
 impl Register<AppState> for RedisProvider {
     fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
         register(state).map(|_| ())
@@ -54,9 +86,11 @@ impl Register<AppState> for RedisProvider {
 }
 
 impl RedisProvider {
+    /// The provider that owns `config_path`, declaring nothing until Congif
+    /// prepares it.
     pub fn new(config_path: PathBuf) -> Self {
         Self {
-            config_path,
+            config_path: Some(config_path),
             config: ArcSwap::from_pointee(RedisConfig::default()),
             clients: RwLock::new(HashMap::new()),
             managers: RwLock::new(HashMap::new()),
@@ -65,11 +99,21 @@ impl RedisProvider {
     }
 
     /// A provider with its connections in hand, for hosts and tests that own
-    /// the configuration themselves.
+    /// the configuration themselves. It is neither Configurable nor
+    /// Reloadable: nothing outside the host changes what it declares.
     pub fn with_config(config: RedisConfig) -> Self {
-        let provider = Self::new(PathBuf::new());
-        provider.config.store(Arc::new(config));
-        provider
+        Self {
+            config_path: None,
+            config: ArcSwap::from_pointee(config),
+            clients: RwLock::new(HashMap::new()),
+            managers: RwLock::new(HashMap::new()),
+            connect_lock: Mutex::new(()),
+        }
+    }
+
+    /// Whether this provider owns a file; a supplied declaration does not.
+    fn is_file_configured(&self) -> bool {
+        self.config_path.is_some()
     }
 
     async fn apply(
@@ -222,16 +266,21 @@ impl RedisProvider {
         })?;
         let client = self.client(name, connection).await?;
 
+        // The retry delays are the client library's own unless the
+        // connection declares them: nothing here chooses a duration.
+        let mut manager_config = redis::aio::ConnectionManagerConfig::new()
+            .set_exponent_base(connection.exponent_base)
+            .set_number_of_retries(connection.number_of_retries)
+            .set_connection_timeout(connection.connect_timeout)
+            .set_response_timeout(connection.response_timeout);
+        if let Some(min_delay) = connection.min_delay {
+            manager_config = manager_config.set_min_delay(min_delay);
+        }
+        if let Some(max_delay) = connection.max_delay {
+            manager_config = manager_config.set_max_delay(max_delay);
+        }
         let manager = client
-            .get_connection_manager_with_config(
-                redis::aio::ConnectionManagerConfig::new()
-                    .set_exponent_base(connection.exponent_base)
-                    .set_number_of_retries(connection.number_of_retries)
-                    .set_min_delay(connection.min_delay)
-                    .set_max_delay(connection.max_delay)
-                    .set_connection_timeout(connection.connect_timeout)
-                    .set_response_timeout(connection.response_timeout),
-            )
+            .get_connection_manager_with_config(manager_config)
             .await
             .map_err(Error::from)?;
 
@@ -498,12 +547,14 @@ impl Component<AppState> for RedisProvider {
         Some(priority::EARLY)
     }
 
+    /// Only the owner of `redis.yaml` takes part in Congif's preparation and
+    /// the reload batch; a supplied declaration has no source to prepare.
     fn as_configurable(&self) -> Option<&dyn congif::ConfigRegistration> {
-        Some(self)
+        self.is_file_configured().then_some(self)
     }
 
     fn as_reloadable(&self) -> Option<&dyn Reloadable<AppState>> {
-        Some(self)
+        self.is_file_configured().then_some(self)
     }
 
     fn as_runnable(
@@ -564,8 +615,10 @@ pub struct RedisConfig {
 impl Configurable for RedisProvider {
     type Config = RedisConfig;
 
+    /// Reached only through `as_configurable`, which a supplied declaration
+    /// does not answer.
     fn source(&self) -> ConfigFile {
-        ConfigFile::yaml(&self.config_path)
+        ConfigFile::yaml(self.config_path.as_deref().unwrap_or(Path::new("")))
     }
 
     /// No file, no connections.
@@ -610,10 +663,14 @@ pub struct RedisConnConfig {
     pub exponent_base: f32,
     #[serde(default = "default_redis_number_of_retries")]
     pub number_of_retries: usize,
-    #[serde(deserialize_with = "deserialize_duration")]
-    pub min_delay: Duration,
-    #[serde(deserialize_with = "deserialize_duration")]
-    pub max_delay: Duration,
+    /// The first delay between reconnection attempts. Omitted, the client
+    /// library's own.
+    #[serde(default, deserialize_with = "deserialize_optional_duration")]
+    pub min_delay: Option<Duration>,
+    /// The longest delay between reconnection attempts. Omitted, the client
+    /// library's own, which sets no ceiling.
+    #[serde(default, deserialize_with = "deserialize_optional_duration")]
+    pub max_delay: Option<Duration>,
     #[serde(default)]
     pub tls: Option<RedisTlsConfig>,
 }

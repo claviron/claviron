@@ -15,13 +15,15 @@ pub use drivers::orbit::{
     OrbitCacheDriver, OrbitCacheMode, OrbitCacheStore, OrbitCacheStoreConfig,
 };
 #[cfg(feature = "redis")]
-pub use drivers::redis::RedisConfig;
-#[cfg(feature = "redis")]
 pub use drivers::redis::RedisTlsConfig;
+#[cfg(feature = "redis")]
+pub use drivers::redis::register_with_config as register_redis_with_config;
 #[cfg(feature = "redis")]
 pub use drivers::redis::{RedisCacheDriver, RedisCacheStoreConfig};
 #[cfg(feature = "redis")]
 pub use drivers::redis::{RedisCacheStore, RedisProvider};
+#[cfg(feature = "redis")]
+pub use drivers::redis::{RedisConfig, RedisConnConfig};
 pub use store::CacheRepository;
 
 pub use self::config::{

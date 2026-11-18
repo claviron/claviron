@@ -14,7 +14,8 @@ The cache layer owns:
 
 - owning `config/cache.yaml` as a Congif `Configurable` (`CacheProvider`),
 - owning `config/redis.yaml` the same way (`RedisProvider`) when the Redis
-  feature is enabled, independently of the cache composition,
+  feature is enabled, independently of the cache composition, or taking the
+  same declaration from the host that owns the launch,
 - a registration-time extension point for built-in and third-party drivers,
 - building and sealing the initial named store catalog before request traffic,
 - rebuilding `cache.yaml` into an atomically published catalog generation on
@@ -174,8 +175,6 @@ Redis connection ownership is separate from the cache store graph:
 connections:
   default:
     url: redis://127.0.0.1:6379/0
-    min_delay: 2s
-    max_delay: 5m
 ```
 
 `mode` selects the Orbit tier. `replicated` is the default and
@@ -201,6 +200,26 @@ opens its file. An absent `redis.yaml` declares no connections; a changed one
 drops the cached clients so the next use connects as declared. An absent
 `cache.yaml` selects the built-in process-local memory store. The same default
 applies when a document omits `default`, and a store without a driver uses memory.
+
+A connection requires only `url`. The provider's defaults are
+`exponent_base` 2.0, `number_of_retries` 6, no `tls`, and no `connect_timeout`
+or `response_timeout`. `min_delay` and `max_delay`, when omitted, are left to
+the client library (100 ms for the first delay, no ceiling); the provider
+chooses no duration of its own. An omitted timeout is passed to the connection manager as
+none, so an attempt or a response waits without a deadline; the client
+library's own timeouts are not used. All of them configure the connection
+manager built when the connection is first used.
+
+A host that owns its launch document supplies the same `RedisConfig` with
+`register_redis_with_config(state, config)` instead (or registers
+`RedisProvider::with_config`). It must come before the cache composes, which
+then resolves this provider rather than opening `redis.yaml`; registering a
+second provider is an error. The supplied declaration is the desired state
+for the life of the process. The provider exposes neither Configurable nor
+Reloadable, so no file is read or watched, and a central reload leaves the
+declaration, its clients and its warm connection managers unchanged.
+Changing it takes a restart; the host decides what each restarted process
+resolves.
 
 `cache.yaml` is not a requirement imposed on driver implementations. A
 downstream driver can use its flattened store options:
@@ -440,14 +459,16 @@ All application driver registrations finish before this facade's boot builds
 and seals its catalog, before ordered cache consumers boot. The supplied intent
 is immutable for that process: it exposes neither Configurable nor Reloadable.
 Changing this enclosing launch requires restart. An empty declaration builds
-the default memory store.
+the default memory store. A Redis store in that schema names a connection of
+the `RedisProvider` already registered: the supplied one when the host called
+`register_redis_with_config` first, otherwise the owner of `redis.yaml`.
 
 `CacheProvider` implements Continuo's `Register<AppState>` via the runtime
 facade, delegating to the same crate-level composition entry, and is the
 Congif `Configurable` for `cache.yaml`.
 
 `claviron-cache::register` composes without reading a file: it registers
-`RedisProvider`, creates `CacheRegistry` and `CacheProvider`, and registers
+`RedisProvider` unless one is already registered, creates `CacheRegistry` and `CacheProvider`, and registers
 the built-in drivers whose dependencies are available. Registering a driver
 only records it; `CacheProvider::configure` hands the registry the prepared
 `cache.yaml` and seals it in the same step: every configured store is built

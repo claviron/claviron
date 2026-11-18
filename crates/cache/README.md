@@ -71,7 +71,7 @@ stores:
 | | `l2` | A store every worker can read, such as file or Redis, read on a miss; a replicated store keeps the hit. A store with `l2` does not support tags. |
 | `file` | `path` | Directory, relative to the application's working directory. |
 | | `prefix` | Optional key prefix. |
-| `redis` | `connection` | A connection declared in `redis.yaml`. |
+| `redis` | `connection` | A declared Redis connection (`redis.yaml`, or the host's supplied declaration). |
 | | `prefix` | Optional key prefix. |
 
 `replicated` is the default mode. `l1_capacity` limits entries per worker and
@@ -88,7 +88,18 @@ selects the built-in `memory` store. An omitted store `driver` also selects
 `memory`. Each memory store defaults to 10,000 entries per process.
 File stores declare `driver: file`, `path`, and an optional `prefix`.
 Relative paths are resolved against the application's working directory.
-Redis stores refer to a connection declared in `redis.yaml`.
+Redis stores refer to a connection declared in `redis.yaml`:
+
+```yaml
+connections:
+  default:
+    url: redis://127.0.0.1:6379/0
+```
+
+Only `url` is required. `exponent_base` (2.0) and `number_of_retries` (6)
+have defaults. `min_delay` and `max_delay`, when omitted, are the client
+library's own: 100 ms for the first delay and no ceiling. `connect_timeout`
+and `response_timeout` are unset by default, which means no deadline.
 
 A memory store is bounded either by `capacity`, its entry count, or by
 `max_bytes`, the key and value bytes it keeps (a count or a size such as
@@ -98,7 +109,10 @@ changes. A zero bound disables retention. Rust callers can also build a typed, s
 `claviron::cache::memory::new` for fixed-TTL workloads.
 
 An enclosing runner can call `register_with_config(state, CacheConfig)` with
-immutable boot options. The same store defaults apply.
+immutable boot options. The same store defaults apply. With the `redis`
+feature, it supplies Redis connections the same way, calling
+`register_redis_with_config(state, RedisConfig)` first; no `redis.yaml` is
+then read, and the declaration holds until the process restarts.
 
 Custom drivers or ready store instances can be registered with `CacheRegistry`
 before configuration seals it. Driver factories remain available for reload

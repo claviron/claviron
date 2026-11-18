@@ -26,6 +26,9 @@ pub fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
 /// Supply the existing cache schema from an enclosing launch document.
 /// Driver construction and sealing remain lifecycle work, after all application
 /// registrations. This immutable boot intent does not read or watch cache.yaml.
+/// Redis connections are not part of it: a host that supplies them calls
+/// `register_redis_with_config` first; otherwise the Redis provider owns
+/// `redis.yaml`.
 pub fn register_with_config(
     state: &AppState,
     config: CacheConfig,
