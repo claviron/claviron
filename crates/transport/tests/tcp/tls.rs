@@ -10,7 +10,9 @@ use super::*;
 
 struct Fixture {
     _dir: tempfile::TempDir,
-    tls: Tls,
+    /// The same client CA, as a bundle and as a store authority.
+    bundle: Tls,
+    store: Tls,
     server_cert: CertificateDer<'static>,
     client_cert: CertificateDer<'static>,
     client_key: Vec<u8>,
@@ -37,9 +39,21 @@ impl Fixture {
         std::fs::write(&cert, server.cert.pem()).unwrap();
         std::fs::write(&key, server.signing_key.serialize_pem()).unwrap();
         std::fs::write(&ca_path, ca_cert.pem()).unwrap();
+        let tls = Tls::new(cert, key);
+        let authority = claviron_tls::CertAuthority::load(ca_path.clone())
+            .map(Arc::new)
+            .unwrap();
         Self {
             _dir: dir,
-            tls: Tls::new(cert, key).client_ca(ca_path),
+            bundle: tls.clone().client_auth(
+                claviron_tls::auth::ClientAuth::ca_bundle(ca_path),
+            ),
+            store: tls
+                .client_auth(
+                    serde_yaml::from_str("authority: {local: fixture}")
+                        .unwrap(),
+                )
+                .authority(authority),
             server_cert: server.cert.der().clone(),
             client_cert: client.der().clone(),
             client_key: client_key.serialize_der(),
@@ -72,14 +86,16 @@ impl Fixture {
 #[tokio::test]
 async fn tls_negotiates_http_and_mtls_requires_a_trusted_client() {
     let fixture = Fixture::new();
-    for (mutual, authenticated, alpn) in [
-        (false, false, b"http/1.1".as_slice()),
-        (true, true, b"h2".as_slice()),
-        (true, false, b"h2".as_slice()),
+    for (tls, mutual, authenticated, alpn) in [
+        (&fixture.bundle, false, false, b"http/1.1".as_slice()),
+        (&fixture.bundle, true, true, b"h2".as_slice()),
+        (&fixture.bundle, true, false, b"h2".as_slice()),
+        (&fixture.store, true, true, b"h2".as_slice()),
+        (&fixture.store, true, false, b"h2".as_slice()),
     ] {
-        let mut tls = fixture.tls.clone();
+        let mut tls = tls.clone();
         if !mutual {
-            tls.client_ca = None;
+            tls.client_auth = None;
         }
         let acceptor = tokio_rustls::TlsAcceptor::from(
             tls.config(&[b"h2", b"http/1.1"]).unwrap(),

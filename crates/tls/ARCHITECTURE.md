@@ -387,27 +387,31 @@ owns persistence; ACME issuance remains in its separate service integration.
 ## 5. mTLS — the auth module
 
 The `auth` module provides the building blocks for services that
-require client certificates at the TLS handshake (mTLS):
+require client certificates at the TLS handshake (mTLS). One declaration
+type says what a server requires, and one function turns it into a verifier;
+the Edge's per-host policy and a single-owner listener both go through them.
 
 ```rust
-pub fn create_auth_config(
-    ca_path:  impl AsRef<Path>,
-    resolver: Arc<CertResolver>,
-    alpns:    Vec<Vec<u8>>,
-    cfg:      Option<&PolicyConfig>,
-) -> Result<ServerConfig, Error>;
+pub struct ClientAuth { /* trust: ClientTrust, subject: Option<PolicyConfig> */ }
 
-pub fn create_tcp_auth_config(
-    ca_path:  impl AsRef<Path>,
-    resolver: Arc<CertResolver>,
-    alpns:    Vec<Vec<u8>>,
-    cfg:      Option<&PolicyConfig>,
-) -> Result<ServerConfig, Error>;
+pub enum ClientTrust {
+    Authority(AuthorityEntry), // a store CA, `local` or `cn`
+    Bundle(Box<Path>),         // a PEM file of CA certificates
+}
 
-pub fn create_client_cert_verifier(
-    ca_path: impl AsRef<Path>,
-    cfg:     Option<&PolicyConfig>,
+pub fn client_verifier(
+    auth:      &ClientAuth,
+    authority: Option<&CertAuthority>,
+    provider:  &CryptoProvider,
 ) -> Result<Arc<dyn ClientCertVerifier>, Error>;
+
+pub fn create_client_auth_config(
+    auth:        &ClientAuth,
+    authority:   Option<&CertAuthority>,
+    resolver:    Arc<CertResolver>,
+    alpns:       Vec<Vec<u8>>,
+    revocations: Arc<Revocations>,
+) -> Result<ServerConfig, Error>;
 
 pub fn derive_resolver_for_hosts(
     cert_names:      &[String],
@@ -415,14 +419,43 @@ pub fn derive_resolver_for_hosts(
 ) -> Result<Arc<CertResolver>, Error>;
 ```
 
+### 5.0 The declaration
+
+A holder keeps `Option<ClientAuth>`: absent asks for no client certificate,
+present requires one. Requiring a certificate needs something to verify it
+against, so `ClientAuth` always carries exactly one `ClientTrust`; a
+declaration with neither or both is unrepresentable. The YAML is flat:
+
+```yaml
+client_auth:
+  authority: {local: example}   # or: ca_bundle: path/to/ca.pem
+  organization: Example         # optional, together with unit
+  unit: Operations
+```
+
+There is no mode key. An unknown key, a block without a verifier, one with
+both `authority` and `ca_bundle`, an authority other than `local` or `cn`,
+an empty `ca_bundle`, `organization` without `unit` (or the reverse) and a
+bare string such as `client_auth: required` are refused when the
+declaration is parsed. Nothing here asks for a certificate without requiring
+it.
+
+A store authority is configuration; the CA it names is runtime material. The
+holder resolves it with `CertificateStore::trust` and passes the resulting
+`CertAuthority` to `client_verifier`, which refuses an authority declaration
+without one and a bundle declaration with one. A bundle is read by
+`client_verifier` itself.
+
 ### 5.1 The verifier stack
 
-`create_client_cert_verifier` builds a rustls client-cert verifier.
-`create_auth_config` wraps that verifier into a full `rustls::ServerConfig`.
-The verifier is either:
+`client_verifier` builds a rustls client-cert verifier.
+`create_client_auth_config` wraps that verifier into a full
+`rustls::ServerConfig` with leaf revocation and no resumption. A single-owner
+listener (`claviron-transport`'s `Tls`) builds its own `ServerConfig` around
+the same verifier. The verifier is either:
 
 - A bare `WebPkiClientVerifier` — chain validation against the
-  CA bundle, EKU enforcement, expiry check.
+  selected CA or the CA bundle, EKU enforcement, expiry check.
 - A `PolicyVerifier` wrapping the WebPKI verifier — adds an O/OU
   match on the client cert's subject DN. The wrapper is
   configured with `PolicyConfig { organization, unit }`; the
@@ -445,7 +478,7 @@ the gate.
 ### Leaf revocation
 
 `CertificateProvider` prepares one shared `revocation::Revocations` handle.
-Edge TCP and QUIC mTLS use `create_auth_config_with_revocations`: normal
+Edge TCP and QUIC mTLS use `create_client_auth_config`: normal
 chain/time/subject verification is followed by an issuer/serial identity lookup.
 A leaf absent from the revoked set remains eligible regardless of
 where it was issued. Application `AccessPolicy` remains a separate admission
@@ -511,7 +544,7 @@ resolver:
 
 ```rust
 let admin_resolver = derive_resolver_for_hosts(&["admin.example.com"], &shared)?;
-let server_cfg     = create_auth_config(&ca_path, admin_resolver, alpns, Some(&policy))?;
+let server_cfg     = create_client_auth_config(&auth, None, admin_resolver, alpns, revocations)?;
 ```
 
 **Important property:** the derived resolver's underlying cert
@@ -534,7 +567,7 @@ described in §1.3: **custom TLS-auth services do not maintain
 their own cert store. They derive a scoped view from the shared
 resolver and add whichever verifier policy they need on top.**
 The code that says "this service speaks mTLS" is one
-`derive_resolver_for_hosts` plus one `create_auth_config`; the
+`derive_resolver_for_hosts` plus one `create_client_auth_config`; the
 rest is a one-time configuration concern, not an ongoing
 maintenance burden.
 
@@ -814,8 +847,9 @@ DB support/service is an explicit boot error when file fallback needs DB.
 Server certificate entries still use `Host` for
 DNS/SNI identities.
 
-Host `tls.client_auth` in `required` mode accepts one `authority` selector
-(`local` or `cn`) or a `ca_bundle` PEM path. An explicit authority anchors
+Host `tls.client_auth`, when present, requires a client certificate and
+names exactly one verifier: an `authority` selector (`local` or `cn`) or a
+`ca_bundle` PEM path (section 5.0). An explicit authority anchors
 verification at the selected CA. A PEM bundle supplies its own trust anchors.
 
 `certstore` (alias `cert_store`) accepts a YAML path or an inline CertStore.
@@ -853,8 +887,7 @@ list hostnames, only file pairs.
 
 The optional `ca_path` field on each entry is reserved for future
 use (per-cert CA bundles for verification chains; today the
-verification CA is global, configured at the consumer's
-`create_auth_config` call site).
+verification CA is the consumer's `ClientAuth` declaration).
 
 ### 8.1 Database-backed certificates
 
@@ -1000,7 +1033,8 @@ successfully.
 | `signer.rs` | — | Explicit `CertSigner` and issued material. |
 | `manager.rs`     |  68 | `CertificateManager<'a>` — borrow-lifetime helper for handlers (db-feature). |
 | `listener.rs`    | 305 | `CertificateListener` — postgres NOTIFY/LISTEN reactor, server_id-filtered, runs in every process (db-feature). |
-| `auth/mod.rs`    |  61 | `create_auth_config` (mTLS server config builder), `derive_resolver_for_hosts`. |
+| `auth.rs`        |   — | `client_verifier` (the one verifier builder), `create_client_auth_config` (mTLS server config with revocation), `derive_resolver_for_hosts`. |
+| `auth/policy.rs` |   — | `ClientAuth` + `ClientTrust`: the client-authentication declaration and its parse-time refusals. |
 | `auth/verifier.rs` | 152 | `PolicyConfig` + `PolicyVerifier` (O/OU subject DN policy wrapper around `WebPkiClientVerifier`). |
 | `config.rs`      |  52 | `TlsConfig` + `CertPaths` — `tls.yaml` deserialisation. |
 | `proto.rs`       |  30 | `Proto` enum (H1/H2/H3) + ALPN byte mapping. |

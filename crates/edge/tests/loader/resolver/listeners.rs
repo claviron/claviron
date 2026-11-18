@@ -1,5 +1,6 @@
 use super::*;
 use crate::transport::publication::{ListenerPublication, PreparedListener};
+use claviron_tls::auth::ClientAuth;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 struct Listener {
@@ -152,12 +153,18 @@ async fn client_authority_survives_listener_publication_and_reload() {
         .unwrap();
     let resolver = VhostResolver::new(&state);
     let listener = Listener::new("secure");
-    let yaml = "example.test: {tls: {client_auth: {mode: required, authority: {local: fixture}}}}";
+    let yaml =
+        "example.test: {tls: {client_auth: {authority: {local: fixture}}}}";
     let candidate = || serde_yaml::from_str::<VhostTable>(yaml).unwrap();
     let host: Host = "example.test".parse().unwrap();
     let selected = |table: &VhostTable| {
         let declaration = table.canonical_config(&host).unwrap();
-        let source = declaration.tls.client_auth.authority.as_ref().unwrap();
+        let source = declaration
+            .tls
+            .client_auth
+            .as_ref()
+            .and_then(ClientAuth::store_authority)
+            .unwrap();
         table.client_authority(source).unwrap().clone()
     };
 

@@ -10,8 +10,11 @@
 //! is usually ceremony — the link is a loopback or a private network, and a
 //! Unix socket is already bounded by filesystem permission. What earns its
 //! place is the other half: requiring the client to prove who it is, so only
-//! your edge can connect at all. Give a CA and every connection must present a
-//! certificate it signed.
+//! your edge can connect at all. Give it a [`ClientAuth`] — the same
+//! declaration a virtual host makes — and every connection must present a
+//! certificate that declaration verifies. A CA bundle is read here; a store
+//! authority is resolved by the listener's owner, which holds the certificate
+//! store, and handed in with [`Tls::authority`].
 //!
 //! # Renewal
 //!
@@ -22,20 +25,25 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use claviron_tls::TlsError;
-use claviron_tls::auth::create_client_cert_verifier;
+use claviron_tls::auth::{ClientAuth, client_verifier};
 use claviron_tls::pem::{load_der_certs, load_private_key};
+use claviron_tls::{CertAuthority, TlsError};
 use rustls::ServerConfig;
 
-/// The certificate a listener serves, and optionally the CA a client must be
-/// signed by.
+/// The certificate a listener serves, and optionally the client certificate
+/// it requires.
 #[derive(Clone, Debug)]
 pub struct Tls {
     pub certificate: PathBuf,
     pub key: PathBuf,
-    /// Require a client certificate signed by this CA. Without it, clients
-    /// are not asked for one.
-    pub client_ca: Option<PathBuf>,
+    /// The client certificate every connection must present. Without it,
+    /// clients are not asked for one.
+    pub client_auth: Option<ClientAuth>,
+    /// The store authority `client_auth` selects, resolved at boot by the
+    /// owner of the certificate store with `CertificateStore::trust`. A CA
+    /// bundle takes none; a store authority without it is refused when the
+    /// configuration is built.
+    pub authority: Option<Arc<CertAuthority>>,
 }
 
 impl Tls {
@@ -46,16 +54,26 @@ impl Tls {
         Self {
             certificate: certificate.into(),
             key: key.into(),
-            client_ca: None,
+            client_auth: None,
+            authority: None,
         }
     }
 
-    /// Require a client certificate signed by this authority.
-    pub fn client_ca(
+    /// Require the client certificate `auth` declares.
+    pub fn client_auth(
         mut self,
-        path: impl Into<PathBuf>,
+        auth: ClientAuth,
     ) -> Self {
-        self.client_ca = Some(path.into());
+        self.client_auth = Some(auth);
+        self
+    }
+
+    /// The store authority `client_auth` selects, already resolved.
+    pub fn authority(
+        mut self,
+        authority: Arc<CertAuthority>,
+    ) -> Self {
+        self.authority = Some(authority);
         self
     }
 
@@ -72,15 +90,19 @@ impl Tls {
         }
         let key = load_private_key(&self.key)?;
 
-        let builder = ServerConfig::builder_with_provider(Arc::new(
-            claviron_tls::policy::provider(),
-        ))
-        .with_safe_default_protocol_versions()?;
-        let builder = match &self.client_ca {
+        let provider = claviron_tls::policy::provider();
+        let verifier = self
+            .client_auth
+            .as_ref()
+            .map(|auth| {
+                client_verifier(auth, self.authority.as_deref(), &provider)
+            })
+            .transpose()?;
+        let builder = ServerConfig::builder_with_provider(Arc::new(provider))
+            .with_safe_default_protocol_versions()?;
+        let builder = match verifier {
             None => builder.with_no_client_auth(),
-            Some(path) => builder.with_client_cert_verifier(
-                create_client_cert_verifier(path, None)?,
-            ),
+            Some(verifier) => builder.with_client_cert_verifier(verifier),
         };
         let mut config =
             builder.with_single_cert(chain, key).map_err(Error::KeyMismatch)?;

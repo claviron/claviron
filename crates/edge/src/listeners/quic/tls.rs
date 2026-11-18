@@ -145,13 +145,12 @@ impl H3TlsAccept {
             let retained = previous
                 .and_then(|previous| previous.by_host.get(canonical))
                 .filter(|old| old.matches(host, authority));
-            let auth = &host.tls.client_auth;
             let config = if let Some(old) = retained {
                 old.config.clone()
-            } else if auth.is_required() {
+            } else if let Some(auth) = &host.tls.client_auth {
                 let tls = create_host_auth_config(
                     canonical,
-                    host,
+                    auth,
                     authority.map(Arc::as_ref),
                     certificates.clone(),
                     h3_alpns(),

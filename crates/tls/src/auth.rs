@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::sync::Arc;
 
 use rustls::crypto::CryptoProvider;
@@ -6,6 +5,7 @@ use rustls::server::WebPkiClientVerifier;
 use rustls::server::danger::ClientCertVerifier;
 use rustls::{RootCertStore, ServerConfig};
 
+use crate::CertAuthority;
 use crate::auth::verifier::{PolicyConfig, PolicyVerifier};
 use crate::error::{Error, Error as TlsError};
 use crate::pem::load_der_certs;
@@ -17,29 +17,43 @@ mod policy;
 pub mod verifier;
 
 pub use client::ClientIdentity;
-pub use policy::{ClientAuthMode, ClientAuthPolicy};
+pub use policy::{ClientAuth, ClientTrust};
 
-pub fn create_client_cert_verifier(
-    ca_path: impl AsRef<Path>,
-    cfg: Option<&PolicyConfig>,
-) -> Result<Arc<dyn ClientCertVerifier>, TlsError> {
-    create_client_cert_verifier_with_provider(
-        ca_path,
-        cfg,
-        &crate::policy::provider(),
-    )
-}
-
-pub fn create_client_cert_verifier_with_provider(
-    ca_path: impl AsRef<Path>,
-    cfg: Option<&PolicyConfig>,
+/// The verifier a client-authentication declaration asks for. Every server
+/// that requires client certificates builds its verifier here.
+///
+/// `authority` is the store CA that `auth` selects, resolved by its holder
+/// with `CertificateStore::trust`; a CA bundle is read here and takes none.
+pub fn client_verifier(
+    auth: &ClientAuth,
+    authority: Option<&CertAuthority>,
     provider: &CryptoProvider,
 ) -> Result<Arc<dyn ClientCertVerifier>, TlsError> {
     let mut roots = RootCertStore::empty();
-    for der in load_der_certs(ca_path)? {
-        roots.add(der)?;
+    match (auth.trust(), authority) {
+        (ClientTrust::Bundle(path), None) => {
+            for der in load_der_certs(path)? {
+                roots.add(der)?;
+            }
+        }
+        (ClientTrust::Authority(_), Some(authority)) => {
+            let ca = authority.roots().first().ok_or_else(|| {
+                Error::Other("authority CA chain is empty".into())
+            })?;
+            roots.add(ca.clone())?;
+        }
+        (ClientTrust::Authority(_), None) => {
+            return Err(Error::Other(
+                "client_auth.authority was not resolved from the certificate store".into(),
+            ));
+        }
+        (ClientTrust::Bundle(_), Some(_)) => {
+            return Err(Error::Other(
+                "client_auth selects a ca_bundle; a store authority does not apply".into(),
+            ));
+        }
     }
-    verifier_from_roots(roots, cfg, provider)
+    verifier_from_roots(roots, auth.subject(), provider)
 }
 
 fn verifier_from_roots(
@@ -65,73 +79,17 @@ fn verifier_from_roots(
     })
 }
 
-pub fn create_auth_config(
-    ca_path: impl AsRef<Path>,
-    resolver: Arc<CertResolver>,
-    alpns: Vec<Vec<u8>>,
-    cfg: Option<&PolicyConfig>,
-) -> Result<ServerConfig, TlsError> {
-    create_auth_config_with_provider(
-        ca_path,
-        resolver,
-        alpns,
-        cfg,
-        crate::policy::provider(),
-    )
-}
-
-pub fn create_tcp_auth_config(
-    ca_path: impl AsRef<Path>,
-    resolver: Arc<CertResolver>,
-    alpns: Vec<Vec<u8>>,
-    cfg: Option<&PolicyConfig>,
-) -> Result<ServerConfig, TlsError> {
-    create_auth_config_with_provider(
-        ca_path,
-        resolver,
-        alpns,
-        cfg,
-        crate::policy::provider(),
-    )
-}
-
 /// Client-auth TLS with a shared, prepared revocation snapshot. Resumption is
 /// disabled so every new connection reaches the current certificate verifier.
-pub fn create_auth_config_with_revocations(
-    ca_path: impl AsRef<Path>,
+pub fn create_client_auth_config(
+    auth: &ClientAuth,
+    authority: Option<&CertAuthority>,
     resolver: Arc<CertResolver>,
     alpns: Vec<Vec<u8>>,
-    cfg: Option<&PolicyConfig>,
     revocations: Arc<Revocations>,
 ) -> Result<ServerConfig, TlsError> {
     let provider = crate::policy::provider();
-    let verifier =
-        create_client_cert_verifier_with_provider(ca_path, cfg, &provider)?;
-    auth_config_with_revocations(
-        verifier,
-        resolver,
-        alpns,
-        provider,
-        revocations,
-    )
-}
-
-/// Build client auth anchored at the selected CA in a resolved public chain.
-pub fn create_authority_auth_config_with_revocations(
-    authority: &crate::CertAuthority,
-    resolver: Arc<CertResolver>,
-    alpns: Vec<Vec<u8>>,
-    cfg: Option<&PolicyConfig>,
-    revocations: Arc<Revocations>,
-) -> Result<ServerConfig, TlsError> {
-    let provider = crate::policy::provider();
-    let mut roots = RootCertStore::empty();
-    let ca = authority
-        .roots()
-        .first()
-        .ok_or_else(|| Error::Other("authority CA chain is empty".into()))?;
-    roots.add(ca.clone())?;
-    let verifier = verifier_from_roots(roots, cfg, &provider)?;
+    let verifier = client_verifier(auth, authority, &provider)?;
     auth_config_with_revocations(
         verifier,
         resolver,
@@ -159,23 +117,6 @@ fn auth_config_with_revocations(
     config.send_tls13_tickets = 0;
     config.max_early_data_size = 0;
     Ok(config)
-}
-
-fn create_auth_config_with_provider(
-    ca_path: impl AsRef<Path>,
-    resolver: Arc<CertResolver>,
-    alpns: Vec<Vec<u8>>,
-    cfg: Option<&PolicyConfig>,
-    provider: CryptoProvider,
-) -> Result<ServerConfig, TlsError> {
-    let verifier =
-        create_client_cert_verifier_with_provider(ca_path, cfg, &provider)?;
-    let mut sc = ServerConfig::builder_with_provider(Arc::new(provider))
-        .with_protocol_versions(&crate::policy::versions())?
-        .with_client_cert_verifier(verifier)
-        .with_cert_resolver(resolver);
-    sc.alpn_protocols = alpns;
-    Ok(sc)
 }
 
 /// Build CustomCertResolver for a service from a shared resolver

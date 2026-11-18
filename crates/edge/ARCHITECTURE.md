@@ -303,7 +303,10 @@ source publication stages every listener's affected host view before committing
 any snapshot; there is no per-listener watcher task. Certificate rotation uses
 the existing live CertResolver. Host, alias, client-auth or listener ALPN changes
 prepare a new matching host/TLS view; accepted work retains its previous owner.
-Host `tls.client_auth.authority` uses the CertStore `local` or `cn` selector.
+Host `tls.client_auth` is declared per host; present, it requires a client
+certificate and names one verifier, `authority` or `ca_bundle`
+(`claviron_tls::auth::ClientAuth`). `authority` uses the CertStore `local` or
+`cn` selector.
 Vhost boot and reload resolve the public CA once per selector before listener
 publication. TCP TLS and QUIC build their verifiers from that prepared view.
 `VhostResolver::serving_mtls_h2_port` reads the live TLS listener snapshots

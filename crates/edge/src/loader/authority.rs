@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use claviron_runtime::AppState;
+use claviron_tls::auth::ClientAuth;
 use claviron_tls::{CertAuthority, CertificateStore};
 use claviron_types::ssl::certstore::AuthorityEntry;
 
@@ -23,9 +24,12 @@ impl PreparedAuthorities {
             return Ok(Self(authorities));
         }
         for (host, record) in table.canonical_entries() {
-            let auth = &record.config.tls.client_auth;
-            let Some(source) =
-                auth.authority.as_ref().filter(|_| auth.is_required())
+            let Some(source) = record
+                .config
+                .tls
+                .client_auth
+                .as_ref()
+                .and_then(ClientAuth::store_authority)
             else {
                 continue;
             };
@@ -74,8 +78,12 @@ impl PreparedAuthorities {
         let selected: HashSet<_> = table
             .canonical_entries()
             .filter_map(|(_, record)| {
-                let auth = &record.config.tls.client_auth;
-                auth.authority.as_ref().filter(|_| auth.is_required())
+                record
+                    .config
+                    .tls
+                    .client_auth
+                    .as_ref()
+                    .and_then(ClientAuth::store_authority)
             })
             .collect();
         self.0.retain(|source, _| selected.contains(source));

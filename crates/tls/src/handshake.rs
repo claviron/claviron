@@ -111,13 +111,14 @@ impl AlpnSelection {
     }
 }
 
-use crate::auth::ClientAuthPolicy;
+use crate::auth::ClientAuth;
 
 #[derive(Debug, Default, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HandshakePolicy {
+    /// The client certificate this host requires. Absent asks for none.
     #[serde(default)]
-    pub client_auth: ClientAuthPolicy,
+    pub client_auth: Option<ClientAuth>,
     /// Refuse TLS connections without negotiated ALPN. Does not affect non-SSL serving.
     #[serde(default)]
     pub require_alpn: bool,

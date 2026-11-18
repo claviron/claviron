@@ -5,30 +5,39 @@ use rustls::client::danger::HandshakeSignatureValid;
 use rustls::pki_types::{CertificateDer, UnixTime};
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::{CertificateError, DigitallySignedStruct, Error, SignatureScheme};
-use serde::Deserialize;
 use tracing::{debug, warn};
 use x509_parser::certificate::X509Certificate;
 use x509_parser::prelude::FromDer;
 
-#[derive(Deserialize, Clone, PartialEq)]
+/// The subject Organization (O) and Organizational Unit (OU) a client
+/// certificate must carry, checked after its chain verifies.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PolicyConfig {
-    organization: String,
-    unit: String,
+    organization: Box<str>,
+    unit: Box<str>,
 }
 
 impl PolicyConfig {
     pub fn new(
-        organization: impl Into<String>,
-        unit: impl Into<String>,
+        organization: impl Into<Box<str>>,
+        unit: impl Into<Box<str>>,
     ) -> Self {
         Self { organization: organization.into(), unit: unit.into() }
+    }
+
+    pub fn organization(&self) -> &str {
+        &self.organization
+    }
+
+    pub fn unit(&self) -> &str {
+        &self.unit
     }
 }
 
 pub(crate) struct PolicyVerifier {
     inner: Arc<dyn ClientCertVerifier>,
-    required_o: String,
-    required_ou: String,
+    required_o: Box<str>,
+    required_ou: Box<str>,
 }
 
 impl PolicyVerifier {
@@ -109,11 +118,12 @@ impl ClientCertVerifier for PolicyVerifier {
         let o_ok = cert
             .subject()
             .iter_organization()
-            .any(|o| o.as_str().map(|s| s == self.required_o).unwrap_or(false));
+            .any(|o| o.as_str().is_ok_and(|s| s == &*self.required_o));
 
-        let ou_ok = cert.subject().iter_organizational_unit().any(|ou| {
-            ou.as_str().map(|s| s == self.required_ou).unwrap_or(false)
-        });
+        let ou_ok = cert
+            .subject()
+            .iter_organizational_unit()
+            .any(|ou| ou.as_str().is_ok_and(|s| s == &*self.required_ou));
 
         if !o_ok {
             warn!(

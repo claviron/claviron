@@ -20,7 +20,7 @@ pub use claviron_http::config::{
 pub use claviron_http::policy::{
     HttpPolicyOverride, RequestPolicyOverride, ResponsePolicyOverride,
 };
-pub use claviron_tls::auth::{ClientAuthMode, ClientAuthPolicy};
+pub use claviron_tls::auth::{ClientAuth, ClientTrust};
 pub use claviron_tls::handshake::HandshakePolicy;
 use claviron_types::Aliases;
 pub use policy::{

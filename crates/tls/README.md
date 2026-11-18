@@ -77,13 +77,23 @@ let config = create_tls_config(&[Proto::H2, Proto::H1], Arc::clone(&resolver))?;
 This is an integration fragment, not a complete listener. `Proto` supplies the
 ALPN bytes; built-in transports additionally apply their listener/host protocol
 intersection and authentication policy. The public builder uses no client
-authentication. Use `auth::create_auth_config` or
-`auth::create_tcp_auth_config` when client certificates are required.
+authentication. When client certificates are required, declare an
+`auth::ClientAuth` and build its verifier with `auth::client_verifier`, or a
+complete configuration with `auth::create_client_auth_config`.
 
-Client-authentication builders validate the certificate chain against the
-declared CA and can add organization/organizational-unit subject policy.
-`ClientAuthPolicy` expresses host authentication requirements; the accepting
-transport selects the appropriate verifier before completing the handshake.
+`ClientAuth` is present or absent: present requires a client certificate and
+names exactly one verifier, a certificate-store authority or a CA bundle,
+with an optional organization/organizational-unit subject policy:
+
+```yaml
+client_auth:
+  authority: {local: example}   # or: ca_bundle: path/to/ca.pem
+  organization: Example         # optional, together with unit
+  unit: Operations
+```
+
+The verifier validates the certificate chain against that CA and then the
+subject policy, before the handshake completes.
 TLS certificate authentication is distinct from application login, session
 cookies, and route authorization.
 

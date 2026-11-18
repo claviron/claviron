@@ -85,7 +85,7 @@ impl TlsAccept {
     ) -> bool {
         self.hosts.record(name).is_some_and(|record| {
             &record.canonical == canonical
-                && record.config.tls.client_auth.is_required()
+                && record.config.tls.client_auth.is_some()
                 && self.policy.by_host.get(canonical).is_some_and(|host| {
                     host.config.alpn_protocols.iter().any(|alpn| alpn == b"h2")
                 })
@@ -110,7 +110,6 @@ impl TlsAccept {
             if protocols.is_empty() {
                 continue;
             }
-            let auth = &host.tls.client_auth;
             let authority = client_authority(table, canonical, host)?;
             let retained = previous
                 .and_then(|previous| previous.by_host.get(canonical))
@@ -118,7 +117,7 @@ impl TlsAccept {
             let config = if let Some(old) = retained {
                 old.config.clone()
             } else {
-                let config = if auth.is_required() {
+                let config = if let Some(auth) = &host.tls.client_auth {
                     let alpns = protocols
                         .iter()
                         .flat_map(|protocol| {
@@ -131,7 +130,7 @@ impl TlsAccept {
                     // mTLS never shares public resumption storage.
                     create_host_auth_config(
                         canonical,
-                        host,
+                        auth,
                         authority.map(Arc::as_ref),
                         deps.cert_resolver.clone(),
                         alpns,

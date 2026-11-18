@@ -92,7 +92,8 @@ ships, such as gRPC enrollment, gets no hook another package could not use.
 ```yaml
 grpc.example.com:
   tls:
-    client_auth: required          # ordinary h2: client certificates
+    client_auth:                   # ordinary h2: client certificates
+      authority: {local: example}
     alpn:
       example-enroll/1:            # a session profile registered by its package
         validity_days: 30          # this host's parameters for it

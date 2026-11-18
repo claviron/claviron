@@ -115,7 +115,6 @@ admin.example.test:
     non_ssl: reject
   tls:
     client_auth:
-      mode: required
       ca_bundle: certs/client-ca.pem
 ```
 

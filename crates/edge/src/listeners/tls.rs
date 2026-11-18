@@ -1,11 +1,7 @@
 use std::sync::Arc;
 
 use claviron_runtime::registry::{Error, Result};
-use claviron_tls::auth::verifier::PolicyConfig;
-use claviron_tls::auth::{
-    create_auth_config_with_revocations,
-    create_authority_auth_config_with_revocations,
-};
+use claviron_tls::auth::{ClientAuth, create_client_auth_config};
 use claviron_tls::revocation::Revocations;
 use claviron_tls::{CertAuthority, CertResolver};
 use claviron_types::Host;
@@ -60,8 +56,11 @@ pub(crate) fn client_authority<'a>(
     host: &Host,
     declaration: &HostConfig,
 ) -> Result<Option<&'a Arc<CertAuthority>>> {
-    let auth = &declaration.tls.client_auth;
-    let Some(source) = auth.authority.as_ref().filter(|_| auth.is_required())
+    let Some(source) = declaration
+        .tls
+        .client_auth
+        .as_ref()
+        .and_then(ClientAuth::store_authority)
     else {
         return Ok(None);
     };
@@ -72,48 +71,16 @@ pub(crate) fn client_authority<'a>(
     })
 }
 
+/// The handshake of a host that requires a client certificate. `authority`
+/// is the store CA its declaration selects, prepared with this publication.
 pub(crate) fn create_host_auth_config(
     host: &Host,
-    declaration: &HostConfig,
+    auth: &ClientAuth,
     authority: Option<&CertAuthority>,
     resolver: Arc<CertResolver>,
     alpns: Vec<Vec<u8>>,
     revocations: Arc<Revocations>,
 ) -> Result<ServerConfig> {
-    let auth = &declaration.tls.client_auth;
-    let policy = match (&auth.organization, &auth.unit) {
-        (Some(organization), Some(unit)) => {
-            Some(PolicyConfig::new(organization.clone(), unit.clone()))
-        }
-        (None, None) => None,
-        _ => {
-            return Err(Error::msg(format!(
-                "TLS host {host}: client_auth organization and unit must be configured together"
-            )));
-        }
-    };
-    let config = match (authority, auth.ca_bundle.as_deref()) {
-        (Some(authority), None) => {
-            create_authority_auth_config_with_revocations(
-                authority,
-                resolver,
-                alpns,
-                policy.as_ref(),
-                revocations,
-            )
-        }
-        (None, Some(bundle)) => create_auth_config_with_revocations(
-            bundle,
-            resolver,
-            alpns,
-            policy.as_ref(),
-            revocations,
-        ),
-        _ => {
-            return Err(Error::msg(format!(
-                "TLS host {host}: required client auth needs exactly one authority or ca_bundle"
-            )));
-        }
-    };
-    config.map_err(|error| Error::msg(format!("TLS host {host}: {error}")))
+    create_client_auth_config(auth, authority, resolver, alpns, revocations)
+        .map_err(|error| Error::msg(format!("TLS host {host}: {error}")))
 }

@@ -424,7 +424,8 @@ impl SessionProfile for EnrollProfile {
 ```yaml
 enroll.example.com:
   tls:
-    client_auth: required    # ordinary connections keep mutual TLS
+    client_auth:             # ordinary connections keep mutual TLS
+      authority: {local: example}
     alpn:
       example-enroll/1:      # decoded by the profile into EnrollParams
         validity_days: 30
