@@ -15,8 +15,9 @@ service lifecycle. Orbit is not an Internet transport or a durable database.
 
 Different data has different storage and delivery contracts:
 
-- `Orbital<T>` holds a 64-bit atomic current value; counters and locks provide
-  their dedicated coordination operations.
+- `Orbital<T>` holds a 64-bit atomic current value. Keyed counters are kept
+  `i64` Orbitals named by their key; locks provide their dedicated
+  coordination operations.
 - Arenas and cache primitives hold keyed state. The configured cache stores and
   backing-store policy are assembled by `claviron-cache`. A cache store in
   either mode accepts tagged writes and invalidation by tag while it has no
@@ -53,10 +54,32 @@ The accessor returns `None` before the fleet provider has booted. Obtaining a
 fleet handle is not a readiness check for every service in that fleet.
 
 `Orbital<T>` is Orbitive's shared atomic value (`i64`, `u64`, `f64` or `bool`),
-exported unchanged. After boot, resolve `OrbitalsProvider`, take its `handle()`
-and declare a value with `Orbitals::allocate`; another process reaches it with
-`Orbitals::open` and the value's `OrbitalId`. An id from before the table's
-last reset is refused as stale rather than read as a zero value.
+exported unchanged. A value with a fixed identity is declared by name with
+`orbital!` and registered with `Declare<T>`: each process opens it once at
+boot, and a handler takes it with `Provide<T>`. Every process that declares the
+same name holds the same value.
+
+```rust
+use claviron::http::ext::Provide;
+use claviron::orbit::{Declare, orbital};
+
+orbital! {
+    /// The fleet's hit counter.
+    pub Hits: i64 = 0, "hits"
+}
+
+// Registered through any `Register` entry point, such as a runner's
+// `with_services::<Declare<Hits>>()`.
+async fn hit(Provide(hits): Provide<Hits>) -> String {
+    format!("hits={}\n", hits.fetch_add(1) + 1)
+}
+```
+
+A value without a fixed identity is reached by id: after boot, resolve
+`OrbitalsProvider`, take its `handle()` and declare a value with
+`Orbitals::allocate`; another process reaches it with `Orbitals::open` and the
+value's `OrbitalId`. An id from before the table's last reset is refused as
+stale rather than read as a zero value.
 
 [Fleet awareness](../../docs/design/FLEETAWARE.md)
 defines the same-OS scope; [Orbit Link](../../docs/design/ORBIT_LINK.md) describes

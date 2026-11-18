@@ -4,7 +4,8 @@
 //! is the **bind layer**: it joins
 //! the Orbit fleet at the right lifecycle point, bridges cross-process events,
 //! adapts the Orbit cache data plane to Claviron's runtime and backing stores,
-//! and owns Claviron's keyed atomic counter table.
+//! and owns the lifecycle of the fleet's Orbitals table, which keyed counters
+//! live in.
 //!
 //! Anything that wants Orbit *without* Claviron skips this crate and uses the
 //! feature-gated `orbitive` facade directly.
@@ -43,8 +44,10 @@ pub mod shm;
 pub mod stream;
 
 pub use arena::{Arena, ArenaBootPolicy, ArenaProvider};
-pub use atomic::{Orbital, OrbitalId, Orbitals, OrbitalsProvider};
-pub use counter::{Counter, CounterProvider};
+pub use atomic::{
+    Declare, Declared, Orbital, OrbitalId, Orbitals, OrbitalsProvider, orbital,
+};
+pub use counter::{Counter, CounterHandle, CounterProvider};
 pub use event::{
     APPLICATION_EVENT_PAYLOAD_MAX, ApplicationEventLayout,
     ApplicationEventRegistry, EventRegistry, EventRing, FleetEventCodec,

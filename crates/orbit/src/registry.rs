@@ -21,7 +21,6 @@ pub fn register_fleet(state: &AppState) -> claviron_runtime::Result<()> {
     crate::atomic::register(state)
 }
 
-/// Register the optional keyed counter capability and its Fleet dependency.
 /// The fleet's byte arena: one store of bodies, read in place by every process.
 pub fn register_arena(state: &AppState) -> claviron_runtime::Result<()> {
     register_arena_with_policy(state, ArenaBootPolicy::Preserve)
@@ -38,7 +37,8 @@ pub fn register_arena_with_policy(
     Ok(())
 }
 
-/// Orbitals: one table of shared atomic values per fleet, kind `174`.
+/// Orbitals: one table of shared atomic values per fleet, kind `174`, with
+/// its name directory, kind `170`.
 pub fn register_orbitals(state: &AppState) -> claviron_runtime::Result<()> {
     register_fleet(state)
 }
@@ -69,10 +69,12 @@ pub fn register_client_admission(
     Ok(())
 }
 
+/// Keyed counters: kept `i64` values of the Orbitals table, which this
+/// registers with the fleet. Idempotent.
 pub fn register_counter(state: &AppState) -> claviron_runtime::Result<()> {
-    register_fleet(state)?;
+    register_orbitals(state)?;
     if state.registry_ref().resolve::<CounterProvider>().is_none() {
-        crate::counter::register(state)?;
+        state.registry_ref().register(Arc::new(CounterProvider::new()))?;
     }
     Ok(())
 }

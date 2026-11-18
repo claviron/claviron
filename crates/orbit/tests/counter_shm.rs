@@ -1,4 +1,4 @@
-//! Cross-process keyed counter updates over the Claviron Orbit SHM table.
+//! Cross-process keyed counter updates over the fleet's Orbitals table.
 
 #![cfg(unix)]
 
@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use claviron_orbit::{Counter, Fleet, NodeId};
+use claviron_orbit::{Counter, Fleet, NodeId, Orbitals};
 use nix::sys::wait::{WaitStatus, waitpid};
 use nix::unistd::{ForkResult, fork};
 
@@ -50,8 +50,8 @@ fn parent_and_child_increment_without_lost_updates() {
     let parent_fleet = Arc::new(
         Fleet::join_shm_as(name, 2, NodeId::new(0)).expect("parent fleet"),
     );
-    let parent = Counter::new(parent_fleet).expect("parent counter");
-    parent.reset_all().expect("reset counter table");
+    let orbitals = Orbitals::new(parent_fleet).expect("parent orbitals");
+    let parent = Counter::new(orbitals.clone());
 
     match unsafe { fork() }.expect("fork") {
         ForkResult::Child => {
@@ -59,8 +59,8 @@ fn parent_and_child_increment_without_lost_updates() {
                 Ok(fleet) => Arc::new(fleet),
                 Err(_) => std::process::exit(11),
             };
-            let counter = match Counter::new(fleet) {
-                Ok(counter) => counter,
+            let counter = match Orbitals::new(fleet) {
+                Ok(orbitals) => Counter::new(orbitals),
                 Err(_) => std::process::exit(12),
             };
             for _ in 0..INCREMENTS_PER_PROCESS {
@@ -79,7 +79,7 @@ fn parent_and_child_increment_without_lost_updates() {
                 parent.get("shared").expect("read counter"),
                 Some((INCREMENTS_PER_PROCESS * 2) as i64)
             );
-            parent.unlink().expect("unlink counter table");
+            orbitals.unlink().expect("unlink Orbitals table");
         }
     }
 }

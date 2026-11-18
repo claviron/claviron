@@ -24,9 +24,10 @@ comes from the provider that owns the resource.
 - [`fleet.rs`](src/fleet.rs) — `FleetProvider`: the process's one `Arc<Fleet>`.
 - [`shm.rs`](src/shm.rs) — Boot and finalize policy, the managed provider wrapper and the lifecycle inventory.
 - [`event.rs`](src/event.rs) — The typed bridge between Orbit frames and the local event bus.
-- [`atomic.rs`](src/atomic.rs) — The Orbitals table: Orbitive's `Orbital<T>` re-exported, with no Claviron handle type.
+- [`atomic.rs`](src/atomic.rs) — The Orbitals table and its name directory: Orbitive's `Orbital<T>` re-exported, with no Claviron handle type, and `Declare<T>`, which opens a declared value in each process.
 - [`cache.rs`](src/cache.rs), [`cache/runtime.rs`](src/cache/runtime.rs) — One cache connection per process, its logical stores and L2 ordering.
-- [`arena.rs`](src/arena.rs), [`pool/admission.rs`](src/pool/admission.rs), [`counter.rs`](src/counter.rs), [`lock.rs`](src/lock.rs), [`stream.rs`](src/stream.rs), [`quota.rs`](src/quota.rs) — Lifecycle bindings of those primitives.
+- [`counter.rs`](src/counter.rs) — `CounterProvider`: keyed counters over the Orbitals table, with no segment or lifecycle of their own.
+- [`arena.rs`](src/arena.rs), [`pool/admission.rs`](src/pool/admission.rs), [`lock.rs`](src/lock.rs), [`stream.rs`](src/stream.rs), [`quota.rs`](src/quota.rs) — Lifecycle bindings of those primitives.
 - [`invoke.rs`](src/invoke.rs), [`invoke/call.rs`](src/invoke/call.rs) — The invocation ring and transport-independent targeted calls.
 - [`service.rs`](src/service.rs), [`service/`](src/service/) — Fleet commands and snapshots over Continuo's process-local service manager, and live membership.
 - [`placement.rs`](src/placement.rs), [`placement/controller.rs`](src/placement/controller.rs) — `OrbitDispatcher`: `One` and `Pool` leases.
@@ -51,9 +52,11 @@ comes from the provider that owns the resource.
 ```text
 FleetProvider              priority EARLY: Fleet::join_shm_as(fleet_name, capacity, node)
 OrbitalsProvider           after FleetProvider: reset the Orbitals table when quiescent, else reuse it
+Declare<T>                 after OrbitalsProvider: open the declared value T once, publish it for Provide<T>
+CounterProvider            after OrbitalsProvider: build the process's Counter over the decided table
 master and worker          event ring companion, then FleetEventRegistry with its cursor at the head
 standalone                 Fleet only; local events stay on state.events()
-optional providers         counter, arena, invocations, locks, streams: after FleetProvider
+optional providers         arena, invocations, locks, streams: after FleetProvider
 fleet service management   Continuo ServiceManager, command bridge, snapshot companion, publisher
 ```
 
@@ -116,10 +119,11 @@ not duplicated as new Claviron constants.
 
 | Kind ID | Physical resource | Shape | Owning definition / Claviron binding |
 |---|---|---|---|
+| `170` | Orbitals name directory: name to `OrbitalId` and lifetime (`reset` or `kept`) for the values of kind `174` declared by name. Created by the first declaration; a fleet that declares no name never has it | Table, 64-byte header and one entry per slot of `174` (`ORBIT_ATOMIC_CAPACITY`), 128 bytes each at the default `ORBIT_ATOMIC_NAME_MAX` (112); an entry is written once per epoch under the region lock; peers built with another capacity or name length are refused at attach | Orbitive `orbit-atomic` `ATOMIC_NAMES_KIND`; [OrbitalsProvider binding](src/atomic.rs); belongs with `174`: its reset rewrites it keeping the kept names, a `174` created afresh removes it, `Orbitals::unlink` removes both |
 | `171` | Shared Orbit cache tag floors: a monotonic clock, a random table instance written at creation, and per-tag invalidation floors that judge the tagged records of kind `172` | Table, 64-byte header and `SHARED_TAG_SETS` (default 1,024) 128-byte sets of seven floors and an overflow floor; peers built with another set count are refused at open | Orbitive `SHARED_TAG_KIND`; [SharedCacheTagProvider binding](src/cache/runtime.rs); belongs with `172`, `Reuse` / `Preserve` |
 | `172` | Shared Orbit cache current state; a tagged record carries its tags, the clock it read and the instance of `171` | Dedicated arena with key index, reader pins and byte slots | Orbitive `SHARED_CACHE_KIND`; named cache stores share the segment, `Reuse` / `Preserve`; replaces `180` |
 | `173` | Arena-addressed cache mutation transport (protocol v4, with tags and tag invalidation); values stay in kind `193` | Ring | Orbitive `CACHE_MUTATION_RING_KIND`; [cache binding](src/cache/runtime.rs); replaces `194` |
-| `174` | Orbitals: 64-bit atomic values (`i64`, `u64`, `f64`, `bool`) shared by the fleet, addressed by `kind:8 \| slot:24 \| epoch:32` ids | Table, 64-byte header and one 64-byte slot per value, `ORBIT_ATOMIC_CAPACITY` slots (default 4,096); slots are not reused within an epoch | Orbitive `orbit-atomic` `ATOMIC_KIND`; [OrbitalsProvider binding](src/atomic.rs) |
+| `174` | Orbitals: 64-bit atomic values (`i64`, `u64`, `f64`, `bool`) shared by the fleet, addressed by `kind:8 \| slot:24 \| epoch:32` ids, or by name through `170` | Table, 64-byte header and one 64-byte slot per value, `ORBIT_ATOMIC_CAPACITY` slots (default 4,096); slots are not reused within an epoch | Orbitive `orbit-atomic` `ATOMIC_KIND`; [OrbitalsProvider binding](src/atomic.rs); its name directory is `170` |
 | `175` | Fleet client admission: one request budget per key for the whole fleet, per-node admission counts returned by a confirmed death | Orbit pool table, fleet concurrency on, one resource slot per lane, 64 keys | Orbitive `orbit-pool` `PoolSpec::with_fleet_concurrency`; [ClientAdmissionProvider binding](src/pool/admission.rs); [fleet client admission](../../docs/design/FLEET_CLIENT_ADMISSION.md) |
 | `176` | Application-link inline HTTP exchange control | Caller lane × adopted body-lane capacity, 32-byte records fenced by caller/Runner inbox epoch and slot generation | [Link geometry](src/link/application/geometry.rs), Orbitive `ExchangeControls` |
 | `177` | Application-link shared HTTP response payload | Directional payload arena v5. Outstanding slots are bounded per response and retained through the last receiver byte view | [Shared response bodies](src/link/application/body.rs) |
@@ -175,7 +179,7 @@ not duplicated as new Claviron constants.
 | `227` | Retired text cells v2 without handle pins | Table | Replaced by `190`; retained objects are not migrated, reset or unlinked automatically; see earlier reuse warning below |
 | `228` | Authoritative lock state | Table | Orbitive `LOCK_STATE_KIND`; [lock binding](src/lock.rs) |
 | `229` | Lock transitions | Ring | Orbitive `LOCK_EVENT_RING_KIND`; [lock binding](src/lock.rs) |
-| `230` | Keyed signed counters | Table | Orbitive `COUNTER_STATE_KIND`; [CounterProvider binding](src/counter.rs) |
+| `230` | Retired keyed signed counter table | Table | Orbitive `orbit-counter` through 0.5.4 (Orbitive through 0.6.17); counters are now kept `i64` values of `174`, named through `170`, so the counter table, its key bound and its capacity went. Values are not migrated; retained segments are not reset or unlinked automatically |
 | `231` | Retired fleet TLS server sessions v1 with one table-wide lock | Table | Orbitive `orbit-rustls` through 0.5.5; replaced by `185`; retained segments are not reset or unlinked automatically |
 | `232` | Retired controller-only runnable service snapshots | Ring, 512-byte payloads | Replaced by `191`; retained segments are not resized, reset or unlinked automatically |
 | `233` | Retired scalar cells v2 without handle pins | Table | Replaced by `189`; retained objects are not migrated, reset or unlinked automatically |
@@ -272,6 +276,10 @@ workers start, it may create and initialize a resource so no consumer sees the g
 `shm_open`, sizing and header publication. Resetting a compatible object still needs its policy
 and its evidence.
 
+A resource whose handle creates its segment on first use, rather than at boot, answers a missing
+object with `ShmCreateOutcome::Deferred`: the decision records `Deferred`, not `Opened`, because
+nothing was opened. The Orbitals name directory (kind `170`) is the one such resource.
+
 ## Cleanup: What Is Cleared, By Whom, and What Stays
 
 `SHM_CLEANUP: UPDATE_WITH_EVERY_RESOURCE_CHANGE`
@@ -328,7 +336,8 @@ its index row.
 
 | kind | boot | finalize | successor | what stays, and why it is harmless |
 |---|---|---|---|---|
-| `174` Orbitals | Reset when quiescent, starting a new epoch; reuse in the same epoch while adopted workers run | Preserve | — | values and used slots of the last run until the next quiescent boot resets them; ids from before a reset are refused as stale |
+| `174` Orbitals | Reset when quiescent, starting a new epoch and keeping the values declared kept; reuse in the same epoch while adopted workers run | Preserve | — | values and used slots of the last run until the next quiescent boot resets them; ids from before a reset are refused as stale |
+| `170` Orbitals names, with `174` | Decided by `174`'s step, never on its own: the reset rewrites it with the kept names only, a `174` created afresh removes it; missing is `Deferred`, because the first declaration creates it | Preserve | — | the names of the last run, valid only in `174`'s current epoch: a directory left in another epoch resolves no name. Clear the two together (`Orbitals::unlink` does; with `orbit clear`, both kinds). A directory cleared alone forgets the kept names: declaring one again installs its initial value in a new slot, and the old slot stays used until the next reset |
 | `175` client admission | Reset when quiescent; reuse while adopted workers run | Preserve | exact supervisor exit reports `node_dead`, returning the dead incarnation's permits | admission counts of the last run until the next quiescent boot resets them |
 | `176` inline exchange control (selected Link fleet) | Open or attach when a Runner advertises inline support | Preserve | A new caller lane epoch reclaims abandoned records | No response bytes or response history |
 | `172` shared cache table | Reuse | Preserve | existing arena pin recovery | indexed values, subject to TTL and eviction; invalidated tagged records read as misses until overwritten or evicted |
@@ -349,7 +358,7 @@ its index row.
 | `227`+`233` retired cells | no longer opened by the handle-pinned protocol | no automatic cleanup | — | old tables remain for old binaries; operator cleanup only after their users stop |
 | `228` lock state | Reuse | Preserve | — | a dead holder's lease, until its TTL |
 | `229` lock transitions | Reuse | Preserve | — | cursor at the head |
-| `230` counters | Reuse | Preserve | — | values, on purpose |
+| `230` retired counter table | no longer opened; counters are kept values of `174` | no automatic cleanup | — | the counter values of the earlier build, which nothing reads; `orbit clear <fleet> --kind 230` once every process of that build has stopped |
 | `185` TLS sessions | ResetWhenQuiescent{Reuse}, when `cleanup_on_exit` | UnlinkWhenQuiescent | — | nothing after a quiescent exit; otherwise sessions bounded by their TTL |
 | `236`/`237` broadcast | Reuse | Preserve | — | cursor at the head |
 | `238` master generation | Reuse | Preserve | a new master publishes a higher generation | the head orders masters |
@@ -508,17 +517,37 @@ the `InvocationId`.
 
 ## Orbitals
 
-`register_fleet` also installs `OrbitalsProvider` for the one Orbitals table, kind `174`. Claviron adds no handle
-type, declaration or name directory over it: `claviron_orbit::atomic` re-exports Orbitive's `Orbital<T>`,
-`OrbitalId` and `Orbitals`, and the crate root exports the same three. A process resolves `OrbitalsProvider`, takes its `handle()`, declares a value with
+`register_fleet` also installs `OrbitalsProvider` for the one Orbitals table, kind `174`, and its name directory,
+kind `170`. Claviron adds no handle type and no directory of its own: `claviron_orbit::atomic` re-exports
+Orbitive's atomic module, and the crate root exports `Orbital<T>`, `OrbitalId`, `Orbitals`, `OrbitalsProvider`,
+the `Declared` trait, the `orbital!` macro and `Declare<T>`. A value is reached in one of two ways.
+
+**By declaration.** `orbital!` gives a named value a type of its own, which implements `Declared`.
+`Declare<T>` is its registration, for any `Register` entry point: `with_services::<Declare<Hits>>()`. Orbitive's
+macro defines `T` in the application's crate, and `Register` belongs to Continuo, so no impl of `Register` for `T`
+can be written here; `Declare<T>` is the local type that carries it. It is a component whose `Deps` is
+`OrbitalsProvider`, so in each process it boots after the table is decided there, calls `T::open` once and
+inserts the handle as a plain value. `Provide<T>` then resolves that handle like any other registered value; the
+name is hashed and looked up only in that one `open`. Every process boots its own registry, so a worker opens its
+own handle; the first declaration in the table's epoch installs `T::INITIAL` and every other process finds the
+same slot. Two declared types with the same name share one value. A component that reads `T` in its own boot
+orders itself after `Declare<T>`, as for any value published at boot.
+
+**By id.** A process resolves `OrbitalsProvider`, takes its `handle()`, declares a value with
 `Orbitals::allocate` and passes the id; another process opens that id.
 
-The table's life is the fleet's. A master that boots onto a quiescent fleet resets it, which starts a new epoch
-and makes every earlier id `Stale`. A master that adopts running workers reuses it in the same epoch, because a
-reset does not invalidate the handles those workers hold. A worker always reuses. Slots are not returned within
-an epoch, so a fleet that is only ever adopted keeps consuming them. The provider boots after `FleetProvider` at
-the default priority, as the other reset-when-quiescent tables do: a consumer
-that reads the handle in its own boot orders itself after `OrbitalsProvider`.
+The table's life is the fleet's. A master that boots onto a quiescent fleet resets it, which starts a new epoch,
+makes every earlier id `Stale` and forgets every name except those declared kept, which keep their values under
+new ids. A master that adopts running workers reuses it in the same epoch, because a reset does not invalidate
+the handles those workers hold. A worker always reuses. Slots are not returned within an epoch, so a fleet that
+is only ever adopted keeps consuming them; declaring a name again consumes none. The provider boots after
+`FleetProvider` at the default priority, as the other reset-when-quiescent tables do: a consumer that reads the
+handle in its own boot orders itself after `OrbitalsProvider`.
+
+The directory is the provider's second managed resource, listed after the table because the table's step decides
+it: a reset rewrites it, a table created afresh removes it, and its own steps change nothing (`Reuse` /
+`Preserve`). Missing is reported as `Deferred`, since the first declaration creates it; Orbitive checks its header
+and geometry whenever the table's handle attaches it.
 
 ## Cache
 
@@ -603,11 +632,17 @@ Sizing is the deployment's to state.
 
 ## Counters and locks
 
-`Counter` is one authoritative table, kind `230`, with no history ring. A key is installed once under a short
-recoverable lock; after that its bytes and slot are immutable, so `get`, `increment`, `decrement` and `reset` work on
-the slot's atomic. Runtime key deletion does not exist, which removes a reuse race. Updates are checked and reject
-overflow unchanged. Every boot reuses the table, so values survive a restart, and an adopted worker is never mutated
-underneath itself.
+A counter is a kept `i64` Orbital whose name is its key, in the Orbitals table (kinds `174` and `170`); Orbitive's
+`orbit-counter` adds checked arithmetic and a lookup that installs nothing. `CounterProvider` owns no segment: its
+`Deps` is `OrbitalsProvider`, so in each process it boots after the table is decided there and builds one `Counter`
+over that handle, which `handle()` returns as `Arc<Counter>`. A keyed call hashes and looks up its key each time;
+`Counter::open` resolves a key once and returns a `CounterHandle`, which belongs to the table's epoch. A process
+never sees the epoch change after its own boot decision, so a handle opened after `CounterProvider` boots stays
+valid for the life of the process. Updates are checked and reject overflow unchanged. Counters are declared kept:
+the master's quiescent-boot reset carries them into the new epoch, an adopting boot reuses the table, and exit
+preserves it, so values survive a restart as they did in the retired table `230`. Keys share the table's capacity
+and its name bound, `ATOMIC_NAME_MAX`, with every other declared value of the fleet; there is no key deletion, and
+a kept key holds its slot until the segments are cleared after a stop.
 
 `OrbitLock` is one atomic operation per call, with no task, retry or blocking. A consumer that waits uses the transition
 ring or its own bounded retry. State and ring survive master replacement, because lease expiry plus fencing owns stale

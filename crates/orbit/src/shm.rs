@@ -117,6 +117,10 @@ pub enum ShmCreateOutcome {
     /// was missing at probe time and is now open, but a peer may have won the
     /// race in between.
     Opened,
+    /// The object was missing at probe time and is left missing: the domain
+    /// handle creates it on first use, after this decision. Nothing was
+    /// opened, so reporting `Opened` would claim state that does not exist.
+    Deferred,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -124,6 +128,7 @@ pub enum ShmBootAction {
     Created,
     Reused,
     Opened,
+    Deferred,
     Reset,
     Recreated,
     Rejected,
@@ -765,6 +770,7 @@ where
                         ShmCreateOutcome::Created => ShmBootAction::Created,
                         ShmCreateOutcome::Reused => ShmBootAction::Reused,
                         ShmCreateOutcome::Opened => ShmBootAction::Opened,
+                        ShmCreateOutcome::Deferred => ShmBootAction::Deferred,
                     };
                     (None, action)
                 })
@@ -956,6 +962,7 @@ async fn apply_destructive_boot_policy(
                 ShmBootAction::Created
                 | ShmBootAction::Reused
                 | ShmBootAction::Opened
+                | ShmBootAction::Deferred
                 | ShmBootAction::Rejected => {
                     unreachable!()
                 }

@@ -42,7 +42,7 @@ other to finish. The pool is the only coordination; no lock is added.
 
 ## Claviron pieces
 
-1. **The table.** A managed SHM resource like the counter table: one new
+1. **The table.** A managed SHM resource like the lock table: one new
    kind, its geometry validated on reuse, kept across boots, joined by every
    process of the fleet. The kind takes a row in the SHM Kind ID Index and its
    cleanup row.
