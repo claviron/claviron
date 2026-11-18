@@ -411,6 +411,10 @@ fn validate_feature(
     prefix: &PathPrefix,
     name: &str,
 ) -> Result<(), String> {
+    // Each arm is that feature's compile-time answer. With every feature
+    // on they all read `true`, which is the only reason this looks like a
+    // `matches!`.
+    #[allow(clippy::match_like_matches_macro)]
     let supported = match name {
         "orbit" => cfg!(feature = "orbit"),
         "rate_limit" => cfg!(feature = "rate-limit"),
