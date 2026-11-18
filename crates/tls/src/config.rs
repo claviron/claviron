@@ -69,8 +69,9 @@ pub struct TlsConfigSource {
 impl TlsConfigSource {
     /// What stands in for a `tls.yaml` that does not exist: this process has
     /// no certificate source, resolver or session storage. It is not the
-    /// empty file, which selects the default certstore and certificate.
-    pub(crate) fn absent() -> Self {
+    /// empty file, which selects the default certstore and certificate. A
+    /// host whose launch declares no TLS supplies this, so no file is read.
+    pub fn absent() -> Self {
         Self {
             absent: true,
             certstore: None,

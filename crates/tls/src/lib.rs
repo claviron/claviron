@@ -30,4 +30,4 @@ pub use manager::CertificateManager;
 pub use proto::*;
 pub use resolver::{CertResolver, CertResolverProvider};
 pub use signer::{CertSigner, IssuedCertificate};
-pub use source::{CertificateProvider, CertificateStore};
+pub use source::{CertificateProvider, CertificateStore, register_with_config};

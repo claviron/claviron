@@ -278,6 +278,15 @@ validates the process TLS policy and publishes `CertificateStore` plus the
 configured, public-only `CertAuthority`. It does not load a default identity,
 create an SNI map, register virtual hosts or bind a listener.
 
+A host that owns a launch document of its own supplies the same declaration
+instead, in the schema `tls.yaml` uses: `register_with_config(state,
+TlsConfigSource)` registers the provider with it before the TLS composition
+would register the file owner. That declaration is fixed for the process: it
+is neither prepared by Congif nor part of the reload batch, and changing it
+takes a restart. `declaration(state)` returns what the process has, supplied
+or prepared, without opening a file; `declared` and every boot or reload path
+read it, so the two sources resolve the same way.
+
 `CertificateStore` exposes separate operations:
 
 - `trust(selection)` / `authority()`: public CA chains only;

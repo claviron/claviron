@@ -1,5 +1,5 @@
 //! Certificate sources and explicit capabilities, independent of SNI routing.
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
@@ -385,19 +385,79 @@ impl CertificateStore {
     }
 }
 
-/// Owns tls.yaml and the source capability, not an SNI resolver or HTTP host.
+/// Owns the TLS declaration and the source capability, not an SNI resolver or
+/// HTTP host.
+///
+/// Two sources declare it. By default the provider owns `tls.yaml`: Congif
+/// prepares it before boot and in the reload batch, and an absent file means
+/// this process has no TLS of its own. A host that owns a launch document of
+/// its own supplies the declaration instead ([`register_with_config`],
+/// [`Self::with_config`]); that declaration is fixed for the process, with no
+/// file to read, watch or reload.
 pub struct CertificateProvider {
     state: AppState,
-    config_path: PathBuf,
+    declaration: Declaration,
+}
+
+enum Declaration {
+    File(PathBuf),
+    Supplied(Arc<TlsConfigSource>),
 }
 
 impl CertificateProvider {
+    /// The provider that owns `tls.yaml` in the configuration directory.
     pub fn new(state: &AppState) -> Self {
         Self {
             state: state.clone(),
-            config_path: state.config_dir().join("tls.yaml"),
+            declaration: Declaration::File(state.config_dir().join("tls.yaml")),
         }
     }
+
+    /// A provider with its declaration in hand, in the schema `tls.yaml`
+    /// uses. It is neither prepared by Congif nor observed for reloads.
+    pub fn with_config(
+        state: &AppState,
+        config: TlsConfigSource,
+    ) -> Self {
+        Self {
+            state: state.clone(),
+            declaration: Declaration::Supplied(Arc::new(config)),
+        }
+    }
+
+    /// The declaration a host supplied; `None` when the provider owns
+    /// `tls.yaml`.
+    pub(crate) fn supplied(&self) -> Option<Arc<TlsConfigSource>> {
+        match &self.declaration {
+            Declaration::Supplied(config) => Some(Arc::clone(config)),
+            Declaration::File(_) => None,
+        }
+    }
+
+    fn is_file_configured(&self) -> bool {
+        matches!(self.declaration, Declaration::File(_))
+    }
+}
+
+/// Supply the TLS declaration from an enclosing launch document, in the
+/// schema `tls.yaml` uses. No file is read or watched: the declaration is
+/// fixed for this process, and a central reload leaves it as it is. Changing
+/// it takes a restart of the process that supplied it.
+///
+/// A provider already registered is an error, not a merge.
+pub fn register_with_config(
+    state: &AppState,
+    config: TlsConfigSource,
+) -> claviron_runtime::registry::Result<()> {
+    if state.registry_ref().resolve::<CertificateProvider>().is_some() {
+        return Err(claviron_runtime::registry::Error::msg(
+            "certificate provider already registered",
+        ));
+    }
+    state
+        .registry_ref()
+        .register(Arc::new(CertificateProvider::with_config(state, config)))?;
+    Ok(())
 }
 
 impl Register<AppState> for CertificateProvider {
@@ -417,8 +477,13 @@ pub fn register(state: &AppState) -> claviron_runtime::registry::Result<()> {
 #[async_trait]
 impl Configurable for CertificateProvider {
     type Config = TlsConfigSource;
+    /// Reached only through `as_configurable`, which a supplied declaration
+    /// does not answer.
     fn source(&self) -> ConfigFile {
-        ConfigFile::yaml(&self.config_path)
+        match &self.declaration {
+            Declaration::File(path) => ConfigFile::yaml(path),
+            Declaration::Supplied(_) => ConfigFile::yaml(Path::new("")),
+        }
     }
     /// Without the file this process has no TLS of its own. A listener or a
     /// host that needs it is refused where it is declared.
@@ -488,8 +553,10 @@ impl Component<AppState> for CertificateProvider {
     fn boot_priority(&self) -> Option<u8> {
         Some(priority::EARLY)
     }
+    /// Only the owner of `tls.yaml` takes part in Congif's preparation and
+    /// the reload batch; a supplied declaration has no source to prepare.
     fn as_configurable(&self) -> Option<&dyn congif::ConfigRegistration> {
-        Some(self)
+        self.is_file_configured().then_some(self)
     }
     fn as_bootable(&self) -> Option<&dyn Bootable<AppState, Self::Deps>> {
         Some(self)

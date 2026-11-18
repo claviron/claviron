@@ -272,3 +272,42 @@ async fn a_missing_declaration_is_no_tls_and_an_empty_one_still_is() {
     assert!(declared(&state).unwrap());
     assert!(build_certificates(&state, &hosting(&state)).await.is_err());
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_supplied_declaration_is_read_without_a_file() {
+    // The configuration directory holds a tls.yaml the supplied declaration
+    // must win over without opening it: it would not even parse.
+    struct Directory(PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    let directory = Directory(
+        std::env::temp_dir()
+            .join(format!("claviron-tls-supplied-{}", std::process::id())),
+    );
+    std::fs::create_dir(&directory.0).unwrap();
+    std::fs::write(directory.0.join("tls.yaml"), "[").unwrap();
+    let state = AppState::standalone("tls-supplied-fixture", &directory.0);
+    let supplied: crate::config::TlsConfigSource =
+        serde_yaml::from_str("certstore: {dir: .}\ndefault: example.test\n")
+            .unwrap();
+    crate::register_with_config(&state, supplied.clone()).unwrap();
+    assert_eq!(*declaration(&state).unwrap().unwrap(), supplied);
+    // The file owner the facade registers afterwards keeps the supplied one.
+    crate::source::register(&state).unwrap();
+    assert_eq!(*declaration(&state).unwrap().unwrap(), supplied);
+    assert!(
+        crate::register_with_config(&state, supplied).is_err(),
+        "a second declaration is refused, not merged"
+    );
+
+    let absent = AppState::standalone("tls-supplied-absent", &directory.0);
+    crate::register_with_config(
+        &absent,
+        crate::config::TlsConfigSource::absent(),
+    )
+    .unwrap();
+    assert!(!declared(&absent).unwrap());
+}

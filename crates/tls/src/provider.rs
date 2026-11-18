@@ -9,7 +9,7 @@ use super::proto::Proto;
 use super::resolver::CertResolver;
 use crate::CertificateProvider;
 use crate::authority::CertAuthority;
-use crate::config::TlsConfig;
+use crate::config::{TlsConfig, TlsConfigSource};
 use crate::snapshot::Snapshot;
 
 /// What certificate loading reads from hosting: the server id
@@ -21,15 +21,32 @@ pub type HostingDeps = (Option<Arc<claviron_hosting::HostingService>>,);
 #[cfg(not(feature = "db"))]
 pub type HostingDeps = ();
 
-/// Whether `tls.yaml` exists. Without it this process has no TLS of its own:
+/// The TLS declaration this process has, as written: the one its host
+/// supplied ([`crate::register_with_config`]), or else the prepared
+/// `tls.yaml`. `None` when there is none: the file does not exist, or the
+/// host supplied [`TlsConfigSource::absent`]. Reading it opens no file.
+pub fn declaration(
+    state: &AppState
+) -> Result<Option<Arc<TlsConfigSource>>, Error> {
+    let source = match state
+        .registry_ref()
+        .resolve::<CertificateProvider>()
+        .and_then(|provider| provider.supplied())
+    {
+        Some(source) => source,
+        None => state
+            .config_reader()
+            .snapshot::<CertificateProvider>()
+            .map_err(|error| Error::Other(error.to_string()))?,
+    };
+    Ok((!source.is_absent()).then_some(source))
+}
+
+/// Whether TLS is declared. Without it this process has no TLS of its own:
 /// no certificate source, no resolver and no session storage. What needs one
 /// says so at its own boundary.
 pub fn declared(state: &AppState) -> Result<bool, Error> {
-    state
-        .config_reader()
-        .snapshot::<CertificateProvider>()
-        .map(|source| !source.is_absent())
-        .map_err(|error| Error::Other(error.to_string()))
+    declaration(state).map(|source| source.is_some())
 }
 
 /// What a reload answers when the file it booted with is gone.
@@ -47,13 +64,9 @@ pub(crate) fn removed() -> Error {
 pub(crate) async fn load_tls_config(
     state: &AppState
 ) -> Result<Option<TlsConfig>, Error> {
-    let source = state
-        .config_reader()
-        .snapshot::<CertificateProvider>()
-        .map_err(|error| Error::Other(error.to_string()))?;
-    if source.is_absent() {
+    let Some(source) = declaration(state)? else {
         return Ok(None);
-    }
+    };
     let cfg = tokio::task::spawn_blocking(move || {
         TlsConfig::try_from((*source).clone())
     })

@@ -49,6 +49,11 @@ database-only identities. Missing files can permit the configured named fallback
 corrupt or inaccessible material is not hidden by trying another source.
 Required material must resolve successfully before serving traffic.
 
+A host whose launch document already holds this declaration supplies it with
+`register_with_config(state, TlsConfigSource)` instead; no `tls.yaml` is then
+read, watched or reloaded, and a change takes a restart. `declaration(state)`
+returns the declaration the process has, from either source.
+
 Explicit PEM certificate/key pairs use process-cwd-relative paths. Paths within
 a certificate store follow that store's directory rules. This is not a promise
 that every path is relative to `tls.yaml`.
