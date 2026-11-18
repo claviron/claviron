@@ -10,10 +10,7 @@ use claviron_runtime::congif::{
 use claviron_runtime::registry::{Bootable, Component, priority};
 use claviron_runtime::{AppState, Register};
 use claviron_types::CertificateKind;
-use claviron_types::ssl::certstore::{
-    CLIENT_CERT_FILENAME, CLIENT_KEY_FILENAME, CertStore, CertificateSource,
-    FULLCHAIN_CERT_FILENAME, PRIVKEY_FILENAME,
-};
+use claviron_types::ssl::certstore::{CertStore, CertificateSource};
 use rustls::sign::CertifiedKey;
 
 use crate::config::TlsConfigSource;
@@ -197,17 +194,14 @@ impl CertificateStore {
             CertificateSource::Name(_) | CertificateSource::Local(_) => {
                 match selection.basename() {
                     Some(name) => {
-                        let dir = if kind == CertificateKind::Client {
-                            files.client_dir(name.as_str())
-                        } else {
-                            files.server_dir(name.as_str())
-                        };
-                        let (cert, key) = if kind == CertificateKind::Client {
-                            (CLIENT_CERT_FILENAME, CLIENT_KEY_FILENAME)
-                        } else {
-                            (FULLCHAIN_CERT_FILENAME, PRIVKEY_FILENAME)
-                        };
-                        let pair = (dir.join(cert), dir.join(key));
+                        let pair = files
+                            .identity_paths(kind, name.as_str())
+                            .ok_or_else(|| {
+                                Error::Other(
+                                    "CA keys require an explicit signing capability"
+                                        .into(),
+                                )
+                            })?;
                         if matches!(selection, CertificateSource::Local(_))
                             || tokio::fs::try_exists(&pair.0).await?
                             || tokio::fs::try_exists(&pair.1).await?
@@ -223,19 +217,9 @@ impl CertificateStore {
             }
             CertificateSource::Cn(_) => None,
             CertificateSource::Path(path) => {
-                let cert = files.dir().join(path);
-                let filename = if kind == CertificateKind::Client {
-                    CLIENT_KEY_FILENAME
-                } else {
-                    PRIVKEY_FILENAME
-                };
-                let key = cert
-                    .parent()
-                    .ok_or_else(|| {
-                        Error::Other("identity path requires a parent".into())
-                    })?
-                    .join(filename);
-                Some((cert, key))
+                Some(files.identity_path_pair(path).ok_or_else(|| {
+                    Error::Other("identity path requires a parent".into())
+                })?)
             }
             CertificateSource::Paths(paths) => Some((
                 paths.cert_path().ok_or(Error::NoDefaultCert)?.clone(),

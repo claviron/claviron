@@ -1,4 +1,5 @@
 use super::*;
+use claviron_types::ssl::certstore::PRIVKEY_FILENAME;
 use claviron_types::ssl::{generators, parsers};
 
 /// The store reads the PEM a file holds.

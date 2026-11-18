@@ -5,24 +5,39 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 use serde::Deserialize;
 
 use super::{Basename, CommonName, Organization};
-use crate::{Host, KeyString};
+use crate::{CertificateKind, Host, KeyString};
 
 pub const SERVER_CERTS_DIRNAME: &str = "servers";
 /// Conventional CRL file at the certificate store root.
 pub const CRL_FILENAME: &str = "revocations.crl";
 /// Client identities occupy a separate subtree from signing authorities.
 pub const CLIENT_CERTS_DIRNAME: &str = "clients";
-/// Existing client stores and the certificate generator use this leaf filename.
-pub const CLIENT_CERT_FILENAME: &str = "client.crt";
-/// Existing client stores and the certificate generator use this key filename.
-pub const CLIENT_KEY_FILENAME: &str = "client.key";
-/// Human-readable client certificate inspection output, never signing material.
-pub const CLIENT_TEXT_FILENAME: &str = "certificate.txt";
+/// Human-readable certificate inspection output beside an identity, never
+/// signing material.
+pub const CERT_TEXT_FILENAME: &str = "certificate.txt";
 pub const CA_CERTS_DIR_NAME: &str = "ca";
 pub const CA_CERT_FILENAME: &str = "ca.crt";
 pub const CA_KEY_FILENAME: &str = "ca.key";
+/// Human-readable inspection output beside a CA certificate.
+pub const CA_TEXT_FILENAME: &str = "ca.txt";
+/// Every identity's private key, server and client alike.
 pub const PRIVKEY_FILENAME: &str = "privkey.pem";
+/// Every identity's certificate chain, leaf first, server and client alike.
 pub const FULLCHAIN_CERT_FILENAME: &str = "fullchain.pem";
+
+/// The certificate and private key file names a store folder of `kind`
+/// holds: the CA pair for an authority, the identity pair for a server or a
+/// client.
+pub const fn entry_filenames(
+    kind: CertificateKind
+) -> (&'static str, &'static str) {
+    match kind {
+        CertificateKind::Ca => (CA_CERT_FILENAME, CA_KEY_FILENAME),
+        CertificateKind::Server | CertificateKind::Client => {
+            (FULLCHAIN_CERT_FILENAME, PRIVKEY_FILENAME)
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
@@ -231,7 +246,35 @@ impl CertStore {
         &self,
         name: &str,
     ) -> PathBuf {
-        self.client_dir(name).join(CLIENT_KEY_FILENAME)
+        self.client_dir(name).join(PRIVKEY_FILENAME)
+    }
+
+    /// A server or client identity's certificate chain and private key. A CA
+    /// is not an identity: its pair is [`Self::ca_cert_path`] and
+    /// [`Self::ca_key_path`], named by a basename only.
+    pub fn identity_paths(
+        &self,
+        kind: CertificateKind,
+        name: &str,
+    ) -> Option<(PathBuf, PathBuf)> {
+        let dir = match kind {
+            CertificateKind::Server => self.server_dir(name),
+            CertificateKind::Client => self.client_dir(name),
+            CertificateKind::Ca => return None,
+        };
+        let (cert, key) = entry_filenames(kind);
+        Some((dir.join(cert), dir.join(key)))
+    }
+
+    /// The certificate a `{path: ...}` identity selection names, resolved
+    /// against the store, and the private key beside it.
+    pub fn identity_path_pair(
+        &self,
+        path: &Path,
+    ) -> Option<(PathBuf, PathBuf)> {
+        let cert = self.dir.join(path);
+        let key = cert.parent()?.join(PRIVKEY_FILENAME);
+        Some((cert, key))
     }
 
     pub fn ca_cert_path(

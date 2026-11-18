@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn client_material_uses_the_client_subtree_and_existing_key_filename() {
+fn client_material_uses_the_client_subtree_and_identity_filenames() {
     let store: CertStore =
         serde_yaml::from_str("dir: /tmp/certstore-test\n").unwrap();
     assert_eq!(
@@ -10,7 +10,7 @@ fn client_material_uses_the_client_subtree_and_existing_key_filename() {
     );
     assert_eq!(
         store.client_key_path("operator"),
-        store.client_dir("operator").join(CLIENT_KEY_FILENAME)
+        store.client_dir("operator").join(PRIVKEY_FILENAME)
     );
     assert_eq!(
         store.client_cert_path("operator"),

@@ -5,11 +5,8 @@ use std::sync::Arc;
 
 #[cfg(feature = "db")]
 use claviron_hosting::{HostedCertificate, HostingStore};
-use claviron_types::ssl::certstore::{
-    CertEntry, CertStore, CertificateSource, FULLCHAIN_CERT_FILENAME,
-    PRIVKEY_FILENAME,
-};
-use claviron_types::{Aliases, Host, Sni};
+use claviron_types::ssl::certstore::{CertEntry, CertStore, CertificateSource};
+use claviron_types::{Aliases, CertificateKind, Host, Sni};
 use rustls::sign::CertifiedKey;
 
 use super::error::Error;
@@ -50,9 +47,9 @@ impl Snapshot {
                 // A bare name that is not a store folder name is in hosting
                 // only, so there is no file pair to look for.
                 if let Some(name) = source.basename() {
-                    let dir = certstore.server_dir(name.as_str());
-                    let cert_path = dir.join(FULLCHAIN_CERT_FILENAME);
-                    let key_path = dir.join(PRIVKEY_FILENAME);
+                    let (cert_path, key_path) = certstore
+                        .identity_paths(CertificateKind::Server, name.as_str())
+                        .ok_or(Error::NoDefaultCert)?;
                     // Only absence of both files permits DB fallback. A broken
                     // or inaccessible pair is an operator error, not another
                     // source.
@@ -66,11 +63,9 @@ impl Snapshot {
             }
             CertificateSource::Cn(_) => {}
             CertificateSource::Path(path) => {
-                let cert_path = certstore.dir().join(path);
-                let key_path = cert_path
-                    .parent()
-                    .ok_or(Error::NoDefaultCert)?
-                    .join(PRIVKEY_FILENAME);
+                let (cert_path, key_path) = certstore
+                    .identity_path_pair(path)
+                    .ok_or(Error::NoDefaultCert)?;
                 snap.load_default(&cert_path, &key_path)?;
             }
             CertificateSource::Paths(paths) => {

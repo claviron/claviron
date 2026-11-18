@@ -377,12 +377,22 @@ The store layout is conventional:
 ```
 <store>/ca/<ca-name>/ca.crt
 <store>/ca/<ca-name>/ca.key
-<store>/servers/<server-name>/...
-<store>/clients/<client-name>/...
+<store>/servers/<server-name>/fullchain.pem
+<store>/servers/<server-name>/privkey.pem
+<store>/clients/<client-name>/fullchain.pem
+<store>/clients/<client-name>/privkey.pem
 ```
 
-Client generation and import share `CLIENT_CERT_FILENAME` (`client.crt`) and
-`CLIENT_KEY_FILENAME` (`client.key`) under `CLIENT_CERTS_DIRNAME` (`clients`).
+A server and a client identity are stored alike: `FULLCHAIN_CERT_FILENAME`
+(`fullchain.pem`, leaf first) and `PRIVKEY_FILENAME` (`privkey.pem`), under
+`SERVER_CERTS_DIRNAME` (`servers`) or `CLIENT_CERTS_DIRNAME` (`clients`).
+Readers and writers take these paths from the store rather than joining file
+names themselves: `identity_paths(kind, name)` for a store identity,
+`entry_filenames(kind)` for a folder laid out like a store entry,
+`identity_path_pair(path)` for a `{path: ...}` selection and the key beside
+it, and `ca_cert_path`/`ca_key_path` for an authority. A store written with an
+earlier client layout (`client.crt`, `client.key`) is not read under those
+names; rename the files to `fullchain.pem` and `privkey.pem`.
 
 CA folders are always named by a `Basename`. A server folder is named
 by a basename or by the certificate's host, a client folder by a
