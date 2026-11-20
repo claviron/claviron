@@ -84,12 +84,72 @@ pub trait CacheStore: Any + Send + Sync + 'static {
     }
 }
 
-/// Tagged writes and invalidation by tag for a store that supports them.
+/// A position on a store's tag-invalidation clock, read before a backing
+/// read and given back to [`TaggedCacheStore::fill_tagged`] with its result.
+///
+/// Opaque to everyone but the store that issued it: `source` names the
+/// clock, `clock` the position on it. A store refuses a token from another
+/// clock as [`Fill::Invalidated`]. 16 bytes, `Copy`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FillToken {
+    source: u64,
+    clock: u64,
+}
+
+impl FillToken {
+    /// For a store implementing [`TaggedCacheStore::fill_token`].
+    pub const fn new(
+        source: u64,
+        clock: u64,
+    ) -> Self {
+        Self { source, clock }
+    }
+
+    pub const fn source(self) -> u64 {
+        self.source
+    }
+
+    pub const fn clock(self) -> u64 {
+        self.clock
+    }
+}
+
+/// What [`TaggedCacheStore::fill_tagged`] did with its value. Every variant
+/// but [`Fill::Kept`] leaves the store as it was, and none is an error: the
+/// value is still the right answer for the read that produced it.
+#[must_use = "a refused fill is not an error, but nothing was stored"]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Fill {
+    /// Stored; reads may return it until a newer write of its key, an
+    /// invalidation of one of its tags newer than its token, its expiry, or
+    /// eviction.
+    Kept,
+    /// Refused by the fence: an invalidation of one of its tags may be newer
+    /// than the token, or the token is from another clock.
+    Invalidated,
+    /// Refused by its key: the store holds or has recorded a write of this
+    /// key newer than the token.
+    Superseded,
+    /// Not kept, for a reason that says nothing about staleness, such as an
+    /// already expired value or no room.
+    Skipped,
+}
+
+impl Fill {
+    pub const fn is_kept(self) -> bool {
+        matches!(self, Self::Kept)
+    }
+}
+
+/// Tagged writes, fenced fills and invalidation by tag for a store that
+/// supports them.
 ///
 /// Reached through [`CacheStore::tagged`]. These are separate entry points
 /// rather than an optional argument to `put`, so a store without tags refuses
 /// the tagged call instead of silently dropping its tags. Reads are the same
-/// for tagged and untagged entries.
+/// for tagged and untagged entries. A store with tags has the fenced fill as
+/// well: without it, a value read from a source while one of its tags was
+/// invalidated could be cached with nothing left to remove it.
 #[async_trait]
 pub trait TaggedCacheStore: Send + Sync {
     /// Store `value` under `key` so that [`Self::invalidate_tags`] of any of
@@ -103,8 +163,31 @@ pub trait TaggedCacheStore: Send + Sync {
         tags: &[&str],
     ) -> crate::Result<()>;
 
+    /// This store's position on its tag-invalidation clock. Take it
+    /// immediately before reading the authoritative source, and before any
+    /// snapshot that read uses.
+    async fn fill_token(&self) -> crate::Result<FillToken>;
+
+    /// Store `value`, read from the authoritative source after `token` was
+    /// taken, under `tags`, unless an invalidation of one of them is newer
+    /// than the token: an invalidation whose clock position is at or below
+    /// the token ran before the read began and is in what it returned; one
+    /// above it refuses the fill ([`Fill::Invalidated`]), whether it reaches
+    /// the store before the fill or after. Arguments the store refuses are
+    /// errors, as for [`Self::put_tagged`]; an empty set is an untagged fill.
+    async fn fill_tagged(
+        &self,
+        token: FillToken,
+        key: &str,
+        value: Cow<'_, [u8]>,
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> crate::Result<Fill>;
+
     /// Make every entry carrying any of `tags`, written before this call, a
-    /// miss. An empty set is [`Error::TagsEmpty`].
+    /// miss. An empty set is [`Error::TagsEmpty`]. Change the source first,
+    /// then invalidate: a fill whose token was read after this call returns
+    /// is kept.
     async fn invalidate_tags(
         &self,
         tags: &[&str],
@@ -273,6 +356,26 @@ impl CacheRepository {
         let tagged = self.tagged()?;
         let encoded = value.encode().map_err(Error::from)?;
         tagged.put_tagged(key, encoded.into(), ttl, tags).await
+    }
+
+    /// The token to take before a backing read whose result goes to
+    /// [`Self::fill_tagged`]. Refused like [`Self::put_tagged`].
+    pub async fn fill_token(&self) -> crate::Result<FillToken> {
+        self.tagged()?.fill_token().await
+    }
+
+    /// Store bytes read from an authoritative source after `token`, unless
+    /// an invalidation of one of `tags` is newer than the token; see
+    /// [`TaggedCacheStore::fill_tagged`]. Refused like [`Self::put_tagged`].
+    pub async fn fill_tagged<'v>(
+        &self,
+        token: FillToken,
+        key: &str,
+        value: impl Into<Cow<'v, [u8]>>,
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> crate::Result<Fill> {
+        self.tagged()?.fill_tagged(token, key, value.into(), ttl, tags).await
     }
 
     /// Make every entry carrying any of `tags` a miss. Refused like

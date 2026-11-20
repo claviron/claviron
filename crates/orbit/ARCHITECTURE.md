@@ -571,10 +571,12 @@ clear:  optional backing clear -> Orbit reset
 
 put_tagged:      no backing -> Orbit put_tagged
 invalidate_tags: no backing -> Orbit invalidate_tags
+fill_token:      no backing -> Orbit fill_token (sync)
+fill_tagged:     no backing -> Orbit fill_tagged (sync)
 ```
 
 A replicated miss fills that worker's L1 from the backing value when its expiry is known, at the fill
-revision taken before the backing read; an SHM miss returns the backing value without keeping it.
+token taken before the backing read; an SHM miss returns the backing value without keeping it.
 Explicit writes and invalidations complete L2 first.
 
 If mutation history is lost, every replicated L1 is disabled because the missing mutation's store is unknowable.
@@ -609,6 +611,19 @@ the backing store, durably and outside its eviction, before the Orbit invalidati
 returns the tags and stamp, judged against those floors before the value is served or given to
 `fill_tagged`. The stamp needs a fleet-wide clock with an identity that survives in the backing store
 across a ring or table that is recreated, which Orbitive does not expose today.
+
+`CacheRuntime::fill_token` and `fill_tagged` are the fence for a caller that reads an authoritative
+source itself and caches the result under tags: take the token, read, fill with the token. Both
+modes share Orbitive's one `FillToken` and `Fill` outcome, so the signature does not depend on the
+mode. A fill is refused, as `Ok(Fill::Invalidated)`, when an invalidation of one of its tags took a
+clock position above the token; one at or below it ran before the read began. An SHM fill is a
+record every process reads, stamped with the token, so an invalidation above it hides the record
+whenever it lands. A replicated fill stays in the filling worker's L1 and publishes nothing; each
+worker misses once and fills from its own read, and an invalidation still reaches every worker. Both
+calls are synchronous: neither waits on I/O, and a native caller outside the Tokio runtime calls them
+without `block_on`. The TTL is converted to Orbit's Unix-millisecond deadline once per fill. They are
+refused with `Error::TagsUnsupported` on a backed store, like the other tagged calls: a store
+supports the fenced fill exactly when it supports tags.
 
 Orbitive's `TooManyTags { count, max }` and `TagsEmpty` become this crate's typed variants of the same
 names. `max` is `MAX_TAGS` (16) or, for a replicated put, the fewer tags a long key leaves room for in

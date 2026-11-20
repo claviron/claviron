@@ -8,7 +8,9 @@
 mod runtime;
 
 pub(crate) use orbitive::cache::SHARED_CACHE_KIND;
-pub use orbitive::cache::{CachePoll, CacheRead, DEFAULT_L1_CAPACITY};
+pub use orbitive::cache::{
+    CachePoll, CacheRead, DEFAULT_L1_CAPACITY, Fill, FillToken,
+};
 pub use runtime::{
     BackingEntry, BackingExpiry, CacheBacking, CacheMode, CacheRuntime,
     CacheService, Error, Result,

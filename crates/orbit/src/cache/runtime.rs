@@ -13,9 +13,9 @@ use claviron_runtime::registry::{
 };
 use claviron_runtime::{AppState, RunContext};
 use orbitive::cache::{
-    Cache, CacheLayout, CachePoll, CacheRead, CacheRevision,
-    DefaultCacheLayout, SHARED_CACHE_KIND, SHARED_TAG_KIND, SharedCache,
-    SharedStore, Store,
+    Cache, CacheLayout, CachePoll, CacheRead, DefaultCacheLayout, Fill,
+    FillToken, SHARED_CACHE_KIND, SHARED_TAG_KIND, SharedCache, SharedStore,
+    Store,
 };
 use orbitive::{Fleet, OrbitTyped, RingSpec};
 use tokio::runtime::Handle;
@@ -369,28 +369,56 @@ impl Primitive {
         }
     }
 
-    /// The revision a backing read started now is current as of. SHM has no
-    /// worker-local view to fill.
-    fn fill_revision(&self) -> Option<CacheRevision> {
+    /// The token a backing read started now is current as of. SHM keeps no
+    /// untagged backing value, so it takes none.
+    fn backing_fill_token(&self) -> Option<FillToken> {
         match self {
-            Self::Replicated(store) => Some(store.fill_revision()),
+            Self::Replicated(store) => Some(store.fill_token()),
             Self::Shm(_) => None,
         }
     }
 
     /// Keep a backing value untagged. That is exact, not a loss: only a
     /// store with a backing store fills, and such a store refuses tagged
-    /// writes, so its backing store holds no tagged value.
-    fn fill(
+    /// writes, so its backing store holds no tagged value. A value this
+    /// store cannot hold, or one a newer write supersedes, is served
+    /// without being kept.
+    fn backing_fill(
         &self,
+        token: FillToken,
         key: &[u8],
         value: &[u8],
-        revision: CacheRevision,
         expires_at_ms: Option<u64>,
     ) {
         if let Self::Replicated(store) = self {
-            store.fill(key, value, revision, expires_at_ms);
+            let _ = store.fill(token, key, value, expires_at_ms);
         }
+    }
+
+    /// This store's position on the clock its tag invalidations advance.
+    fn fill_token(&self) -> FillToken {
+        match self {
+            Self::Replicated(store) => store.fill_token(),
+            Self::Shm(store) => store.fill_token(),
+        }
+    }
+
+    fn fill_tagged(
+        &self,
+        token: FillToken,
+        key: &[u8],
+        value: &[u8],
+        expires_at_ms: Option<u64>,
+        tags: &[&str],
+    ) -> Result<Fill> {
+        Ok(match self {
+            Self::Replicated(store) => {
+                store.fill_tagged(token, key, value, expires_at_ms, tags)?
+            }
+            Self::Shm(store) => {
+                store.fill_tagged(token, key, value, expires_at_ms, tags)?
+            }
+        })
     }
 
     fn validate_put(
@@ -455,7 +483,9 @@ impl Primitive {
             Self::Replicated(store) => {
                 store.invalidate_tags(tags)?;
             }
-            Self::Shm(store) => store.invalidate_tags(tags)?,
+            Self::Shm(store) => {
+                store.invalidate_tags(tags)?;
+            }
         }
         Ok(())
     }
@@ -1058,8 +1088,8 @@ impl CacheRuntime {
             return Ok(None);
         };
         // Taken before the read: what it returns is current as of this
-        // revision, and a mutation published after it is newer.
-        let fill = self.state.primitive()?.fill_revision();
+        // token, and a mutation published after it is newer.
+        let fill = self.state.primitive()?.backing_fill_token();
         let entry = backing
             .get_entry(key)
             .await
@@ -1078,11 +1108,11 @@ impl CacheRuntime {
         };
         // Keep it in this worker unless its expiry is unknown; the store
         // refuses it if a mutation applied since is newer.
-        if let (Some(revision), Some(expires_at_ms)) = (fill, expires_at_ms) {
-            self.state.primitive()?.fill(
+        if let (Some(token), Some(expires_at_ms)) = (fill, expires_at_ms) {
+            self.state.primitive()?.backing_fill(
+                token,
                 key.as_bytes(),
                 &entry.bytes,
-                revision,
                 expires_at_ms,
             );
         }
@@ -1132,6 +1162,49 @@ impl CacheRuntime {
         let store = self.state.primitive()?;
         self.refuse_tags_with_backing()?;
         store.put_tagged(key.as_bytes(), value, ttl, tags)
+    }
+
+    /// This store's position on the clock its tag invalidations advance.
+    /// Take it immediately before reading an authoritative source, and pass
+    /// it with the result to [`Self::fill_tagged`]. Beside the backing check
+    /// every tagged call makes, one atomic load; it does not wait and
+    /// publishes nothing, so it is synchronous. Refused like
+    /// [`Self::put_tagged`].
+    pub fn fill_token(&self) -> Result<FillToken> {
+        let store = self.state.primitive()?;
+        self.refuse_tags_with_backing()?;
+        Ok(store.fill_token())
+    }
+
+    /// Keep `value`, read from an authoritative source after `token` was
+    /// taken, under `tags`, unless an invalidation of one of them took a
+    /// clock position above the token. That refusal is
+    /// `Ok(Fill::Invalidated)`, not an error; the value is still the right
+    /// answer for the read that produced it.
+    ///
+    /// SHM: a kept fill is visible to every process, and an invalidation
+    /// above the token hides it whenever it lands. Replicated: the fill stays
+    /// in this process; every other process misses and fills from its own
+    /// read, and an invalidation reaches all of them. Synchronous: it waits
+    /// for no I/O, only for a replicated drain in progress or the SHM
+    /// table's writer lock, as a put does. Refused like [`Self::put_tagged`].
+    pub fn fill_tagged(
+        &self,
+        token: FillToken,
+        key: &str,
+        value: &[u8],
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> Result<Fill> {
+        let store = self.state.primitive()?;
+        self.refuse_tags_with_backing()?;
+        store.fill_tagged(
+            token,
+            key.as_bytes(),
+            value,
+            ttl.map(expires_at_ms),
+            tags,
+        )
     }
 
     /// Make every entry carrying any of `tags`, written before this call, a
@@ -1235,6 +1308,16 @@ impl CacheRuntime {
             ))),
         }
     }
+}
+
+/// The Unix-millisecond deadline Orbit's expiry uses, `ttl` from now; a
+/// zero TTL still lasts one millisecond, as an Orbit put's does.
+fn expires_at_ms(ttl: Duration) -> u64 {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_millis());
+    let ttl = ttl.as_millis().max(1);
+    u64::try_from(now.saturating_add(ttl)).unwrap_or(u64::MAX)
 }
 
 fn backing_error(

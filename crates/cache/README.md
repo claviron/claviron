@@ -168,6 +168,39 @@ async fn cache_profile(cache: &CacheProvider, id: u64, profile: &[u8]) -> Result
 A caller that cannot rely on tags checks `supports_tags()` first and chooses
 another invalidation for that store, such as `forget` per key or `clear`.
 
+A caller that reads an authoritative source on a miss and caches the result
+under tags fences the fill, so a value read while one of its tags was
+invalidated is not cached:
+
+```rust
+use claviron::cache::{CacheRepository, Fill, Result};
+
+async fn cached_query(store: &CacheRepository, rows: impl Fn() -> Vec<u8>) -> Result<Vec<u8>> {
+    let token = store.fill_token().await?;        // before the read
+    let value = rows();                           // the authoritative read
+    match store.fill_tagged(token, "query:7", &value[..], None, &["users"]).await? {
+        Fill::Kept => {}
+        // Not an error: serve the value, nothing was cached.
+        Fill::Invalidated | Fill::Superseded | Fill::Skipped => {}
+    }
+    Ok(value)
+}
+```
+
+- The writer changes the source first, then calls `invalidate_tags`. The
+  reader takes the token before its read starts, including before a
+  transaction snapshot its read uses.
+- An invalidation the token was read after is in what the read returned, and
+  the fill is kept. One of its tags invalidated after the token refuses the
+  fill (`Fill::Invalidated`), whether it reaches the store before the fill or
+  after.
+- Every store that supports tags supports the fenced fill; a store without
+  tags refuses both calls with `Error::TagsUnsupported`.
+- An Orbit `shm` store keeps a fill in the shared table, for every process.
+  A `replicated` store keeps it in the filling process only: every process
+  misses once and fills from its own read, and an invalidation reaches all of
+  them.
+
 - `supports_tags()` is fixed for a store's life. Tagged operations are
   separate calls: `put_tagged`, `put_value_tagged` and `invalidate_tags`. A
   store without tags refuses them with `Error::TagsUnsupported` and writes

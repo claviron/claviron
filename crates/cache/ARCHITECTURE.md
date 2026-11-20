@@ -97,6 +97,25 @@ operations, or the reverse.
   invalidation is `Error::TagsEmpty`.
 - Reads are unchanged: `get` returns a hit or a miss for tagged and untagged
   entries alike.
+- `fill_token()` and `fill_tagged(token, key, value, ttl, tags)` are the
+  fence for a caller that reads an authoritative source and caches the
+  result under tags. The token is a position on the store's invalidation
+  clock (`FillToken { source, clock }`, opaque to all but the store that
+  issued it), read before the source read. The fill is refused, as
+  `Ok(Fill::Invalidated)`, when an invalidation of one of its tags took a
+  position above the token, whether it reaches the store before the fill or
+  after; one at or below the token ran before the read began and is in what
+  it returned. `Fill::Superseded` (a newer write of the key) and
+  `Fill::Skipped` (expired, no room) are the other refusals; none is an
+  error. The writer changes the source before `invalidate_tags`, and the
+  reader takes the token before its read, including before any snapshot
+  the read uses.
+- The fenced fill is part of `TaggedCacheStore`, not a separate capability:
+  a store that keeps tags but could not fence a fill would let a value read
+  while its tag was invalidated stay cached with nothing to remove it. Both
+  are async like the rest of the contract, since a store whose clock is
+  remote needs a round trip; an Orbit store's `CacheRuntime` offers the same
+  two calls synchronously, without the contract's boxed future.
 - A store without tags refuses both tagged calls with
   `Error::TagsUnsupported { store, driver }` before anything is written. Its
   untagged operations keep working. There is no `put` with an optional tag

@@ -11,7 +11,9 @@ use claviron_orbit::cache::{CacheRead, CacheService};
 
 use super::{OrbitCacheDriver, OrbitCacheStore};
 use crate::config::CacheStoreConfig;
-use crate::{CacheDriver, CacheRepository, CacheStore, Error, Result};
+use crate::{
+    CacheDriver, CacheRepository, CacheStore, Error, Fill, FillToken, Result,
+};
 
 struct MemoryStore {
     values: Mutex<HashMap<String, Bytes>>,
@@ -332,6 +334,22 @@ async fn one_driver_answers_tags_per_store_and_a_backed_store_refuses_them() {
             backed.invalidate_tags(&["users"]).await,
             Err(Error::TagsUnsupported { .. })
         ));
+        assert!(matches!(
+            backed.fill_token().await,
+            Err(Error::TagsUnsupported { .. })
+        ));
+        assert!(matches!(
+            backed
+                .fill_tagged(
+                    FillToken::new(0, 0),
+                    "user:2",
+                    &b"profile"[..],
+                    None,
+                    &["users"]
+                )
+                .await,
+            Err(Error::TagsUnsupported { .. })
+        ));
         let orbit = backed.as_any().downcast_ref::<OrbitCacheStore>().unwrap();
         assert!(matches!(
             orbit
@@ -382,5 +400,44 @@ async fn tag_bounds_reach_the_caller_as_typed_errors() {
             store.invalidate_tags(&[]).await,
             Err(Error::TagsEmpty)
         ));
+    }
+}
+
+/// The fence through the contract, in both modes: a fill whose token was
+/// read before an invalidation of one of its tags is refused, and one whose
+/// token was read after it is kept.
+#[tokio::test]
+async fn a_fenced_fill_is_refused_by_an_invalidation_after_its_token() {
+    let fleet = Arc::new(Fleet::join("cache_fence", 1).unwrap());
+    let driver = Arc::new(OrbitCacheDriver {
+        service: CacheService::from_fleet(fleet).unwrap(),
+    });
+
+    for mode in ["replicated", "shm"] {
+        let store = CacheRepository::new(
+            driver
+                .clone()
+                .create_store(mode, &orbit_config(&format!("mode: {mode}")))
+                .unwrap(),
+        );
+        let token = store.fill_token().await.unwrap();
+        store.invalidate_tags(&["users"]).await.unwrap();
+        let fill = store
+            .fill_tagged(token, "query", &b"stale"[..], None, &["users"])
+            .await;
+        assert_eq!(fill.unwrap(), Fill::Invalidated, "{mode}");
+        assert_eq!(store.get("query").await.unwrap(), None, "{mode}");
+
+        store.invalidate_tags(&["users"]).await.unwrap();
+        let token = store.fill_token().await.unwrap();
+        let fill = store
+            .fill_tagged(token, "query", &b"fresh"[..], None, &["users"])
+            .await;
+        assert_eq!(fill.unwrap(), Fill::Kept, "{mode}");
+        assert_eq!(
+            store.get("query").await.unwrap(),
+            Some(Bytes::from_static(b"fresh")),
+            "{mode}"
+        );
     }
 }

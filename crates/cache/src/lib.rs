@@ -33,8 +33,8 @@ pub use self::error::{Error, Result};
 pub use self::provider::CacheProvider;
 pub use self::registry::CacheRegistry;
 pub use self::store::{
-    CacheDriver, CacheEntry, CacheExpiry, CacheStore, CacheStoreResolver,
-    TaggedCacheStore,
+    CacheDriver, CacheEntry, CacheExpiry, CacheStore, CacheStoreResolver, Fill,
+    FillToken, TaggedCacheStore,
 };
 pub use self::value::{
     ArchivedCacheJson, CacheJson, CacheValue, CacheValueRef, ValueError,

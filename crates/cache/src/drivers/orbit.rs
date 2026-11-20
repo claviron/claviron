@@ -16,8 +16,8 @@ use crate::config::CacheStoreConfig;
 use crate::drivers::memory::MemoryCacheStore;
 use crate::error::{Error, Result};
 use crate::{
-    CacheDriver, CacheExpiry, CacheStore, CacheStoreResolver, CacheValue,
-    TaggedCacheStore,
+    CacheDriver, CacheExpiry, CacheStore, CacheStoreResolver, CacheValue, Fill,
+    FillToken, TaggedCacheStore,
 };
 
 /// Configured Orbit driver factory.
@@ -347,6 +347,36 @@ impl TaggedCacheStore for OrbitCacheStore {
         tags: &[&str],
     ) -> Result<()> {
         self.cache.put_tagged(key, &value, ttl, tags).await.map_err(Error::from)
+    }
+
+    async fn fill_token(&self) -> Result<FillToken> {
+        let token = self.cache.fill_token().map_err(Error::from)?;
+        Ok(FillToken::new(token.source(), token.clock()))
+    }
+
+    async fn fill_tagged(
+        &self,
+        token: FillToken,
+        key: &str,
+        value: Cow<'_, [u8]>,
+        ttl: Option<Duration>,
+        tags: &[&str],
+    ) -> Result<Fill> {
+        use claviron_orbit::cache::Fill as Orbit;
+        let token = claviron_orbit::cache::FillToken::from_parts(
+            token.source(),
+            token.clock(),
+        );
+        let fill = self
+            .cache
+            .fill_tagged(token, key, &value, ttl, tags)
+            .map_err(Error::from)?;
+        Ok(match fill {
+            Orbit::Kept => Fill::Kept,
+            Orbit::Invalidated => Fill::Invalidated,
+            Orbit::Superseded => Fill::Superseded,
+            Orbit::Skipped => Fill::Skipped,
+        })
     }
 
     async fn invalidate_tags(
