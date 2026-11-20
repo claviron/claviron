@@ -257,7 +257,7 @@ pub(crate) fn build_snapshots(
         let tls_accept = H3TlsAccept::build(
             deps,
             &config.quic,
-            id,
+            listener,
             hosts.clone(),
             previous.map(|old| &old.tls_accept),
         )?;
@@ -338,6 +338,12 @@ impl ConfigObserver for H3Server {
         &self,
         config: &H3ServerConfig,
     ) -> congif::Result<()> {
+        crate::listeners::tls::prepare_listener_authorities(
+            &self.state,
+            config.listeners.values().cloned().collect(),
+        )
+        .await
+        .map_err(congif::Error::msg)?;
         self.refresh(config).map_err(congif::Error::msg)?;
         info!("🔁 H3Server reconfigured");
         Ok(())
@@ -413,6 +419,11 @@ impl Reloadable<AppState> for H3Server {
         state: &AppState,
     ) -> claviron_runtime::registry::Result<()> {
         let config = state.config_reader().snapshot::<Self>()?;
+        crate::listeners::tls::prepare_listener_authorities(
+            state,
+            config.listeners.values().cloned().collect(),
+        )
+        .await?;
         self.refresh(&config)?;
         info!("🔁 H3Server reloaded");
         Ok(())
@@ -526,6 +537,11 @@ impl Reloadable<AppState> for H3Listener {
         state: &AppState,
     ) -> Result<(), Error> {
         let input = publication::read_listener(state, &self.id).await?;
+        crate::listeners::tls::prepare_listener_authorities(
+            state,
+            input.listeners.get(&self.id).cloned().into_iter().collect(),
+        )
+        .await?;
         let deps = Deps::bind(ServerDeps::resolve(state.registry_ref())?)?;
         deps.vhost_resolver.update_listener(|hosts| {
             self.prepare_input(hosts, &input, &deps, true)?();
@@ -553,6 +569,13 @@ impl claviron_transport::listener::Adapter for H3Listener {
         context: RunContext,
     ) -> Result<(), Error> {
         let deps = Deps::bind(deps)?;
+        let declared =
+            self.input.load().listeners.get(&self.id).cloned().into_iter();
+        crate::listeners::tls::prepare_listener_authorities(
+            &self.state,
+            declared.collect(),
+        )
+        .await?;
         let _generation =
             deps.vhost_resolver.register_listener(self.clone(), || {
                 let input = self.input.load();

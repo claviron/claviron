@@ -18,6 +18,8 @@ use tracing::info;
 
 use crate::HttpConfigProvider;
 use crate::config::HostConfig;
+#[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+use crate::loader::authority::ListenerAuthorities;
 use crate::loader::authority::PreparedAuthorities;
 use crate::loader::config::{
     VhostDocument, partial_sources, read_document, read_partial_document,
@@ -86,6 +88,9 @@ pub struct VhostResolver {
     /// every worker already learns of hosting changes through Orbit and
     /// publishes its own table.
     publications: watch::Sender<u64>,
+    /// The store CA each listener's own client policy selects.
+    #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+    listener_authorities: ListenerAuthorities,
 }
 
 impl Default for VhostResolver {
@@ -102,6 +107,11 @@ impl Default for VhostResolver {
             state: OnceLock::new(),
             table: ArcSwap::from_pointee(VhostTable::default()),
             publications: watch::channel(0).0,
+            #[cfg(any(
+                all(feature = "tcp", feature = "tls"),
+                feature = "quic"
+            ))]
+            listener_authorities: ListenerAuthorities::default(),
         }
     }
 }
@@ -396,6 +406,13 @@ impl VhostResolver {
 
     pub fn snapshot(&self) -> Arc<VhostTable> {
         self.table.load_full()
+    }
+
+    /// The store CAs listeners' own client policies select, prepared with
+    /// each listener's declaration.
+    #[cfg(any(all(feature = "tcp", feature = "tls"), feature = "quic"))]
+    pub(crate) fn listener_authorities(&self) -> &ListenerAuthorities {
+        &self.listener_authorities
     }
 
     /// Find a port on a live TLS listener serving this exact SNI and host

@@ -538,7 +538,8 @@ pub async fn serve<S: Secure>(
             return;
         }
     };
-    let TcpSecurity::Tls { handshake_timeout } = snap.config().security else {
+    let TcpSecurity::Tls { handshake_timeout, .. } = snap.config().security
+    else {
         unreachable!("TLS group required")
     };
 

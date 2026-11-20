@@ -53,7 +53,11 @@ Host policy distinguishes several boundaries:
 - `transport` narrows listener protocol capabilities; a host cannot enable a
   protocol the listener does not support.
 - `tls` describes handshake policy. Request and response policy are separate
-  declarations, not alternative ways to configure the handshake.
+  declarations, not alternative ways to configure the handshake. A host's
+  `tls.client_auth` requires a client certificate on a listener with `tls: on`;
+  on a listener that states its own `tls: {client_auth: ...}`, every host has
+  the listener's policy, and a host that declares a different one is refused
+  ([TLS §5.0b](../tls/ARCHITECTURE.md#50b-a-listeners-tls-and-the-one-policy-rule)).
 
 Prefix-keyed `routes` select response owners and route directives. Normalization
 resolves `/` before child entries, regardless of map order, and rejects conflicting
@@ -388,8 +392,9 @@ leaves no request-time wrapper. Axum routers can be supplied explicitly through
 
 A package can offer a protocol of its own by ALPN. A client that names the
 protocol in its ClientHello gets a handshake created for it, which asks for no
-client certificate, and reaches only the profile's application; an ordinary
-connection to the same host never reaches it. The package registers a
+client certificate unless the listener itself requires one, and reaches only
+the profile's application; an ordinary connection to the same host never
+reaches it. The package registers a
 `SessionProfile` in `SessionProfiles`; a host enables it by id under
 `tls.alpn`, with that host's parameters.
 

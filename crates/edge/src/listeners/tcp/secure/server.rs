@@ -368,6 +368,12 @@ impl ConfigObserver for HttpsServer {
         &self,
         config: &Self::Config,
     ) -> congif::Result<()> {
+        crate::listeners::tls::prepare_listener_authorities(
+            &self.state,
+            config.listeners.values().cloned().collect(),
+        )
+        .await
+        .map_err(congif::Error::msg)?;
         self.refresh(config).map_err(congif::Error::msg)?;
         info!("🔁 HttpsServer listener policies reloaded");
         Ok(())
@@ -436,6 +442,11 @@ impl Reloadable<AppState> for HttpsServer {
         state: &AppState,
     ) -> Result<(), Error> {
         let http = state.config_reader().snapshot::<Self>()?;
+        crate::listeners::tls::prepare_listener_authorities(
+            state,
+            http.listeners.values().cloned().collect(),
+        )
+        .await?;
         self.refresh(&http)?;
         info!("🔁 HttpsServer listener policies reloaded");
         Ok(())
@@ -542,6 +553,11 @@ impl Reloadable<AppState> for HttpsListener {
         state: &AppState,
     ) -> Result<(), Error> {
         let input = publication::read_listener(state, &self.id).await?;
+        crate::listeners::tls::prepare_listener_authorities(
+            state,
+            input.listeners.get(&self.id).cloned().into_iter().collect(),
+        )
+        .await?;
         let deps = Deps::bind(ServerDeps::resolve(state.registry_ref())?)?;
         deps.vhost_resolver.update_listener(|hosts| {
             self.prepare_input(hosts, &input, &deps, true)?();
@@ -569,6 +585,13 @@ impl claviron_transport::listener::Adapter for HttpsListener {
         context: RunContext,
     ) -> Result<(), Error> {
         let deps = Deps::bind(deps)?;
+        let declared =
+            self.input.load().listeners.get(&self.id).cloned().into_iter();
+        crate::listeners::tls::prepare_listener_authorities(
+            &self.state,
+            declared.collect(),
+        )
+        .await?;
         let _generation =
             deps.vhost_resolver.register_listener(self.clone(), || {
                 let input = self.input.load();

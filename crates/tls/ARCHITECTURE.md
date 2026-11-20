@@ -389,7 +389,9 @@ owns persistence; ACME issuance remains in its separate service integration.
 The `auth` module provides the building blocks for services that
 require client certificates at the TLS handshake (mTLS). One declaration
 type says what a server requires, and one function turns it into a verifier;
-the Edge's per-host policy and a single-owner listener both go through them.
+a listener's own policy and an Edge host's policy both go through them. Where
+a policy may be declared, and how a listener's and its hosts' relate, is
+section 5.0b.
 
 ```rust
 pub struct ClientAuth { /* trust: ClientTrust, subject: Option<PolicyConfig> */ }
@@ -445,6 +447,103 @@ holder resolves it with `CertificateStore::trust` and passes the resulting
 `CertAuthority` to `client_verifier`, which refuses an authority declaration
 without one and a bundle declaration with one. A bundle is read by
 `client_verifier` itself.
+
+### 5.0b A listener's TLS and the one-policy rule
+
+A listener declaration (`listeners.<id>` in `http.yaml`, or in a runner's
+launch file; the type is `claviron-http`'s `ListenerDefinition`) states
+whether the listener terminates TLS and what it asks of a client. Its `tls`
+key has three states:
+
+| `tls` | The listener |
+| --- | --- |
+| absent, or `off` | serves cleartext |
+| `on` | terminates TLS, presents its certificate and asks for no client certificate |
+| a mapping with `client_auth` | terminates TLS and requires a client certificate that policy admits |
+
+`true` and `false` are read as `on` and `off`. YAML 1.2, which the
+configuration is read as, makes the bare words `on` and `off` strings and
+`true` and `false` booleans; the declaration accepts both and they give the
+same value. A QUIC listener always terminates TLS: there an absent `tls` is
+TLS and `off` is refused.
+
+```yaml
+defaults:
+  listener:
+    requests: {max_body_size: 64 MiB, body_read_timeout: 30s}
+listeners:
+  public:
+    transport: tcp
+    listen: 0.0.0.0:443
+    protocols: [h2, h1]
+    tls: on
+  partners:
+    transport: tcp
+    listen: 0.0.0.0:8443
+    protocols: [h2, h1]
+    tls:
+      client_auth:
+        authority: {local: example}   # the declaration of section 5.0
+```
+
+The mapping has one key, `client_auth`, which is the declaration of section
+5.0 with the same words and meaning wherever it is written. Another key is an
+error that names it; an empty mapping is refused with a pointer to `on`.
+Client authentication is a state inside TLS: it cannot be declared without
+TLS, and TLS does not need it. In Rust the declaration is
+`ListenerDefinition::tls: Override<Option<ListenerTls>>` with
+`ListenerTls { client_auth: Option<ClientAuth> }`; the resolved listener
+carries the policy in `TcpSecurity::Tls::client_auth` or
+`QuicListenerConfig::client_auth`, and `ListenerConfig::client_auth()` reads
+either.
+
+**What a listener's policy means.** Every connection the listener accepts
+presents a certificate the policy admits, whatever server name it asks for,
+including none or one no host answers: such a connection either handshakes
+under the policy or is refused before its handshake completes. A session
+profile a host enables by ALPN ([ALPN Routing](../../docs/design/ALPN_ROUTING.md))
+handshakes under the listener's policy too. A handshake-only ALPN profile,
+such as ACME's TLS-ALPN-01, answers before any host is selected, completes
+its own handshake and serves no request; the listener's policy does not
+reach it.
+
+**One policy under one listener.** A listener has at most one
+client-authentication policy, and every host served on it has that one:
+
+- A host on a listener that states a policy inherits it and declares
+  nothing. A host that repeats the same `client_auth` (equal once parsed:
+  the same authority or bundle, the same organization and unit) is redundant
+  and accepted. A host that declares a different one is refused when the
+  configuration is prepared, with an error naming the host and the listener.
+  Nothing is merged, narrowed or given precedence.
+- A host on a listener with `tls: on` may declare its own `client_auth` in
+  its `tls` block; a host that declares none asks for no certificate there.
+- A host served on several listeners is checked against each of them.
+
+**What is not supported.** A host does not behave differently per listener:
+not in the client certificate it requires, and not in the certificate it
+presents, which is chosen by server name (section 1.1). A service that needs
+a different policy or a different identity is a separate listener, with a
+host name of its own if needed.
+
+**Prepared, not decided per connection.** The listener's policy, the check of
+every host against it and the store CA its `authority` selects are resolved
+when configuration is prepared: at boot, and at each reload of the listener
+declarations or the host declarations. Each host's handshake configuration on
+the listener is built then, with the verifier from `client_verifier` through
+`create_client_auth_config`. A handshake selects the prepared configuration
+by server name and decides nothing; a preparation that fails leaves the
+previous one serving.
+
+**Where each composition attaches it.**
+
+- An Edge serves hosts on its listeners. It attaches a policy to a listener
+  or to the hosts on it, under the rule above. Host policy is the declaration
+  of section 5.0 in the host's `tls` block.
+- An application runner serves one application and has no hosts, so the
+  listener is the only place. Its process-wide `tls_client_ca` input, which
+  requires a certificate on every TLS listener, is not given together with a
+  listener that states its own policy.
 
 ### 5.1 The verifier stack
 
@@ -849,7 +948,8 @@ DNS/SNI identities.
 
 Host `tls.client_auth`, when present, requires a client certificate and
 names exactly one verifier: an `authority` selector (`local` or `cn`) or a
-`ca_bundle` PEM path (section 5.0). An explicit authority anchors
+`ca_bundle` PEM path (section 5.0). How it relates to a listener's own policy
+is section 5.0b. An explicit authority anchors
 verification at the selected CA. A PEM bundle supplies its own trust anchors.
 
 `certstore` (alias `cert_store`) accepts a YAML path or an inline CertStore.

@@ -5,8 +5,9 @@ use std::num::{NonZeroU16, NonZeroUsize};
 use std::time::Duration;
 
 use claviron_helpers::de::one_or_many;
+use claviron_tls::auth::ClientAuth;
 use claviron_types::Execution;
-use serde::de::{MapAccess, Visitor};
+use serde::de::{Error as _, MapAccess, Unexpected, Visitor};
 use serde::{Deserialize, Deserializer};
 
 use super::proxy::ProxyOverrideExt;
@@ -69,8 +70,11 @@ pub struct ListenerDefinition {
     pub listen: Vec<ListenAddress>,
     #[serde(deserialize_with = "one_or_many")]
     pub protocols: Vec<HttpProtocol>,
-    #[serde(default)]
-    pub tls: Override<bool>,
+    /// Whether this listener terminates TLS, and what it asks of a client:
+    /// `on` or a mapping such as `{client_auth: ...}` is TLS, `off` is
+    /// cleartext. Unwritten, a TCP listener is cleartext and a QUIC one TLS.
+    #[serde(default, deserialize_with = "deserialize_tls")]
+    pub tls: Override<Option<ListenerTls>>,
     #[serde(default)]
     pub max_connections: Override<Option<NonZeroUsize>>,
     #[serde(default, deserialize_with = "super::helpers::optional_duration")]
@@ -99,6 +103,19 @@ pub struct ListenerDefinition {
     pub requests: RequestPolicyOverride,
     #[serde(default)]
     pub responses: ResponsePolicyOverride,
+}
+
+/// A listener's TLS as its declaration states it. Present, the listener
+/// terminates TLS and presents its certificate; absent, it serves cleartext.
+///
+/// `client_auth` is the declaration an Edge host makes in its own `tls`
+/// block. Whether a listener's owner accepts it on the listener is that
+/// owner's decision, made where it prepares its listeners.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ListenerTls {
+    /// The client certificate this listener requires. Absent, clients are
+    /// not asked for one.
+    pub client_auth: Option<ClientAuth>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -146,6 +163,20 @@ impl ListenerConfig {
     /// application on it narrows.
     pub fn policy(&self) -> HttpPolicy {
         HttpPolicy { requests: self.requests, responses: self.responses }
+    }
+
+    /// The client certificate this listener's own declaration requires.
+    pub fn client_auth(&self) -> Option<&ClientAuth> {
+        match &self.settings {
+            ListenerSettings::Tcp(TcpListenerConfig {
+                security: TcpSecurity::Tls { client_auth, .. },
+                ..
+            })
+            | ListenerSettings::Quic(QuicListenerConfig {
+                client_auth, ..
+            }) => client_auth.as_ref(),
+            ListenerSettings::Tcp(_) => None,
+        }
     }
 }
 
@@ -213,8 +244,14 @@ pub enum ListenerSettings {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TcpSecurity {
-    Cleartext { redirect_port: NonZeroU16 },
-    Tls { handshake_timeout: Duration },
+    Cleartext {
+        redirect_port: NonZeroU16,
+    },
+    Tls {
+        handshake_timeout: Duration,
+        /// What the listener's declaration requires of a client certificate.
+        client_auth: Option<ClientAuth>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -231,6 +268,8 @@ pub struct TcpListenerConfig {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QuicListenerConfig {
     pub handshake_timeout: Duration,
+    /// What the listener's declaration requires of a client certificate.
+    pub client_auth: Option<ClientAuth>,
     pub quic: QuicConfig,
 }
 
@@ -390,8 +429,8 @@ impl ListenerDefinition {
                         "listen addresses must match the listener transport",
                     ));
                 }
-                let tls = self.tls.resolve(&false);
-                if unix && tls {
+                let tls = self.tls.resolve(&None);
+                if unix && tls.is_some() {
                     return Err(fail("Unix listeners do not terminate TLS"));
                 }
                 if !self.protocols.contains(&HttpProtocol::H1)
@@ -417,7 +456,7 @@ impl ListenerDefinition {
                 let h2 =
                     options.h2.apply(&defaults.h2.apply(&H2Config::default()));
                 super::tcp::validate(&h1, &h2).map_err(|e| fail(&e.message))?;
-                let security = if tls {
+                let security = if let Some(tls) = tls {
                     if !self.redirect_port.is_inherit() {
                         return Err(fail(
                             "redirect_port belongs to cleartext listeners",
@@ -431,7 +470,10 @@ impl ListenerDefinition {
                     if handshake_timeout.is_zero() {
                         return Err(fail("handshake_timeout must be positive"));
                     }
-                    TcpSecurity::Tls { handshake_timeout }
+                    TcpSecurity::Tls {
+                        handshake_timeout,
+                        client_auth: tls.client_auth,
+                    }
                 } else {
                     if !self.handshake_timeout.is_inherit() {
                         return Err(fail(
@@ -462,9 +504,10 @@ impl ListenerDefinition {
                         "QUIC listeners require IP socket addresses",
                     ));
                 }
-                if !self.tls.resolve(&true) {
+                let Some(tls) = self.tls.resolve(&Some(ListenerTls::default()))
+                else {
                     return Err(fail("QUIC requires TLS"));
-                }
+                };
                 if self.protocols != [HttpProtocol::H3] {
                     return Err(fail("QUIC listeners support only h3"));
                 }
@@ -496,6 +539,7 @@ impl ListenerDefinition {
                 }
                 ListenerSettings::Quic(QuicListenerConfig {
                     handshake_timeout,
+                    client_auth: tls.client_auth,
                     quic,
                 })
             }
@@ -557,6 +601,65 @@ pub(super) fn deserialize_definitions<'de, D: Deserializer<'de>>(
         }
     }
     de.deserialize_map(Definitions)
+}
+
+/// `tls` as written: `on` or `off`, or a mapping that states the policy.
+/// YAML 1.2, which this configuration is read as, makes the bare words `on`
+/// and `off` strings; `true` and `false` are booleans and read the same.
+fn deserialize_tls<'de, D: Deserializer<'de>>(
+    de: D
+) -> Result<Override<Option<ListenerTls>>, D::Error> {
+    #[derive(Deserialize)]
+    #[serde(field_identifier, rename_all = "snake_case")]
+    enum Field {
+        ClientAuth,
+    }
+
+    struct Declaration;
+    impl<'de> Visitor<'de> for Declaration {
+        type Value = Option<ListenerTls>;
+        fn expecting(
+            &self,
+            f: &mut fmt::Formatter<'_>,
+        ) -> fmt::Result {
+            f.write_str("on, off, or a mapping with client_auth")
+        }
+        fn visit_bool<E: serde::de::Error>(
+            self,
+            on: bool,
+        ) -> Result<Self::Value, E> {
+            Ok(on.then(ListenerTls::default))
+        }
+        fn visit_str<E: serde::de::Error>(
+            self,
+            word: &str,
+        ) -> Result<Self::Value, E> {
+            match word {
+                "on" => Ok(Some(ListenerTls::default())),
+                "off" => Ok(None),
+                _ => Err(E::invalid_value(Unexpected::Str(word), &self)),
+            }
+        }
+        fn visit_map<M: MapAccess<'de>>(
+            self,
+            mut map: M,
+        ) -> Result<Self::Value, M::Error> {
+            let mut client_auth = None;
+            while let Some(Field::ClientAuth) = map.next_key()? {
+                if client_auth.is_some() {
+                    return Err(M::Error::duplicate_field("client_auth"));
+                }
+                client_auth = Some(map.next_value::<ClientAuth>()?);
+            }
+            if client_auth.is_none() {
+                return Err(M::Error::custom(
+                    "an empty tls mapping states no policy; write `tls: on` for TLS that asks for no client certificate",
+                ));
+            }
+            Ok(Some(ListenerTls { client_auth }))
+        }
+    }
+    de.deserialize_any(Declaration).map(Override::Value)
 }
 
 fn default_acquire_timeout() -> Duration {

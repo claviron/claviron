@@ -303,12 +303,19 @@ source publication stages every listener's affected host view before committing
 any snapshot; there is no per-listener watcher task. Certificate rotation uses
 the existing live CertResolver. Host, alias, client-auth or listener ALPN changes
 prepare a new matching host/TLS view; accepted work retains its previous owner.
-Host `tls.client_auth` is declared per host; present, it requires a client
-certificate and names one verifier, `authority` or `ca_bundle`
-(`claviron_tls::auth::ClientAuth`). `authority` uses the CertStore `local` or
-`cn` selector.
-Vhost boot and reload resolve the public CA once per selector before listener
-publication. TCP TLS and QUIC build their verifiers from that prepared view.
+Client authentication is declared on a listener (`tls: {client_auth: ...}`
+in `http.yaml`) or in a host's `tls.client_auth`, never differently in both:
+under a listener with a policy every host has that policy, a host repeating
+it is redundant and a host declaring another is refused when the listener is
+prepared. The contract is
+[TLS §5.0b](../tls/ARCHITECTURE.md#50b-a-listeners-tls-and-the-one-policy-rule).
+Either declaration is a `claviron_tls::auth::ClientAuth` naming one verifier,
+`authority` (the CertStore `local` or `cn` selector) or `ca_bundle`.
+Vhost boot and reload resolve a host's CA once per selector before listener
+publication; a listener's own CA is resolved by its TLS server each time it is
+handed a new declaration (`ListenerAuthorities`), before the listener is
+prepared. TCP TLS and QUIC build each host's handshake configuration from
+those prepared values, so a handshake only selects by server name.
 `VhostResolver::serving_mtls_h2_port` reads the live TLS listener snapshots
 when a caller needs an address for an exact SNI and canonical host.
 

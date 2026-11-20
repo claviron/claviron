@@ -332,3 +332,51 @@ fn unix_listener_resolves_a_named_local_stream_without_an_ip_bind() {
         );
     }
 }
+
+/// `tls` reads `on` and `true` as one value and `off`, `false` and absence as
+/// another, although YAML makes the bare words strings and the others
+/// booleans; a mapping carries the client policy and nothing else.
+#[test]
+fn listener_tls_reads_words_booleans_and_a_client_policy() {
+    fn parse(tls: &str) -> Result<ListenerConfig, String> {
+        let snapshot: HttpSnapshot = serde_yaml::from_str(&format!(
+            "defaults: {{listener: {{requests: {{max_body_size: off, body_read_timeout: off}}}}}}\nlisteners:\n  secure:\n    transport: tcp\n    listen: 127.0.0.1:0\n    protocols: [h2, h1]\n{tls}"
+        ))
+        .map_err(|error| error.to_string())?;
+        Ok(snapshot.listeners.into_values().next().unwrap().as_ref().clone())
+    }
+    let serves_tls = |listener: &ListenerConfig| {
+        matches!(
+            &listener.settings,
+            ListenerSettings::Tcp(tcp)
+                if matches!(tcp.security, TcpSecurity::Tls { .. })
+        )
+    };
+
+    let plain = parse("").unwrap();
+    assert!(!serves_tls(&plain));
+    assert_eq!(parse("    tls: off\n").unwrap(), plain);
+    assert_eq!(parse("    tls: false\n").unwrap(), plain);
+
+    let on = parse("    tls: on\n").unwrap();
+    assert!(serves_tls(&on) && on.client_auth().is_none());
+    assert_eq!(parse("    tls: true\n").unwrap(), on);
+
+    let mutual = parse(
+        "    tls:\n      client_auth:\n        authority: {local: example}\n",
+    )
+    .unwrap();
+    assert!(serves_tls(&mutual));
+    assert!(mutual.client_auth().unwrap().store_authority().is_some());
+
+    for (tls, refusal) in [
+        ("    tls: {}\n", "write `tls: on`"),
+        (
+            "    tls: {mode: required}\n",
+            "unknown field `mode`, expected `client_auth`",
+        ),
+    ] {
+        let error = parse(tls).unwrap_err();
+        assert!(error.contains(refusal), "{error}");
+    }
+}

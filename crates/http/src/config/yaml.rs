@@ -14,7 +14,8 @@ pub use claviron_helpers::overrides as helpers;
 pub use helpers::Override;
 pub use listeners::{
     ConnectionLimits, ListenerConfig, ListenerDefinition, ListenerOverrides,
-    ListenerSettings, QuicListenerConfig, TcpListenerConfig, TcpSecurity,
+    ListenerSettings, ListenerTls, QuicListenerConfig, TcpListenerConfig,
+    TcpSecurity,
 };
 pub use proxy::{ProxyConfig, ProxyOverride};
 pub use quic::{QuicConfig, QuicOverride};

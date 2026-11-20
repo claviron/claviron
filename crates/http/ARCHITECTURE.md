@@ -309,13 +309,13 @@ listeners:
     explicit: true
     transport: tcp
     listen: '127.0.0.1:8080'
-    tls: false
+    tls: off
     protocols: h1
   public:
     execution: dedicated
     transport: tcp
     listen: ['0.0.0.0:443', '[::]:443']
-    tls: true
+    tls: on
     protocols: [h2, h1]
   public-h3:
     transport: quic
@@ -330,6 +330,15 @@ hosts without a listener selection only on non-explicit listeners. A host's
 explicit `listeners` list always restricts its eligible listeners; naming an
 explicit listener opts into it. This setting changes host admission, not socket
 binding geometry or protocol capabilities.
+
+`listeners.<id>.tls` is absent or `off` for cleartext, `on` for TLS, or a
+mapping whose `client_auth` requires a client certificate (`true` and `false`
+read as `on` and `off`). This crate owns the declaration
+(`ListenerDefinition::tls`, `ListenerTls`) and carries the policy on the
+resolved listener (`ListenerConfig::client_auth()`); the states, the one-policy
+rule between a listener and its hosts, and how each composition attaches it
+are the contract in
+[TLS §5.0b](../tls/ARCHITECTURE.md#50b-a-listeners-tls-and-the-one-policy-rule).
 
 `TcpConfig.backlog` is a positive `NonZeroU32` count, defaulting to 1024 through
 the named configuration default. `defaults.listener.tcp.backlog` inherits by

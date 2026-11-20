@@ -94,6 +94,12 @@ client_auth:
 
 The verifier validates the certificate chain against that CA and then the
 subject policy, before the handshake completes.
+
+A listener states its policy in its own declaration (`tls: on` for TLS
+without one, `tls: {client_auth: ...}` with one), and an Edge host may state
+it in its `tls` block; under one listener there is one policy. The states and
+the rule are described in
+[ARCHITECTURE §5.0b](ARCHITECTURE.md#50b-a-listeners-tls-and-the-one-policy-rule).
 TLS certificate authentication is distinct from application login, session
 cookies, and route authorization.
 

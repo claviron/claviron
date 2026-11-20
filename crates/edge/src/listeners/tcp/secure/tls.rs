@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use crate::host::SessionPlan;
 use crate::listeners::tls::{
-    TlsHost, client_authority, create_host_auth_config,
+    TlsHost, client_auth, create_host_auth_config, host_authority,
+    listener_authority,
 };
 use crate::transport::{VhostCtx, VhostTable, resolve_sni_for_listener};
 use claviron_http::ListenerId;
@@ -12,6 +13,7 @@ use claviron_http::config::{HttpSnapshot, ListenerConfig, TcpListenerConfig};
 use claviron_pipeline::plan::HostExecution;
 use claviron_runtime::AppState;
 use claviron_runtime::registry::Error;
+use claviron_tls::CertAuthority;
 use claviron_tls::Proto::{H1, H2};
 use claviron_tls::SessionWire;
 use claviron_tls::create_tls_config;
@@ -37,7 +39,8 @@ pub(super) struct TlsPolicy {
 }
 
 /// A session profile a host enabled by ALPN: its own handshake, which asks
-/// for no client certificate, and the only execution its connections reach.
+/// for no client certificate unless the listener requires one of every
+/// connection, and the only execution its connections reach.
 struct HostSession {
     protocol: &'static [u8],
     wire: SessionWire,
@@ -66,10 +69,24 @@ impl TlsAccept {
         let previous = previous
             .map(|old| old.policy.as_ref())
             .filter(|old| old.protocols == tcp.protocols);
-        let mut policy =
-            Self::prepare_policy(deps, listener, tcp, &hosts, previous)?;
-        policy.sessions =
-            prepare_sessions(deps, listener, &hosts, state, http)?;
+        // The listener's own policy and its CA are the same for every host.
+        let authority = listener_authority(&deps.vhost_resolver, listener)?;
+        let mut policy = Self::prepare_policy(
+            deps,
+            listener,
+            tcp,
+            &hosts,
+            previous,
+            authority.as_ref(),
+        )?;
+        policy.sessions = prepare_sessions(
+            deps,
+            listener,
+            &hosts,
+            state,
+            http,
+            authority.as_ref(),
+        )?;
         let policy = Arc::new(policy);
         Ok(Self { hosts, policy, listener: listener.id.clone() })
     }
@@ -85,9 +102,13 @@ impl TlsAccept {
     ) -> bool {
         self.hosts.record(name).is_some_and(|record| {
             &record.canonical == canonical
-                && record.config.tls.client_auth.is_some()
                 && self.policy.by_host.get(canonical).is_some_and(|host| {
-                    host.config.alpn_protocols.iter().any(|alpn| alpn == b"h2")
+                    host.client_auth.is_some()
+                        && host
+                            .config
+                            .alpn_protocols
+                            .iter()
+                            .any(|alpn| alpn == b"h2")
                 })
         })
     }
@@ -98,6 +119,7 @@ impl TlsAccept {
         tcp: &TcpListenerConfig,
         table: &VhostTable,
         previous: Option<&TlsPolicy>,
+        listener_authority: Option<&Arc<CertAuthority>>,
     ) -> Result<TlsPolicy, Error> {
         let mut by_host = HashMap::new();
         let domain = SessionDomain::new(format!("tcp-public:{}", listener.id))
@@ -110,14 +132,21 @@ impl TlsAccept {
             if protocols.is_empty() {
                 continue;
             }
-            let authority = client_authority(table, canonical, host)?;
+            let required = client_auth(listener, canonical, host)?;
+            let authority = host_authority(
+                listener,
+                listener_authority,
+                table,
+                canonical,
+                host,
+            )?;
             let retained = previous
                 .and_then(|previous| previous.by_host.get(canonical))
-                .filter(|old| old.matches(host, authority));
+                .filter(|old| old.matches(host, required, authority));
             let config = if let Some(old) = retained {
                 old.config.clone()
             } else {
-                let config = if let Some(auth) = &host.tls.client_auth {
+                let config = if let Some(auth) = required {
                     let alpns = protocols
                         .iter()
                         .flat_map(|protocol| {
@@ -154,6 +183,7 @@ impl TlsAccept {
                 TlsHost {
                     declaration: host.clone(),
                     config,
+                    client_auth: required.cloned(),
                     authority: authority.cloned(),
                 },
             );
@@ -217,13 +247,15 @@ impl TlsAccept {
 
 /// Prepare the session profiles each host on `listener` enables. An id no
 /// profile registered refuses the publication: a host that names a session
-/// must get it.
+/// must get it. A listener that requires a client certificate requires it of
+/// these handshakes too.
 fn prepare_sessions(
     deps: &super::server::Deps,
     listener: &ListenerConfig,
     table: &VhostTable,
     state: &AppState,
     http: &HttpSnapshot,
+    listener_authority: Option<&Arc<CertAuthority>>,
 ) -> Result<HashMap<Host, Vec<HostSession>>, Error> {
     let mut sessions = HashMap::new();
     let profiles = state.registry_ref().resolve::<crate::SessionProfiles>();
@@ -243,15 +275,31 @@ fn prepare_sessions(
                     ))
                 })?;
             let wire = profile.wire();
-            // Its own handshake: no client certificate, the profile's id
-            // alone, and rustls' own resumption store rather than the
-            // listener's shared one.
-            let mut config =
-                create_tls_config(wire.protocols(), deps.cert_resolver.clone())
+            // Its own handshake: the profile's id alone, and rustls' own
+            // resumption store rather than the listener's shared one. It asks
+            // for a client certificate only when the listener requires one;
+            // that handshake keeps no resumption store at all.
+            let config = match listener.client_auth() {
+                Some(auth) => create_host_auth_config(
+                    canonical,
+                    auth,
+                    listener_authority.map(Arc::as_ref),
+                    deps.cert_resolver.clone(),
+                    vec![profile.protocol().to_vec()],
+                    deps.revocations.clone(),
+                )?,
+                None => {
+                    let mut config = create_tls_config(
+                        wire.protocols(),
+                        deps.cert_resolver.clone(),
+                    )
                     .map_err(|error| {
                         Error::msg(format!("TLS host {canonical}: {error}"))
                     })?;
-            config.alpn_protocols = vec![profile.protocol().to_vec()];
+                    config.alpn_protocols = vec![profile.protocol().to_vec()];
+                    config
+                }
+            };
             prepared.push(HostSession {
                 protocol: profile.protocol(),
                 wire,

@@ -2,11 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::listeners::tls::{
-    TlsHost, client_authority, create_host_auth_config,
+    TlsHost, client_auth, create_host_auth_config, host_authority,
+    listener_authority,
 };
 use crate::transport::VhostTable;
 use claviron_http::ListenerId;
-use claviron_http::config::QuicConfig;
+use claviron_http::config::{ListenerConfig, QuicConfig};
 use claviron_runtime::registry::{Error, Result};
 use claviron_tls::Proto::H3;
 use claviron_tls::create_tls_config;
@@ -56,7 +57,7 @@ impl H3TlsAccept {
     pub(crate) fn build(
         deps: &crate::listeners::quic::server::Deps,
         cfg: &QuicConfig,
-        listener: &ListenerId,
+        listener: &ListenerConfig,
         hosts: Arc<VhostTable>,
         previous: Option<&Self>,
     ) -> Result<Self> {
@@ -68,17 +69,19 @@ impl H3TlsAccept {
                 deps.revocations.clone(),
                 cfg,
                 &deps.tls_sessions,
-                listener,
+                &listener.id,
             )?,
         };
         let previous =
             previous.filter(|old| Arc::ptr_eq(&old.template, &template));
+        let authority = listener_authority(&deps.vhost_resolver, listener)?;
         let policy = Self::prepare_policy(
             &template,
             &hosts,
             previous.map(|old| old.policy.as_ref()),
             deps.cert_resolver.clone(),
             listener,
+            authority.as_ref(),
         )?;
         Ok(Self { template, hosts, policy: Arc::new(policy) })
     }
@@ -136,18 +139,26 @@ impl H3TlsAccept {
         table: &Arc<VhostTable>,
         previous: Option<&H3TlsPolicy>,
         certificates: Arc<CertResolver>,
-        listener: &ListenerId,
+        listener: &ListenerConfig,
+        listener_authority: Option<&Arc<claviron_tls::CertAuthority>>,
     ) -> Result<H3TlsPolicy> {
         let mut by_host = HashMap::new();
-        for (canonical, record) in table.listener_entries(listener) {
+        for (canonical, record) in table.listener_entries(&listener.id) {
             let host = &record.config;
-            let authority = client_authority(table, canonical, host)?;
+            let required = client_auth(listener, canonical, host)?;
+            let authority = host_authority(
+                listener,
+                listener_authority,
+                table,
+                canonical,
+                host,
+            )?;
             let retained = previous
                 .and_then(|previous| previous.by_host.get(canonical))
-                .filter(|old| old.matches(host, authority));
+                .filter(|old| old.matches(host, required, authority));
             let config = if let Some(old) = retained {
                 old.config.clone()
-            } else if let Some(auth) = &host.tls.client_auth {
+            } else if let Some(auth) = required {
                 let tls = create_host_auth_config(
                     canonical,
                     auth,
@@ -165,6 +176,7 @@ impl H3TlsAccept {
                 TlsHost {
                     declaration: host.clone(),
                     config,
+                    client_auth: required.cloned(),
                     authority: authority.cloned(),
                 },
             );
@@ -172,7 +184,7 @@ impl H3TlsAccept {
         let by_host = Arc::new(by_host);
         let lookup = by_host.clone();
         let names = table.clone();
-        let listener = listener.clone();
+        let listener = listener.id.clone();
         let rejected = template.rejected.clone();
         let selector: quinn_deferred_config::Selector =
             Arc::new(move |hello: &ClientHelloView<'_>| {

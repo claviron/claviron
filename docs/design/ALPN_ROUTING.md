@@ -105,11 +105,17 @@ refuses the host's preparation. A profile without parameters is enabled with
 an empty mapping. The same profile can take different parameters on
 different hosts, and a package's own configuration file needs nothing for it.
 
-A profile can relax what the handshake demands, such as a client
+A profile can relax what the handshake demands, such as a host's client
 certificate, only together with narrowing what the connection reaches.
 Relaxing it from configuration alone would let a connection without a
 certificate reach every service of its host, so a session profile's handshake
-terms are the profile's, and enabling it is the host's.
+terms are the profile's, and enabling it is the host's. A listener's own
+client policy is not relaxed: it holds for every connection the listener
+accepts, a session profile's included, so a profile that admits clients
+without a certificate is enabled on a host served by a listener with `tls:
+on` ([TLS §5.0b](../../crates/tls/ARCHITECTURE.md#50b-a-listeners-tls-and-the-one-policy-rule)).
+A handshake-only profile answers before any host is selected and serves no
+request; it keeps its own handshake on every listener.
 
 ## Server configs
 
