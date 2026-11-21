@@ -1,7 +1,7 @@
 [package]
 autotests = false
 name = "claviron-transport"
-version = "0.2.6"
+version = "0.2.7"
 publish.workspace = true
 edition.workspace = true
 description = "Application-agnostic listener lifecycle and HTTP/1.1, HTTP/2 and HTTP/3 connection driving"

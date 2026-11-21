@@ -1,7 +1,7 @@
 [package]
 autotests = false
 name = "claviron-edge"
-version = "0.2.6"
+version = "0.2.7"
 publish.workspace = true
 edition.workspace = true
 description = "Protocol-independent HTTP host admission, routing, and application dispatch for Claviron"

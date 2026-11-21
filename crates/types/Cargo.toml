@@ -1,7 +1,7 @@
 [package]
 autotests = false
 name = "claviron-types"
-version = "0.2.6"
+version = "0.2.7"
 publish.workspace = true
 edition.workspace= true
 description = "Shared host identities and optional certificate primitives for Claviron"
